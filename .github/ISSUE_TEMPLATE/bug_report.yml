@@ -1,0 +1,23 @@
+name: Bug report
+description: Report a reproducible build, component, or runtime issue.
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Include the expected behavior and the steps to reproduce it.
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform and toolchain
+      placeholder: Operating system, compiler, Python, and CMake versions
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Diagnostic output
+      description: Paste the relevant log excerpt. Do not attach game files.
+      render: text

@@ -1,0 +1,13 @@
+OpenKai2
+
+The native runtime uses PS2Recomp by ran-j and contributors:
+https://github.com/ran-j/PS2Recomp
+
+The build tools target PS2Recomp revision
+eb8688b2fd191129f103a39543002c005b33409c, licensed under GNU GPL version 3.
+PS2Recomp and its dependencies are downloaded during setup. Their copyright
+notices and licenses remain applicable.
+
+Dragon Ball Z: Budokai 2 content and trademarks belong to their respective
+rights holders. Game executables, disc images, assets, and generated game
+translations are not distributed with this project.
