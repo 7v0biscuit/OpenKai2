@@ -106,7 +106,8 @@ def main():
             '-DOPENKAI2_RUNTIME_TESTS_ONLY=ON',
             f'-DCMAKE_PROJECT_TOP_LEVEL_INCLUDES={(ROOT / "tools/native/attach-game.cmake").as_posix()}')
         run('cmake', '--build', build, '--config', configuration, '--target',
-            'ps2EntryRunner', 'openkai2_sound_tests', 'openkai2_cdvd_tests', 'ps2_iop_emulator_tests', 'ps2_iop_import_tests',
+            'ps2EntryRunner', 'openkai2_iop_pipeline_tests', 'openkai2_sound_tests', 'openkai2_cdvd_tests',
+            'ps2_iop_emulator_tests', 'ps2_iop_import_tests',
             'ps2_iop_compatibility_tests', 'ps2_iop_import_version_tests', '--parallel', args.jobs)
         run('ctest', '--test-dir', build, '-C', configuration, '--output-on-failure', '--no-tests=error')
         return 0
@@ -147,7 +148,8 @@ def main():
         f'-DCMAKE_PROJECT_TOP_LEVEL_INCLUDES={(ROOT / "tools/native/attach-game.cmake").as_posix()}')
     run('cmake', '--build', build, '--config', configuration, '--target', 'ps2EntryRunner',
         'ps2_iop_emulator_tests', 'ps2_iop_import_tests', 'ps2_iop_compatibility_tests',
-        'ps2_iop_import_version_tests', 'openkai2_sound_tests', 'openkai2_cdvd_tests', '--parallel', args.jobs)
+        'ps2_iop_import_version_tests', 'openkai2_iop_pipeline_tests', 'openkai2_sound_tests',
+        'openkai2_cdvd_tests', '--parallel', args.jobs)
     run('ctest', '--test-dir', build, '-C', configuration, '--output-on-failure', '--no-tests=error')
     output = build / 'ps2xRuntime' / configuration
     shutil.copy2(output / 'ps2EntryRunner.exe', native / 'OpenKai2.exe')

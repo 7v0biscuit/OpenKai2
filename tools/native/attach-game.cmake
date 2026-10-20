@@ -38,7 +38,7 @@ function(openkai2_attach_generated_sources)
         COMMAND_ERROR_IS_FATAL ANY)
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
         "${project_root}/tools/native/patches/disc-layout.patch"
-        "${project_root}/tools/native/patches/sound-startup.patch"
+        "${project_root}/tools/native/patches/iop-startup.patch"
         "${project_root}/tools/native/prepare-overlays.py")
     get_target_property(iop_sources ps2_iop SOURCES)
     list(FILTER iop_sources EXCLUDE REGEX "(^|/)src/emulator/imports/iop_cdvd\\.cpp$")
@@ -49,13 +49,17 @@ function(openkai2_attach_generated_sources)
     target_include_directories(ps2_iop PRIVATE "${CMAKE_SOURCE_DIR}/ps2xIOP/src/emulator/imports"
         "${CMAKE_SOURCE_DIR}/ps2xIOP/src/emulator/core" "${CMAKE_SOURCE_DIR}/ps2xIOP/src/emulator")
     target_link_libraries(ps2_iop PRIVATE openkai2_disc)
-    add_library(openkai2_sound_checks STATIC "${project_root}/src/sound_checks.cpp")
-    target_include_directories(openkai2_sound_checks PUBLIC "${project_root}/src"
+    add_library(openkai2_guest_checks STATIC "${project_root}/src/sound_checks.cpp"
+        "${project_root}/src/iop_checks.cpp")
+    target_include_directories(openkai2_guest_checks PUBLIC "${project_root}/src"
         PRIVATE "${CMAKE_SOURCE_DIR}/ps2xIOP/src")
-    target_link_libraries(openkai2_sound_checks PUBLIC ps2_iop)
+    target_link_libraries(openkai2_guest_checks PUBLIC ps2_iop)
     add_executable(openkai2_sound_tests "${project_root}/tests/sound_register_tests.cpp")
-    target_link_libraries(openkai2_sound_tests PRIVATE openkai2_sound_checks)
+    target_link_libraries(openkai2_sound_tests PRIVATE openkai2_guest_checks)
     add_test(NAME sound_registers COMMAND openkai2_sound_tests)
+    add_executable(openkai2_iop_pipeline_tests "${project_root}/tests/iop_pipeline_tests.cpp")
+    target_link_libraries(openkai2_iop_pipeline_tests PRIVATE openkai2_guest_checks)
+    add_test(NAME iop_import_pipeline COMMAND openkai2_iop_pipeline_tests)
     get_target_property(runtime_sources ps2_runtime SOURCES)
     set(overlay_runtime_sources "")
     foreach(source IN LISTS runtime_sources)
@@ -66,7 +70,7 @@ function(openkai2_attach_generated_sources)
     set_property(TARGET ps2_runtime PROPERTY SOURCES "${overlay_runtime_sources}")
     target_include_directories(ps2_runtime PRIVATE "${CMAKE_SOURCE_DIR}/ps2xRuntime/src/lib/Kernel/Stubs")
     target_link_libraries(ps2_runtime PRIVATE openkai2_disc)
-    target_link_libraries(ps2EntryRunner PRIVATE openkai2_disc openkai2_sound_checks)
+    target_link_libraries(ps2EntryRunner PRIVATE openkai2_disc openkai2_guest_checks)
     if(WIN32)
         target_link_libraries(ps2EntryRunner PRIVATE comdlg32)
     endif()

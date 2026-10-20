@@ -22,17 +22,59 @@
              return;
 --- a/iop_emulator.cpp
 +++ b/iop_emulator.cpp
-@@ -136,6 +136,9 @@
+@@ -136,6 +136,10 @@
              servicingDmaInterrupts = false;
              servicingGuestCallbacks = false;
              callDepth = 0u;
 +            pendingBindAttempts.clear();
++            threadEvents = 0;
 +            lastThreadId = 0;
 +            lastThreadCpu = {};
              secrMcCommandHandler = {};
              secrMcDevIdHandler = {};
              checkKelfPathCallback = {};
-@@ -577,6 +580,8 @@
+@@ -268,9 +272,20 @@
+ 
+             if (iequals(call.library, "thbase") || iequals(call.library, "threadman"))
+             {
+-                return kernel.dispatchThreadImport(call.ordinal, cpu, totalCycles)
+-                           ? ImportDisposition::Handled
+-                           : ImportDisposition::Missing;
++                const uint32_t entry = call.ordinal == 4u ? memory.read32(a0 + 8u) : 0u;
++                const bool handled = kernel.dispatchThreadImport(call.ordinal, cpu, totalCycles);
++                if (handled && threadEvents < 32u &&
++                    (call.ordinal == 4u || call.ordinal == 6u || call.ordinal == 7u ||
++                     call.ordinal == 8u || call.ordinal == 9u || call.ordinal == 24u))
++                {
++                    ++threadEvents;
++                    std::ostringstream out;
++                    out << "[IOP thread] ordinal=" << call.ordinal
++                        << " argument=" << a0 << " result=" << static_cast<int32_t>(cpu.gpr[2])
++                        << " entry=0x" << std::hex << entry << " caller=0x" << cpu.gpr[31];
++                    log(LogLevel::Info, out.str());
++                }
++                return handled ? ImportDisposition::Handled : ImportDisposition::Missing;
+             }
+             if (iequals(call.library, "thsemap"))
+             {
+@@ -380,6 +395,16 @@
+ 
+             if (const auto import = imports.decode(cpu.pc))
+             {
++                // The import thunk executes before the service body. Its jump
++                // and ordinal delay slot retire the caller's pending load, so
++                // delay-slot argument loads are visible to both HLE services
++                // and IRX exports. Clear it before a service writes its return.
++                if (cpu.pendingLoad)
++                {
++                    if (cpu.pendingLoadReg != 0u)
++                        cpu.gpr[cpu.pendingLoadReg] = cpu.pendingLoadValue;
++                    cpu.pendingLoad = false;
++                }
+                 const ImportDisposition disposition = dispatchImport(*import, cpu);
+                 ++totalInstructions;
+                 ++totalCycles;
+@@ -577,6 +602,8 @@
                      }
                      const uint64_t before = totalCycles;
                      runCpu(next->cpu, static_cast<uint32_t>(std::min<uint64_t>(kDefaultSlice, target - totalCycles)));
@@ -41,17 +83,18 @@
                      kernel.endTimeslice(*next, kThreadReturnSentinel);
                      if (totalCycles == before)
                          ++totalCycles;
-@@ -704,6 +709,9 @@
+@@ -704,6 +731,10 @@
          uint64_t eeCycleCarry = 0;
          CpuState *activeCpu = nullptr;
          std::string lastError;
 +        std::map<uint32_t, uint32_t> pendingBindAttempts;
++        uint32_t threadEvents = 0;
 +        int lastThreadId = 0;
 +        CpuState lastThreadCpu{};
          bool servicingDmaInterrupts = false;
          bool servicingGuestCallbacks = false;
          uint32_t callDepth = 0u;
-@@ -755,7 +763,55 @@
+@@ -755,7 +786,55 @@
  
      bool IopEmulator::hasRpcServer(uint32_t sid) const noexcept
      {
