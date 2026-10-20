@@ -23,6 +23,14 @@ function(openkai2_attach_generated_sources)
     target_include_directories(openkai2_disc PUBLIC "${project_root}/src")
     target_compile_features(openkai2_disc PUBLIC cxx_std_17)
     find_package(Python3 3.10 REQUIRED COMPONENTS Interpreter)
+    if(NOT OPENKAI2_RUNTIME_TESTS_ONLY)
+        execute_process(COMMAND "${Python3_EXECUTABLE}"
+            "${project_root}/tools/native/translation-entries.py"
+            --verify-generated "$ENV{OPENKAI2_WORK_DIR}/budokai2-native/output"
+            COMMAND_ERROR_IS_FATAL ANY)
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+            "${project_root}/tools/native/translation-entries.py")
+    endif()
     set(overlay_dir "${CMAKE_BINARY_DIR}/openkai2-overlays")
     execute_process(COMMAND "${Python3_EXECUTABLE}"
         "${project_root}/tools/native/prepare-overlays.py"
@@ -51,8 +59,10 @@ function(openkai2_attach_generated_sources)
     if(WIN32)
         target_link_libraries(ps2EntryRunner PRIVATE comdlg32)
     endif()
-    target_sources(ps2EntryRunner PRIVATE ${generated_sources} "${project_root}/src/main.cpp")
-    set_source_files_properties("${project_root}/src/main.cpp" PROPERTIES SKIP_UNITY_BUILD_INCLUSION TRUE)
+    target_sources(ps2EntryRunner PRIVATE ${generated_sources} "${project_root}/src/main.cpp"
+        "${project_root}/src/runtime_checks.cpp")
+    set_source_files_properties("${project_root}/src/main.cpp" "${project_root}/src/runtime_checks.cpp"
+        PROPERTIES SKIP_UNITY_BUILD_INCLUSION TRUE)
     target_include_directories(ps2EntryRunner BEFORE PRIVATE
         "$ENV{OPENKAI2_WORK_DIR}/budokai2-native/output")
     # Initial execution diagnosis: keep the very large generated translation

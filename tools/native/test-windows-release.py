@@ -52,6 +52,8 @@ def main():
         help_text = run([str(executable), '--help'])
         if 'The original game ISO is required' not in help_text:
             raise RuntimeError('Installed executable did not print the expected help.')
+        if 'Runtime callback regression passed' not in run([str(executable), '--self-test']):
+            raise RuntimeError('Compiled startup callback regression did not pass.')
         missing = root / 'missing-game.iso'
         run([str(executable), str(missing)], expected=1)
         log = Path(os.environ['LOCALAPPDATA']) / 'OpenKai2/logs/startup.log'
