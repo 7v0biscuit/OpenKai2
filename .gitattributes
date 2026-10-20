@@ -1,0 +1,3 @@
+# Preserve the supplied source bytes so RELEASE_MANIFEST_SHA256.json remains
+# valid when checked out on either Windows or Linux.
+* -text

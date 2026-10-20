@@ -1,0 +1,19 @@
+OpenKai2
+
+This project uses PS2Recomp by ran-j and contributors:
+https://github.com/ran-j/PS2Recomp
+
+The native cloud workflow is pinned to upstream commit
+eb8688b2fd191129f103a39543002c005b33409c. PS2Recomp is licensed under
+the GNU General Public License, version 3.
+
+PS2Recomp and its dependencies are obtained during local setup rather than
+vendored in this repository. Their authors' copyright notices and licenses
+remain applicable. The canonical GNU GPL version 3 text is included in LICENSE.
+
+The Phase227 sources and tests were imported from the source package supplied
+for this project. Their original checksum manifest is retained unchanged.
+
+Dragon Ball Z: Budokai 2 game content and trademarks belong to their respective
+rights holders. Game executables, disc images, assets, and generated retail game
+translations are not included in this repository.
