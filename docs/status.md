@@ -19,6 +19,8 @@ The application requires the original USA ISO at every launch.
 - The original-ISO sector integration test and all four upstream IOP test groups
   pass on Linux and as Windows executables under Wine. The integration test
   exercises EE and IOP file lookup and raw sector reads.
+- SPU2 initialization checks pass on Linux and as a Windows executable under
+  Wine; the packaged game executable also passes them through `--self-test`.
 - The disc loader validates directory records, reads and hashes every file,
   repairs damaged cache files, and rejects missing or unsupported disc input.
 
