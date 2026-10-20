@@ -10,6 +10,18 @@ A native PC recompilation project for **Dragon Ball Z: Budokai 2**, built with
 its files before execution. Title-screen boot and gameplay are not yet verified. See the
 [development status](docs/status.md) for current limitations.
 
+## Windows downloads
+
+Download the current development preview from [Releases](https://github.com/7v0biscuit/OpenKai2/releases).
+
+- **OpenKai2.exe** runs without installation and opens an ISO picker.
+- **OpenKai2-windows-x64.zip** contains the application and its runtime DLLs.
+- **OpenKai2-Setup.exe** installs for the current user and adds Start-menu shortcuts.
+
+Every download requires your original Budokai 2 USA ISO at launch. Release
+checksums are published alongside the downloads. See the [Windows guide](docs/windows.md)
+for startup logs and system requirements.
+
 ## Getting started
 
 The component tests require Python 3.10+, CMake 3.16+, and a C++17 compiler.
@@ -41,8 +53,8 @@ docs/               Build instructions and development status
 third_party/        Upstream notices for portable Windows bundles
 ```
 
-Build output, reports, dependencies, and game files stay local. No game
-executables, disc images, assets, or generated game translations are included.
+The main source tree excludes build output, original game executables, disc
+images, and assets. Windows runtime binaries are distributed through Releases.
 
 ## Contributing
 
