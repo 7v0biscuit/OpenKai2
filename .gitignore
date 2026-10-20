@@ -1,11 +1,10 @@
 # Local environments and generated output
 .venv/
 .local/
-.onboarding/
 __pycache__/
 *.py[cod]
 /build*/
-/phase*_reports/
+/reports/
 CMakeCache.txt
 CMakeFiles/
 .ninja_*

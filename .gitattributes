@@ -1,3 +1,8 @@
-# Preserve the supplied source bytes so RELEASE_MANIFEST_SHA256.json remains
-# valid when checked out on either Windows or Linux.
-* -text
+* text=auto
+*.py text eol=lf
+*.sh text eol=lf
+*.cmake text eol=lf
+*.cpp text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.cmd text eol=crlf
