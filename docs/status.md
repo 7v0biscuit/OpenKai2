@@ -6,12 +6,16 @@ The application requires the original USA ISO at every launch.
 ## Verified components
 
 - All 16 EE component probes build on Linux and as Windows x64 executables.
-- All 103 Python regression tests pass.
+- All 111 Python regression tests pass, including portable package checks.
 - Synthetic and USA-executable component comparisons pass.
 - ISO verification passes 33 native Linux checks and 32 Windows-executable
   checks under Wine. Wine cannot execute the cache-symlink check.
 - The native Windows x64 game executable links with its runtime DLLs and passes
   missing-ISO and extracted-ELF rejection checks under Wine.
+- An extracted portable Windows bundle passes the same checks. Its ISO picker
+  opens and cancels normally under Wine; payload hashes and DLL imports verify.
+- Windows CI passes component tests and MSVC runtime integration tests without
+  game data. The game translation itself is built separately.
 - The original-ISO sector integration test and all four upstream IOP test groups
   pass on Linux and as Windows executables under Wine. The integration test
   exercises EE and IOP file lookup and raw sector reads.
@@ -36,6 +40,10 @@ separately supplied extracted files are not accepted as boot input.
 The Windows build guide and bounded startup diagnostic are in
 [Windows build and startup](windows.md). Graphics initialization, native entry
 execution, title-screen boot, and gameplay are separate milestones.
+
+The Windows launcher offers an ISO file picker when started without arguments.
+It retains a startup log, and portable bundles include the checked DLL dependency
+chain. These launch and packaging improvements do not establish game boot.
 
 ## Remaining work
 

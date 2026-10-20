@@ -9,3 +9,6 @@
 
 # Unified diffs use a single space for an empty context line.
 *.patch text eol=lf whitespace=-blank-at-eol
+
+# Keep upstream license text unchanged, including its original whitespace.
+third_party/licenses/** -whitespace

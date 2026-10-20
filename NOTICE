@@ -8,6 +8,10 @@ eb8688b2fd191129f103a39543002c005b33409c, licensed under GNU GPL version 3.
 PS2Recomp and its dependencies are downloaded during setup. Their copyright
 notices and licenses remain applicable.
 
+Portable Windows bundles include third-party notices in licenses/. The source
+locations for those notices and the pinned FFmpeg build recipe are recorded in
+third_party/licenses/sources.json.
+
 Dragon Ball Z: Budokai 2 content and trademarks belong to their respective
 rights holders. Game executables, disc images, assets, and generated game
 translations are not distributed with this project.
