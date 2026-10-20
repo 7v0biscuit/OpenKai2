@@ -3,11 +3,15 @@ set -euo pipefail
 native_source=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 source "$native_source/paths.sh"
 cd "$native_base/budokai2-native"
-native_elf=${1:-$native_base/game/SLUS_207.79}
+if [ "$#" -ne 1 ]; then
+    printf '%s\n' 'Usage: bash tools/native/run-native.sh /path/to/Budokai-2-USA.iso' >&2
+    exit 2
+fi
+native_iso=$1
 native_runner=$native_base/budokai2-native/budokai2-native
 native_sysroot=$native_base/sysdeps/root
-if [ ! -f "$native_elf" ] || [ ! -x "$native_runner" ]; then
-    printf '%s\n' 'Native runner or game ELF is missing; run the saved native setup first.' >&2
+if [ ! -f "$native_iso" ] || [ ! -x "$native_runner" ]; then
+    printf '%s\n' 'The original game ISO and a built native runner are required.' >&2
     exit 1
 fi
 export LD_LIBRARY_PATH="$native_sysroot/usr/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
@@ -48,4 +52,4 @@ if [ ! -s "$native_display_dir/display" ]; then
 fi
 export DISPLAY=":$(cat "$native_display_dir/display")"
 xdpyinfo -display "$DISPLAY" > /dev/null
-"$native_runner" "$native_elf"
+"$native_runner" "$native_iso"

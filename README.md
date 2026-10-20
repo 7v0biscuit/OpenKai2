@@ -6,8 +6,8 @@
 A native PC recompilation project for **Dragon Ball Z: Budokai 2**, built with
 [PS2Recomp](https://github.com/ran-j/PS2Recomp).
 
-**Early development.** The native executable reaches IOP module loading.
-Title-screen boot and gameplay are not yet verified. See the
+**Early development.** Startup requires your original USA game ISO and verifies
+its files before execution. Title-screen boot and gameplay are not yet verified. See the
 [development status](docs/status.md) for current limitations.
 
 ## Getting started
@@ -27,11 +27,13 @@ python tools/probes/run.py --game /path/to/SLUS_207.79
 
 For native runtime setup, supported platforms, and diagnostics, see
 [Building OpenKai2](docs/building.md).
+Windows users should start with the [Windows build guide](docs/windows.md).
 
 ## Project layout
 
 ```text
-src/probes/          Native EE, interrupt, and guest-memory probes
+src/                ISO verification and native application entry
+src/probes/         Native EE, interrupt, and guest-memory probes
 tests/              Python regression tests and synthetic fixtures
 tools/probes/       Component runner, diagnostics, and reference models
 tools/native/       PS2Recomp build and runtime tools
