@@ -13,7 +13,7 @@ python tools/probes/run.py --skip-retail
 The runner builds all 16 probes in `build/probes/`, compares their output with
 independent Python models, and writes results to `reports/probes/`. It replaces
 the previous component report directory on each run. The unit suite contains
-111 tests covering instruction semantics, interrupt transitions, list traversal,
+117 tests covering instruction semantics, interrupt transitions, list traversal,
 memory aliases, fault handling, source integration, and Windows package dependencies.
 
 To build the probes separately:

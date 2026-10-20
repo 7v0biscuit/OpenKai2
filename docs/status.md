@@ -6,7 +6,7 @@ The application requires the original USA ISO at every launch.
 ## Verified components
 
 - All 16 EE component probes build on Linux and as Windows x64 executables.
-- All 111 Python regression tests pass, including portable package checks.
+- All 117 Python regression tests pass, including portable and release package checks.
 - Synthetic and USA-executable component comparisons pass.
 - ISO verification passes 33 native Linux checks and 32 Windows-executable
   checks under Wine. Wine cannot execute the cache-symlink check.
@@ -44,6 +44,8 @@ execution, title-screen boot, and gameplay are separate milestones.
 The Windows launcher offers an ISO file picker when started without arguments.
 It retains a startup log, and portable bundles include the checked DLL dependency
 chain. These launch and packaging improvements do not establish game boot.
+The release workflow tests the portable EXE, installer, installed application,
+and uninstall on Windows before publishing a development prerelease.
 
 ## Remaining work
 

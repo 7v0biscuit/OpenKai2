@@ -2,7 +2,25 @@
 
 OpenKai2 is in development. Title-screen boot and gameplay have not been verified.
 
-## Requirements
+## Downloads
+
+Get the Windows development preview from
+[Releases](https://github.com/7v0biscuit/OpenKai2/releases).
+
+- `OpenKai2.exe` is a self-contained portable launcher. It temporarily extracts
+  its runtime, opens the ISO picker, and removes the temporary files after exit.
+- `OpenKai2-windows-x64.zip` can be extracted to a folder of your choice. Keep
+  its DLLs beside the included application EXE.
+- `OpenKai2-Setup.exe` installs for the current Windows user and adds Start-menu
+  and uninstall entries. It does not require administrator access. Uninstalling
+  preserves the disc cache, logs, and unrelated files in the installation folder.
+
+The downloads need Windows 10/11 x64, an SSE4.1-capable CPU, and your original
+USA ISO. Python and Visual Studio are needed only for building from source.
+Development downloads are unsigned. Verify their SHA-256 values against the
+release's `SHA256SUMS.txt`.
+
+## Build requirements
 
 - Windows 10/11, x64, with an SSE4.1-capable CPU.
 - Visual Studio 2022 or Build Tools 2022 with **Desktop development with C++**.
