@@ -54,7 +54,12 @@ python tools/probes/collect.py
 
 This writes `reports/probe-diagnostics.zip`. Review logs before sharing them.
 
-## Native runtime
+## Windows runtime
+
+See [Windows build and startup](windows.md). The native application requires
+the original USA ISO at every boot and verifies the disc files before starting.
+
+## Linux development runtime
 
 The current headless development recipe targets **Debian 13, x86-64**. It needs
 Python with `venv`, GCC/G++, Git, APT, `dpkg-deb`, `pkg-config`, and `xdpyinfo`.
@@ -64,7 +69,7 @@ install system packages.
 
 ```sh
 bash tools/native/setup.sh /path/to/SLUS_207.79
-python tools/native/diagnose-startup.py
+python tools/native/diagnose-startup.py /path/to/Budokai-2-USA.iso
 ```
 
 Dependencies, generated sources, and the native executable live under
@@ -74,25 +79,26 @@ path for setup and subsequent commands:
 ```sh
 export OPENKAI2_WORK_DIR=/absolute/path/to/openkai2-work
 bash tools/native/setup.sh /path/to/SLUS_207.79
-python tools/native/diagnose-startup.py
+python tools/native/diagnose-startup.py /path/to/Budokai-2-USA.iso
 ```
 
-Copy your original `MODULES` and `USR` directories alongside
-`$OPENKAI2_WORK_DIR/game/SLUS_207.79` (or `.local/openkai2/game/SLUS_207.79` with
-the default settings). Keep the original directory names and filenames.
+The extracted ELF above is a compilation input. Runtime startup requires the
+complete ISO and prepares its verified disc cache automatically. See the
+[Windows guide](windows.md#launch) for the verification rules; Linux uses
+`$XDG_CACHE_HOME/openkai2/discs` or `~/.cache/openkai2/discs` for its cache.
 
 Setup pins PS2Recomp to `eb8688b2fd191129f103a39543002c005b33409c`, CMake to
 4.4.4, Ninja to 1.13.2, and libarchive-c to 5.3. The validated toolchain uses
 GCC 14.2 and Clang 19.1.7. Clang compiles one oversized generated unit; GCC
-builds the remaining objects. The refresh command also runs four upstream IOP
-test groups:
+builds the remaining objects. The refresh command also runs the EE/IOP
+original-sector regression and four upstream IOP test groups:
 
 ```sh
 bash tools/native/refresh-native.sh
 ```
 
 The launcher uses Xvfb, Mesa software rendering, and a null ALSA output sink.
-The startup diagnostic limits execution to 30 seconds and bounds retained logs.
+The startup diagnostic defaults to 180 seconds and bounds retained logs.
 It writes `budokai2-native/startup-status.json` and `startup-verified.log` under
 the working directory. Exit code **3** means a required disc module is missing;
 other unverified startup outcomes return **1**.

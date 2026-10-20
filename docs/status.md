@@ -1,27 +1,41 @@
 # Development status
 
-OpenKai2 is in early development. There is no verified playable build yet.
+OpenKai2 is in early development. Title-screen boot and gameplay are unverified.
+The application requires the original USA ISO at every launch.
 
-## Verified
+## Verified components
 
-- All 16 native component probes build on Linux.
+- All 16 EE component probes build on Linux and as Windows x64 executables.
 - All 103 Python regression tests pass.
-- Synthetic comparisons and comparisons against the USA executable pass.
-- The native runtime loads the ELF and starts execution at `0x00100008`.
-- OpenGL initializes with Mesa llvmpipe; audio initializes with a null sink.
-- Startup reaches IOP module loading.
-- Four upstream IOP test groups pass.
+- Synthetic and USA-executable component comparisons pass.
+- ISO verification passes 33 native Linux checks and 32 Windows-executable
+  checks under Wine. Wine cannot execute the cache-symlink check.
+- The native Windows x64 game executable links with its runtime DLLs and passes
+  missing-ISO and extracted-ELF rejection checks under Wine.
+- The original-ISO sector integration test and all four upstream IOP test groups
+  pass on Linux and as Windows executables under Wine. The integration test
+  exercises EE and IOP file lookup and raw sector reads.
+- The disc loader validates directory records, reads and hashes every file,
+  repairs damaged cache files, and rejects missing or unsupported disc input.
 
-## Current blocker
+## Runtime integration
 
-With only the executable available, startup cannot load
-`cdrom0:\MODULES\CRI_ADXI.IRX`. The diagnostic stops this retry loop and reports
-`BLOCKED_MISSING_DISC_MODULE`. Original disc files are required to continue
-runtime validation.
+The earlier ELF-based Linux startup loaded the game, began execution at
+`0x00100008`, initialized Mesa graphics and null audio, and reached IOP module
+loading. It stopped because the disc modules were absent. That startup path
+has been replaced with an ISO-required application entry.
 
-`SIO2MAN.IRX` and `LIBSD.IRX` are also absent in that configuration; upstream
-HLE providers handle those early requests. This does not establish compatibility
-with the rest of the game's IOP modules.
+Runtime file searches preserve the original ISO sector addresses. Raw EE and
+IOP reads use the supplied image rather than a synthetic extracted-file layout.
+
+A complete retail ISO is not present in the development environment. The next
+end-to-end check must run the current application with the user's local ISO.
+The launcher obtains `MODULES`, `USR`, and the executable from that image;
+separately supplied extracted files are not accepted as boot input.
+
+The Windows build guide and bounded startup diagnostic are in
+[Windows build and startup](windows.md). Graphics initialization, native entry
+execution, title-screen boot, and gameplay are separate milestones.
 
 ## Remaining work
 
@@ -31,6 +45,6 @@ stubs. Some data and VU regions were treated as EE functions, producing 12,755
 unhandled-instruction diagnostics despite the recompiler returning zero.
 More accurate function boundaries and further runtime integration may be needed.
 
-Title-screen boot, gameplay, physical audio output, controller input, graphics
-accuracy, and full interrupt timing remain unverified. Component probes exercise
-bounded models and do not demonstrate a complete game boot.
+Physical audio output, controller input, graphics accuracy, full interrupt
+timing, title-screen boot, and gameplay require further validation with the
+complete disc. Component checks establish only their tested behavior.

@@ -39,6 +39,7 @@ cmake -S "$native_upstream" -B "$native_build" -G Ninja \
     -DPS2X_ENABLE_IOP_RPC_TRACE=ON -DPS2X_ENABLE_RUNNER_UNITY_BUILD=ON \
     -DPS2X_RUNNER_UNITY_BUILD_BATCH_SIZE=32 -DPS2X_ENABLE_RUNNER_PCH=ON \
     -DPS2X_IOP_BUILD_TESTS=ON -DGLFW_BUILD_WAYLAND=OFF \
+    -DOPENKAI2_RUNTIME_TESTS_ONLY=OFF \
     -DCMAKE_C_FLAGS=-msse4.1 -DCMAKE_CXX_FLAGS=-msse4.1 \
     -DCMAKE_PREFIX_PATH="$native_base/sysdeps/root/usr" \
     -DCMAKE_FIND_ROOT_PATH="$native_base/sysdeps/root" \
@@ -51,7 +52,7 @@ if [ -f "$native_pch" ] && [ "$native_source/gcc-portability.h" -nt "$native_pch
     touch "$native_build/ps2xRuntime/CMakeFiles/ps2EntryRunner.dir/cmake_pch.hxx"
 fi
 python -B "$native_source/build-native.py"
-cmake --build "$native_build" --target ps2_iop_emulator_tests \
+cmake --build "$native_build" --target openkai2_cdvd_tests ps2_iop_emulator_tests \
     ps2_iop_import_tests ps2_iop_compatibility_tests ps2_iop_import_version_tests \
     --parallel 4
-ctest --test-dir "$native_build/ps2xIOP" --output-on-failure
+ctest --test-dir "$native_build" --output-on-failure --no-tests=error
