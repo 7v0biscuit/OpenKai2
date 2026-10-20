@@ -49,6 +49,15 @@ both cores and byte, halfword, and word accesses are checked. This fixes a
 reproducible register bug; its effect on retail startup still needs verification.
 Pending RPC binds retain up to four state samples per SID in the startup log.
 
+The next user log shows cleared sound status but no CRI RPC server at attempt
+64. A separate IOP import-pipeline regression reproduces incorrect thread
+creation when the caller loads an argument in the JAL delay slot. The import
+dispatcher now retires that pending load before invoking either a host service
+or an IRX export, and clears it before the service writes its return value.
+Synthetic guest modules check thread creation, thread arguments, RPC handler
+registration and execution, and imported return values. Thread lifecycle events
+are retained in a bounded trace. Retail startup beyond this point is unverified.
+
 A complete retail ISO is not present in the development environment. Further
 end-to-end checks must run the updated application with the user's local ISO.
 The launcher obtains `MODULES`, `USR`, and the executable from that image;
