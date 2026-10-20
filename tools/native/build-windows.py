@@ -125,7 +125,11 @@ def main():
     text = text[:start] + '[patches]\ninstructions = []\n\n' + text[end:]
     config = native / 'native.toml'
     config.write_text(text)
+    run(sys.executable, ROOT / 'tools/native/translation-entries.py',
+        '--config', config, '--elf', executable)
     run(recompiler, config, log=native / 'recompile.log')
+    run(sys.executable, ROOT / 'tools/native/translation-entries.py',
+        '--verify-generated', native / 'output')
     if not (native / 'output/register_functions.cpp').is_file():
         raise RuntimeError('The recompiler did not produce the function registry.')
     recompile_log = (native / 'recompile.log').read_text(encoding='utf-8', errors='replace')

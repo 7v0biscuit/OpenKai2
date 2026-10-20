@@ -136,8 +136,17 @@ end = text.index('[performance]', start)
 text = text[:start] + '[patches]\ninstructions = []\n\n' + text[end:]
 (base / 'native.toml').write_text(text)
 PY
+    python -B "$native_source/translation-entries.py" \
+        --config "$native_native/native.toml" --elf "$native_base/game/SLUS_207.79"
     "$native_build/ps2xRecomp/ps2_recomp" "$native_native/native.toml" \
         > "$native_native/recompile.log" 2>&1
+fi
+python -B "$native_source/translation-entries.py" \
+    --config "$native_native/native.toml" --elf "$native_base/game/SLUS_207.79"
+if ! python -B "$native_source/translation-entries.py" --verify-generated "$native_native/output"; then
+    "$native_build/ps2xRecomp/ps2_recomp" "$native_native/native.toml" \
+        > "$native_native/recompile.log" 2>&1
+    python -B "$native_source/translation-entries.py" --verify-generated "$native_native/output"
 fi
 bash "$native_source/refresh-native.sh"
 printf '%s\n' 'Native build prepared. Run tools/native/diagnose-startup.py for the bounded boot check.'

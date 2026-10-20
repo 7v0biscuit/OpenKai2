@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "disc_image.h"
+#include "runtime_checks.h"
 #include "ps2_runtime.h"
 #include <exception>
 #include <fstream>
@@ -70,7 +71,8 @@ public:
 
 void usage() {
     std::cout << "Usage: OpenKai2 <path-to-Budokai-2-USA.iso>\n"
-              << "The original game ISO is required on every boot.\n";
+              << "The original game ISO is required on every boot.\n"
+              << "OpenKai2 --self-test checks compiled callback dispatch without booting the game.\n";
 #ifdef _WIN32
     std::cout << "Double-click OpenKai2.exe to choose an ISO.\n";
 #endif
@@ -107,11 +109,13 @@ int main(int argc, char* argv[]) {
         const std::wstring argument=count==2 ? arguments[1] : L"";
         LocalFree(arguments);
         if (count==2 && (argument==L"--help" || argument==L"-h")) { usage(); return 0; }
+        if (count==2 && argument==L"--self-test") return openkai2::run_runtime_checks();
         if (count>2) { usage(); return 2; }
         interactive=count==1;
         if (!interactive) image=argument;
 #else
         if (argc==2 && (std::string(argv[1])=="--help" || std::string(argv[1])=="-h")) { usage(); return 0; }
+        if (argc==2 && std::string(argv[1])=="--self-test") return openkai2::run_runtime_checks();
         if (argc!=2) { usage(); return 2; }
         image=argv[1];
 #endif

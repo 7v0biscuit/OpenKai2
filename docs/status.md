@@ -6,7 +6,7 @@ The application requires the original USA ISO at every launch.
 ## Verified components
 
 - All 16 EE component probes build on Linux and as Windows x64 executables.
-- All 117 Python regression tests pass, including portable and release package checks.
+- All 123 Python regression tests pass, including translation entry, portable, and release package checks.
 - Synthetic and USA-executable component comparisons pass.
 - ISO verification passes 33 native Linux checks and 32 Windows-executable
   checks under Wine. Wine cannot execute the cache-symlink check.
@@ -32,8 +32,14 @@ has been replaced with an ISO-required application entry.
 Runtime file searches preserve the original ISO sector addresses. Raw EE and
 IOP reads use the supplied image rather than a synthetic extracted-file layout.
 
-A complete retail ISO is not present in the development environment. The next
-end-to-end check must run the current application with the user's local ISO.
+A user-provided Windows startup log confirms that ISO verification completed,
+the native entry executed, and SIO2MAN, LIBSD, and CRI_ADXI loaded. That run
+stopped at the unregistered indirect entry `0x00167188`. The translation now
+exposes the callback and its exact resume label; an isolated runtime regression
+checks its argument stores, delay slot, and return.
+
+A complete retail ISO is not present in the development environment. Further
+end-to-end checks must run the updated application with the user's local ISO.
 The launcher obtains `MODULES`, `USR`, and the executable from that image;
 separately supplied extracted files are not accepted as boot input.
 

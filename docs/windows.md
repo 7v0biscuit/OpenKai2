@@ -95,6 +95,15 @@ hash for the entire retail disc is not currently pinned.
 
 ## Startup diagnostics
 
+The compiled startup callback can be checked without booting the game:
+
+```powershell
+& ".\.local\openkai2\budokai2-native\OpenKai2.exe" --self-test
+```
+
+This executes an isolated guest callback and checks its stores and return. The
+original ISO remains required for game startup.
+
 ```powershell
 python tools/native/diagnose-startup.py "D:\Games\Budokai 2 USA.iso" --timeout 180
 ```
