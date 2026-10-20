@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "runtime_checks.h"
+#include "sound_checks.h"
 #include "ps2_runtime.h"
 #include <cstring>
 #include <iostream>
@@ -7,6 +8,8 @@
 
 namespace openkai2 {
 int run_runtime_checks() {
+    verify_sound_registers();
+    std::cout << "SPU2 initialization regression passed: both cores, DMA status, and guest polling.\n";
     constexpr uint32_t entry=0x00167188, caller=0x00162dec, returned=0x00162df4;
     PS2Runtime runtime;
     if (!runtime.hasFunction(entry))

@@ -52,7 +52,10 @@ def main():
         help_text = run([str(executable), '--help'])
         if 'The original game ISO is required' not in help_text:
             raise RuntimeError('Installed executable did not print the expected help.')
-        if 'Runtime callback regression passed' not in run([str(executable), '--self-test']):
+        self_test = run([str(executable), '--self-test'])
+        if 'SPU2 initialization regression passed' not in self_test:
+            raise RuntimeError('Compiled SPU2 initialization regression did not pass.')
+        if 'Runtime callback regression passed' not in self_test:
             raise RuntimeError('Compiled startup callback regression did not pass.')
         missing = root / 'missing-game.iso'
         run([str(executable), str(missing)], expected=1)
