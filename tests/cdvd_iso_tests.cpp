@@ -8,6 +8,7 @@
 #include "emulator/core/iop_memory.h"
 #include "emulator/imports/iop_cdvd.h"
 #include "ps2x/iop/iop_host.h"
+#include "ps2x/iop/iop_subsystem.h"
 #include <chrono>
 #include <cstring>
 #include <iostream>
@@ -26,6 +27,7 @@ class DiscHost final : public IopHost {
     std::ifstream stream_;
 public:
     bool fail_reads=false;
+    std::vector<std::string> logs;
     DiscHost(fs::path image, fs::path root) : image_(std::move(image)), root_(std::move(root)),
                                             stream_(image_,std::ios::binary) {}
     bool readGuest(uint32_t,void*,size_t) const override { return false; }
@@ -56,7 +58,7 @@ public:
     int32_t memoryCard(const MemoryCardRequest&) override { return 0; }
     bool hasGuestFunction(uint32_t) const override { return false; }
     bool invokeGuestFunction(uint64_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t*) override { return false; }
-    void log(LogLevel,std::string_view) override {}
+    void log(LogLevel,std::string_view text) override { logs.emplace_back(text); }
 };
 }
 
@@ -76,6 +78,21 @@ int main() {
         const auto disc=openkai2::prepare_disc(image,root/"cache",options);
         {
             DiscHost host(image,disc.root);
+            {
+                IopSubsystem iop(host);
+                for (unsigned attempt=0; attempt<65537u; ++attempt)
+                    require(!iop.canBindRpc(0x80000597u), "Unregistered CRI RPC server was reported ready");
+                require(host.logs.size()==4u, "Pending RPC diagnostics did not stop after four samples");
+                for (size_t sample=0; sample<host.logs.size(); ++sample) {
+                    require(host.logs[sample].find("waiting sid=0x80000597")!=std::string::npos,
+                            "RPC diagnostic lost the requested SID");
+                    require(host.logs[sample].find("stat0=0x0")!=std::string::npos,
+                            "RPC diagnostic lost SPU2 status");
+                }
+                iop.reset();
+                require(!iop.canBindRpc(0x80000597u) && host.logs.size()==5u,
+                        "IOP reset did not restart bounded RPC diagnostics");
+            }
             IopMemory memory;
             IopKernel kernel(memory);
             kernel.reset();

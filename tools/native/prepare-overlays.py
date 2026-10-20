@@ -9,6 +9,10 @@ import subprocess
 import tempfile
 
 EXPECTED = {
+    'ps2xIOP/src/emulator/core/iop_memory.cpp':
+        '3952624ce32b501511a7460a7ce6d387f314d7173e8a6f4a2ed7fc1507e5f4ee',
+    'ps2xIOP/src/emulator/iop_emulator.cpp':
+        '01deb410d04f441be12adc68638846061f19759e007c36cdfcbe987796199d36',
     'ps2xIOP/src/emulator/imports/iop_cdvd.cpp':
         'ca8f524a3b708bca4183c940ecdc244468782c0162e832f13e5ae8f088d26f07',
     'ps2xRuntime/src/lib/Kernel/Stubs/Helpers/Support.h':
@@ -27,16 +31,19 @@ def main():
         if hashlib.sha256(data).hexdigest() != expected:
             raise SystemExit(f'Unexpected upstream source; preserved without modification: {name}')
     args.output.mkdir(parents=True, exist_ok=True)
-    patch = Path(__file__).resolve().parent / 'patches/disc-layout.patch'
+    patches = Path(__file__).resolve().parent / 'patches'
     with tempfile.TemporaryDirectory(prefix='openkai2-overlays-', dir=args.output.parent) as folder:
         temporary = Path(folder)
         shutil.copytree(args.upstream / 'ps2xRuntime/src/lib/Kernel/Stubs', temporary / 'Kernel/Stubs')
         shutil.copy2(args.upstream / 'ps2xIOP/src/emulator/imports/iop_cdvd.cpp', temporary / 'iop_cdvd.cpp')
+        shutil.copy2(args.upstream / 'ps2xIOP/src/emulator/core/iop_memory.cpp', temporary / 'iop_memory.cpp')
+        shutil.copy2(args.upstream / 'ps2xIOP/src/emulator/iop_emulator.cpp', temporary / 'iop_emulator.cpp')
         for source in temporary.rglob('*'):
             if source.is_file() and source.suffix in ('.h', '.cpp', '.hpp', '.inc'):
                 source.write_bytes(source.read_bytes().replace(b'\r\n', b'\n'))
-        subprocess.run(['git', 'apply', '--no-index', '--check', str(patch)], cwd=temporary, check=True)
-        subprocess.run(['git', 'apply', '--no-index', str(patch)], cwd=temporary, check=True)
+        for patch in (patches / 'disc-layout.patch', patches / 'sound-startup.patch'):
+            subprocess.run(['git', 'apply', '--no-index', '--check', str(patch)], cwd=temporary, check=True)
+            subprocess.run(['git', 'apply', '--no-index', str(patch)], cwd=temporary, check=True)
         for source in temporary.rglob('*'):
             if source.is_file():
                 target = args.output / source.relative_to(temporary)

@@ -38,6 +38,15 @@ stopped at the unregistered indirect entry `0x00167188`. The translation now
 exposes the callback and its exact resume label; an isolated runtime regression
 checks its argument stores, delay slot, and return.
 
+The subsequent user log passes that callback and ends in CRI's RPC bind retry
+loop (`0x00116D58`, SID `0x80000597`) when the window closes. The sound driver
+had entered cold initialization. SPU2 transfer status now clears its completion
+latch when ATTR disables DMA, and becomes ready when transfer mode is enabled.
+An IOP interpreter regression executes a reset-and-poll sequence after DMA;
+both cores and byte, halfword, and word accesses are checked. This fixes a
+reproducible register bug; its effect on retail startup still needs verification.
+Pending RPC binds retain up to four state samples per SID in the startup log.
+
 A complete retail ISO is not present in the development environment. Further
 end-to-end checks must run the updated application with the user's local ISO.
 The launcher obtains `MODULES`, `USR`, and the executable from that image;
