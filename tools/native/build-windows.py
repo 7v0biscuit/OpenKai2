@@ -27,6 +27,20 @@ def run(*command, log=None):
                            stdout=output, stderr=subprocess.STDOUT)
 
 
+def vc_runtime_directories():
+    installation_root = os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)')
+    vswhere = Path(installation_root) / 'Microsoft Visual Studio/Installer/vswhere.exe'
+    if not vswhere.is_file():
+        return []
+    installation = subprocess.check_output(
+        [str(vswhere), '-latest', '-products', '*', '-requires',
+         'Microsoft.VisualStudio.Component.VC.Tools.x86.x64', '-property', 'installationPath'],
+        text=True).strip()
+    if not installation:
+        return []
+    return sorted((Path(installation) / 'VC/Redist/MSVC').glob('*/x64/Microsoft.VC*.CRT'), reverse=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--iso', type=Path, help='Original Budokai 2 USA ISO; required for the game build')
@@ -92,7 +106,7 @@ def main():
             '-DOPENKAI2_RUNTIME_TESTS_ONLY=ON',
             f'-DCMAKE_PROJECT_TOP_LEVEL_INCLUDES={(ROOT / "tools/native/attach-game.cmake").as_posix()}')
         run('cmake', '--build', build, '--config', configuration, '--target',
-            'openkai2_cdvd_tests', 'ps2_iop_emulator_tests', 'ps2_iop_import_tests',
+            'ps2EntryRunner', 'openkai2_cdvd_tests', 'ps2_iop_emulator_tests', 'ps2_iop_import_tests',
             'ps2_iop_compatibility_tests', 'ps2_iop_import_version_tests', '--parallel', args.jobs)
         run('ctest', '--test-dir', build, '-C', configuration, '--output-on-failure', '--no-tests=error')
         return 0
@@ -137,6 +151,11 @@ def main():
         shutil.copy2(dll, native / dll.name)
     shutil.copy2(ROOT / 'LICENSE', native / 'LICENSE')
     shutil.copy2(ROOT / 'NOTICE', native / 'NOTICE')
+    package = [sys.executable, ROOT / 'tools/native/package-windows.py',
+               '--binary', native / 'OpenKai2.exe', '--output', work / 'OpenKai2-windows-x64.zip']
+    for directory in vc_runtime_directories():
+        package.extend(['--runtime-dir', directory])
+    run(*package)
     print('Built:', native / 'OpenKai2.exe')
     print('Launch:', subprocess.list2cmdline([str(native / 'OpenKai2.exe'), str(args.iso.resolve())]))
     print('Build completion does not establish title-screen boot or gameplay compatibility.')

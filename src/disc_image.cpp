@@ -374,7 +374,7 @@ DiscMount prepare_disc(const std::filesystem::path& image, const std::filesystem
 
 std::filesystem::path default_cache_directory() {
 #ifdef _WIN32
-    if (const auto* root=std::getenv("LOCALAPPDATA")) return std::filesystem::path(root)/"OpenKai2/discs";
+    if (const auto* root=_wgetenv(L"LOCALAPPDATA")) return std::filesystem::path(root)/"OpenKai2/discs";
 #else
     if (const auto* root=std::getenv("XDG_CACHE_HOME")) return std::filesystem::path(root)/"openkai2/discs";
     if (const auto* root=std::getenv("HOME")) return std::filesystem::path(root)/".cache/openkai2/discs";

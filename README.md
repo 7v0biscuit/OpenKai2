@@ -38,6 +38,7 @@ tests/              Python regression tests and synthetic fixtures
 tools/probes/       Component runner, diagnostics, and reference models
 tools/native/       PS2Recomp build and runtime tools
 docs/               Build instructions and development status
+third_party/        Upstream notices for portable Windows bundles
 ```
 
 Build output, reports, dependencies, and game files stay local. No game

@@ -41,6 +41,17 @@ using the startup diagnostic.
 & ".\.local\openkai2\budokai2-native\OpenKai2.exe" "D:\Games\Budokai 2 USA.iso"
 ```
 
+You can also double-click `OpenKai2.exe` and select the ISO in the file picker.
+Cancelling the picker exits normally. Errors from an interactive launch appear
+in a message box. Startup output is saved to
+`%LOCALAPPDATA%\OpenKai2\logs\startup.log`.
+
+The Windows builder also creates `OpenKai2-windows-x64.zip` in its working
+directory. Extract the whole archive before launching. It contains the executable,
+its required DLLs, license notices, and a SHA-256 manifest. Python and the build
+tools are not needed to launch that bundle. The packager checks both direct and
+transitive DLL imports and refuses to package an incomplete dependency set.
+
 The ISO is required at every boot. Passing an extracted ELF or removing the ISO
 while retaining the cache does not satisfy startup requirements.
 
@@ -79,8 +90,10 @@ The build also runs the ISO parser tests, an EE/IOP original-sector regression,
 and four upstream IOP test groups. CI builds these tools and tests without game
 data using `--tools-only`; this mode does not produce a translated game binary.
 
-The available Linux-hosted Windows executable checks run under Wine. A complete
-Visual Studio build and real Windows game startup still require verification.
+Windows CI builds the development tools and runtime integration tests with
+Visual Studio 2022. The translated game executable is cross-built in the Linux
+development environment and checked under Wine. Real Windows game startup with
+the complete ISO still requires verification.
 
 The fallback translation still reports unresolved instructions. Analyzer and
 recompiler logs remain in the native working directory. See
