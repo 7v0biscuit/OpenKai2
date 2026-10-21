@@ -39,4 +39,24 @@ jobs:
         with:
           python-version: '3.12'
       - name: Build Windows development tools without game data
-        run: python tools/native/build-windows.py --tools-only --jobs 2
+        shell: python
+        run: |
+          import collections, re, subprocess, sys
+          tail = collections.deque(maxlen=400)
+          command = [sys.executable, 'tools/native/build-windows.py', '--tools-only', '--jobs', '2']
+          process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                     text=True, encoding='utf-8', errors='replace')
+          for line in process.stdout:
+              print(line, end='', flush=True)
+              tail.append(line)
+          code = process.wait()
+          if code:
+              lines = list(tail)
+              selected = set(range(max(0, len(lines) - 35), len(lines)))
+              for index, line in enumerate(lines):
+                  if re.search(r'error|FAILED|failed|Traceback|regression|Assertion', line, re.IGNORECASE):
+                      selected.update(range(max(0, index - 2), min(len(lines), index + 4)))
+              message = ''.join(lines[index] for index in sorted(selected))[-16000:]
+              message = message.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print('::error title=Windows source build details::' + message, flush=True)
+          sys.exit(code)
