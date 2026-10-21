@@ -33,8 +33,6 @@ jobs:
   windows-tools:
     runs-on: windows-2022
     timeout-minutes: 45
-    env:
-      OPENKAI2_EE_BOOTSTRAP_TRACE: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

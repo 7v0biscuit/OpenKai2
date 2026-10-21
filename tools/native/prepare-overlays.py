@@ -3,6 +3,7 @@
 """Apply reviewed runtime changes to build copies of the pinned dependency."""
 import argparse
 import hashlib
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -32,6 +33,28 @@ EXPECTED = {
 }
 
 
+def apply_overlay_patch(directory, patch):
+    directory = Path(directory).resolve()
+    environment = os.environ.copy()
+    # A build directory may be inside the source checkout. Git otherwise
+    # discovers that parent repository and can silently skip diff --git paths
+    # outside its current-directory prefix, even with --no-index.
+    for name in ('GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_PREFIX'):
+        environment.pop(name, None)
+    environment['GIT_CEILING_DIRECTORIES'] = str(directory.parent)
+
+    def contents():
+        return {path.relative_to(directory): hashlib.sha256(path.read_bytes()).digest()
+                for path in directory.rglob('*') if path.is_file()}
+
+    before = contents()
+    command = ['git', 'apply', '--no-index']
+    subprocess.run([*command, '--check', str(patch)], cwd=directory, env=environment, check=True)
+    subprocess.run([*command, str(patch)], cwd=directory, env=environment, check=True)
+    if contents() == before:
+        raise RuntimeError(f'Runtime overlay changed no files: {patch}')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--upstream', required=True, type=Path)
@@ -58,8 +81,7 @@ def main():
         for patch in (patches / 'disc-layout.patch', patches / 'iop-startup.patch',
                       patches / 'dma-receive.patch', patches / 'startup-diagnostics.patch',
                       patches / 'callback-stacks.patch', patches / 'thread-bootstrap.patch'):
-            subprocess.run(['git', 'apply', '--no-index', '--check', str(patch)], cwd=temporary, check=True)
-            subprocess.run(['git', 'apply', '--no-index', str(patch)], cwd=temporary, check=True)
+            apply_overlay_patch(temporary, patch)
         for source in temporary.rglob('*'):
             if source.is_file():
                 target = args.output / source.relative_to(temporary)

@@ -6,7 +6,7 @@ The application requires the original USA ISO at every launch.
 ## Verified components
 
 - All 16 EE component probes build on Linux and as Windows x64 executables.
-- All 129 Python regression tests pass, including translation entry, portable, and release package checks.
+- All 131 Python regression tests pass, including translation entry, portable, and release package checks.
 - Synthetic and USA-executable component comparisons pass.
 - ISO verification passes 33 native Linux checks and 32 Windows-executable
   checks under Wine. Wine cannot execute the cache-symlink check.
@@ -180,6 +180,12 @@ Further retail progress still requires validation with the original ISO.
 
 Callback regression fixtures allocate their runtime devices on the heap, avoiding
 overflow of MSVC's default 1 MiB host stack. Windows source CI passes this check.
+
+Overlay generation also isolates Git discovery from a parent source checkout.
+Without that isolation, Git can silently skip a `diff --git` patch when the
+default working directory is inside the repository. Regressions cover nested
+and external working directories and reject a successful patch command that
+changes no files.
 
 A complete retail ISO is not present in the development environment. Further
 end-to-end checks must run the updated application with the user's local ISO.
