@@ -24,8 +24,10 @@ void verify_thread_bootstrap() {
     scheduler.bindMainContextForSyscall(context,ram);
     require(scheduler.currentThread()->currentPriority==0,"Bootstrap thread did not start at kernel priority zero");
     ps2_syscalls::InitThread(ram,&context,&runtime);
-    require(getRegU32(&context,2)==1u && scheduler.currentThread()->currentPriority==1,
-            "SDK InitThread left the bootstrap thread at an unusable worker priority");
+    if (getRegU32(&context,2)!=1u || scheduler.currentThread()->currentPriority!=1)
+        throw std::runtime_error("SDK InitThread left the bootstrap thread at an unusable worker priority: result="
+            +std::to_string(getRegU32(&context,2))+", priority="
+            +std::to_string(scheduler.currentThread()->currentPriority));
     constexpr uint32_t descriptor=0x24000u, status=0x24100u;
     context.r[4]=_mm_cvtsi32_si128(1);
     context.r[5]=_mm_cvtsi32_si128(status);
