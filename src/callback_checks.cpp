@@ -7,6 +7,7 @@
 #include <condition_variable>
 #include <exception>
 #include <mutex>
+#include <memory>
 #include <stdexcept>
 #include <thread>
 #include <vector>
@@ -96,11 +97,14 @@ void verify_callback_resume(PS2Runtime& runtime,unsigned callback_address) {
 }
 void verify_callback_stacks() {
     {
-        PS2Runtime scheduled;
-        require(scheduled.memory().initialize(),"Cannot allocate scheduled callback regression memory");
-        verify_callback_resume(scheduled);
+        auto scheduled=std::make_unique<PS2Runtime>();
+        require(scheduled->memory().initialize(),"Cannot allocate scheduled callback regression memory");
+        verify_callback_resume(*scheduled);
     }
-    PS2Runtime runtime;
+    // Each runtime contains over 500 KiB of device state. Keep test fixtures
+    // off the host stack, including MSVC's default 1 MiB executable stack.
+    auto owned_runtime=std::make_unique<PS2Runtime>();
+    auto& runtime=*owned_runtime;
     auto& memory=runtime.memory();
     require(memory.initialize(),"Cannot allocate callback stack regression memory");
     auto* ram=memory.getRDRAM();
