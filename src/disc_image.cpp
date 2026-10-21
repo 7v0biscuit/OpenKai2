@@ -124,6 +124,14 @@ std::string filename(std::string value, bool directory) {
 
 struct Extent { uint64_t offset, size; };
 struct Entry { std::filesystem::path path; std::vector<Extent> extents; uint64_t size=0; };
+IsoEntry index_entry(const std::filesystem::path& path,Extent extent,bool directory,const uint8_t* record) {
+    IsoEntry entry{path,uint32_t(extent.offset/sector_size),extent.size,directory};
+    std::copy_n(record+18,7,entry.recording_date.begin());
+    entry.flags=record[25]&0x7f;
+    entry.identifier.assign(reinterpret_cast<const char*>(record+33),record[32]);
+    if (entry.identifier.size()==1 && uint8_t(entry.identifier[0])<=1) entry.identifier=".";
+    return entry;
+}
 
 class Iso {
     std::ifstream stream_;
@@ -166,14 +174,14 @@ class Iso {
             if (continuing && key!=continuing_key) fail("ISO multi-extent file is incomplete");
             if (is_directory) {
                 if (more || continuing || !paths_.insert(key).second) fail("ISO has a conflicting directory");
-                entries_.push_back({path,uint32_t(e.offset/sector_size),e.size,true});
+                entries_.push_back(index_entry(path,e,true,r));
                 directory(e,path,depth+1);
             } else {
                 if (!continuing) {
                     if (!paths_.insert(key).second) fail("ISO contains conflicting filenames");
                     if (files_.size()>=200000) fail("ISO file count exceeds the supported limit");
                     files_.push_back({path,{ },0});
-                    entries_.push_back({path,uint32_t(e.offset/sector_size),0,false});
+                    entries_.push_back(index_entry(path,e,false,r));
                 }
                 files_.back().extents.push_back(e);
                 if (files_.back().extents.size()>1024) fail("Too many extents in an ISO file");
@@ -216,7 +224,7 @@ public:
         const auto* root=primary.data()+156;
         if (root[0]<34 || root[32]!=1 || root[33]!=0 || !(root[25]&2)) fail("ISO root directory is invalid");
         const auto root_extent=extent(root);
-        entries_.push_back({{},uint32_t(root_extent.offset/sector_size),root_extent.size,true});
+        entries_.push_back(index_entry({},root_extent,true,root));
         directory(root_extent,{},0);
     }
     void read(uint64_t offset, uint8_t* buffer, size_t count) {

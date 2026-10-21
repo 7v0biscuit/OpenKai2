@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #pragma once
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -38,6 +39,9 @@ struct IsoEntry {
     uint32_t sector;
     uint64_t size;
     bool directory;
+    std::array<uint8_t,7> recording_date{};
+    uint8_t flags=0;
+    std::string identifier;
 };
 
 class IsoIndex {
