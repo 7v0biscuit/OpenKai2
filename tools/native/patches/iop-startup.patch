@@ -22,7 +22,13 @@
              return;
 --- a/emulator/iop_emulator.cpp
 +++ b/emulator/iop_emulator.cpp
-@@ -19,6 +19,8 @@
+@@ -1,4 +1,5 @@
+ #include "iop_emulator.h"
++#include "cdvd_rpc.h"
+ #include "imports/iop_cdvd.h"
+ #include "core/iop_cpu.h"
+ #include "imports/iop_heaplib.h"
+@@ -19,6 +20,8 @@
  
  #include <algorithm>
  #include <cctype>
@@ -31,7 +37,23 @@
  #include <map>
  #include <optional>
  #include <span>
-@@ -136,6 +138,12 @@
+@@ -100,6 +103,7 @@
+               cdvd(host, memory, kernel),
+               vblank(kernel),
+               rpc(host, memory, kernel),
++              discRpc(host),
+               sysclib(memory),
+               stdio(host, memory),
+               heaplib(memory),
+@@ -120,6 +124,7 @@
+             modules.clear();
+             imports.reset();
+             rpc.reset();
++            discRpc.reset();
+             cdvd.reset();
+             intrman.reset();
+             timrman.reset();
+@@ -136,6 +141,12 @@
              servicingDmaInterrupts = false;
              servicingGuestCallbacks = false;
              callDepth = 0u;
@@ -44,7 +66,7 @@
              secrMcCommandHandler = {};
              secrMcDevIdHandler = {};
              checkKelfPathCallback = {};
-@@ -268,9 +276,20 @@
+@@ -268,9 +279,20 @@
  
              if (iequals(call.library, "thbase") || iequals(call.library, "threadman"))
              {
@@ -68,7 +90,7 @@
              }
              if (iequals(call.library, "thsemap"))
              {
-@@ -380,7 +399,29 @@
+@@ -380,7 +402,29 @@
  
              if (const auto import = imports.decode(cpu.pc))
              {
@@ -98,7 +120,7 @@
                  ++totalInstructions;
                  ++totalCycles;
                  if (disposition == ImportDisposition::JumpToGuest)
-@@ -399,7 +440,13 @@
+@@ -399,7 +443,13 @@
  
          uint32_t runCpu(CpuState &cpu, uint32_t instructionBudget)
          {
@@ -113,7 +135,7 @@
              activeCpu = &cpu;
              const uint64_t start = totalInstructions;
              while (!cpu.stopped && !cpu.yielded && totalInstructions - start < instructionBudget)
-@@ -411,7 +458,6 @@
+@@ -411,7 +461,6 @@
                  if (!servicingGuestCallbacks && !pendingGuestCallbacks.empty())
                      servicePendingGuestCallbacks();
              }
@@ -121,7 +143,7 @@
              return static_cast<uint32_t>(totalInstructions - start);
          }
  
-@@ -577,15 +623,37 @@
+@@ -577,15 +626,37 @@
                      }
                      const uint64_t before = totalCycles;
                      runCpu(next->cpu, static_cast<uint32_t>(std::min<uint64_t>(kDefaultSlice, target - totalCycles)));
@@ -161,7 +183,15 @@
          }
  
          ModuleLoadResult loadImage(std::string path, std::span<const uint8_t> image, const void *arguments, uint32_t argumentSize)
-@@ -704,6 +772,12 @@
+@@ -685,6 +756,7 @@
+         IopCdvd cdvd;
+         IopVblank vblank;
+         IopRpcBridge rpc;
++        openkai2::CdvdRpc discRpc;
+         IopSysclib sysclib;
+         IopStdio stdio;
+         IopHeaplib heaplib;
+@@ -704,6 +776,12 @@
          uint64_t eeCycleCarry = 0;
          CpuState *activeCpu = nullptr;
          std::string lastError;
@@ -174,14 +204,21 @@
          bool servicingDmaInterrupts = false;
          bool servicingGuestCallbacks = false;
          uint32_t callDepth = 0u;
-@@ -755,7 +829,61 @@
+@@ -750,12 +828,67 @@
+ 
+     RpcResult IopEmulator::handleRpc(const RpcRequest &request)
+     {
+-        return m_impl->rpc.handleRpc(request, *m_impl);
++        const auto result = m_impl->rpc.handleRpc(request, *m_impl);
++        return result.handled ? result : m_impl->discRpc.handle(request);
+     }
  
      bool IopEmulator::hasRpcServer(uint32_t sid) const noexcept
      {
 -        return m_impl->rpc.hasServer(sid);
 +        try
 +        {
-+            const bool ready = m_impl->rpc.hasServer(sid);
++            const bool ready = m_impl->rpc.hasServer(sid) || m_impl->discRpc.canBind(sid);
 +            auto &attempts = m_impl->pendingBindAttempts[sid];
 +            if (ready)
 +            {
@@ -232,7 +269,7 @@
 +        catch (...)
 +        {
 +            // Diagnostics must not throw through the scheduler.
-+            return m_impl->rpc.hasServer(sid);
++            return m_impl->rpc.hasServer(sid) || m_impl->discRpc.canBind(sid);
 +        }
      }
  

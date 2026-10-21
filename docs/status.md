@@ -18,7 +18,8 @@ The application requires the original USA ISO at every launch.
   game data. The game translation itself is built separately.
 - The original-ISO sector integration test and all four upstream IOP test groups
   pass on Linux and as Windows executables under Wine. The integration test
-  exercises EE and IOP file lookup and raw sector reads.
+  exercises EE and IOP file lookup, raw sector reads, and the CD/DVD search RPC
+  through EE SIF.
 - SPU2 initialization checks pass on Linux and as a Windows executable under
   Wine; the packaged game executable also passes them through `--self-test`.
 - The disc loader validates directory records, reads and hashes every file,
@@ -40,31 +41,29 @@ stopped at the unregistered indirect entry `0x00167188`. The translation now
 exposes the callback and its exact resume label; an isolated runtime regression
 checks its argument stores, delay slot, and return.
 
-The subsequent user log passes that callback and ends in CRI's RPC bind retry
-loop (`0x00116D58`, SID `0x80000597`) when the window closes. The sound driver
-had entered cold initialization. SPU2 transfer status now clears its completion
-latch when ATTR disables DMA, and becomes ready when transfer mode is enabled.
-An IOP interpreter regression executes a reset-and-poll sequence after DMA;
-both cores and byte, halfword, and word accesses are checked. This fixes a
-reproducible register bug; its effect on retail startup still needs verification.
-Pending RPC binds retain up to four state samples per SID in the startup log.
+Later logs stop in the RPC bind retry loop at `0x00116D58`, requesting
+`0x80000597`. This SID belongs to the CD/DVD file-search service (CDVDFSV).
+Earlier previews incorrectly described it as a CRI sound-server wait. The latest
+thread snapshot shows the CRI main thread waiting for VBlank and its RPC worker
+sleeping after registering the separate sound SID `0x90000200`.
 
-The next user log shows cleared sound status but no CRI RPC server at attempt
-64. A separate IOP import-pipeline regression reproduces incorrect thread
-creation when the caller loads an argument in the JAL delay slot. The import
-dispatcher now retires that pending load before invoking either a host service
-or an IRX export, and clears it before the service writes its return value.
-Synthetic guest modules check thread creation, thread arguments, RPC handler
-registration and execution, and imported return values. Thread lifecycle events
-are retained in a bounded trace. Retail startup beyond this point is unverified.
+The runtime now supplies the missing CD/DVD file-search service from the original
+ISO. It supports the 292-, 296-, and 300-byte request formats, returning the real
+sector, size, filename, recording date, and attributes to the EE destination.
+A missing file, invalid packet, unsupported layer, or missing ISO returns failure.
+An actual guest-registered server takes precedence over this host service.
 
-The following retail log confirms a third IOP thread was created and started,
-but still shows no CRI RPC server at attempt 64. The import-pipeline correction
-did not resolve that retail stall. Pending binds now include read-only thread
-states, wait IDs, semaphore counts, event bits, wake deadlines, limited guest
-instruction context, and recent imports. Scheduler exceptions are reported
-instead of being silently discarded. These changes improve diagnosis; a
-retail startup fix has not yet been established.
+The regression reproduces the unavailable bind on the previous runtime, then
+binds and completes a search through EE SIF with the updated runtime. It checks
+all three packet layouts, aliased guest addresses, output bounds, malformed
+requests, missing files, and ISO removal/reset. These checks use a synthetic ISO;
+retail startup beyond this bind still requires verification.
+
+Earlier component fixes remain: SPU2 DMA status clears on transfer disable, and
+IOP import dispatch retires a pending load before invoking a service or IRX
+export. Guest regressions check both SPU2 cores and imported thread/RPC calls.
+Bounded pending-bind diagnostics retain thread states, wait objects, nearby
+instructions, and recent imports; scheduler exceptions are reported.
 
 A complete retail ISO is not present in the development environment. Further
 end-to-end checks must run the updated application with the user's local ISO.

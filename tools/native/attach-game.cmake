@@ -53,6 +53,7 @@ function(openkai2_attach_generated_sources)
         list(APPEND overlay_iop_sources "${source}")
     endforeach()
     set_property(TARGET ps2_iop PROPERTY SOURCES "${overlay_iop_sources}")
+    target_sources(ps2_iop PRIVATE "${project_root}/src/cdvd_rpc.cpp")
     target_include_directories(ps2_iop BEFORE PRIVATE "${overlay_dir}")
     foreach(test IN ITEMS ps2_iop_emulator_tests ps2_iop_import_tests
             ps2_iop_compatibility_tests ps2_iop_import_version_tests)
