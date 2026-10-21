@@ -3,6 +3,7 @@
 #include "sound_checks.h"
 #include "dma_checks.h"
 #include "startup_checks.h"
+#include "callback_checks.h"
 #include "iop_checks.h"
 #include "iop_wait_checks.h"
 #include "ps2_runtime.h"
@@ -77,6 +78,7 @@ void verify_file_callbacks(PS2Runtime& runtime,uint8_t* memory) {
 }
 }
 int run_runtime_checks() {
+    verify_callback_stacks();
     verify_startup_diagnostics();
     std::cout << "Startup diagnostics regression passed: bounded, read-only EE wait snapshots.\n";
     verify_iop_wait_diagnostics();
@@ -233,6 +235,8 @@ int run_runtime_checks() {
     std::cout << "Runtime dispatch table regression passed: 98 methods, 39 leaf returns, and compiled caller.\n";
     verify_file_callbacks(runtime,memory);
     std::cout << "Runtime file callback regression passed: 14 entries, query paths, and compiled caller.\n";
+    verify_callback_resume(runtime,0x00167af8u);
+    std::cout << "Runtime callback stack regression passed: disjoint stacks and compiled interrupt return.\n";
     return 0;
 }
 } // namespace openkai2

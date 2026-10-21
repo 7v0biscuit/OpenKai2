@@ -47,6 +47,7 @@ function(openkai2_attach_generated_sources)
         "${project_root}/tools/native/patches/iop-startup.patch"
         "${project_root}/tools/native/patches/dma-receive.patch"
         "${project_root}/tools/native/patches/startup-diagnostics.patch"
+        "${project_root}/tools/native/patches/callback-stacks.patch"
         "${project_root}/tools/native/prepare-overlays.py")
     get_target_property(iop_sources ps2_iop SOURCES)
     set(overlay_iop_sources "")
@@ -99,6 +100,17 @@ function(openkai2_attach_generated_sources)
     set_property(TARGET ps2_runtime PROPERTY SOURCES "${overlay_runtime_sources}")
     target_include_directories(ps2_runtime PRIVATE "${CMAKE_SOURCE_DIR}/ps2xRuntime/src/lib/Kernel/Stubs")
     target_link_libraries(ps2_runtime PRIVATE openkai2_disc)
+    add_library(openkai2_callback_checks STATIC "${project_root}/src/callback_checks.cpp")
+    target_include_directories(openkai2_callback_checks PUBLIC "${project_root}/src")
+    target_link_libraries(openkai2_callback_checks PUBLIC ps2_runtime)
+    add_executable(openkai2_callback_tests "${project_root}/tests/callback_stack_tests.cpp"
+        "${CMAKE_SOURCE_DIR}/ps2xRuntime/src/runner/register_functions.cpp")
+    target_link_libraries(openkai2_callback_tests PRIVATE openkai2_callback_checks)
+    if(MSVC)
+        target_link_options(openkai2_callback_tests PRIVATE /FORCE:MULTIPLE)
+    endif()
+    ps2x_stage_ffmpeg_runtime_dlls(openkai2_callback_tests)
+    add_test(NAME callback_stacks COMMAND openkai2_callback_tests)
     target_sources(ps2_runtime PRIVATE "${project_root}/src/startup_diagnostics.cpp")
     target_include_directories(ps2_runtime PRIVATE "${project_root}/src"
         "${CMAKE_SOURCE_DIR}/ps2xRuntime/src/lib")
@@ -127,6 +139,7 @@ function(openkai2_attach_generated_sources)
     target_link_libraries(ps2EntryRunner PRIVATE openkai2_disc openkai2_guest_checks)
     target_link_libraries(ps2EntryRunner PRIVATE openkai2_dma_checks)
     target_link_libraries(ps2EntryRunner PRIVATE openkai2_startup_checks)
+    target_link_libraries(ps2EntryRunner PRIVATE openkai2_callback_checks)
     if(WIN32)
         target_link_libraries(ps2EntryRunner PRIVATE comdlg32)
     endif()

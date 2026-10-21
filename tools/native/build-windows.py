@@ -108,6 +108,7 @@ def main():
         run('cmake', '--build', build, '--config', configuration, '--target',
             'ps2EntryRunner', 'openkai2_iop_wait_tests', 'openkai2_iop_pipeline_tests',
             'openkai2_sound_tests', 'openkai2_cdvd_tests', 'openkai2_dma_tests', 'openkai2_startup_tests',
+            'openkai2_callback_tests',
             'ps2_iop_emulator_tests', 'ps2_iop_import_tests',
             'ps2_iop_compatibility_tests', 'ps2_iop_import_version_tests', '--parallel', args.jobs)
         run('ctest', '--test-dir', build, '-C', configuration, '--output-on-failure', '--no-tests=error')
@@ -150,7 +151,8 @@ def main():
     run('cmake', '--build', build, '--config', configuration, '--target', 'ps2EntryRunner',
         'ps2_iop_emulator_tests', 'ps2_iop_import_tests', 'ps2_iop_compatibility_tests',
         'ps2_iop_import_version_tests', 'openkai2_iop_wait_tests', 'openkai2_iop_pipeline_tests', 'openkai2_sound_tests',
-        'openkai2_cdvd_tests', 'openkai2_dma_tests', 'openkai2_startup_tests', '--parallel', args.jobs)
+        'openkai2_cdvd_tests', 'openkai2_dma_tests', 'openkai2_startup_tests', 'openkai2_callback_tests',
+        '--parallel', args.jobs)
     run('ctest', '--test-dir', build, '-C', configuration, '--output-on-failure', '--no-tests=error')
     output = build / 'ps2xRuntime' / configuration
     shutil.copy2(output / 'ps2EntryRunner.exe', native / 'OpenKai2.exe')

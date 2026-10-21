@@ -115,6 +115,10 @@ Normal launches retain EE wait-state and graphics-activity reports in
 blank, leave it open for at least 60 seconds before closing it and retaining the
 log. Reports are bounded and do not release waits or change guest state.
 
+The self-test also checks callback stack separation, nested allocations, and
+resumption of an interrupted caller through the EE scheduler using an original
+translated callback.
+
 ```powershell
 python tools/native/diagnose-startup.py "D:\Games\Budokai 2 USA.iso" --timeout 180
 ```

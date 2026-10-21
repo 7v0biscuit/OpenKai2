@@ -53,7 +53,8 @@ def main():
             if source.is_file() and source.suffix in ('.h', '.cpp', '.hpp', '.inc'):
                 source.write_bytes(source.read_bytes().replace(b'\r\n', b'\n'))
         for patch in (patches / 'disc-layout.patch', patches / 'iop-startup.patch',
-                      patches / 'dma-receive.patch', patches / 'startup-diagnostics.patch'):
+                      patches / 'dma-receive.patch', patches / 'startup-diagnostics.patch',
+                      patches / 'callback-stacks.patch'):
             subprocess.run(['git', 'apply', '--no-index', '--check', str(patch)], cwd=temporary, check=True)
             subprocess.run(['git', 'apply', '--no-index', str(patch)], cwd=temporary, check=True)
         for source in temporary.rglob('*'):

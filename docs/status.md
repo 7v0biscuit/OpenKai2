@@ -150,8 +150,23 @@ The diagnostic regression inspects a genuinely blocked EE semaphore wait, checks
 the sample and record limits, and verifies that reporting changes neither guest
 memory nor scheduler state. The compiled scratchpad regression now executes both
 bank-switch routines, including their send, receive, synchronization, saved
-registers, and outer return frame. The blank-screen cause remains unidentified;
-these checks do not establish a boot fix.
+registers, and outer return frame. At that stage the blank-screen cause remained
+unidentified; those diagnostic checks did not establish a boot fix.
+
+The next log shows the only EE thread dormant at PC/RA zero, with no semaphore
+or event waiters. The runtime's first asynchronous callback stack started at
+the top of RDRAM, overlapping the bootstrap thread's live return frames. Saving
+the callback's zero return sentinel could therefore destroy the interrupted
+caller's return address.
+
+Callback allocation now leaves the top 64 KiB for the bootstrap stack and grows
+downward above the existing guest heap limit. The regression reproduces both
+frame corruption and loss of the interrupted continuation on the previous
+runtime. It checks disjoint nested stacks, reuse by nesting depth, alignment,
+arena exhaustion, and successful continuation through the real EE scheduler.
+The packaged self-test repeats the scheduler interruption with the original
+translated file-query callback. This fixes a reproduced runtime corruption bug;
+retail startup beyond it still requires validation with the original ISO.
 
 A complete retail ISO is not present in the development environment. Further
 end-to-end checks must run the updated application with the user's local ISO.
