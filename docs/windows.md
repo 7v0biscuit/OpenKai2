@@ -105,7 +105,9 @@ This checks IOP import arguments, module-worker startup, sleep and wake
 deadlines, SPU2 initialization, read-only wait diagnostics, and an isolated
 compiled callback's stores and return. It also checks subsystem method-table
 coverage, original leaf returns, file-driver queries and size arithmetic, and
-their compiled callers. The original ISO remains required for
+their compiled callers. Scratchpad DMA checks verify received bytes, wraparound,
+cached and uncached addresses, completion registers, and the original compiled
+copy caller. The original ISO remains required for
 game startup.
 
 ```powershell

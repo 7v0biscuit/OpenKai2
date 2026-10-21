@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "runtime_checks.h"
 #include "sound_checks.h"
+#include "dma_checks.h"
 #include "iop_checks.h"
 #include "iop_wait_checks.h"
 #include "ps2_runtime.h"
@@ -82,12 +83,43 @@ int run_runtime_checks() {
     std::cout << "IOP module startup regression passed: nested RPC worker registration, sleep, and bounded scheduling.\n";
     verify_sound_registers();
     std::cout << "SPU2 initialization regression passed: both cores, DMA status, and guest polling.\n";
+    verify_scratchpad_dma();
     constexpr uint32_t entry=0x00167188, caller=0x00162dec, returned=0x00162df4;
     PS2Runtime runtime;
     if (!runtime.hasFunction(entry))
         throw std::runtime_error("Runtime regression: startup callback 0x00167188 is not registered");
     if (!runtime.memory().initialize()) throw std::runtime_error("Cannot allocate regression-test guest memory");
     auto* memory=runtime.memory().getRDRAM();
+    // Run the original compiled scratchpad-copy caller with the retail size
+    // and destination, including its SADR write and receive SDK invocation.
+    {
+        constexpr uint32_t destination=0x003c4200u, stack=0x01fffe40u;
+        auto* scratch=runtime.memory().getScratchpad();
+        for (uint32_t i=0;i<PS2_SCRATCHPAD_SIZE;++i) scratch[i]=uint8_t(i*13u+(i>>8));
+        std::memset(memory+destination-16,0xcc,PS2_SCRATCHPAD_SIZE+32);
+        R5900Context context{};
+        context.pc=0x001862e8u;
+        context.r[4]=_mm_cvtsi32_si128(0);
+        context.r[5]=_mm_cvtsi32_si128(0x4000);
+        context.r[6]=_mm_cvtsi32_si128(destination);
+        context.r[7]=_mm_cvtsi32_si128(12);
+        for (unsigned reg=16;reg<=18;++reg) context.r[reg]=_mm_cvtsi32_si128(0x1000+reg);
+        context.r[29]=_mm_cvtsi32_si128(stack);
+        context.r[31]=_mm_cvtsi32_si128(0x00186350u);
+        if (!runtime.dispatchGuestBranch(memory,&context,0x001862e8u,0u,0x00186350u,
+                PS2Runtime::GuestBranchKind::DirectCall,"scratchpad copy regression")
+            || context.pc!=0x00186350u || getRegU32(&context,2)!=0
+            || getRegU32(&context,29)!=stack || getRegU32(&context,31)!=0x00186350u
+            || std::memcmp(memory+destination,scratch,PS2_SCRATCHPAD_SIZE)!=0)
+            throw std::runtime_error("Runtime regression: compiled scratchpad copy failed");
+        for (unsigned reg=16;reg<=18;++reg)
+            if (getRegU32(&context,reg)!=0x1000u+reg)
+                throw std::runtime_error("Runtime regression: scratchpad caller changed a saved register");
+        for (unsigned i=0;i<16;++i)
+            if (memory[destination-16+i]!=0xcc || memory[destination+PS2_SCRATCHPAD_SIZE+i]!=0xcc)
+                throw std::runtime_error("Runtime regression: compiled scratchpad copy overran destination");
+    }
+    std::cout << "Runtime scratchpad DMA regression passed: receive bytes, completion, aliases, and compiled caller.\n";
     for (const uint32_t second : {0u,0x12345678u}) {
         R5900Context context{};
         context.pc=entry;

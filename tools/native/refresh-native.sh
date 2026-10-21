@@ -52,7 +52,7 @@ if [ -f "$native_pch" ] && [ "$native_source/gcc-portability.h" -nt "$native_pch
     touch "$native_build/ps2xRuntime/CMakeFiles/ps2EntryRunner.dir/cmake_pch.hxx"
 fi
 python -B "$native_source/build-native.py"
-cmake --build "$native_build" --target openkai2_iop_wait_tests openkai2_iop_pipeline_tests openkai2_sound_tests openkai2_cdvd_tests ps2_iop_emulator_tests \
+cmake --build "$native_build" --target openkai2_dma_tests openkai2_iop_wait_tests openkai2_iop_pipeline_tests openkai2_sound_tests openkai2_cdvd_tests ps2_iop_emulator_tests \
     ps2_iop_import_tests ps2_iop_compatibility_tests ps2_iop_import_version_tests \
     --parallel 4
 ctest --test-dir "$native_build" --output-on-failure --no-tests=error

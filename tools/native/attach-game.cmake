@@ -45,6 +45,7 @@ function(openkai2_attach_generated_sources)
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
         "${project_root}/tools/native/patches/disc-layout.patch"
         "${project_root}/tools/native/patches/iop-startup.patch"
+        "${project_root}/tools/native/patches/dma-receive.patch"
         "${project_root}/tools/native/prepare-overlays.py")
     get_target_property(iop_sources ps2_iop SOURCES)
     set(overlay_iop_sources "")
@@ -86,6 +87,10 @@ function(openkai2_attach_generated_sources)
     get_target_property(runtime_sources ps2_runtime SOURCES)
     set(overlay_runtime_sources "")
     foreach(source IN LISTS runtime_sources)
+        if(source STREQUAL "src/lib/ps2_memory.cpp" OR
+                source STREQUAL "${CMAKE_SOURCE_DIR}/ps2xRuntime/src/lib/ps2_memory.cpp")
+            set(source "${overlay_dir}/runtime/ps2_memory.cpp")
+        endif()
         string(REPLACE "${CMAKE_SOURCE_DIR}/ps2xRuntime/src/lib/Kernel/Stubs/"
             "${overlay_dir}/Kernel/Stubs/" source "${source}")
         list(APPEND overlay_runtime_sources "${source}")
@@ -93,7 +98,19 @@ function(openkai2_attach_generated_sources)
     set_property(TARGET ps2_runtime PROPERTY SOURCES "${overlay_runtime_sources}")
     target_include_directories(ps2_runtime PRIVATE "${CMAKE_SOURCE_DIR}/ps2xRuntime/src/lib/Kernel/Stubs")
     target_link_libraries(ps2_runtime PRIVATE openkai2_disc)
+    add_library(openkai2_dma_checks STATIC "${project_root}/src/dma_checks.cpp")
+    target_include_directories(openkai2_dma_checks PUBLIC "${project_root}/src")
+    target_link_libraries(openkai2_dma_checks PUBLIC ps2_runtime)
+    add_executable(openkai2_dma_tests "${project_root}/tests/dma_receive_tests.cpp"
+        "${CMAKE_SOURCE_DIR}/ps2xRuntime/src/runner/register_functions.cpp")
+    target_link_libraries(openkai2_dma_tests PRIVATE openkai2_dma_checks)
+    if(MSVC)
+        target_link_options(openkai2_dma_tests PRIVATE /FORCE:MULTIPLE)
+    endif()
+    ps2x_stage_ffmpeg_runtime_dlls(openkai2_dma_tests)
+    add_test(NAME scratchpad_dma_receive COMMAND openkai2_dma_tests)
     target_link_libraries(ps2EntryRunner PRIVATE openkai2_disc openkai2_guest_checks)
+    target_link_libraries(ps2EntryRunner PRIVATE openkai2_dma_checks)
     if(WIN32)
         target_link_libraries(ps2EntryRunner PRIVATE comdlg32)
     endif()

@@ -117,6 +117,24 @@ caller is tested with the query callback, the original 2,048-byte sector-size
 callback, and an absent callback slot. Actual file reads and subsequent retail
 startup still require validation with the complete ISO.
 
+The next Windows log passes the file-driver callback and stops at the
+unimplemented `sceDmaRecvN` SDK function, called from `0x00186328`. It requests
+1,024 quadwords (16 KiB) from scratchpad DMA channel 8 into `0x003C4200`.
+
+Normal scratchpad receives now program the existing DMA controller, preserving
+the scratchpad source address and unrelated channel flags. The controller copies
+the actual bytes, advances MADR/SADR, clears QWC/STR, and raises completion status.
+Reading scratchpad channel status no longer clears STR prematurely. Other receive
+devices remain explicitly unsupported rather than returning invented data.
+
+The regression reproduces the previous SDK exception with the retail arguments.
+It checks full-size and wrapping copies, cached and uncached destinations, zero
+length, SDK send/receive round trips, destination guards, completion polling,
+invalid requests, and preservation of an active transfer. The executable self-test
+also runs the original compiled scratchpad-copy caller and checks its result,
+saved registers, return frame, and copied bytes. Startup beyond this transfer
+still requires validation with the original ISO.
+
 A complete retail ISO is not present in the development environment. Further
 end-to-end checks must run the updated application with the user's local ISO.
 The launcher obtains `MODULES`, `USR`, and the executable from that image;

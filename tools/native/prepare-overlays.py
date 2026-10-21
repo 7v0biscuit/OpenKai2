@@ -9,6 +9,10 @@ import subprocess
 import tempfile
 
 EXPECTED = {
+    'ps2xRuntime/src/lib/ps2_memory.cpp':
+        '4bae084dfa6ea30479af5efde70c61927a4fe5a49216d99c3db76297db4ac22a',
+    'ps2xRuntime/src/lib/Kernel/Stubs/DMA.cpp':
+        '8238ec20e2d2b4c62a495b205d3201d8cad454e513f91b21fe517e62b0a89107',
     'ps2xIOP/src/emulator/core/iop_kernel.h':
         '260863c946a687faf5e88c309615de4da319a3028124a97b714468dbf6df0ab5',
     'ps2xIOP/src/emulator/core/iop_kernel.cpp':
@@ -38,12 +42,15 @@ def main():
     patches = Path(__file__).resolve().parent / 'patches'
     with tempfile.TemporaryDirectory(prefix='openkai2-overlays-', dir=args.output.parent) as folder:
         temporary = Path(folder)
+        (temporary / 'runtime').mkdir()
+        shutil.copy2(args.upstream / 'ps2xRuntime/src/lib/ps2_memory.cpp', temporary / 'runtime/ps2_memory.cpp')
         shutil.copytree(args.upstream / 'ps2xRuntime/src/lib/Kernel/Stubs', temporary / 'Kernel/Stubs')
         shutil.copytree(args.upstream / 'ps2xIOP/src/emulator', temporary / 'emulator')
         for source in temporary.rglob('*'):
             if source.is_file() and source.suffix in ('.h', '.cpp', '.hpp', '.inc'):
                 source.write_bytes(source.read_bytes().replace(b'\r\n', b'\n'))
-        for patch in (patches / 'disc-layout.patch', patches / 'iop-startup.patch'):
+        for patch in (patches / 'disc-layout.patch', patches / 'iop-startup.patch',
+                      patches / 'dma-receive.patch'):
             subprocess.run(['git', 'apply', '--no-index', '--check', str(patch)], cwd=temporary, check=True)
             subprocess.run(['git', 'apply', '--no-index', str(patch)], cwd=temporary, check=True)
         for source in temporary.rglob('*'):
