@@ -1,7 +1,13 @@
 diff --git a/Kernel/Syscalls/Thread.cpp b/Kernel/Syscalls/Thread.cpp
 --- a/Kernel/Syscalls/Thread.cpp
 +++ b/Kernel/Syscalls/Thread.cpp
-@@ -180,8 +180,19 @@
+@@ -1,4 +1,5 @@
+ #include "Common.h"
++#include <cstdlib>
+ #include "Thread.h"
+ #include "runtime/ee_scheduler.h"
+ 
+@@ -180,8 +181,27 @@
          setReturnS32(ctx, KE_OK);
      }
  
@@ -15,10 +21,18 @@ diff --git a/Kernel/Syscalls/Thread.cpp b/Kernel/Syscalls/Thread.cpp
 +        // priority reported by ReferThreadStatus, so returning success alone
 +        // leaves their CreateThread descriptors with an illegal priority.
 +        const GuestThread *self = ee.currentThread();
++        const int previousPriority = self ? self->currentPriority : -1;
++        int result = KE_OK;
 +        if (self && self->currentPriority == 0)
 +        {
 +            int oldPriority = 0;
-+            ee.changePriority(self->id, 1, false, oldPriority);
++            result = ee.changePriority(self->id, 1, false, oldPriority);
++        }
++        if (std::getenv("OPENKAI2_EE_BOOTSTRAP_TRACE"))
++        {
++            std::cerr << "[SDK thread bootstrap] patched=1 source=" << __FILE__
++                      << " before=" << previousPriority << " result=" << result
++                      << " after=" << (ee.currentThread() ? ee.currentThread()->currentPriority : -1) << '\n';
 +        }
          setReturnS32(ctx, EeScheduler::kMainThreadId);
      }

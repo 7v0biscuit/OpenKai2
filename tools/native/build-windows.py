@@ -41,6 +41,21 @@ def vc_runtime_directories():
     return sorted((Path(installation) / 'VC/Redist/MSVC').glob('*/x64/Microsoft.VC*.CRT'), reverse=True)
 
 
+def thread_build_diagnostics(build):
+    for name in ('ps2xRuntime/ps2_runtime.vcxproj', 'openkai2_thread_tests.map'):
+        path = build / name
+        if path.is_file():
+            lines = [line.strip() for line in path.read_text(errors='replace').splitlines()
+                     if ('Thread.cpp' if path.suffix == '.vcxproj' else 'InitThread') in line]
+            print('EE thread build diagnostic:', name, '\n'.join(lines), flush=True)
+    source = build / 'openkai2-overlays/Kernel/Syscalls/Thread.cpp'
+    if source.is_file():
+        text = source.read_text()
+        start = text.find('    void InitThread(')
+        print('EE thread build diagnostic: overlay sha256=' + hashlib.sha256(source.read_bytes()).hexdigest(),
+              text[start:start+1600], flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--iso', type=Path, help='Original Budokai 2 USA ISO; required for the game build')
@@ -111,7 +126,11 @@ def main():
             'openkai2_thread_tests', 'openkai2_callback_tests',
             'ps2_iop_emulator_tests', 'ps2_iop_import_tests',
             'ps2_iop_compatibility_tests', 'ps2_iop_import_version_tests', '--parallel', args.jobs)
-        run('ctest', '--test-dir', build, '-C', configuration, '--output-on-failure', '--no-tests=error')
+        try:
+            run('ctest', '--test-dir', build, '-C', configuration, '--output-on-failure', '--no-tests=error')
+        except subprocess.CalledProcessError:
+            thread_build_diagnostics(build)
+            raise
         return 0
 
     analyzer = build / 'ps2xAnalyzer' / configuration / 'ps2_analyzer.exe'
