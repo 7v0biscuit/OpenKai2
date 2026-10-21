@@ -104,8 +104,8 @@ Runtime integration can be checked without booting the game:
 This checks IOP import arguments, module-worker startup, sleep and wake
 deadlines, SPU2 initialization, read-only wait diagnostics, and an isolated
 compiled callback's stores and return. It also checks subsystem method-table
-coverage, original leaf returns, and the compiled startup dispatcher. The
-original ISO remains required for
+coverage, original leaf returns, file-driver queries and size arithmetic, and
+their compiled callers. The original ISO remains required for
 game startup.
 
 ```powershell

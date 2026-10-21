@@ -67,8 +67,22 @@ ZERO_RETURN_ENTRIES = (
     0x0019F410, 0x0019F660, 0x0019F668, 0x0019F670,
     0x0019F678, 0x0019F680, 0x0019F708,
 )
-# Keep the earlier argument-store callback as well as every table method.
-ENTRY_POINTS = (0x00167188,) + tuple(address for _, row in DISPATCH_TABLES for address in row)
+# The file-driver interface starts at 0x0035FB38. Its last reviewed slot
+# (offset 0x60) is queried by the compiled caller at 0x00164940.
+FILE_CALLBACK_TABLES = ((0x0035FB38, (
+    0x00167110, 0x00167188, 0x001672A0, 0x00000000,
+    0x001673C8, 0x00167550, 0x001675A8, 0x00167640,
+    0x00167678, 0x00000000, 0x00167820, 0x00167920,
+    0x00167958, 0x00000000, 0x00167960, 0x00000000,
+    0x00167218, 0x00000000, 0x00000000, 0x00000000,
+    0x00000000, 0x00000000, 0x00000000, 0x00000000,
+    0x00167AF8,
+)),)
+FILE_CALLBACK_ENTRIES = tuple(address for _, row in FILE_CALLBACK_TABLES for address in row if address)
+# Preserve ordering and share the argument-store callback between both groups.
+ENTRY_POINTS = tuple(dict.fromkeys((0x00167188,)
+    + tuple(address for _, row in DISPATCH_TABLES for address in row)
+    + FILE_CALLBACK_ENTRIES))
 
 
 def configure(text):
@@ -121,7 +135,7 @@ def verify_elf_metadata(data):
 
     if words(0x00385748, len(DISPATCH_TABLES)) != tuple(base for base, _ in DISPATCH_TABLES):
         raise ValueError('Startup dispatcher table roots differ from the reviewed metadata')
-    for base, entries in DISPATCH_TABLES:
+    for base, entries in DISPATCH_TABLES + FILE_CALLBACK_TABLES:
         if words(base, len(entries)) != entries:
             raise ValueError(f'Indirect methods differ from the reviewed table at 0x{base:08x}')
     for address in ZERO_RETURN_ENTRIES:
@@ -132,7 +146,9 @@ def verify_elf_metadata(data):
 def emit_check_header(path):
     lines = ['// SPDX-License-Identifier: GPL-3.0-only', '#pragma once',
              '#include <array>', '#include <cstdint>', 'namespace openkai2::translation {']
-    for name, entries in (('entries', ENTRY_POINTS), ('zero_return_entries', ZERO_RETURN_ENTRIES)):
+    for name, entries in (('entries', ENTRY_POINTS), ('zero_return_entries', ZERO_RETURN_ENTRIES),
+                          ('file_callback_entries', FILE_CALLBACK_ENTRIES),
+                          ('file_callback_slots', FILE_CALLBACK_TABLES[0][1])):
         lines.append(f'inline constexpr std::array<uint32_t, {len(entries)}> {name} = {{')
         lines.extend(f'    0x{address:08x}u,' for address in entries)
         lines.append('};')

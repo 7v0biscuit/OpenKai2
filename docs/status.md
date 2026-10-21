@@ -6,7 +6,7 @@ The application requires the original USA ISO at every launch.
 ## Verified components
 
 - All 16 EE component probes build on Linux and as Windows x64 executables.
-- All 127 Python regression tests pass, including translation entry, portable, and release package checks.
+- All 129 Python regression tests pass, including translation entry, portable, and release package checks.
 - Synthetic and USA-executable component comparisons pass.
 - ISO verification passes 33 native Linux checks and 32 Windows-executable
   checks under Wine. Wine cannot execute the cache-symlink check.
@@ -102,6 +102,20 @@ The executable self-test checks registration of all reviewed entries, executes
 and stack, and runs the compiled dispatcher across two isolated method tables.
 These checks use the translated instructions. The other methods still require
 valid game objects and disc data for end-to-end validation.
+
+The next user log passes the subsystem dispatcher and stops at file-driver
+callback `0x00167AF8`, called from `0x00164940` with a null object and query code
+100. Its interface bank at `0x0035FB38` contains 25 reviewed slots, including 14
+non-null callback entries. Ten entries were absent from native dispatch.
+
+The translation now includes that callback bank and verifies its original null
+slots and method addresses against the supported executable. The self-test
+executes the original query callback with null objects, unsupported commands,
+file-size queries, and signed size boundaries. It checks object memory, saved
+registers, adjacent stack memory, and return-frame restoration. The compiled
+caller is tested with the query callback, the original 2,048-byte sector-size
+callback, and an absent callback slot. Actual file reads and subsequent retail
+startup still require validation with the complete ISO.
 
 A complete retail ISO is not present in the development environment. Further
 end-to-end checks must run the updated application with the user's local ISO.

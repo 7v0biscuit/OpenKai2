@@ -65,6 +65,8 @@ def main():
             raise RuntimeError('Compiled startup callback regression did not pass.')
         if 'Runtime dispatch table regression passed' not in self_test:
             raise RuntimeError('Compiled indirect method dispatch regression did not pass.')
+        if 'Runtime file callback regression passed' not in self_test:
+            raise RuntimeError('Compiled file callback regression did not pass.')
         missing = root / 'missing-game.iso'
         run([str(executable), str(missing)], expected=1)
         log = Path(os.environ['LOCALAPPDATA']) / 'OpenKai2/logs/startup.log'

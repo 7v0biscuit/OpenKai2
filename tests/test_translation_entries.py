@@ -32,9 +32,11 @@ class TranslationEntries(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'general'):
             ENTRIES.configure('[mmio]\nvalue=1\n')
 
-    def verify_fixture(self, registry, source, complete_tables=True):
+    def verify_fixture(self, registry, source, complete_tables=True, omitted=()):
         if complete_tables:
             for index, address in enumerate(ENTRIES.ENTRY_POINTS[1:], 1):
+                if address in omitted:
+                    continue
                 registry += f'\ng_ps2RecompiledFunctionTable[{index}] = owner; // 0x{address:x}'
                 source += f'\ncase 0x{address:x}u: goto label_{address:x};\nlabel_{address:x}:\n'
         with tempfile.TemporaryDirectory() as temporary:
@@ -65,7 +67,7 @@ class TranslationEntries(unittest.TestCase):
     def test_reviewed_tables_have_complete_unique_coverage(self):
         self.assertEqual(len(ENTRIES.DISPATCH_TABLES), 7)
         self.assertTrue(all(len(row) == 14 for _, row in ENTRIES.DISPATCH_TABLES))
-        self.assertEqual(len(set(ENTRIES.ENTRY_POINTS)), 99)
+        self.assertEqual(len(set(ENTRIES.ENTRY_POINTS)), 112)
         self.assertEqual(len(ENTRIES.ZERO_RETURN_ENTRIES), 39)
         self.assertTrue(set(ENTRIES.ZERO_RETURN_ENTRIES) <= set(ENTRIES.ENTRY_POINTS))
         self.assertNotIn(0x00387110, ENTRIES.ENTRY_POINTS)
@@ -80,12 +82,27 @@ class TranslationEntries(unittest.TestCase):
             path = Path(temporary) / 'entries.h'
             ENTRIES.emit_check_header(path)
             content, changed = path.read_text(), path.stat().st_mtime_ns
-            self.assertIn('std::array<uint32_t, 99> entries', content)
+            self.assertIn('std::array<uint32_t, 112> entries', content)
             self.assertIn('std::array<uint32_t, 39> zero_return_entries', content)
             for address in ENTRIES.ENTRY_POINTS:
                 self.assertIn(f'0x{address:08x}u,', content)
             ENTRIES.emit_check_header(path)
             self.assertEqual(path.stat().st_mtime_ns, changed)
+
+    def test_file_callback_bank_preserves_null_slots(self):
+        self.assertEqual(len(ENTRIES.FILE_CALLBACK_TABLES), 1)
+        base, slots = ENTRIES.FILE_CALLBACK_TABLES[0]
+        self.assertEqual(base, 0x0035FB38)
+        self.assertEqual(len(slots), 25)
+        self.assertEqual(slots[0x60 // 4], 0x00167AF8)
+        self.assertEqual(len(ENTRIES.FILE_CALLBACK_ENTRIES), 14)
+        self.assertNotIn(0, ENTRIES.ENTRY_POINTS)
+        self.assertEqual(ENTRIES.ENTRY_POINTS.count(0x00167188), 1)
+
+    def test_file_query_callback_must_be_registered(self):
+        with self.assertRaisesRegex(ValueError, 'missing guest entry 0x00167af8'):
+            self.verify_fixture('g_ps2RecompiledFunctionTable[1] = owner; // 0x167188',
+                                '// Address: 0x167188 - 0x1671a0', omitted=(0x00167AF8,))
 
 
 if __name__ == '__main__':
