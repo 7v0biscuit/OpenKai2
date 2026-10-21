@@ -67,7 +67,7 @@ class TranslationEntries(unittest.TestCase):
     def test_reviewed_tables_have_complete_unique_coverage(self):
         self.assertEqual(len(ENTRIES.DISPATCH_TABLES), 7)
         self.assertTrue(all(len(row) == 14 for _, row in ENTRIES.DISPATCH_TABLES))
-        self.assertEqual(len(set(ENTRIES.ENTRY_POINTS)), 112)
+        self.assertEqual(len(set(ENTRIES.ENTRY_POINTS)), 121)
         self.assertEqual(len(ENTRIES.ZERO_RETURN_ENTRIES), 39)
         self.assertTrue(set(ENTRIES.ZERO_RETURN_ENTRIES) <= set(ENTRIES.ENTRY_POINTS))
         self.assertNotIn(0x00387110, ENTRIES.ENTRY_POINTS)
@@ -82,7 +82,7 @@ class TranslationEntries(unittest.TestCase):
             path = Path(temporary) / 'entries.h'
             ENTRIES.emit_check_header(path)
             content, changed = path.read_text(), path.stat().st_mtime_ns
-            self.assertIn('std::array<uint32_t, 112> entries', content)
+            self.assertIn('std::array<uint32_t, 121> entries', content)
             self.assertIn('std::array<uint32_t, 39> zero_return_entries', content)
             for address in ENTRIES.ENTRY_POINTS:
                 self.assertIn(f'0x{address:08x}u,', content)
@@ -103,6 +103,20 @@ class TranslationEntries(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'missing guest entry 0x00167af8'):
             self.verify_fixture('g_ps2RecompiledFunctionTable[1] = owner; // 0x167188',
                                 '// Address: 0x167188 - 0x1671a0', omitted=(0x00167AF8,))
+
+    def test_stream_callback_bank_preserves_reserved_slots(self):
+        base, slots = ENTRIES.STREAM_CALLBACK_TABLES[0]
+        self.assertEqual(base, 0x00367B68)
+        self.assertEqual(slots[:3], (0, 0, 0))
+        self.assertEqual(slots[3], 0x0016D310)
+        self.assertEqual(len(slots), 12)
+        self.assertEqual(len(ENTRIES.STREAM_CALLBACK_ENTRIES), 9)
+        self.assertTrue(set(ENTRIES.STREAM_CALLBACK_ENTRIES) <= set(ENTRIES.ENTRY_POINTS))
+
+    def test_stream_cleanup_callback_must_be_registered(self):
+        with self.assertRaisesRegex(ValueError, 'missing guest entry 0x0016d310'):
+            self.verify_fixture('g_ps2RecompiledFunctionTable[1] = owner; // 0x167188',
+                                '// Address: 0x167188 - 0x1671a0', omitted=(0x0016D310,))
 
 
 if __name__ == '__main__':

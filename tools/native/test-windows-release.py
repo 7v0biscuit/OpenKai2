@@ -53,6 +53,8 @@ def main():
         if 'The original game ISO is required' not in help_text:
             raise RuntimeError('Installed executable did not print the expected help.')
         self_test = run([str(executable), '--self-test'])
+        if 'Runtime stream callback regression passed' not in self_test:
+            raise RuntimeError('Compiled stream interface regression did not pass.')
         if 'Runtime thread bootstrap regression passed' not in self_test:
             raise RuntimeError('Compiled EE worker initialization regression did not pass.')
         if 'Runtime callback stack regression passed' not in self_test:

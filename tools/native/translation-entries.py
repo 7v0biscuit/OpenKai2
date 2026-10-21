@@ -79,10 +79,19 @@ FILE_CALLBACK_TABLES = ((0x0035FB38, (
     0x00167AF8,
 )),)
 FILE_CALLBACK_ENTRIES = tuple(address for _, row in FILE_CALLBACK_TABLES for address in row if address)
+# SJRBF stream interface used by the indirect cleanup caller at 0x00156FE8.
+# Preserve its three reserved null slots and all nine callable methods.
+STREAM_CALLBACK_TABLES = ((0x00367B68, (
+    0x00000000, 0x00000000, 0x00000000,
+    0x0016D310, 0x0016D350, 0x0016D368,
+    0x0016D400, 0x0016D6D0, 0x0016D570,
+    0x0016D3B0, 0x0016D868, 0x0016D358,
+)),)
+STREAM_CALLBACK_ENTRIES = tuple(address for _, row in STREAM_CALLBACK_TABLES for address in row if address)
 # Preserve ordering and share the argument-store callback between both groups.
 ENTRY_POINTS = tuple(dict.fromkeys((0x00167188,)
     + tuple(address for _, row in DISPATCH_TABLES for address in row)
-    + FILE_CALLBACK_ENTRIES))
+    + FILE_CALLBACK_ENTRIES + STREAM_CALLBACK_ENTRIES))
 
 
 def configure(text):
@@ -135,7 +144,7 @@ def verify_elf_metadata(data):
 
     if words(0x00385748, len(DISPATCH_TABLES)) != tuple(base for base, _ in DISPATCH_TABLES):
         raise ValueError('Startup dispatcher table roots differ from the reviewed metadata')
-    for base, entries in DISPATCH_TABLES + FILE_CALLBACK_TABLES:
+    for base, entries in DISPATCH_TABLES + FILE_CALLBACK_TABLES + STREAM_CALLBACK_TABLES:
         if words(base, len(entries)) != entries:
             raise ValueError(f'Indirect methods differ from the reviewed table at 0x{base:08x}')
     for address in ZERO_RETURN_ENTRIES:
@@ -148,7 +157,9 @@ def emit_check_header(path):
              '#include <array>', '#include <cstdint>', 'namespace openkai2::translation {']
     for name, entries in (('entries', ENTRY_POINTS), ('zero_return_entries', ZERO_RETURN_ENTRIES),
                           ('file_callback_entries', FILE_CALLBACK_ENTRIES),
-                          ('file_callback_slots', FILE_CALLBACK_TABLES[0][1])):
+                          ('file_callback_slots', FILE_CALLBACK_TABLES[0][1]),
+                          ('stream_callback_entries', STREAM_CALLBACK_ENTRIES),
+                          ('stream_callback_slots', STREAM_CALLBACK_TABLES[0][1])):
         lines.append(f'inline constexpr std::array<uint32_t, {len(entries)}> {name} = {{')
         lines.extend(f'    0x{address:08x}u,' for address in entries)
         lines.append('};')

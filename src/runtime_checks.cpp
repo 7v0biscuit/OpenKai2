@@ -5,6 +5,7 @@
 #include "startup_checks.h"
 #include "callback_checks.h"
 #include "thread_checks.h"
+#include "stream_checks.h"
 #include "iop_checks.h"
 #include "iop_wait_checks.h"
 #include "ps2_runtime.h"
@@ -165,6 +166,8 @@ int run_runtime_checks() {
         throw std::runtime_error("Runtime regression: startup callback 0x00167188 is not registered");
     if (!runtime.memory().initialize()) throw std::runtime_error("Cannot allocate regression-test guest memory");
     auto* memory=runtime.memory().getRDRAM();
+    verify_stream_callbacks(runtime,memory);
+    std::cout << "Runtime stream callback regression passed: nine methods, ring wraparound, and compiled cleanup caller.\n";
     // Run the original compiled scratchpad-copy caller with the retail size
     // and destination, including its SADR write and receive SDK invocation.
     {

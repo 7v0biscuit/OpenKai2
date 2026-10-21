@@ -6,7 +6,7 @@ The application requires the original USA ISO at every launch.
 ## Verified components
 
 - All 16 EE component probes build on Linux and as Windows x64 executables.
-- All 131 Python regression tests pass, including translation entry, portable, and release package checks.
+- All 133 Python regression tests pass, including translation entry, portable, and release package checks.
 - Synthetic and USA-executable component comparisons pass.
 - ISO verification passes 33 native Linux checks and 32 Windows-executable
   checks under Wine. Wine cannot execute the cache-symlink check.
@@ -176,7 +176,17 @@ now performs the transition while preserving an already configured user priority
 The regression runs the translated SDK entry and game initialization, checks all
 four worker IDs and entries, and verifies that two execute to their sleep points.
 It also checks descriptor fields, invalid-priority rejection, and saved registers.
-Further retail progress still requires validation with the original ISO.
+The next retail log confirms that all four workers start. The main thread then
+stops at the unregistered SJRBF stream cleanup method `0x0016D310`, called through
+slot `0x0C` of the interface at `0x00367B68`.
+
+Translation hints now cover all nine methods in that interface, preserving its
+three reserved null slots. The packaged regression executes the original cleanup
+caller at `0x00156F90`, checks complete object release and adjacent pool bounds,
+and verifies construction, interface identity, reset, chunk acquisition, return,
+recycling, length queries, error callbacks, and ring wraparound. All 121 reviewed
+indirect entries must have valid instruction-level dispatch coverage. Further
+retail startup still requires validation with the original ISO.
 
 Callback regression fixtures allocate their runtime devices on the heap, avoiding
 overflow of MSVC's default 1 MiB host stack. Windows source CI passes this check.
