@@ -57,6 +57,8 @@ def main():
             raise RuntimeError('Compiled IOP wait diagnostics regression did not pass.')
         if 'IOP import pipeline regression passed' not in self_test:
             raise RuntimeError('Compiled IOP import pipeline regression did not pass.')
+        if 'IOP module startup regression passed' not in self_test:
+            raise RuntimeError('Compiled IOP module startup regression did not pass.')
         if 'SPU2 initialization regression passed' not in self_test:
             raise RuntimeError('Compiled SPU2 initialization regression did not pass.')
         if 'Runtime callback regression passed' not in self_test:

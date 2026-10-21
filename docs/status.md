@@ -65,6 +65,27 @@ export. Guest regressions check both SPU2 cores and imported thread/RPC calls.
 Bounded pending-bind diagnostics retain thread states, wait objects, nearby
 instructions, and recent imports; scheduler exceptions are reported.
 
+The latest user log confirms that CD/DVD search now finds `CACHE.LST` and the
+three AFS archives, CRI registers sound SID `0x90000200`, and the remaining sound
+modules load through `AMSOUND.IRX`. The game then binds SID `0x11` once and enters
+its sound-bind error loop at `0x00146838` because the server is absent. The
+snapshot shows the newly started worker still at its entry; it creates another
+worker only after the EE has already rejected the bind.
+
+Resident module loading now hands control to ready IOP threads before completing
+the synchronous load. The scheduler runs those threads until they block or the
+existing execution budget is reached. It keeps priority scheduling, sleep state,
+and future wake deadlines intact, and only actual RPC registration makes a
+server bindable. A busy worker produces a bounded scheduling warning instead of
+holding the load indefinitely.
+
+A synthetic guest module reproduces the previous first-bind failure. Its parent
+starts a nested RPC worker, which now registers and serves a real interpreted
+request before loading returns. Checks also cover sleeping workers, delayed
+registration after a real wake deadline, reset, missing SIDs, and a busy worker's
+budget. The packaged application's `--self-test` includes this regression.
+Retail startup beyond this sound-bind failure is still unverified.
+
 A complete retail ISO is not present in the development environment. Further
 end-to-end checks must run the updated application with the user's local ISO.
 The launcher obtains `MODULES`, `USR`, and the executable from that image;

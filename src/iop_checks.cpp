@@ -43,7 +43,8 @@ public:
     int32_t memoryCard(const MemoryCardRequest&) override { return 0; }
     bool hasGuestFunction(uint32_t) const override { return false; }
     bool invokeGuestFunction(uint64_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t*) override { return false; }
-    void log(LogLevel,std::string_view) override {}
+    std::vector<std::string> logs;
+    void log(LogLevel,std::string_view text) override { logs.emplace_back(text); }
 };
 
 // A synthetic MIPS ELF starts a thread, then registers a real interpreted RPC
@@ -98,6 +99,41 @@ void make_image(CheckHost& host, unsigned delayed) {
     program(0x300,{0x10320u,0x1234u,0x10100u,0xBADu});
     program(0x320,{0,0,0x10080u,0x400u,40});
 }
+
+void make_startup_image(CheckHost& host,bool busy,bool delayed=false) {
+    make_image(host,0);
+    constexpr size_t payload=0x200u;
+    auto word=[&](size_t at,uint32_t value) {
+        for (unsigned i=0;i<4;++i) host.bytes.at(payload+at+i)=uint8_t(value>>(8*i));
+    };
+    auto program=[&](size_t at,std::initializer_list<uint32_t> code) {
+        for (auto instruction:code) { word(at,instruction);at+=4; }
+    };
+    const auto jal=[](uint32_t address) { return 0x0C000000u | (address>>2); };
+    std::copy_n(host.bytes.begin()+payload+0x80,0x5C,host.bytes.begin()+payload+0x180);
+    // The registered worker uses SID 0x11 and sleeps after registration.
+    program(0x1A8,{0x3C050000u,0x34A50011u});
+    program(0x1D4,{jal(0x1022Cu),0u,0x3C080001u,0x24090001u,
+                   0xAD090388u,0x1000FFFAu,0u});
+    program(0x22C,{0x03E00008u,0x24000018u,0u}); // thbase:SleepThread
+    program(0x340,{0,0,0x10180u,0x400u,40});
+    // Module startup starts a parent, which starts the actual server worker.
+    program(0x80,{
+        0x3C040001u,0x34840340u,jal(0x10214u),0u,
+        0x00402021u,0x24051234u,jal(0x1021Cu),0u,
+        jal(0x1022Cu),0u,0x1000FFFDu,0u,
+    });
+    if (busy) program(0x80,{0x1000FFFFu,0u});
+    if (delayed) {
+        program(0x234,{0x03E00008u,0x24000021u,0u}); // thbase:DelayThread
+        program(0x80,{
+            0x24042710u,jal(0x10234u),0u, // DelayThread(10000 microseconds)
+            0x3C040001u,0x34840340u,jal(0x10214u),0u,
+            0x00402021u,0x24051234u,jal(0x1021Cu),0u,
+            jal(0x1022Cu),0u,0x1000FFFDu,0u,
+        });
+    }
+}
 }
 
 void verify_iop_import_pipeline() {
@@ -125,5 +161,48 @@ void verify_iop_import_pipeline() {
             throw std::runtime_error("IOP import pipeline case " + std::to_string(delayed) + ": " + error.what());
         }
     }
+}
+
+void verify_iop_module_startup() {
+    CheckHost host;
+    make_startup_image(host,false);
+    IopSubsystem iop(host);
+    const auto loaded=iop.loadModuleBuffer(0x100u);
+    require(loaded.moduleId>0 && loaded.startResult==0,"Cannot load startup-check module");
+    require(iop.canBindRpc(0x11u),"Module load returned before its nested RPC worker registered");
+    uint32_t argument=0,thread=0;
+    require(iop.readMemory(0x10380u,&argument,4) && argument==0x1234u,
+            "Nested startup worker lost its argument");
+    require(iop.readMemory(0x10384u,&thread,4) && thread==2u,
+            "Nested startup worker ran without its thread identity");
+    RpcRequest request{};
+    request.sid=0x11u;request.function=41;request.receive={0x3000u,4u};
+    uint32_t answer=0;
+    require(iop.handleRpc(request).handled && host.readGuest(0x3000u,&answer,4) && answer==42u,
+            "Startup bind did not reach a real interpreted RPC handler");
+    require(!iop.canBindRpc(0x12u),"Startup scheduling fabricated an unregistered server");
+    // The worker writes this marker only after returning from SleepThread.
+    uint32_t resumed=0;
+    require(iop.readMemory(0x10388u,&resumed,4) && resumed==0u,
+            "Module startup resumed a sleeping worker without a wakeup");
+    iop.runEeCycles(8000u);
+    require(iop.readMemory(0x10388u,&resumed,4) && resumed==0u,
+            "Scheduler resumed a sleeping startup worker without a wakeup");
+    iop.reset();
+    require(!iop.canBindRpc(0x11u),"IOP reset retained the startup server");
+    host.logs.clear();
+    make_startup_image(host,true);
+    const auto busy=iop.loadModuleBuffer(0x100u);
+    require(busy.moduleId>0 && !iop.canBindRpc(0x11u),
+            "Busy startup worker was accepted as a registered RPC server");
+    require(std::any_of(host.logs.begin(),host.logs.end(),[](const auto& log) {
+        return log.find("module startup reached scheduling budget")!=std::string::npos;
+    }),"Nonblocking module startup did not report its exhausted scheduling budget");
+    iop.reset();
+    make_startup_image(host,false,true);
+    require(iop.loadModuleBuffer(0x100u).moduleId>0 && !iop.canBindRpc(0x11u),
+            "Module startup fast-forwarded a delayed worker's wake deadline");
+    iop.runEeCycles(4'000'000u);
+    require(iop.canBindRpc(0x11u),"Delayed startup worker did not register after its real wake deadline");
 }
 } // namespace openkai2

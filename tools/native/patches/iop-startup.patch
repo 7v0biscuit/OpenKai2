@@ -143,7 +143,24 @@
              return static_cast<uint32_t>(totalInstructions - start);
          }
  
-@@ -577,15 +626,37 @@
+@@ -553,7 +602,7 @@
+             servicingGuestCallbacks = false;
+         }
+ 
+-        void runCycles(uint64_t cycles) noexcept
++        void runCycles(uint64_t cycles, bool stopWhenIdle = false) noexcept
+         {
+             try
+             {
+@@ -566,6 +615,7 @@
+                     IopThread *next = kernel.beginNextReady(totalCycles);
+                     if (!next)
+                     {
++                        if (stopWhenIdle) return;
+                         uint64_t nextWake = kernel.nextWakeCycle(target);
+                         for (const auto &[irq, completionCycle] : pendingDmaInterrupts)
+                             nextWake = std::min(nextWake, completionCycle);
+@@ -577,15 +627,39 @@
                      }
                      const uint64_t before = totalCycles;
                      runCpu(next->cpu, static_cast<uint32_t>(std::min<uint64_t>(kDefaultSlice, target - totalCycles)));
@@ -153,11 +170,13 @@
                      if (totalCycles == before)
                          ++totalCycles;
                  }
-             }
++                if (stopWhenIdle)
++                    log(LogLevel::Warning, "[IOP] module startup reached scheduling budget before idle");
++            }
 +            catch (const std::exception &error)
 +            {
 +                reportSchedulerError(error.what());
-+            }
+             }
              catch (...)
              {
 -                // Runtime scheduling must never throw through EeScheduler::accountCycles().
@@ -183,7 +202,21 @@
          }
  
          ModuleLoadResult loadImage(std::string path, std::span<const uint8_t> image, const void *arguments, uint32_t argumentSize)
-@@ -685,6 +756,7 @@
+@@ -631,6 +705,13 @@
+             result.moduleId = module.id;
+             result.startResult = static_cast<int32_t>(startResult);
+             modules[module.id] = std::move(module);
++
++            // A synchronous load reply must give the module's started workers
++            // a scheduler handoff before the EE can attempt its first bind.
++            // Run actual ready threads until they block; do not fast-forward
++            // future wake deadlines. A nonblocking worker cannot hang loading.
++            if (startResult == 0u || startResult == 2u)
++                runCycles(kMaxCallInstructions, true);
+ 
+             std::ostringstream out;
+             out << "[IOP] loaded IRX id=" << result.moduleId
+@@ -685,6 +766,7 @@
          IopCdvd cdvd;
          IopVblank vblank;
          IopRpcBridge rpc;
@@ -191,7 +224,7 @@
          IopSysclib sysclib;
          IopStdio stdio;
          IopHeaplib heaplib;
-@@ -704,6 +776,12 @@
+@@ -704,6 +786,12 @@
          uint64_t eeCycleCarry = 0;
          CpuState *activeCpu = nullptr;
          std::string lastError;
@@ -204,7 +237,7 @@
          bool servicingDmaInterrupts = false;
          bool servicingGuestCallbacks = false;
          uint32_t callDepth = 0u;
-@@ -750,12 +828,67 @@
+@@ -750,12 +838,67 @@
  
      RpcResult IopEmulator::handleRpc(const RpcRequest &request)
      {

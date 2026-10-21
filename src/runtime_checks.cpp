@@ -14,6 +14,8 @@ int run_runtime_checks() {
     std::cout << "IOP wait diagnostics regression passed: read-only semaphore, event, and instruction snapshots.\n";
     verify_iop_import_pipeline();
     std::cout << "IOP import pipeline regression passed: thread arguments, RPC handler, and return values.\n";
+    verify_iop_module_startup();
+    std::cout << "IOP module startup regression passed: nested RPC worker registration, sleep, and bounded scheduling.\n";
     verify_sound_registers();
     std::cout << "SPU2 initialization regression passed: both cores, DMA status, and guest polling.\n";
     constexpr uint32_t entry=0x00167188, caller=0x00162dec, returned=0x00162df4;
