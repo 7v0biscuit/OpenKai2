@@ -135,6 +135,24 @@ also runs the original compiled scratchpad-copy caller and checks its result,
 saved registers, return frame, and copied bytes. Startup beyond this transfer
 still requires validation with the original ISO.
 
+The following log completes both scratchpad DMA directions without an exception.
+retail testing shows a blank window for over a minute, then closes it. The old log
+contains no EE wait-state snapshot, so it does not establish where startup stalls.
+
+Startup now records synchronized EE thread snapshots at 5, 15, 30, and 60 seconds,
+plus shutdown. Reports include thread PCs, return addresses, wait reasons and
+objects, semaphore counts, event flags, and atomic DMA/GIF/GS/VIF counters. Each
+report limits object lists to 16 entries and reports omitted counts. Up to four
+zero-PC call returns retain their source, target, continuation, and dispatch
+history; a zero PC alone is not classified as an execution error.
+
+The diagnostic regression inspects a genuinely blocked EE semaphore wait, checks
+the sample and record limits, and verifies that reporting changes neither guest
+memory nor scheduler state. The compiled scratchpad regression now executes both
+bank-switch routines, including their send, receive, synchronization, saved
+registers, and outer return frame. The blank-screen cause remains unidentified;
+these checks do not establish a boot fix.
+
 A complete retail ISO is not present in the development environment. Further
 end-to-end checks must run the updated application with the user's local ISO.
 The launcher obtains `MODULES`, `USR`, and the executable from that image;

@@ -53,6 +53,10 @@ def main():
         if 'The original game ISO is required' not in help_text:
             raise RuntimeError('Installed executable did not print the expected help.')
         self_test = run([str(executable), '--self-test'])
+        if 'Startup diagnostics regression passed' not in self_test:
+            raise RuntimeError('Bounded startup diagnostic regression did not pass.')
+        if 'Runtime scratchpad switch regression passed' not in self_test:
+            raise RuntimeError('Compiled scratchpad save/restore regression did not pass.')
         if 'IOP wait diagnostics regression passed' not in self_test:
             raise RuntimeError('Compiled IOP wait diagnostics regression did not pass.')
         if 'IOP import pipeline regression passed' not in self_test:

@@ -9,6 +9,8 @@ import subprocess
 import tempfile
 
 EXPECTED = {
+    'ps2xRuntime/src/lib/ps2_runtime.cpp':
+        '77cd184f2e70eacfd5ea584ec95829553e3deeead0a19c04e4b0970dd7c6c9ee',
     'ps2xRuntime/src/lib/ps2_memory.cpp':
         '4bae084dfa6ea30479af5efde70c61927a4fe5a49216d99c3db76297db4ac22a',
     'ps2xRuntime/src/lib/Kernel/Stubs/DMA.cpp':
@@ -44,13 +46,14 @@ def main():
         temporary = Path(folder)
         (temporary / 'runtime').mkdir()
         shutil.copy2(args.upstream / 'ps2xRuntime/src/lib/ps2_memory.cpp', temporary / 'runtime/ps2_memory.cpp')
+        shutil.copy2(args.upstream / 'ps2xRuntime/src/lib/ps2_runtime.cpp', temporary / 'runtime/ps2_runtime.cpp')
         shutil.copytree(args.upstream / 'ps2xRuntime/src/lib/Kernel/Stubs', temporary / 'Kernel/Stubs')
         shutil.copytree(args.upstream / 'ps2xIOP/src/emulator', temporary / 'emulator')
         for source in temporary.rglob('*'):
             if source.is_file() and source.suffix in ('.h', '.cpp', '.hpp', '.inc'):
                 source.write_bytes(source.read_bytes().replace(b'\r\n', b'\n'))
         for patch in (patches / 'disc-layout.patch', patches / 'iop-startup.patch',
-                      patches / 'dma-receive.patch'):
+                      patches / 'dma-receive.patch', patches / 'startup-diagnostics.patch'):
             subprocess.run(['git', 'apply', '--no-index', '--check', str(patch)], cwd=temporary, check=True)
             subprocess.run(['git', 'apply', '--no-index', str(patch)], cwd=temporary, check=True)
         for source in temporary.rglob('*'):

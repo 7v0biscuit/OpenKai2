@@ -2,6 +2,7 @@
 #include "runtime_checks.h"
 #include "sound_checks.h"
 #include "dma_checks.h"
+#include "startup_checks.h"
 #include "iop_checks.h"
 #include "iop_wait_checks.h"
 #include "ps2_runtime.h"
@@ -10,6 +11,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <utility>
+#include <vector>
 
 namespace openkai2 {
 namespace {
@@ -75,6 +77,8 @@ void verify_file_callbacks(PS2Runtime& runtime,uint8_t* memory) {
 }
 }
 int run_runtime_checks() {
+    verify_startup_diagnostics();
+    std::cout << "Startup diagnostics regression passed: bounded, read-only EE wait snapshots.\n";
     verify_iop_wait_diagnostics();
     std::cout << "IOP wait diagnostics regression passed: read-only semaphore, event, and instruction snapshots.\n";
     verify_iop_import_pipeline();
@@ -120,6 +124,48 @@ int run_runtime_checks() {
                 throw std::runtime_error("Runtime regression: compiled scratchpad copy overran destination");
     }
     std::cout << "Runtime scratchpad DMA regression passed: receive bytes, completion, aliases, and compiled caller.\n";
+    {
+        constexpr uint32_t saved=0x003c4200u, working=0x003c8200u, flag=0x00371d40u;
+        constexpr uint32_t stack=0x01fffe40u, returned=0x00186490u;
+        auto* scratch=runtime.memory().getScratchpad();
+        for (uint32_t i=0;i<PS2_SCRATCHPAD_SIZE;++i) {
+            scratch[i]=uint8_t(i*7u+(i>>8));
+            memory[working+i]=uint8_t(i*29u+(i>>7));
+        }
+        const std::vector<uint8_t> original(scratch,scratch+PS2_SCRATCHPAD_SIZE);
+        auto call=[&](uint32_t address) {
+            R5900Context context{};
+            context.pc=address;
+            context.r[16]=_mm_cvtsi32_si128(0x1010);
+            context.r[17]=_mm_cvtsi32_si128(0x1011);
+            context.r[29]=_mm_cvtsi32_si128(stack);
+            context.r[31]=_mm_cvtsi32_si128(returned);
+            // Tail jumps intentionally unwind to the EE dispatcher. Resume
+            // exact compiled labels until the outer caller has returned.
+            for (unsigned step=0;step<128 && context.pc!=returned;++step) {
+                auto function=runtime.lookupFunction(context.pc);
+                function(memory,&context,&runtime);
+            }
+            if (context.pc!=returned || getRegU32(&context,29)!=stack
+                || getRegU32(&context,31)!=returned || getRegU32(&context,16)!=0x1010u
+                || getRegU32(&context,17)!=0x1011u)
+                throw std::runtime_error("Runtime regression: scratchpad switch caller frame failed");
+        };
+        std::memset(memory+flag,0,4);
+        call(0x001861d8u);
+        uint32_t enabled=0;std::memcpy(&enabled,memory+flag,4);
+        if (enabled!=1u || std::memcmp(memory+saved,original.data(),original.size())!=0
+            || std::memcmp(scratch,memory+working,PS2_SCRATCHPAD_SIZE)!=0)
+            throw std::runtime_error("Runtime regression: scratchpad switch did not save and load its banks");
+        for (uint32_t i=0;i<PS2_SCRATCHPAD_SIZE;++i) scratch[i]=uint8_t(i*17u+(i>>6));
+        const std::vector<uint8_t> modified(scratch,scratch+PS2_SCRATCHPAD_SIZE);
+        call(0x00186258u);
+        std::memcpy(&enabled,memory+flag,4);
+        if (enabled!=0u || std::memcmp(memory+working,modified.data(),modified.size())!=0
+            || std::memcmp(scratch,original.data(),original.size())!=0)
+            throw std::runtime_error("Runtime regression: scratchpad switch did not restore the original bank");
+    }
+    std::cout << "Runtime scratchpad switch regression passed: compiled save, sync, send, and restore.\n";
     for (const uint32_t second : {0u,0x12345678u}) {
         R5900Context context{};
         context.pc=entry;

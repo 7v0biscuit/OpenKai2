@@ -110,6 +110,11 @@ cached and uncached addresses, completion registers, and the original compiled
 copy caller. The original ISO remains required for
 game startup.
 
+Normal launches retain EE wait-state and graphics-activity reports in
+`startup.log` at 5, 15, 30, and 60 seconds, and on shutdown. If the window remains
+blank, leave it open for at least 60 seconds before closing it and retaining the
+log. Reports are bounded and do not release waits or change guest state.
+
 ```powershell
 python tools/native/diagnose-startup.py "D:\Games\Budokai 2 USA.iso" --timeout 180
 ```
