@@ -4,18 +4,84 @@
 #include "dma_checks.h"
 #include "startup_checks.h"
 #include "callback_checks.h"
+#include "thread_checks.h"
 #include "iop_checks.h"
 #include "iop_wait_checks.h"
 #include "ps2_runtime.h"
+#include "runtime/ee_scheduler.h"
 #include "openkai2_translation_entries.h"
 #include <cstring>
 #include <iostream>
 #include <stdexcept>
 #include <utility>
 #include <vector>
+#include <chrono>
+#include <condition_variable>
+#include <mutex>
+#include <thread>
 
 namespace openkai2 {
 namespace {
+void verify_compiled_worker_setup() {
+    auto owned=std::make_unique<PS2Runtime>();
+    auto& runtime=*owned;
+    if (!runtime.memory().initialize()) throw std::runtime_error("Cannot allocate compiled worker regression memory");
+    constexpr uint32_t bridge=0x001908e8u, finish=0x00190920u, marker=0x25000u;
+    struct Binding {
+        PS2Runtime& runtime;
+        uint32_t address;
+        PS2Runtime::RecompiledFunction original;
+        ~Binding() { runtime.replaceFunction(address,original); }
+    } resumed{runtime,bridge,runtime.lookupFunction(bridge)}, finished{runtime,finish,runtime.lookupFunction(finish)};
+    runtime.replaceFunction(bridge,[](uint8_t*,R5900Context* context,PS2Runtime*) {
+        context->r[31]=_mm_cvtsi32_si128(finish);
+        context->pc=0x00158fd8u;
+    });
+    runtime.replaceFunction(finish,[](uint8_t*,R5900Context*,PS2Runtime* active) {
+        active->memory().write32(marker,37u);
+        active->requestStop();
+    });
+    R5900Context context{};
+    context.pc=0x0010a8b8u; // Original translated SDK InitThread entry.
+    context.r[29]=_mm_cvtsi32_si128(PS2_RAM_SIZE-16u);
+    context.r[28]=_mm_cvtsi32_si128(0x003ac4f0u);
+    context.r[31]=_mm_cvtsi32_si128(bridge);
+    auto& scheduler=runtime.eeScheduler();
+    scheduler.reset(runtime.memory().getRDRAM(),context);
+    std::mutex mutex;
+    std::condition_variable completed;
+    bool done=false;
+    std::thread watchdog([&] {
+        std::unique_lock lock(mutex);
+        if (!completed.wait_for(lock,std::chrono::seconds(2),[&] { return done; })) scheduler.requestStop();
+    });
+    std::exception_ptr failure;
+    try { scheduler.run(); } catch (...) { failure=std::current_exception(); }
+    { std::lock_guard lock(mutex);done=true; }
+    completed.notify_one();
+    watchdog.join();
+    if (failure) std::rethrow_exception(failure);
+    if (runtime.memory().read32(marker)!=37u || runtime.memory().read32(0x353394u)!=1u
+        || runtime.memory().read32(0x35acb8u)!=1u)
+        throw std::runtime_error("Runtime regression: compiled SDK initialization did not supply a usable inherited priority");
+    const std::pair<uint32_t,uint32_t> workers[]={
+        {0x353418u,0x158540u},{0x353420u,0x158630u},
+        {0x353424u,0x158710u},{0x35342cu,0x1587f0u}};
+    for (const auto& [slot,entry]:workers) {
+        const auto* worker=scheduler.thread(static_cast<int>(runtime.memory().read32(slot)));
+        if (!worker || worker->id<=1 || worker->entry!=entry || worker->initialPriority!=1)
+            throw std::runtime_error("Runtime regression: compiled game worker creation failed");
+    }
+    for (const int id:{3,4}) {
+        const auto* worker=scheduler.thread(id);
+        if (!worker || worker->status!=EeThreadStatus::Waiting || worker->wait.reason!=EeWaitReason::Sleep)
+            throw std::runtime_error("Runtime regression: compiled game workers did not reach their sleep points");
+    }
+    const auto* main=scheduler.thread(1);
+    if (!main || getRegU32(&main->context,29)!=PS2_RAM_SIZE-16u
+        || getRegU32(&main->context,28)!=0x003ac4f0u)
+        throw std::runtime_error("Runtime regression: worker initialization changed the main thread frame");
+}
 void verify_file_callbacks(PS2Runtime& runtime,uint8_t* memory) {
     constexpr uint32_t object=0x23000u, stack=0x01fffe40u;
     struct Query { uint32_t argument, command, sectors; int64_t expected; };
@@ -78,6 +144,9 @@ void verify_file_callbacks(PS2Runtime& runtime,uint8_t* memory) {
 }
 }
 int run_runtime_checks() {
+    verify_thread_bootstrap();
+    verify_compiled_worker_setup();
+    std::cout << "Runtime thread bootstrap regression passed: SDK priority and four compiled game workers.\n";
     verify_callback_stacks();
     verify_startup_diagnostics();
     std::cout << "Startup diagnostics regression passed: bounded, read-only EE wait snapshots.\n";

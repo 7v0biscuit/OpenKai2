@@ -119,6 +119,9 @@ The self-test also checks callback stack separation, nested allocations, and
 resumption of an interrupted caller through the EE scheduler using an original
 translated callback.
 
+It also verifies the SDK bootstrap-priority transition and runs the game's
+translated initialization to create four EE workers and reach their sleep points.
+
 ```powershell
 python tools/native/diagnose-startup.py "D:\Games\Budokai 2 USA.iso" --timeout 180
 ```

@@ -165,8 +165,21 @@ frame corruption and loss of the interrupted continuation on the previous
 runtime. It checks disjoint nested stacks, reuse by nesting depth, alignment,
 arena exhaustion, and successful continuation through the real EE scheduler.
 The packaged self-test repeats the scheduler interruption with the original
-translated file-query callback. This fixes a reproduced runtime corruption bug;
-retail startup beyond it still requires validation with the original ISO.
+translated file-query callback. The next retail log preserves the return address
+and reaches `SleepThread` at `0x00109A08`, with no EE workers present.
+
+The SDK `InitThread` replacement omitted the original routine's transition from
+bootstrap priority zero to user priority one. The game's translated setup reads
+that priority through `ReferThreadStatus` and passes it to `CreateThread`. With
+zero, all four worker creations return illegal-priority errors. The replacement
+now performs the transition while preserving an already configured user priority.
+The regression runs the translated SDK entry and game initialization, checks all
+four worker IDs and entries, and verifies that two execute to their sleep points.
+It also checks descriptor fields, invalid-priority rejection, and saved registers.
+Further retail progress still requires validation with the original ISO.
+
+Callback regression fixtures allocate their runtime devices on the heap, avoiding
+overflow of MSVC's default 1 MiB host stack. Windows source CI passes this check.
 
 A complete retail ISO is not present in the development environment. Further
 end-to-end checks must run the updated application with the user's local ISO.
