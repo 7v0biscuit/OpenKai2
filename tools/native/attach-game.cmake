@@ -166,9 +166,10 @@ function(openkai2_attach_generated_sources)
         target_link_libraries(ps2EntryRunner PRIVATE comdlg32)
     endif()
     target_sources(ps2EntryRunner PRIVATE ${generated_sources} "${project_root}/src/main.cpp"
-        "${project_root}/src/runtime_checks.cpp" "${project_root}/src/stream_checks.cpp")
+        "${project_root}/src/runtime_checks.cpp" "${project_root}/src/stream_checks.cpp"
+        "${project_root}/src/sound_transfer_checks.cpp")
     set_source_files_properties("${project_root}/src/main.cpp" "${project_root}/src/runtime_checks.cpp"
-        "${project_root}/src/stream_checks.cpp"
+        "${project_root}/src/stream_checks.cpp" "${project_root}/src/sound_transfer_checks.cpp"
         TARGET_DIRECTORY ps2EntryRunner PROPERTIES SKIP_UNITY_BUILD_INCLUSION TRUE)
     set_property(SOURCE "${project_root}/src/runtime_checks.cpp" "${project_root}/src/stream_checks.cpp"
         TARGET_DIRECTORY ps2EntryRunner APPEND PROPERTY

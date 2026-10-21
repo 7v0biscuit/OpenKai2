@@ -6,6 +6,7 @@
 #include "callback_checks.h"
 #include "thread_checks.h"
 #include "stream_checks.h"
+#include "sound_transfer_checks.h"
 #include "iop_checks.h"
 #include "iop_wait_checks.h"
 #include "ps2_runtime.h"
@@ -168,6 +169,8 @@ int run_runtime_checks() {
     auto* memory=runtime.memory().getRDRAM();
     verify_stream_callbacks(runtime,memory);
     std::cout << "Runtime stream callback regression passed: nine methods, ring wraparound, and compiled cleanup caller.\n";
+    verify_sound_transfer(runtime,memory);
+    std::cout << "Runtime sound transfer regression passed: compiled SDK, IOP payload, completion, aliases, and logged caller.\n";
     // Run the original compiled scratchpad-copy caller with the retail size
     // and destination, including its SADR write and receive SDK invocation.
     {

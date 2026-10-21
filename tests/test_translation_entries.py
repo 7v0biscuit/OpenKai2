@@ -67,7 +67,7 @@ class TranslationEntries(unittest.TestCase):
     def test_reviewed_tables_have_complete_unique_coverage(self):
         self.assertEqual(len(ENTRIES.DISPATCH_TABLES), 7)
         self.assertTrue(all(len(row) == 14 for _, row in ENTRIES.DISPATCH_TABLES))
-        self.assertEqual(len(set(ENTRIES.ENTRY_POINTS)), 121)
+        self.assertEqual(len(set(ENTRIES.ENTRY_POINTS)), 122)
         self.assertEqual(len(ENTRIES.ZERO_RETURN_ENTRIES), 39)
         self.assertTrue(set(ENTRIES.ZERO_RETURN_ENTRIES) <= set(ENTRIES.ENTRY_POINTS))
         self.assertNotIn(0x00387110, ENTRIES.ENTRY_POINTS)
@@ -82,7 +82,7 @@ class TranslationEntries(unittest.TestCase):
             path = Path(temporary) / 'entries.h'
             ENTRIES.emit_check_header(path)
             content, changed = path.read_text(), path.stat().st_mtime_ns
-            self.assertIn('std::array<uint32_t, 121> entries', content)
+            self.assertIn('std::array<uint32_t, 122> entries', content)
             self.assertIn('std::array<uint32_t, 39> zero_return_entries', content)
             for address in ENTRIES.ENTRY_POINTS:
                 self.assertIn(f'0x{address:08x}u,', content)
@@ -117,6 +117,22 @@ class TranslationEntries(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'missing guest entry 0x0016d310'):
             self.verify_fixture('g_ps2RecompiledFunctionTable[1] = owner; // 0x167188',
                                 '// Address: 0x167188 - 0x1671a0', omitted=(0x0016D310,))
+
+    def test_sound_transfer_sdk_is_translated_with_its_exact_entry(self):
+        text = ('[general]\nstubs = ["sceSdTransToIOP@0x00116268", "ret0@0x00200000", '
+                '"sceSdTransToIOP@0x00200004"]\npatch_syscalls = false\n')
+        output = ENTRIES.configure(text)
+        self.assertNotIn('"sceSdTransToIOP@0x00116268"', output)
+        self.assertIn('"ret0@0x00200000"', output)
+        self.assertIn('"sceSdTransToIOP@0x00200004"', output)
+        self.assertIn('"0x00116268"', output)
+        self.assertIn('patch_syscalls = false', output)
+        self.assertEqual(ENTRIES.configure(output), output)
+
+    def test_unqualified_sound_transfer_stub_is_also_removed(self):
+        output = ENTRIES.configure('[general]\nstubs = ["sceSdTransToIOP", "ret1"]\n')
+        self.assertNotIn('"sceSdTransToIOP"', output)
+        self.assertIn('"ret1"', output)
 
 
 if __name__ == '__main__':

@@ -123,6 +123,8 @@ It also verifies the SDK bootstrap-priority transition and runs the game's
 translated initialization to create four EE workers and reach their sleep points.
 The SJRBF stream checks execute all nine interface methods and the original
 cleanup caller, including buffer recycling, wraparound, and error callbacks.
+The sound-transfer checks execute the original `sceSdTransToIOP` routine,
+verify bytes in IOP RAM, and resume the caller reported in the startup log.
 
 ```powershell
 python tools/native/diagnose-startup.py "D:\Games\Budokai 2 USA.iso" --timeout 180

@@ -6,7 +6,7 @@ The application requires the original USA ISO at every launch.
 ## Verified components
 
 - All 16 EE component probes build on Linux and as Windows x64 executables.
-- All 133 Python regression tests pass, including translation entry, portable, and release package checks.
+- All 135 Python regression tests pass, including translation entry, portable, and release package checks.
 - Synthetic and USA-executable component comparisons pass.
 - ISO verification passes 33 native Linux checks and 32 Windows-executable
   checks under Wine. Wine cannot execute the cache-symlink check.
@@ -188,6 +188,16 @@ recycling, length queries, error callbacks, and ring wraparound. All 121 reviewe
 indirect entries must have valid instruction-level dispatch coverage. Further
 retail startup still requires validation with the original ISO.
 
+The next retail log confirms that stream cleanup completes and reaches
+`sceSdTransToIOP` from `0x00146B10`. The named runtime stub was unimplemented.
+This SDK routine is now translated from the original executable: it submits a
+SIF DMA descriptor and waits for completion when requested. Existing SIF support
+copies the payload into actual IOP RAM. The packaged regression checks the
+logged 2 KiB transfer, synchronous and asynchronous modes, address aliases,
+rejected transfers, neighboring memory, preserved registers, and resumption of
+the original caller. Translation verification covers 122 reviewed entries,
+including this SDK entry. Retail progress beyond this transfer remains unverified.
+
 Callback regression fixtures allocate their runtime devices on the heap, avoiding
 overflow of MSVC's default 1 MiB host stack. Windows source CI passes this check.
 
@@ -215,8 +225,9 @@ and uninstall on Windows before publishing a development prerelease.
 ## Remaining work
 
 The fallback analyzer reads a stripped ELF containing both code and data. It
-identified 5,122 function candidates: 4,953 translated functions and 169 SDK
-stubs. Some data and VU regions were treated as EE functions, producing 12,755
+identified 5,122 function candidates. After translating the sound-transfer SDK
+routine, 4,954 functions are translated and 168 remain SDK stubs. Some data and
+VU regions were treated as EE functions, producing 12,755
 unhandled-instruction diagnostics despite the recompiler returning zero.
 More accurate function boundaries and further runtime integration may be needed.
 

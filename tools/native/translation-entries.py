@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""Expose verified indirect guest entries omitted by the stripped-ELF analyzer."""
+"""Configure reviewed guest callbacks and SDK routines for native translation."""
 import argparse
 import hashlib
 from pathlib import Path
@@ -88,10 +88,14 @@ STREAM_CALLBACK_TABLES = ((0x00367B68, (
     0x0016D3B0, 0x0016D868, 0x0016D358,
 )),)
 STREAM_CALLBACK_ENTRIES = tuple(address for _, row in STREAM_CALLBACK_TABLES for address in row if address)
+# This SDK routine submits SIF DMA and optionally waits for completion. Its
+# numeric SIF syscalls are supported; the named runtime stub is unimplemented.
+TRANSLATED_SDK_ENTRIES = (('sceSdTransToIOP', 0x00116268),)
 # Preserve ordering and share the argument-store callback between both groups.
 ENTRY_POINTS = tuple(dict.fromkeys((0x00167188,)
     + tuple(address for _, row in DISPATCH_TABLES for address in row)
-    + FILE_CALLBACK_ENTRIES + STREAM_CALLBACK_ENTRIES))
+    + FILE_CALLBACK_ENTRIES + STREAM_CALLBACK_ENTRIES
+    + tuple(address for _, address in TRANSLATED_SDK_ENTRIES)))
 
 
 def configure(text):
@@ -99,6 +103,13 @@ def configure(text):
     if not section:
         raise ValueError('Translation configuration has no [general] section')
     body = section.group(1)
+    stubs = re.search(r'(?ms)^stubs\s*=\s*\[(.*?)\]', body)
+    if stubs:
+        values = stubs.group(1)
+        for name, address in TRANSLATED_SDK_ENTRIES:
+            values = re.sub(rf'"{re.escape(name)}(?:@0x0*{address:x})?"[ \t]*,?',
+                            '', values, flags=re.IGNORECASE)
+        body = body[:stubs.start(1)] + values + body[stubs.end(1):]
     entries = re.search(r'(?ms)^entry_points\s*=\s*\[(.*?)\]', body)
     if entries:
         values = entries.group(1).rstrip()
@@ -111,7 +122,7 @@ def configure(text):
         body = body[:entries.start(1)] + values + '\n' + body[entries.end(1):]
     else:
         values = ', '.join(f'"0x{address:08x}"' for address in ENTRY_POINTS)
-        body += f'\nentry_points = [{values}]\n\n'
+        body += f'\nentry_points = [{values}\n]\n\n'
     return text[:section.start(1)] + body + text[section.end(1):]
 
 
@@ -186,7 +197,7 @@ def main():
             args.config.write_text(updated)
     if args.verify_generated:
         verify_generated(args.verify_generated)
-        print('Verified indirect guest entry coverage.')
+        print('Verified reviewed guest entry coverage.')
     if args.emit_check_header:
         emit_check_header(args.emit_check_header)
     if not args.config and not args.verify_generated and not args.emit_check_header:
