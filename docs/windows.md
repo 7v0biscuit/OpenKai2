@@ -125,6 +125,8 @@ The SJRBF stream checks execute all nine interface methods and the original
 cleanup caller, including buffer recycling, wraparound, and error callbacks.
 The sound-transfer checks execute the original `sceSdTransToIOP` routine,
 verify bytes in IOP RAM, and resume the caller reported in the startup log.
+Asset relocation checks execute all seven tagged handlers through the original
+dispatcher, including nested assets and protection against repeated relocation.
 
 ```powershell
 python tools/native/diagnose-startup.py "D:\Games\Budokai 2 USA.iso" --timeout 180

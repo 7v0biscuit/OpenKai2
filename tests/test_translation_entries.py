@@ -2,6 +2,7 @@
 import importlib.util
 from pathlib import Path
 import tempfile
+import struct
 import unittest
 
 SPEC = importlib.util.spec_from_file_location(
@@ -67,7 +68,7 @@ class TranslationEntries(unittest.TestCase):
     def test_reviewed_tables_have_complete_unique_coverage(self):
         self.assertEqual(len(ENTRIES.DISPATCH_TABLES), 7)
         self.assertTrue(all(len(row) == 14 for _, row in ENTRIES.DISPATCH_TABLES))
-        self.assertEqual(len(set(ENTRIES.ENTRY_POINTS)), 122)
+        self.assertEqual(len(set(ENTRIES.ENTRY_POINTS)), 129)
         self.assertEqual(len(ENTRIES.ZERO_RETURN_ENTRIES), 39)
         self.assertTrue(set(ENTRIES.ZERO_RETURN_ENTRIES) <= set(ENTRIES.ENTRY_POINTS))
         self.assertNotIn(0x00387110, ENTRIES.ENTRY_POINTS)
@@ -82,7 +83,7 @@ class TranslationEntries(unittest.TestCase):
             path = Path(temporary) / 'entries.h'
             ENTRIES.emit_check_header(path)
             content, changed = path.read_text(), path.stat().st_mtime_ns
-            self.assertIn('std::array<uint32_t, 122> entries', content)
+            self.assertIn('std::array<uint32_t, 129> entries', content)
             self.assertIn('std::array<uint32_t, 39> zero_return_entries', content)
             for address in ENTRIES.ENTRY_POINTS:
                 self.assertIn(f'0x{address:08x}u,', content)
@@ -133,6 +134,37 @@ class TranslationEntries(unittest.TestCase):
         output = ENTRIES.configure('[general]\nstubs = ["sceSdTransToIOP", "ret1"]\n')
         self.assertNotIn('"sceSdTransToIOP"', output)
         self.assertIn('"ret1"', output)
+
+    def test_asset_relocation_handlers_preserve_tags_and_terminator(self):
+        self.assertEqual(ENTRIES.ASSET_RELOCATION_BASE, 0x0033D680)
+        self.assertEqual(len(ENTRIES.ASSET_RELOCATION_ENTRIES), 7)
+        self.assertEqual([tag for _, tag in ENTRIES.ASSET_RELOCATION_HANDLERS],
+                         [b'AMG\0', b'AMT\0', b'AMM\0', b'AMO\0', b'AMC\0', b'AML\0', b'AMP\0'])
+        self.assertEqual(ENTRIES.ASSET_RELOCATION_WORDS[-2:], (0, 0))
+        self.assertTrue(set(ENTRIES.ASSET_RELOCATION_ENTRIES) <= set(ENTRIES.ENTRY_POINTS))
+
+    def test_logged_asset_handler_must_be_registered(self):
+        with self.assertRaisesRegex(ValueError, 'missing guest entry 0x0012ac30'):
+            self.verify_fixture('g_ps2RecompiledFunctionTable[1] = owner; // 0x167188',
+                                '// Address: 0x167188 - 0x1671a0', omitted=(0x0012AC30,))
+
+    def test_asset_metadata_validation_rejects_changed_tags(self):
+        data = bytearray(0x290000 + 128)
+        struct.pack_into('<I', data, 28, 52)
+        struct.pack_into('<HH', data, 42, 32, 1)
+        struct.pack_into('<8I', data, 52, 1, 128, 0x100000, 0, len(data)-128, len(data)-128, 5, 16)
+        def put(address, values):
+            struct.pack_into('<'+'I'*len(values), data, address-0x100000+128, *values)
+        put(0x00385748, tuple(base for base, _ in ENTRIES.DISPATCH_TABLES))
+        for base, entries in ENTRIES.DISPATCH_TABLES + ENTRIES.FILE_CALLBACK_TABLES + ENTRIES.STREAM_CALLBACK_TABLES:
+            put(base, entries)
+        for address in ENTRIES.ZERO_RETURN_ENTRIES:
+            put(address, (0x03E00008, 0x0000102D))
+        put(ENTRIES.ASSET_RELOCATION_BASE, ENTRIES.ASSET_RELOCATION_WORDS)
+        ENTRIES.verify_elf_metadata(data)
+        data[ENTRIES.ASSET_RELOCATION_BASE-0x100000+128+4] ^= 1
+        with self.assertRaisesRegex(ValueError, 'Asset relocation handlers or tags'):
+            ENTRIES.verify_elf_metadata(data)
 
 
 if __name__ == '__main__':

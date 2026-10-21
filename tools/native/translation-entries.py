@@ -91,11 +91,24 @@ STREAM_CALLBACK_ENTRIES = tuple(address for _, row in STREAM_CALLBACK_TABLES for
 # This SDK routine submits SIF DMA and optionally waits for completion. Its
 # numeric SIF syscalls are supported; the named runtime stub is unimplemented.
 TRANSLATED_SDK_ENTRIES = (('sceSdTransToIOP', 0x00116268),)
+# The dispatcher at 0x0012A680 selects asset relocation routines by a
+# three-letter tag. Each eight-byte record is a function and a terminated tag.
+ASSET_RELOCATION_BASE = 0x0033D680
+ASSET_RELOCATION_HANDLERS = (
+    (0x0012A860, b'AMG\0'), (0x0012AC20, b'AMT\0'),
+    (0x0012AC30, b'AMM\0'), (0x0012AEC0, b'AMO\0'),
+    (0x0012B120, b'AMC\0'), (0x0012B270, b'AML\0'),
+    (0x0012B4D0, b'AMP\0'),
+)
+ASSET_RELOCATION_ENTRIES = tuple(address for address, _ in ASSET_RELOCATION_HANDLERS)
+ASSET_RELOCATION_WORDS = tuple(value for address, tag in ASSET_RELOCATION_HANDLERS
+                               for value in (address, int.from_bytes(tag, 'little'))) + (0, 0)
 # Preserve ordering and share the argument-store callback between both groups.
 ENTRY_POINTS = tuple(dict.fromkeys((0x00167188,)
     + tuple(address for _, row in DISPATCH_TABLES for address in row)
     + FILE_CALLBACK_ENTRIES + STREAM_CALLBACK_ENTRIES
-    + tuple(address for _, address in TRANSLATED_SDK_ENTRIES)))
+    + tuple(address for _, address in TRANSLATED_SDK_ENTRIES)
+    + ASSET_RELOCATION_ENTRIES))
 
 
 def configure(text):
@@ -161,6 +174,8 @@ def verify_elf_metadata(data):
     for address in ZERO_RETURN_ENTRIES:
         if words(address, 2) != (0x03E00008, 0x0000102D):
             raise ValueError(f'Callback return instructions differ at 0x{address:08x}')
+    if words(ASSET_RELOCATION_BASE, len(ASSET_RELOCATION_WORDS)) != ASSET_RELOCATION_WORDS:
+        raise ValueError('Asset relocation handlers or tags differ from the reviewed table')
 
 
 def emit_check_header(path):
@@ -170,7 +185,9 @@ def emit_check_header(path):
                           ('file_callback_entries', FILE_CALLBACK_ENTRIES),
                           ('file_callback_slots', FILE_CALLBACK_TABLES[0][1]),
                           ('stream_callback_entries', STREAM_CALLBACK_ENTRIES),
-                          ('stream_callback_slots', STREAM_CALLBACK_TABLES[0][1])):
+                          ('stream_callback_slots', STREAM_CALLBACK_TABLES[0][1]),
+                          ('asset_relocation_entries', ASSET_RELOCATION_ENTRIES),
+                          ('asset_relocation_words', ASSET_RELOCATION_WORDS)):
         lines.append(f'inline constexpr std::array<uint32_t, {len(entries)}> {name} = {{')
         lines.extend(f'    0x{address:08x}u,' for address in entries)
         lines.append('};')

@@ -6,7 +6,7 @@ The application requires the original USA ISO at every launch.
 ## Verified components
 
 - All 16 EE component probes build on Linux and as Windows x64 executables.
-- All 135 Python regression tests pass, including translation entry, portable, and release package checks.
+- All 138 Python regression tests pass, including translation entry, portable, and release package checks.
 - Synthetic and USA-executable component comparisons pass.
 - ISO verification passes 33 native Linux checks and 32 Windows-executable
   checks under Wine. Wine cannot execute the cache-symlink check.
@@ -197,6 +197,17 @@ logged 2 KiB transfer, synchronous and asynchronous modes, address aliases,
 rejected transfers, neighboring memory, preserved registers, and resumption of
 the original caller. Translation verification covers 122 reviewed entries,
 including this SDK entry. Retail progress beyond this transfer remains unverified.
+
+The subsequent retail log confirms sound transfer completion and reaches the
+asset relocation dispatcher at `0x0012A680`. Its call from `0x0012A75C` to the
+`AMM` handler at `0x0012AC30` lacked a translated entry, leaving the main thread
+dormant. Entry hints now cover all seven handlers in the original table at
+`0x0033D680`: AMG, AMT, AMM, AMO, AMC, AML, and AMP. Input metadata verification
+checks their addresses, tags, and terminating record. The executable self-test
+uses the original dispatcher and logged object address, verifies populated and
+empty records, nested AMO/AMM dispatch, relative pointer relocation, adjacent
+memory, saved registers, and the already-relocated guard. There are now 129
+reviewed guest entries. Further retail progress remains unverified.
 
 Callback regression fixtures allocate their runtime devices on the heap, avoiding
 overflow of MSVC's default 1 MiB host stack. Windows source CI passes this check.
