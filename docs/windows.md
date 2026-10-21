@@ -129,6 +129,8 @@ Asset relocation checks execute all seven tagged handlers through the original
 dispatcher, including nested assets and protection against repeated relocation.
 Fade checks execute the logged update caller and original renderers, inspect
 overlay command packets, and verify completion callbacks and saved registers.
+Movie-interface checks exercise the logged volume call, original ADX volume and
+pan adapters, channel selection, clamping, status queries, and memory bounds.
 
 ```powershell
 python tools/native/diagnose-startup.py "D:\Games\Budokai 2 USA.iso" --timeout 180

@@ -68,7 +68,7 @@ class TranslationEntries(unittest.TestCase):
     def test_reviewed_tables_have_complete_unique_coverage(self):
         self.assertEqual(len(ENTRIES.DISPATCH_TABLES), 7)
         self.assertTrue(all(len(row) == 14 for _, row in ENTRIES.DISPATCH_TABLES))
-        self.assertEqual(len(set(ENTRIES.ENTRY_POINTS)), 133)
+        self.assertEqual(len(set(ENTRIES.ENTRY_POINTS)), 147)
         self.assertEqual(len(ENTRIES.ZERO_RETURN_ENTRIES), 39)
         self.assertTrue(set(ENTRIES.ZERO_RETURN_ENTRIES) <= set(ENTRIES.ENTRY_POINTS))
         self.assertNotIn(0x00387110, ENTRIES.ENTRY_POINTS)
@@ -83,7 +83,7 @@ class TranslationEntries(unittest.TestCase):
             path = Path(temporary) / 'entries.h'
             ENTRIES.emit_check_header(path)
             content, changed = path.read_text(), path.stat().st_mtime_ns
-            self.assertIn('std::array<uint32_t, 133> entries', content)
+            self.assertIn('std::array<uint32_t, 147> entries', content)
             self.assertIn('std::array<uint32_t, 39> zero_return_entries', content)
             for address in ENTRIES.ENTRY_POINTS:
                 self.assertIn(f'0x{address:08x}u,', content)
@@ -157,7 +157,8 @@ class TranslationEntries(unittest.TestCase):
             struct.pack_into('<'+'I'*len(values), data, address-0x100000+128, *values)
         put(0x00385748, tuple(base for base, _ in ENTRIES.DISPATCH_TABLES))
         for base, entries in (ENTRIES.DISPATCH_TABLES + ENTRIES.FILE_CALLBACK_TABLES
-                              + ENTRIES.STREAM_CALLBACK_TABLES + ENTRIES.FADE_CALLBACK_TABLES):
+                              + ENTRIES.STREAM_CALLBACK_TABLES + ENTRIES.FADE_CALLBACK_TABLES
+                              + ENTRIES.MOVIE_CALLBACK_TABLES):
             put(base, entries)
         for address in ENTRIES.ZERO_RETURN_ENTRIES:
             put(address, (0x03E00008, 0x0000102D))
@@ -193,6 +194,28 @@ class TranslationEntries(unittest.TestCase):
         base = ENTRIES.FADE_CALLBACK_TABLES[0][0]
         struct.pack_into('<I', data, base-0x100000+128+10*4, 0x00249210)
         with self.assertRaisesRegex(ValueError, 'Indirect methods differ.*003786e0'):
+            ENTRIES.verify_elf_metadata(data)
+
+    def test_movie_interface_preserves_reserved_and_volume_slots(self):
+        base, slots = ENTRIES.MOVIE_CALLBACK_TABLES[0]
+        self.assertEqual(base, 0x00370AE0)
+        self.assertEqual(slots[:3], (0, 0, 0))
+        self.assertEqual(slots[-1], 0)
+        self.assertEqual(slots[0x2c//4], 0x00186E88)
+        self.assertEqual(len(ENTRIES.MOVIE_CALLBACK_ENTRIES), 14)
+        self.assertTrue(set(ENTRIES.MOVIE_CALLBACK_ENTRIES) <= set(ENTRIES.ENTRY_POINTS))
+
+    def test_logged_movie_volume_method_must_be_registered(self):
+        with self.assertRaisesRegex(ValueError, 'missing guest entry 0x00186e88'):
+            self.verify_fixture('g_ps2RecompiledFunctionTable[1] = owner; // 0x167188',
+                                '// Address: 0x167188 - 0x1671a0', omitted=(0x00186E88,))
+
+    def test_movie_metadata_validation_rejects_changed_volume_method(self):
+        data = self.make_elf_metadata()
+        ENTRIES.verify_elf_metadata(data)
+        base = ENTRIES.MOVIE_CALLBACK_TABLES[0][0]
+        struct.pack_into('<I', data, base-0x100000+128+0x2c, 0x00186EE0)
+        with self.assertRaisesRegex(ValueError, 'Indirect methods differ.*00370ae0'):
             ENTRIES.verify_elf_metadata(data)
 
 

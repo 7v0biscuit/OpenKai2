@@ -113,12 +113,21 @@ FADE_CALLBACK_TABLES = ((0x003786E0, (
 )),)
 FADE_CALLBACK_ENTRIES = tuple(dict.fromkeys(address for _, slots in FADE_CALLBACK_TABLES
                                            for address in slots if address))
+# Sofdec movie interface: three reserved leading slots, fourteen methods,
+# and the trailing null word before the next data object.
+MOVIE_CALLBACK_TABLES = ((0x00370AE0, (
+    0, 0, 0, 0x0018A8C8, 0x0018AAC0, 0x00183BB8,
+    0x00185AA0, 0x00185D70, 0x00186A48, 0x00186DA0,
+    0x00185DD8, 0x00186E88, 0x00186EE0, 0x00186F30,
+    0x00186FA0, 0x00185C58, 0x00185BA8, 0,
+)),)
+MOVIE_CALLBACK_ENTRIES = tuple(address for _, slots in MOVIE_CALLBACK_TABLES for address in slots if address)
 # Preserve ordering and share the argument-store callback between both groups.
 ENTRY_POINTS = tuple(dict.fromkeys((0x00167188,)
     + tuple(address for _, row in DISPATCH_TABLES for address in row)
     + FILE_CALLBACK_ENTRIES + STREAM_CALLBACK_ENTRIES
     + tuple(address for _, address in TRANSLATED_SDK_ENTRIES)
-    + ASSET_RELOCATION_ENTRIES + FADE_CALLBACK_ENTRIES))
+    + ASSET_RELOCATION_ENTRIES + FADE_CALLBACK_ENTRIES + MOVIE_CALLBACK_ENTRIES))
 
 
 def configure(text):
@@ -178,7 +187,8 @@ def verify_elf_metadata(data):
 
     if words(0x00385748, len(DISPATCH_TABLES)) != tuple(base for base, _ in DISPATCH_TABLES):
         raise ValueError('Startup dispatcher table roots differ from the reviewed metadata')
-    for base, entries in DISPATCH_TABLES + FILE_CALLBACK_TABLES + STREAM_CALLBACK_TABLES + FADE_CALLBACK_TABLES:
+    for base, entries in (DISPATCH_TABLES + FILE_CALLBACK_TABLES + STREAM_CALLBACK_TABLES
+                          + FADE_CALLBACK_TABLES + MOVIE_CALLBACK_TABLES):
         if words(base, len(entries)) != entries:
             raise ValueError(f'Indirect methods differ from the reviewed table at 0x{base:08x}')
     for address in ZERO_RETURN_ENTRIES:
@@ -199,7 +209,9 @@ def emit_check_header(path):
                           ('asset_relocation_entries', ASSET_RELOCATION_ENTRIES),
                           ('asset_relocation_words', ASSET_RELOCATION_WORDS),
                           ('fade_callback_entries', FADE_CALLBACK_ENTRIES),
-                          ('fade_callback_slots', FADE_CALLBACK_TABLES[0][1])):
+                          ('fade_callback_slots', FADE_CALLBACK_TABLES[0][1]),
+                          ('movie_callback_entries', MOVIE_CALLBACK_ENTRIES),
+                          ('movie_callback_slots', MOVIE_CALLBACK_TABLES[0][1])):
         lines.append(f'inline constexpr std::array<uint32_t, {len(entries)}> {name} = {{')
         lines.extend(f'    0x{address:08x}u,' for address in entries)
         lines.append('};')

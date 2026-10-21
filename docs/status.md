@@ -6,7 +6,7 @@ The application requires the original USA ISO at every launch.
 ## Verified components
 
 - All 16 EE component probes build on Linux and as Windows x64 executables.
-- All 141 Python regression tests pass, including translation entry, portable, and release package checks.
+- All 144 Python regression tests pass, including translation entry, portable, and release package checks.
 - Synthetic and USA-executable component comparisons pass.
 - ISO verification passes 33 native Linux checks and 32 Windows-executable
   checks under Wine. Wine cannot execute the cache-symlink check.
@@ -223,6 +223,21 @@ custom rendering, completion callbacks, the completed state, transparent modes,
 and the textured renderer's initial delay. It uses the original batched command
 queue and checks active radial-fade queue bounds; host rendering, textured output,
 and title-screen boot remain unverified.
+
+The subsequent retail log confirms fade dispatch completes and startup continues
+through memory-card queries and repeated frame submissions. It next stops at
+`0x00186E88`, the Sofdec movie player's output-volume method, called indirectly
+from `0x002A4EF8`. Translation hints now cover all 14 methods in the movie
+interface at `0x00370AE0`, including merged methods that lacked a callable entry.
+The build verifies the original reserved slots, methods, and trailing null word.
+There are now 147 reviewed guest entries.
+
+The packaged regression runs the original volume and pan methods through their
+movie, ADX, and sound-state adapters. It checks signed values, channel selection,
+clamping, no-audio behavior, status queries, saved registers, and neighboring
+memory. The logged caller executes its original table loads and JALR and returns
+to `0x002A4F00`, before opening the movie file. Full movie decoding, graphics
+output, and title-screen boot remain unverified.
 
 Callback regression fixtures allocate their runtime devices on the heap, avoiding
 overflow of MSVC's default 1 MiB host stack. Windows source CI passes this check.
