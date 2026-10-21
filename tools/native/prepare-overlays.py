@@ -9,6 +9,10 @@ import subprocess
 import tempfile
 
 EXPECTED = {
+    'ps2xIOP/src/emulator/core/iop_kernel.h':
+        '260863c946a687faf5e88c309615de4da319a3028124a97b714468dbf6df0ab5',
+    'ps2xIOP/src/emulator/core/iop_kernel.cpp':
+        '203c9949793be35f30583612db855544356d1ec1124b96fdf9377e4d321c1002',
     'ps2xIOP/src/emulator/core/iop_memory.cpp':
         '3952624ce32b501511a7460a7ce6d387f314d7173e8a6f4a2ed7fc1507e5f4ee',
     'ps2xIOP/src/emulator/iop_emulator.cpp':
@@ -35,9 +39,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix='openkai2-overlays-', dir=args.output.parent) as folder:
         temporary = Path(folder)
         shutil.copytree(args.upstream / 'ps2xRuntime/src/lib/Kernel/Stubs', temporary / 'Kernel/Stubs')
-        shutil.copy2(args.upstream / 'ps2xIOP/src/emulator/imports/iop_cdvd.cpp', temporary / 'iop_cdvd.cpp')
-        shutil.copy2(args.upstream / 'ps2xIOP/src/emulator/core/iop_memory.cpp', temporary / 'iop_memory.cpp')
-        shutil.copy2(args.upstream / 'ps2xIOP/src/emulator/iop_emulator.cpp', temporary / 'iop_emulator.cpp')
+        shutil.copytree(args.upstream / 'ps2xIOP/src/emulator', temporary / 'emulator')
         for source in temporary.rglob('*'):
             if source.is_file() and source.suffix in ('.h', '.cpp', '.hpp', '.inc'):
                 source.write_bytes(source.read_bytes().replace(b'\r\n', b'\n'))

@@ -1,5 +1,5 @@
---- a/iop_memory.cpp
-+++ b/iop_memory.cpp
+--- a/emulator/core/iop_memory.cpp
++++ b/emulator/core/iop_memory.cpp
 @@ -246,6 +246,19 @@
              break;
          }
@@ -20,20 +20,31 @@
          m_hardware[address] = value;
          if ((address != kDmaSpu0Chcr && address != kDmaSpu1Chcr) || (value & kDmaStart) == 0u)
              return;
---- a/iop_emulator.cpp
-+++ b/iop_emulator.cpp
-@@ -136,6 +136,10 @@
+--- a/emulator/iop_emulator.cpp
++++ b/emulator/iop_emulator.cpp
+@@ -19,6 +19,8 @@
+ 
+ #include <algorithm>
+ #include <cctype>
++#include <deque>
++#include <exception>
+ #include <map>
+ #include <optional>
+ #include <span>
+@@ -136,6 +138,12 @@
              servicingDmaInterrupts = false;
              servicingGuestCallbacks = false;
              callDepth = 0u;
 +            pendingBindAttempts.clear();
++            recentImports.clear();
++            schedulerErrors = 0;
 +            threadEvents = 0;
 +            lastThreadId = 0;
 +            lastThreadCpu = {};
              secrMcCommandHandler = {};
              secrMcDevIdHandler = {};
              checkKelfPathCallback = {};
-@@ -268,9 +272,20 @@
+@@ -268,9 +276,20 @@
  
              if (iequals(call.library, "thbase") || iequals(call.library, "threadman"))
              {
@@ -57,7 +68,7 @@
              }
              if (iequals(call.library, "thsemap"))
              {
-@@ -380,6 +395,16 @@
+@@ -380,7 +399,29 @@
  
              if (const auto import = imports.decode(cpu.pc))
              {
@@ -71,10 +82,46 @@
 +                        cpu.gpr[cpu.pendingLoadReg] = cpu.pendingLoadValue;
 +                    cpu.pendingLoad = false;
 +                }
++                const uint32_t argument = cpu.gpr[4];
                  const ImportDisposition disposition = dispatchImport(*import, cpu);
++                if (!iequals(import->library, "stdio") && !iequals(import->library, "sysclib"))
++                {
++                    std::ostringstream out;
++                    out << import->library << ':' << std::dec << import->ordinal
++                        << " pc=0x" << std::hex << cpu.pc << " ra=0x" << cpu.gpr[31]
++                        << " a0=0x" << argument << " a1=0x" << cpu.gpr[5]
++                        << " a2=0x" << cpu.gpr[6] << " a3=0x" << cpu.gpr[7]
++                        << " result=0x" << cpu.gpr[2];
++                    if (recentImports.size() == 32u) recentImports.pop_front();
++                    recentImports.push_back(out.str());
++                }
                  ++totalInstructions;
                  ++totalCycles;
-@@ -577,6 +602,8 @@
+                 if (disposition == ImportDisposition::JumpToGuest)
+@@ -399,7 +440,13 @@
+ 
+         uint32_t runCpu(CpuState &cpu, uint32_t instructionBudget)
+         {
+-            CpuState *previous = activeCpu;
++            struct ActiveCpuGuard
++            {
++                CpuState *&slot;
++                CpuState *previous;
++                ~ActiveCpuGuard() { slot = previous; }
++            };
++            ActiveCpuGuard restore{activeCpu, activeCpu};
+             activeCpu = &cpu;
+             const uint64_t start = totalInstructions;
+             while (!cpu.stopped && !cpu.yielded && totalInstructions - start < instructionBudget)
+@@ -411,7 +458,6 @@
+                 if (!servicingGuestCallbacks && !pendingGuestCallbacks.empty())
+                     servicePendingGuestCallbacks();
+             }
+-            activeCpu = previous;
+             return static_cast<uint32_t>(totalInstructions - start);
+         }
+ 
+@@ -577,15 +623,37 @@
                      }
                      const uint64_t before = totalCycles;
                      runCpu(next->cpu, static_cast<uint32_t>(std::min<uint64_t>(kDefaultSlice, target - totalCycles)));
@@ -83,18 +130,51 @@
                      kernel.endTimeslice(*next, kThreadReturnSentinel);
                      if (totalCycles == before)
                          ++totalCycles;
-@@ -704,6 +731,10 @@
+                 }
+             }
++            catch (const std::exception &error)
++            {
++                reportSchedulerError(error.what());
++            }
+             catch (...)
+             {
+-                // Runtime scheduling must never throw through EeScheduler::accountCycles().
+-            }
++                reportSchedulerError("unknown exception");
++            }
++        }
++
++        void reportSchedulerError(const char *reason) noexcept
++        {
++            // Preserve noexcept scheduling while making swallowed faults visible.
++            if (schedulerErrors >= 4u) return;
++            ++schedulerErrors;
++            try
++            {
++                lastError = reason;
++                std::ostringstream out;
++                out << "[IOP scheduler error] " << reason << '\n';
++                kernel.appendDebugState(out);
++                log(LogLevel::Error, out.str());
++            }
++            catch (...) {}
+         }
+ 
+         ModuleLoadResult loadImage(std::string path, std::span<const uint8_t> image, const void *arguments, uint32_t argumentSize)
+@@ -704,6 +772,12 @@
          uint64_t eeCycleCarry = 0;
          CpuState *activeCpu = nullptr;
          std::string lastError;
 +        std::map<uint32_t, uint32_t> pendingBindAttempts;
++        std::deque<std::string> recentImports;
++        uint32_t schedulerErrors = 0;
 +        uint32_t threadEvents = 0;
 +        int lastThreadId = 0;
 +        CpuState lastThreadCpu{};
          bool servicingDmaInterrupts = false;
          bool servicingGuestCallbacks = false;
          uint32_t callDepth = 0u;
-@@ -755,7 +786,55 @@
+@@ -755,7 +829,61 @@
  
      bool IopEmulator::hasRpcServer(uint32_t sid) const noexcept
      {
@@ -138,6 +218,12 @@
 +                        << " stat0=0x" << m_impl->memory.read16(0x1F900344u)
 +                        << " attr1=0x" << m_impl->memory.read16(0x1F90059Au)
 +                        << " stat1=0x" << m_impl->memory.read16(0x1F900744u);
++                    out << '\n';
++                    m_impl->kernel.appendDebugState(out);
++                    for (const auto &call : m_impl->recentImports)
++                        out << "[IOP recent] " << call << '\n';
++                    if (!m_impl->lastError.empty())
++                        out << "[IOP scheduler error] " << m_impl->lastError << '\n';
 +                    m_impl->log(LogLevel::Info, out.str());
 +                }
 +            }
@@ -151,3 +237,83 @@
      }
  
      void IopEmulator::onSifTransfer(const SifTransfer &transfer)
+--- a/emulator/core/iop_kernel.h
++++ b/emulator/core/iop_kernel.h
+@@ -5,6 +5,7 @@
+ #include <cstddef>
+ #include <cstdint>
+ #include <map>
++#include <ostream>
+ 
+ namespace ps2x::iop::detail
+ {
+@@ -49,6 +50,7 @@
+         explicit IopKernel(IopMemory &memory) noexcept;
+ 
+         void reset();
++        void appendDebugState(std::ostream &out) const;
+ 
+         [[nodiscard]] bool dispatchThreadImport(uint16_t ordinal, IopCpuState &cpu, uint64_t currentCycle);
+         [[nodiscard]] bool dispatchSemaphoreImport(uint16_t ordinal, IopCpuState &cpu);
+--- a/emulator/core/iop_kernel.cpp
++++ b/emulator/core/iop_kernel.cpp
+@@ -32,6 +32,59 @@
+         m_nextSemaphoreId = 1;
+         m_nextEventFlagId = 1;
+         m_currentThread = nullptr;
++    }
++
++    void IopKernel::appendDebugState(std::ostream &out) const
++    {
++        constexpr const char *states[] = {
++            "dormant", "ready", "running", "sleep", "delay", "semaphore", "event", "suspended", "dead"};
++        out << "[IOP state] threads=" << std::dec << m_threads.size()
++            << " semaphores=" << m_semaphores.size() << " events=" << m_eventFlags.size() << '\n';
++        unsigned shown = 0;
++        for (const auto &[id, thread] : m_threads)
++        {
++            if (shown++ == 16u) break;
++            const auto state = static_cast<size_t>(thread.state);
++            out << "[IOP state] thread=" << std::dec << id
++                << " state=" << (state < 9u ? states[state] : "unknown")
++                << " priority=" << thread.priority << " wait=" << thread.waitId
++                << " wake=" << thread.wakeCycle << " entry=0x" << std::hex << thread.entry
++                << " bits=0x" << thread.waitBits << " mode=0x" << thread.waitMode
++                << " pc=0x" << thread.cpu.pc << " ra=0x" << thread.cpu.gpr[31]
++                << " sp=0x" << thread.cpu.gpr[29] << " v0=0x" << thread.cpu.gpr[2]
++                << " a0=0x" << thread.cpu.gpr[4] << " a1=0x" << thread.cpu.gpr[5]
++                << " cause=0x" << thread.cpu.cop0[13] << " epc=0x" << thread.cpu.cop0[14];
++            const auto pc = IopMemory::physicalAddress(thread.cpu.pc);
++            if (pc >= 16u && pc <= IopMemory::RamSize - 16u && (pc & 3u) == 0u)
++            {
++                out << " code@0x" << pc - 16u << '=';
++                for (unsigned word = 0; word < 8u; ++word)
++                    out << (word == 0u ? "0x" : ",0x") << m_memory.read32(pc - 16u + word * 4u);
++            }
++            const auto sp = IopMemory::physicalAddress(thread.cpu.gpr[29]);
++            if (sp <= IopMemory::RamSize - 16u && (sp & 3u) == 0u)
++            {
++                out << " stack=";
++                for (unsigned word = 0; word < 4u; ++word)
++                    out << (word == 0u ? "0x" : ",0x") << m_memory.read32(sp + word * 4u);
++            }
++            out << '\n';
++        }
++        shown = 0;
++        for (const auto &[id, semaphore] : m_semaphores)
++        {
++            if (shown++ == 16u) break;
++            out << "[IOP state] semaphore=" << std::dec << id << " count=" << semaphore.current
++                << " maximum=" << semaphore.maximum << '\n';
++        }
++        shown = 0;
++        for (const auto &[id, event] : m_eventFlags)
++        {
++            if (shown++ == 16u) break;
++            out << "[IOP state] event=" << std::dec << id << " bits=0x" << std::hex << event.bits
++                << " attr=0x" << event.attr << '\n';
++        }
++        out << std::dec;
+     }
+ 
+     bool IopKernel::dispatchThreadImport(uint16_t ordinal, IopCpuState &cpu, uint64_t currentCycle)
