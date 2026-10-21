@@ -6,7 +6,7 @@ The application requires the original USA ISO at every launch.
 ## Verified components
 
 - All 16 EE component probes build on Linux and as Windows x64 executables.
-- All 138 Python regression tests pass, including translation entry, portable, and release package checks.
+- All 141 Python regression tests pass, including translation entry, portable, and release package checks.
 - Synthetic and USA-executable component comparisons pass.
 - ISO verification passes 33 native Linux checks and 32 Windows-executable
   checks under Wine. Wine cannot execute the cache-symlink check.
@@ -208,6 +208,21 @@ uses the original dispatcher and logged object address, verifies populated and
 empty records, nested AMO/AMM dispatch, relative pointer relocation, adjacent
 memory, saved registers, and the already-relocated guard. There are now 129
 reviewed guest entries. Further retail progress remains unverified.
+
+The next retail log confirms asset relocation completes and reaches screen-fade
+rendering. The indirect call at `0x00249B84` targets `0x002492D0`, which was
+merged into a larger function without a callable entry. The fade table at
+`0x003786E0` has 20 slots shared by four renderers; all four now have reviewed
+translation hints, preserving repeated entries and the reserved custom-callback
+slot. There are 133 reviewed guest entries in total.
+
+The packaged regression executes the original fade update and renderer,
+inspects black and white overlay packets, opacity, viewport coordinates, queue
+bounds, drawing-state restoration, and saved registers. It also exercises
+custom rendering, completion callbacks, the completed state, transparent modes,
+and the textured renderer's initial delay. It uses the original batched command
+queue and checks active radial-fade queue bounds; host rendering, textured output,
+and title-screen boot remain unverified.
 
 Callback regression fixtures allocate their runtime devices on the heap, avoiding
 overflow of MSVC's default 1 MiB host stack. Windows source CI passes this check.

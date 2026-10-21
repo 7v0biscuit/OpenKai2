@@ -127,6 +127,8 @@ The sound-transfer checks execute the original `sceSdTransToIOP` routine,
 verify bytes in IOP RAM, and resume the caller reported in the startup log.
 Asset relocation checks execute all seven tagged handlers through the original
 dispatcher, including nested assets and protection against repeated relocation.
+Fade checks execute the logged update caller and original renderers, inspect
+overlay command packets, and verify completion callbacks and saved registers.
 
 ```powershell
 python tools/native/diagnose-startup.py "D:\Games\Budokai 2 USA.iso" --timeout 180

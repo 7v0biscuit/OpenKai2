@@ -68,7 +68,7 @@ class TranslationEntries(unittest.TestCase):
     def test_reviewed_tables_have_complete_unique_coverage(self):
         self.assertEqual(len(ENTRIES.DISPATCH_TABLES), 7)
         self.assertTrue(all(len(row) == 14 for _, row in ENTRIES.DISPATCH_TABLES))
-        self.assertEqual(len(set(ENTRIES.ENTRY_POINTS)), 129)
+        self.assertEqual(len(set(ENTRIES.ENTRY_POINTS)), 133)
         self.assertEqual(len(ENTRIES.ZERO_RETURN_ENTRIES), 39)
         self.assertTrue(set(ENTRIES.ZERO_RETURN_ENTRIES) <= set(ENTRIES.ENTRY_POINTS))
         self.assertNotIn(0x00387110, ENTRIES.ENTRY_POINTS)
@@ -83,7 +83,7 @@ class TranslationEntries(unittest.TestCase):
             path = Path(temporary) / 'entries.h'
             ENTRIES.emit_check_header(path)
             content, changed = path.read_text(), path.stat().st_mtime_ns
-            self.assertIn('std::array<uint32_t, 129> entries', content)
+            self.assertIn('std::array<uint32_t, 133> entries', content)
             self.assertIn('std::array<uint32_t, 39> zero_return_entries', content)
             for address in ENTRIES.ENTRY_POINTS:
                 self.assertIn(f'0x{address:08x}u,', content)
@@ -148,7 +148,7 @@ class TranslationEntries(unittest.TestCase):
             self.verify_fixture('g_ps2RecompiledFunctionTable[1] = owner; // 0x167188',
                                 '// Address: 0x167188 - 0x1671a0', omitted=(0x0012AC30,))
 
-    def test_asset_metadata_validation_rejects_changed_tags(self):
+    def make_elf_metadata(self):
         data = bytearray(0x290000 + 128)
         struct.pack_into('<I', data, 28, 52)
         struct.pack_into('<HH', data, 42, 32, 1)
@@ -156,14 +156,43 @@ class TranslationEntries(unittest.TestCase):
         def put(address, values):
             struct.pack_into('<'+'I'*len(values), data, address-0x100000+128, *values)
         put(0x00385748, tuple(base for base, _ in ENTRIES.DISPATCH_TABLES))
-        for base, entries in ENTRIES.DISPATCH_TABLES + ENTRIES.FILE_CALLBACK_TABLES + ENTRIES.STREAM_CALLBACK_TABLES:
+        for base, entries in (ENTRIES.DISPATCH_TABLES + ENTRIES.FILE_CALLBACK_TABLES
+                              + ENTRIES.STREAM_CALLBACK_TABLES + ENTRIES.FADE_CALLBACK_TABLES):
             put(base, entries)
         for address in ENTRIES.ZERO_RETURN_ENTRIES:
             put(address, (0x03E00008, 0x0000102D))
         put(ENTRIES.ASSET_RELOCATION_BASE, ENTRIES.ASSET_RELOCATION_WORDS)
+        return data
+
+    def test_asset_metadata_validation_rejects_changed_tags(self):
+        data = self.make_elf_metadata()
         ENTRIES.verify_elf_metadata(data)
         data[ENTRIES.ASSET_RELOCATION_BASE-0x100000+128+4] ^= 1
         with self.assertRaisesRegex(ValueError, 'Asset relocation handlers or tags'):
+            ENTRIES.verify_elf_metadata(data)
+
+    def test_fade_callback_modes_preserve_shared_slots(self):
+        base, slots = ENTRIES.FADE_CALLBACK_TABLES[0]
+        self.assertEqual(base, 0x003786E0)
+        self.assertEqual(len(slots), 20)
+        self.assertEqual(slots[0], 0)
+        self.assertEqual(slots[9:11], (0x00249210, 0x002492D0))
+        self.assertEqual(len(ENTRIES.FADE_CALLBACK_ENTRIES), 4)
+        self.assertEqual(slots.count(0x002487D0), 9)
+        self.assertEqual(slots.count(0x00247CF0), 8)
+        self.assertTrue(set(ENTRIES.FADE_CALLBACK_ENTRIES) <= set(ENTRIES.ENTRY_POINTS))
+
+    def test_logged_fade_renderer_must_be_registered(self):
+        with self.assertRaisesRegex(ValueError, 'missing guest entry 0x002492d0'):
+            self.verify_fixture('g_ps2RecompiledFunctionTable[1] = owner; // 0x167188',
+                                '// Address: 0x167188 - 0x1671a0', omitted=(0x002492D0,))
+
+    def test_fade_metadata_validation_rejects_changed_mode(self):
+        data = self.make_elf_metadata()
+        ENTRIES.verify_elf_metadata(data)
+        base = ENTRIES.FADE_CALLBACK_TABLES[0][0]
+        struct.pack_into('<I', data, base-0x100000+128+10*4, 0x00249210)
+        with self.assertRaisesRegex(ValueError, 'Indirect methods differ.*003786e0'):
             ENTRIES.verify_elf_metadata(data)
 
 

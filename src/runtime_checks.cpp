@@ -8,6 +8,7 @@
 #include "stream_checks.h"
 #include "sound_transfer_checks.h"
 #include "asset_checks.h"
+#include "fade_checks.h"
 #include "iop_checks.h"
 #include "iop_wait_checks.h"
 #include "ps2_runtime.h"
@@ -174,6 +175,8 @@ int run_runtime_checks() {
     std::cout << "Runtime sound transfer regression passed: compiled SDK, IOP payload, completion, aliases, and logged caller.\n";
     verify_asset_relocation(runtime,memory);
     std::cout << "Runtime asset relocation regression passed: seven handlers, logged AMM dispatcher, nested assets, and repeat guards.\n";
+    verify_fade_callbacks(runtime,memory);
+    std::cout << "Runtime fade callback regression passed: four renderers, logged caller, draw packets, completion, and saved registers.\n";
     // Run the original compiled scratchpad-copy caller with the retail size
     // and destination, including its SADR write and receive SDK invocation.
     {

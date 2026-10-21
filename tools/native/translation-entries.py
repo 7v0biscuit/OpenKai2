@@ -103,12 +103,22 @@ ASSET_RELOCATION_HANDLERS = (
 ASSET_RELOCATION_ENTRIES = tuple(address for address, _ in ASSET_RELOCATION_HANDLERS)
 ASSET_RELOCATION_WORDS = tuple(value for address, tag in ASSET_RELOCATION_HANDLERS
                                for value in (address, int.from_bytes(tag, 'little'))) + (0, 0)
+# Fade modes 0..19 share four renderers. Slot zero selects a separate custom
+# callback, and the repeated slots are intentional.
+FADE_CALLBACK_TABLES = ((0x003786E0, (
+    0x00000000,
+    *([0x002487D0] * 8),
+    0x00249210, 0x002492D0, 0x002487D0,
+    *([0x00247CF0] * 8),
+)),)
+FADE_CALLBACK_ENTRIES = tuple(dict.fromkeys(address for _, slots in FADE_CALLBACK_TABLES
+                                           for address in slots if address))
 # Preserve ordering and share the argument-store callback between both groups.
 ENTRY_POINTS = tuple(dict.fromkeys((0x00167188,)
     + tuple(address for _, row in DISPATCH_TABLES for address in row)
     + FILE_CALLBACK_ENTRIES + STREAM_CALLBACK_ENTRIES
     + tuple(address for _, address in TRANSLATED_SDK_ENTRIES)
-    + ASSET_RELOCATION_ENTRIES))
+    + ASSET_RELOCATION_ENTRIES + FADE_CALLBACK_ENTRIES))
 
 
 def configure(text):
@@ -168,7 +178,7 @@ def verify_elf_metadata(data):
 
     if words(0x00385748, len(DISPATCH_TABLES)) != tuple(base for base, _ in DISPATCH_TABLES):
         raise ValueError('Startup dispatcher table roots differ from the reviewed metadata')
-    for base, entries in DISPATCH_TABLES + FILE_CALLBACK_TABLES + STREAM_CALLBACK_TABLES:
+    for base, entries in DISPATCH_TABLES + FILE_CALLBACK_TABLES + STREAM_CALLBACK_TABLES + FADE_CALLBACK_TABLES:
         if words(base, len(entries)) != entries:
             raise ValueError(f'Indirect methods differ from the reviewed table at 0x{base:08x}')
     for address in ZERO_RETURN_ENTRIES:
@@ -187,7 +197,9 @@ def emit_check_header(path):
                           ('stream_callback_entries', STREAM_CALLBACK_ENTRIES),
                           ('stream_callback_slots', STREAM_CALLBACK_TABLES[0][1]),
                           ('asset_relocation_entries', ASSET_RELOCATION_ENTRIES),
-                          ('asset_relocation_words', ASSET_RELOCATION_WORDS)):
+                          ('asset_relocation_words', ASSET_RELOCATION_WORDS),
+                          ('fade_callback_entries', FADE_CALLBACK_ENTRIES),
+                          ('fade_callback_slots', FADE_CALLBACK_TABLES[0][1])):
         lines.append(f'inline constexpr std::array<uint32_t, {len(entries)}> {name} = {{')
         lines.extend(f'    0x{address:08x}u,' for address in entries)
         lines.append('};')
