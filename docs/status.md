@@ -58,6 +58,14 @@ Synthetic guest modules check thread creation, thread arguments, RPC handler
 registration and execution, and imported return values. Thread lifecycle events
 are retained in a bounded trace. Retail startup beyond this point is unverified.
 
+The following retail log confirms a third IOP thread was created and started,
+but still shows no CRI RPC server at attempt 64. The import-pipeline correction
+did not resolve that retail stall. Pending binds now include read-only thread
+states, wait IDs, semaphore counts, event bits, wake deadlines, limited guest
+instruction context, and recent imports. Scheduler exceptions are reported
+instead of being silently discarded. These changes improve diagnosis; a
+retail startup fix has not yet been established.
+
 A complete retail ISO is not present in the development environment. Further
 end-to-end checks must run the updated application with the user's local ISO.
 The launcher obtains `MODULES`, `USR`, and the executable from that image;

@@ -2,6 +2,7 @@
 #include "runtime_checks.h"
 #include "sound_checks.h"
 #include "iop_checks.h"
+#include "iop_wait_checks.h"
 #include "ps2_runtime.h"
 #include <cstring>
 #include <iostream>
@@ -9,6 +10,8 @@
 
 namespace openkai2 {
 int run_runtime_checks() {
+    verify_iop_wait_diagnostics();
+    std::cout << "IOP wait diagnostics regression passed: read-only semaphore, event, and instruction snapshots.\n";
     verify_iop_import_pipeline();
     std::cout << "IOP import pipeline regression passed: thread arguments, RPC handler, and return values.\n";
     verify_sound_registers();
