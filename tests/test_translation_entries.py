@@ -16,6 +16,7 @@ class TranslationEntries(unittest.TestCase):
         output = ENTRIES.configure(text)
         self.assertIn('existing@0x00123400', output)
         self.assertIn('"0x00167188"', output)
+        self.assertIn('"0x001908e0"', output)
         self.assertIn('[patches]\ninstructions = []', output)
         self.assertIn('patch_cop0 = false', output)
 
@@ -31,7 +32,11 @@ class TranslationEntries(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'general'):
             ENTRIES.configure('[mmio]\nvalue=1\n')
 
-    def verify_fixture(self, registry, source):
+    def verify_fixture(self, registry, source, complete_tables=True):
+        if complete_tables:
+            for index, address in enumerate(ENTRIES.ENTRY_POINTS[1:], 1):
+                registry += f'\ng_ps2RecompiledFunctionTable[{index}] = owner; // 0x{address:x}'
+                source += f'\ncase 0x{address:x}u: goto label_{address:x};\nlabel_{address:x}:\n'
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             (root / 'register_functions.cpp').write_text(registry)
@@ -51,6 +56,36 @@ class TranslationEntries(unittest.TestCase):
         self.verify_fixture('g_ps2RecompiledFunctionTable[105570] = owner; // 0x167188',
                             '// Address: 0x167110 - 0x1671a0\n'
                             'case 0x167188u: goto label_167188;\nlabel_167188:\n')
+
+    def test_related_table_entry_must_also_be_registered(self):
+        with self.assertRaisesRegex(ValueError, 'missing guest entry 0x001908e0'):
+            self.verify_fixture('g_ps2RecompiledFunctionTable[1] = owner; // 0x167188',
+                                '// Address: 0x167188 - 0x1671a0', complete_tables=False)
+
+    def test_reviewed_tables_have_complete_unique_coverage(self):
+        self.assertEqual(len(ENTRIES.DISPATCH_TABLES), 7)
+        self.assertTrue(all(len(row) == 14 for _, row in ENTRIES.DISPATCH_TABLES))
+        self.assertEqual(len(set(ENTRIES.ENTRY_POINTS)), 99)
+        self.assertEqual(len(ENTRIES.ZERO_RETURN_ENTRIES), 39)
+        self.assertTrue(set(ENTRIES.ZERO_RETURN_ENTRIES) <= set(ENTRIES.ENTRY_POINTS))
+        self.assertNotIn(0x00387110, ENTRIES.ENTRY_POINTS)
+
+    def test_named_table_entry_remains_idempotent(self):
+        output = ENTRIES.configure('[general]\nentry_points = ["method@0x001908E0"]\n')
+        self.assertEqual(output.lower().count('0x001908e0'), 1)
+        self.assertEqual(ENTRIES.configure(output), output)
+
+    def test_runtime_check_header_uses_reviewed_entries(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'entries.h'
+            ENTRIES.emit_check_header(path)
+            content, changed = path.read_text(), path.stat().st_mtime_ns
+            self.assertIn('std::array<uint32_t, 99> entries', content)
+            self.assertIn('std::array<uint32_t, 39> zero_return_entries', content)
+            for address in ENTRIES.ENTRY_POINTS:
+                self.assertIn(f'0x{address:08x}u,', content)
+            ENTRIES.emit_check_header(path)
+            self.assertEqual(path.stat().st_mtime_ns, changed)
 
 
 if __name__ == '__main__':

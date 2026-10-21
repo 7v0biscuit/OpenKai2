@@ -6,7 +6,7 @@ The application requires the original USA ISO at every launch.
 ## Verified components
 
 - All 16 EE component probes build on Linux and as Windows x64 executables.
-- All 123 Python regression tests pass, including translation entry, portable, and release package checks.
+- All 127 Python regression tests pass, including translation entry, portable, and release package checks.
 - Synthetic and USA-executable component comparisons pass.
 - ISO verification passes 33 native Linux checks and 32 Windows-executable
   checks under Wine. Wine cannot execute the cache-symlink check.
@@ -85,6 +85,23 @@ request before loading returns. Checks also cover sleeping workers, delayed
 registration after a real wake deadline, reset, missing SIDs, and a busy worker's
 budget. The packaged application's `--self-test` includes this regression.
 Retail startup beyond this sound-bind failure is still unverified.
+
+The following Windows log gets past the sound bind and loads `MCMAN.IRX`,
+`MCSERV.IRX`, and `PADMAN.IRX`. It then stops at the unregistered indirect method
+`0x001908E0`, called from the startup table dispatcher at `0x0019DF98`.
+The stripped-ELF analyzer had folded this method into an earlier function.
+
+The translation now includes all 98 methods in the dispatcher's seven active
+subsystem tables. The previous build omitted 86 of those entries. Entry metadata
+is checked against the supported executable's table roots, table contents, and
+leaf-return instructions before configuring translation. Generated-source
+verification requires every entry to start at its own instruction.
+
+The executable self-test checks registration of all reviewed entries, executes
+39 original leaf methods, checks their return delay slots and preserved registers
+and stack, and runs the compiled dispatcher across two isolated method tables.
+These checks use the translated instructions. The other methods still require
+valid game objects and disc data for end-to-end validation.
 
 A complete retail ISO is not present in the development environment. Further
 end-to-end checks must run the updated application with the user's local ISO.

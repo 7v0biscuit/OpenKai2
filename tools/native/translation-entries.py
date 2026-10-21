@@ -5,11 +5,70 @@ import argparse
 import hashlib
 from pathlib import Path
 import re
+import struct
 
 ELF_SHA256 = '431568221bb744a6affc47dc91144b24892839d4d1ab8236bee1e03d83e6b898'
-# This leaf callback follows another function's return without a stack prologue.
-# The game calls it indirectly during startup; it stores the two callback args.
-ENTRY_POINTS = (0x00167188,)
+# The startup dispatcher at 0x0019DF48 walks seven active subsystem tables
+# rooted at 0x00385748. Each table has 14 verified indirect method entries.
+DISPATCH_TABLES = (
+    (0x00387110, (
+        0x001908E0, 0x001908E8, 0x001908F0, 0x00190918,
+        0x00190920, 0x00190928, 0x00190930, 0x00190938,
+        0x00190940, 0x00190948, 0x00190968, 0x00190990,
+        0x001909B0, 0x001909D0,
+    )),
+    (0x00387148, (
+        0x00190A88, 0x00190B00, 0x00190B20, 0x001921D8,
+        0x00192328, 0x00192390, 0x00192398, 0x001923A0,
+        0x001923A8, 0x001923B0, 0x001923D0, 0x001923F0,
+        0x00192410, 0x00192430,
+    )),
+    (0x00387190, (
+        0x00192C10, 0x00192CF8, 0x00192D18, 0x00196180,
+        0x00196720, 0x001968A8, 0x001968B0, 0x001968B8,
+        0x001968C0, 0x001968C8, 0x001968E8, 0x00196908,
+        0x00196AB8, 0x00196BE0,
+    )),
+    (0x00387660, (
+        0x0019F710, 0x0019F718, 0x0019F720, 0x0019F8D0,
+        0x0019F8D8, 0x0019F8E0, 0x0019F8E8, 0x0019F8F0,
+        0x0019F8F8, 0x0019F900, 0x0019F920, 0x0019F940,
+        0x0019F9B8, 0x0019F9D8,
+    )),
+    (0x00386ED8, (
+        0x0018B340, 0x0018B380, 0x0018B438, 0x0018C160,
+        0x0018C698, 0x0018C798, 0x0018C7A0, 0x0018C7C0,
+        0x0018C7E8, 0x0018CA00, 0x0018CA20, 0x0018CA40,
+        0x0018CA60, 0x0018CA80,
+    )),
+    (0x00386F30, (
+        0x0018CD90, 0x0018CD98, 0x0018CDA0, 0x0018CEF0,
+        0x0018CF38, 0x0018CF40, 0x0018CF88, 0x0018CFD0,
+        0x0018D018, 0x0018D070, 0x0018D090, 0x0018D0B0,
+        0x0018D0D0, 0x0018D0F0,
+    )),
+    (0x00387628, (
+        0x0019F408, 0x0019F410, 0x0019F418, 0x0019F578,
+        0x0019F660, 0x0019F668, 0x0019F670, 0x0019F678,
+        0x0019F680, 0x0019F688, 0x0019F6A8, 0x0019F6C8,
+        0x0019F6E8, 0x0019F708,
+    )),
+)
+# These callbacks are JR $ra with DADDU $v0, $zero, $zero in the delay slot.
+ZERO_RETURN_ENTRIES = (
+    0x001908E0, 0x001908E8, 0x00190918, 0x00190920,
+    0x00190928, 0x00190930, 0x00190938, 0x00190940,
+    0x001909D0, 0x00192390, 0x00192398, 0x001923A0,
+    0x001923A8, 0x001968A8, 0x001968B0, 0x001968B8,
+    0x001968C0, 0x0019F710, 0x0019F718, 0x0019F8D0,
+    0x0019F8D8, 0x0019F8E0, 0x0019F8E8, 0x0019F8F0,
+    0x0019F8F8, 0x0019F9D8, 0x0018C798, 0x0018CD90,
+    0x0018CD98, 0x0018CF38, 0x0018D0F0, 0x0019F408,
+    0x0019F410, 0x0019F660, 0x0019F668, 0x0019F670,
+    0x0019F678, 0x0019F680, 0x0019F708,
+)
+# Keep the earlier argument-store callback as well as every table method.
+ENTRY_POINTS = (0x00167188,) + tuple(address for _, row in DISPATCH_TABLES for address in row)
 
 
 def configure(text):
@@ -50,15 +109,50 @@ def verify_generated(directory):
             raise ValueError(f'Guest entry 0x{address:08x} cannot resume at its own instruction')
 
 
+def verify_elf_metadata(data):
+    def words(address, count):
+        offset = struct.unpack_from('<I', data, 28)[0]
+        width, header_count = struct.unpack_from('<HH', data, 42)
+        for index in range(header_count):
+            kind, file_offset, virtual, _, length, *_ = struct.unpack_from('<8I', data, offset + index * width)
+            if kind == 1 and virtual <= address and address + count * 4 <= virtual + length:
+                return struct.unpack_from('<' + 'I' * count, data, file_offset + address - virtual)
+        raise ValueError(f'Indirect entry metadata is outside the ELF at 0x{address:08x}')
+
+    if words(0x00385748, len(DISPATCH_TABLES)) != tuple(base for base, _ in DISPATCH_TABLES):
+        raise ValueError('Startup dispatcher table roots differ from the reviewed metadata')
+    for base, entries in DISPATCH_TABLES:
+        if words(base, len(entries)) != entries:
+            raise ValueError(f'Indirect methods differ from the reviewed table at 0x{base:08x}')
+    for address in ZERO_RETURN_ENTRIES:
+        if words(address, 2) != (0x03E00008, 0x0000102D):
+            raise ValueError(f'Callback return instructions differ at 0x{address:08x}')
+
+
+def emit_check_header(path):
+    lines = ['// SPDX-License-Identifier: GPL-3.0-only', '#pragma once',
+             '#include <array>', '#include <cstdint>', 'namespace openkai2::translation {']
+    for name, entries in (('entries', ENTRY_POINTS), ('zero_return_entries', ZERO_RETURN_ENTRIES)):
+        lines.append(f'inline constexpr std::array<uint32_t, {len(entries)}> {name} = {{')
+        lines.extend(f'    0x{address:08x}u,' for address in entries)
+        lines.append('};')
+    text = '\n'.join(lines + ['}', ''])
+    path = Path(path)
+    if not path.exists() or path.read_text() != text:
+        path.write_text(text, encoding='utf-8')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', type=Path)
     parser.add_argument('--elf', type=Path)
     parser.add_argument('--verify-generated', type=Path)
+    parser.add_argument('--emit-check-header', type=Path)
     args = parser.parse_args()
     if args.config:
         if not args.elf or hashlib.sha256(args.elf.read_bytes()).hexdigest() != ELF_SHA256:
             parser.error('Entry hints apply only to the verified Budokai 2 USA executable')
+        verify_elf_metadata(args.elf.read_bytes())
         original = args.config.read_text()
         updated = configure(original)
         if updated != original:
@@ -66,8 +160,10 @@ def main():
     if args.verify_generated:
         verify_generated(args.verify_generated)
         print('Verified indirect guest entry coverage.')
-    if not args.config and not args.verify_generated:
-        parser.error('Provide --config with --elf, or --verify-generated')
+    if args.emit_check_header:
+        emit_check_header(args.emit_check_header)
+    if not args.config and not args.verify_generated and not args.emit_check_header:
+        parser.error('Provide --config with --elf, --verify-generated, or --emit-check-header')
 
 
 if __name__ == '__main__':
