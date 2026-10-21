@@ -1,9 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #pragma once
 #include <cstdint>
+#include <cstddef>
 #include <iosfwd>
 struct EeKernelSnapshot;
+class GS;
+class PS2Runtime;
 namespace openkai2 {
+void report_startup_graphics(GS&,uint64_t elapsed_ms,std::ostream&);
+void report_movie_wait(const uint8_t* ram,size_t size,std::ostream&);
+void sample_movie_wait(PS2Runtime&,const uint8_t* ram,size_t size,uint32_t return_pc,std::ostream&);
 struct StartupActivity {
     uint64_t dma=0, gif=0, gs=0, vif=0;
 };

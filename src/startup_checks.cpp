@@ -17,6 +17,34 @@ void verify_startup_diagnostics() {
     auto& memory=runtime.memory();
     require(memory.initialize(),"Cannot allocate startup diagnostic memory");
     auto* ram=memory.getRDRAM();
+    require(runtime.syncCoreSubsystems(),"Cannot initialize diagnostic graphics");
+    std::ostringstream graphics;
+    graphics << std::hex;
+    report_startup_graphics(runtime.gs(),5000u,graphics);
+    const auto graphicsText=graphics.str();
+    require(graphicsText.find("elapsed_ms=5000 frame=0 size=0x0")!=std::string::npos
+            && std::count(graphicsText.begin(),graphicsText.end(),'\n')==3,
+            "Empty graphics snapshot was misreported");
+    require(graphics.flags()&std::ios::hex,"Graphics snapshot changed the caller's stream format");
+    constexpr uint32_t movie=0x00370cb8u,backend=0x00250000u;
+    memory.write32(movie,0x00370ae0u); memory.write32(movie+4u,1u);
+    memory.write32(movie+8u,2u); memory.write32(movie+0x40u,0xa0000000u+backend);
+    ram[backend+1u]=3u; memory.write32(backend+0x48u,1u);
+    memory.write32(backend+0x9b8u,1u); memory.write32(backend+0x10u,0x1234u);
+    const std::vector<uint8_t> movieBefore(ram,ram+PS2_RAM_SIZE);
+    std::ostringstream movieReport;
+    report_movie_wait(ram,PS2_RAM_SIZE,movieReport);
+    require(movieReport.str().find("interface=sofdec valid=1 state=2 backend=0xa0250000 backend_status=3")!=std::string::npos
+            && movieReport.str().find("word_10=0x1234")!=std::string::npos
+            && std::equal(movieBefore.begin(),movieBefore.end(),ram),
+            "Movie wait snapshot lost the aliased backend or changed guest memory");
+    memory.write32(movie+0x40u,0x01fffffcu);
+    std::ostringstream invalid;
+    report_movie_wait(ram,PS2_RAM_SIZE,invalid);
+    report_movie_wait(nullptr,0,invalid);
+    require(invalid.str().find("backend_range=invalid")!=std::string::npos
+            && invalid.str().find("interface=inactive")!=std::string::npos,
+            "Movie wait snapshot read beyond the supplied guest range");
     auto& scheduler=runtime.eeScheduler();
     R5900Context context{};
     context.pc=0x001863e4u;

@@ -80,7 +80,8 @@ def main():
                 source.write_bytes(source.read_bytes().replace(b'\r\n', b'\n'))
         for patch in (patches / 'disc-layout.patch', patches / 'iop-startup.patch',
                       patches / 'dma-receive.patch', patches / 'startup-diagnostics.patch',
-                      patches / 'callback-stacks.patch', patches / 'thread-bootstrap.patch'):
+                      patches / 'callback-stacks.patch', patches / 'thread-bootstrap.patch',
+                      patches / 'graphics-diagnostics.patch'):
             apply_overlay_patch(temporary, patch)
         for source in temporary.rglob('*'):
             if source.is_file():

@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "fade_checks.h"
 #include "ps2_runtime.h"
+#include "startup_diagnostics.h"
 #include "openkai2_translation_entries.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <stdexcept>
 #include <string>
+#include <sstream>
 
 namespace openkai2 {
 namespace {
@@ -129,5 +131,59 @@ void verify_fade_callbacks(PS2Runtime& runtime, uint8_t* memory) {
         require(runtime.memory().read32(gp-0x7b80u)==queue, "inactive fade emitted a draw packet");
         if (mode<12) require(read_real(gp-0x7574u)<0.5f, "shared radial fade callback did not execute");
     }
+
+    // Follow an original solid overlay through DMA, GIF decoding, rasterization,
+    // and host presentation. No host window or disc assets are needed.
+    setup(9,1.0f,0.0f);
+    put(gp-0x7fe0u,0u);
+    invoke(0x00249af0u);
+    std::memset(memory+queue+0xa0u,0,16);
+    put(queue+0xa0u,0x70000000u); // Terminate the generated CNT DMA chain.
+    require(runtime.syncCoreSubsystems(), "graphics subsystem initialization failed");
+    const auto writes=runtime.memory().gsWriteCount();
+    runtime.memory().write64(0x12000000u,1u);
+    runtime.memory().write64(0x12000070u,10u<<9);
+    runtime.memory().write64(0x12000080u,(uint64_t(639u)<<32)|(uint64_t(447u)<<44));
+    runtime.memory().write32(0x12000004u,0u);
+    require(runtime.memory().gsWriteCount()==writes+4u,
+            "32/64-bit display writes were missing from the GS counter");
+    runtime.gs().writeRegister(0x4cu,uint64_t(10u)<<16); // FRAME_1, PSMCT32
+    runtime.gs().writeRegister(0x4eu,uint64_t(1u)<<32); // Mask depth writes.
+    runtime.memory().write32(0x1000e000u,1u);
+    R5900Context dmaContext{};
+    runtime.kickGifDmaChainFromMMIO(memory,&dmaContext,0u,0u,queue,0x105u);
+    runtime.gs().latchHostPresentationFrame();
+    std::vector<uint8_t> pixels;
+    uint32_t width=0,height=0;
+    require(runtime.gs().copyLatchedHostPresentationFrame(pixels,width,height),
+            "generated overlay did not produce a host frame");
+    require(width==640u && height==448u && pixels.size()==size_t(width)*height*4,
+            "generated overlay produced the wrong viewport");
+    for (uint32_t y: {0u,224u,447u}) for (uint32_t x: {0u,320u,639u}) {
+        const size_t offset=(size_t(y)*width+x)*4;
+        require(pixels[offset]==255u && pixels[offset+1]==255u && pixels[offset+2]==255u,
+                "generated overlay did not reach the presented pixels");
+    }
+    std::ostringstream report;
+    report_startup_graphics(runtime.gs(),123u,report);
+    if (report.str().find("frame=1 size=640x448")==std::string::npos
+            || report.str().find("nonblack_pixels=286720")==std::string::npos
+            || report.str().find("kind=draw")==std::string::npos)
+        throw std::runtime_error("Runtime fade callback regression: unexpected graphics report: "+report.str());
+    // A new original packet must update the presented frame, not reuse the
+    // previous white frame. Full black also exercises zero-valued RGB output.
+    setup(10,1.0f,0.0f); put(gp-0x7fe0u,0u); invoke(0x00249af0u);
+    std::memset(memory+queue+0xa0u,0,16); put(queue+0xa0u,0x70000000u);
+    runtime.kickGifDmaChainFromMMIO(memory,&dmaContext,0u,0u,queue,0x105u);
+    runtime.gs().latchHostPresentationFrame();
+    require(runtime.gs().copyLatchedHostPresentationFrame(pixels,width,height),
+            "black overlay lost the host frame");
+    for (size_t i=0;i<pixels.size();i+=4)
+        require(pixels[i]==0u && pixels[i+1]==0u && pixels[i+2]==0u,
+                "black overlay did not replace the prior presented frame");
+    std::ostringstream black;
+    report_startup_graphics(runtime.gs(),124u,black);
+    require(black.str().find("nonblack_pixels=0 ")!=std::string::npos,
+            "black frame was reported as missing or nonblack");
 }
 }

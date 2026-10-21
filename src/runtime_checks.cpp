@@ -178,6 +178,7 @@ int run_runtime_checks() {
     std::cout << "Runtime asset relocation regression passed: seven handlers, logged AMM dispatcher, nested assets, and repeat guards.\n";
     verify_fade_callbacks(runtime,memory);
     std::cout << "Runtime fade callback regression passed: four renderers, logged caller, draw packets, completion, and saved registers.\n";
+    std::cout << "Runtime graphics presentation regression passed: original white/black packets, DMA, GIF, rasterization, pixels, and GS counters.\n";
     verify_movie_callbacks(runtime,memory);
     std::cout << "Runtime movie callback regression passed: interface coverage, logged caller, real volume/pan chain, clamping, and saved registers.\n";
     // Run the original compiled scratchpad-copy caller with the retail size

@@ -242,6 +242,20 @@ output, and title-screen boot remain unverified.
 Callback regression fixtures allocate their runtime devices on the heap, avoiding
 overflow of MSVC's default 1 MiB host stack. Windows source CI passes this check.
 
+The latest log contains no missing movie callback or execution exception. DMA
+and GIF submissions continue for 281 seconds until the window closes. Its zero
+GS count was misleading: the counter omitted normal 32- and 64-bit privileged
+register writes. These writes now increment the counter. Bounded graphics
+reports include presented pixel statistics and recent drawing/transfer events;
+four executor-side movie-wait snapshots also record player and display state.
+
+The original solid-fade packets now pass an end-to-end regression through DMA,
+GIF decoding, CPU rasterization, and latched host presentation. An opaque white
+viewport is followed by a black viewport, checking actual RGB output and frame
+replacement. This verifies that isolated path; the latest retail log does not
+identify why visible startup remains unresolved. Full movie decoding and retail
+graphics still require local-ISO validation.
+
 Overlay generation also isolates Git discovery from a parent source checkout.
 Without that isolation, Git can silently skip a `diff --git` patch when the
 default working directory is inside the repository. Regressions cover nested

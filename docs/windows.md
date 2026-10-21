@@ -114,6 +114,11 @@ Normal launches retain EE wait-state and graphics-activity reports in
 `startup.log` at 5, 15, 30, and 60 seconds, and on shutdown. If the window remains
 blank, leave it open for at least 60 seconds before closing it and retaining the
 log. Reports are bounded and do not release waits or change guest state.
+Graphics records include frame dimensions, source framebuffer, nonblack pixel
+count, RGB hash, drawing state, and recent draw/transfer events. Movie-wait
+records include the original player state and display registers, sampled on the
+EE executor. A zero nonblack count means a black rendered frame when `frame=1`;
+`frame=0` means no host presentation frame is available.
 
 The self-test also checks callback stack separation, nested allocations, and
 resumption of an interrupted caller through the EE scheduler using an original
