@@ -60,7 +60,7 @@ def main():
             parser.error(f'{tool} must be installed and available on PATH')
     work = args.work_dir.resolve()
     work.mkdir(parents=True, exist_ok=True)
-    os.environ['OPENKAI2_WORK_DIR'] = str(work)
+    os.environ['OPENKAI2_WORK_DIR'] = work.as_posix()
     upstream = work / 'deps/PS2Recomp'
     build = work / 'windows-build'
     components = work / 'windows-components'

@@ -42,6 +42,7 @@ jobs:
         shell: python
         run: |
           import collections, re, subprocess, sys
+          sys.stdout.reconfigure(encoding='utf-8', errors='replace')
           tail = collections.deque(maxlen=400)
           command = [sys.executable, 'tools/native/build-windows.py', '--tools-only', '--jobs', '2']
           process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -52,11 +53,15 @@ jobs:
           code = process.wait()
           if code:
               lines = list(tail)
-              selected = set(range(max(0, len(lines) - 35), len(lines)))
+              selected = set()
               for index, line in enumerate(lines):
-                  if re.search(r'error|FAILED|failed|Traceback|regression|Assertion', line, re.IGNORECASE):
+                  if re.search(r'error [CL]\d|error:|FAILED|failed|Traceback|regression|Assertion', line, re.IGNORECASE):
                       selected.update(range(max(0, index - 2), min(len(lines), index + 4)))
-              message = ''.join(lines[index] for index in sorted(selected))[-16000:]
-              message = message.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
-              print('::error title=Windows source build details::' + message, flush=True)
+              messages = [('Windows source build tail', ''.join(lines)[-3500:])]
+              details = ''.join(lines[index] for index in sorted(selected))[-12000:]
+              for start in range(0, len(details), 3000):
+                  messages.append(('Windows source build details ' + str(start // 3000 + 1), details[start:start+3000]))
+              for title, message in messages:
+                  message = message.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+                  print('::error title=' + title + '::' + message, flush=True)
           sys.exit(code)
