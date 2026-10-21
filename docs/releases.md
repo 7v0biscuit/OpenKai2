@@ -36,3 +36,9 @@ The Windows release workflow verifies the input, builds and tests the packages,
 then publishes `OpenKai2.exe`, `OpenKai2-windows-x64.zip`, `OpenKai2-Setup.exe`,
 and `SHA256SUMS.txt` with the repository's built-in Actions token. Source-archive
 links are supplied by GitHub automatically.
+
+To retry packaging with workflow fixes while preserving an existing release tag,
+push the corrected packaging commit to `release/v<version>`. The branch name must
+match the pinned version, and the matching release tag must already exist.
+The workflow accepts an existing NSIS 3.11 installation or retries installation
+up to three times before failing with the package-manager log.
