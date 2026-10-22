@@ -88,6 +88,15 @@ STREAM_CALLBACK_TABLES = ((0x00367B68, (
     0x0016D3B0, 0x0016D868, 0x0016D358,
 )),)
 STREAM_CALLBACK_ENTRIES = tuple(address for _, row in STREAM_CALLBACK_TABLES for address in row if address)
+# SJMEM backs the movie player's secondary memory stream. Teardown at
+# 0x00183C4C calls its destructor through slot 0x0c.
+MEMORY_STREAM_TABLES = ((0x003676A8, (
+    0, 0, 0, 0x0016CDA0, 0x0016CDD8, 0x0016CDF0,
+    0x0016CE48, 0x0016CFA0, 0x0016CF08, 0x0016CE00,
+    0x0016D098, 0x0016CDE0,
+)),)
+MEMORY_STREAM_ENTRIES = tuple(address for _, row in MEMORY_STREAM_TABLES for address in row if address)
+
 # This SDK routine submits SIF DMA and optionally waits for completion. Its
 # numeric SIF syscalls are supported; the named runtime stub is unimplemented.
 TRANSLATED_SDK_ENTRIES = (
@@ -155,7 +164,7 @@ MOVIE_TIMING_ENTRIES = tuple(dict.fromkeys(address for _, slots in MOVIE_TIMING_
 # Preserve ordering and share the argument-store callback between both groups.
 ENTRY_POINTS = tuple(dict.fromkeys((0x00167188,)
     + tuple(address for _, row in DISPATCH_TABLES for address in row)
-    + FILE_CALLBACK_ENTRIES + STREAM_CALLBACK_ENTRIES
+    + FILE_CALLBACK_ENTRIES + STREAM_CALLBACK_ENTRIES + MEMORY_STREAM_ENTRIES
     + tuple(address for _, address in TRANSLATED_SDK_ENTRIES)
     + ASSET_RELOCATION_ENTRIES + FADE_CALLBACK_ENTRIES + MOVIE_CALLBACK_ENTRIES
     + MOVIE_PACKET_ENTRIES + MOVIE_TIMING_ENTRIES))
@@ -218,7 +227,7 @@ def verify_elf_metadata(data):
 
     if words(0x00385748, len(DISPATCH_TABLES)) != tuple(base for base, _ in DISPATCH_TABLES):
         raise ValueError('Startup dispatcher table roots differ from the reviewed metadata')
-    for base, entries in (DISPATCH_TABLES + FILE_CALLBACK_TABLES + STREAM_CALLBACK_TABLES
+    for base, entries in (DISPATCH_TABLES + FILE_CALLBACK_TABLES + STREAM_CALLBACK_TABLES + MEMORY_STREAM_TABLES
                           + FADE_CALLBACK_TABLES + MOVIE_CALLBACK_TABLES + MOVIE_PACKET_TABLES
                           + MOVIE_TIMING_TABLES):
         if words(base, len(entries)) != entries:
@@ -240,6 +249,8 @@ def emit_check_header(path):
                           ('file_callback_slots', FILE_CALLBACK_TABLES[0][1]),
                           ('stream_callback_entries', STREAM_CALLBACK_ENTRIES),
                           ('stream_callback_slots', STREAM_CALLBACK_TABLES[0][1]),
+                          ('memory_stream_entries', MEMORY_STREAM_ENTRIES),
+                          ('memory_stream_slots', MEMORY_STREAM_TABLES[0][1]),
                           ('asset_relocation_entries', ASSET_RELOCATION_ENTRIES),
                           ('asset_relocation_words', ASSET_RELOCATION_WORDS),
                           ('fade_callback_entries', FADE_CALLBACK_ENTRIES),

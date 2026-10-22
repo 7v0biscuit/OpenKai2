@@ -87,6 +87,8 @@ def main():
             raise RuntimeError('Compiled sound transfer regression did not pass.')
         if 'Runtime stream callback regression passed' not in self_test:
             raise RuntimeError('Compiled stream interface regression did not pass.')
+        if 'Runtime movie cleanup regression passed' not in self_test:
+            raise RuntimeError('Original movie teardown and memory-stream interface regression did not pass.')
         if 'Runtime thread bootstrap regression passed' not in self_test:
             raise RuntimeError('Compiled EE worker initialization regression did not pass.')
         if 'Runtime callback stack regression passed' not in self_test:

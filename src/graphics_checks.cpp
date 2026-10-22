@@ -2,6 +2,7 @@
 #include "graphics_checks.h"
 #include "runtime/gs/gs_cpu_backend.h"
 #include <algorithm>
+#include <cmath>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -109,9 +110,49 @@ void check_sprite_coordinates() {
                 "sprite covered its exclusive bottom or right edge");
     }
 }
+void check_bilinear_samples() {
+    std::vector<uint8_t> vram(4u*1024u*1024u);
+    GSCpuBackend backend;backend.Initialize(vram.data(),uint32_t(vram.size()));
+    auto rgba=[](uint32_t x,uint32_t y) {
+        return pattern(x,y)|(((x*13u+y*17u)&255u)<<24u);
+    };
+    for (unsigned y=0;y<64u;++y) for (unsigned x=0;x<128u;++x)
+        backend.WriteVram(0u,4096u,2u,x,y,rgba(x,y));
+    GSPrimitiveBatch batch{};batch.vertexCount=2;
+    auto& state=batch.state;
+    state.prim.type=GS_PRIM_SPRITE;state.prim.tme=true;state.prim.fst=true;
+    state.linearFilter=true;state.colclamp=1u;
+    state.context.frame.fbp=56u;state.context.frame.fbw=8u;
+    state.context.zbuf.zmask=true;state.context.test=0x30000u;
+    state.context.scissor={0u,127u,0u,63u};
+    state.context.tex0.tbp0=4096u;state.context.tex0.tbw=2u;
+    state.context.tex0.tfx=1u;state.context.tex0.tcc=true;
+    state.textureWidth=128u;state.textureHeight=64u;
+    batch.vertices[1].x=128.0f;batch.vertices[1].y=64.0f;
+    for (unsigned fraction:{8u,12u}) {
+        batch.vertices[0].u=batch.vertices[0].v=fraction;
+        batch.vertices[1].u=128u*16u+fraction;batch.vertices[1].v=64u*16u+fraction;
+        backend.TextureFlush();backend.Submit(batch);
+        for (unsigned y=0;y<64u;++y) for (unsigned x=0;x<128u;++x) {
+            const uint32_t samples[]={rgba(x,y),rgba((x+1u)%128u,y),
+                rgba(x,(y+1u)%64u),rgba((x+1u)%128u,(y+1u)%64u)};
+            const uint32_t actual=backend.ReadVram(0u,56u*32u,8u,x,y);
+            for (unsigned shift=0;shift<32u;shift+=8u) {
+                const float weight=fraction==8u ? 0.0f : 0.25f;
+                auto channel=[&](unsigned i) { return float((samples[i]>>shift)&255u); };
+                const float top=channel(0)+(channel(1)-channel(0))*weight;
+                const float bottom=channel(2)+(channel(3)-channel(2))*weight;
+                const uint32_t expected=uint32_t(std::lround(top+(bottom-top)*weight));
+                require(((actual>>shift)&255u)==expected,
+                        "aligned or fractional bilinear samples changed across a texture page or wrap boundary");
+            }
+        }
+    }
+}
 }
 void verify_interlaced_presentation() {
     check_sprite_coordinates();
+    check_bilinear_samples();
     check_field_stability();
     std::vector<uint8_t> vram(4u*1024u*1024u);
     GSCpuBackend backend;

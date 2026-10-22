@@ -57,6 +57,8 @@ function(openkai2_attach_generated_sources)
         "${project_root}/tools/native/patches/field-presentation.patch"
         "${project_root}/tools/native/patches/mpeg-ipu-input.patch"
         "${project_root}/tools/native/patches/mpeg-native-scheduling.patch"
+        "${project_root}/tools/native/patches/movie-performance-diagnostics.patch"
+        "${project_root}/tools/native/patches/sprite-sampling.patch"
         "${project_root}/tools/native/prepare-overlays.py")
     get_target_property(iop_sources ps2_iop SOURCES)
     set(overlay_iop_sources "")

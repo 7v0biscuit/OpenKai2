@@ -321,6 +321,7 @@ int run_runtime_checks() {
     auto* memory=runtime.memory().getRDRAM();
     verify_stream_callbacks(runtime,memory);
     std::cout << "Runtime stream callback regression passed: nine methods, ring wraparound, and compiled cleanup caller.\n";
+    std::cout << "Runtime movie cleanup regression passed: original teardown continuation, nine memory-stream methods, destruction, bounds, source counts, and error callbacks.\n";
     verify_sound_transfer(runtime,memory);
     std::cout << "Runtime sound transfer regression passed: compiled SDK, IOP payload, completion, aliases, and logged caller.\n";
     verify_asset_relocation(runtime,memory);

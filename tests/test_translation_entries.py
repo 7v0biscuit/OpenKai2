@@ -68,7 +68,7 @@ class TranslationEntries(unittest.TestCase):
     def test_reviewed_tables_have_complete_unique_coverage(self):
         self.assertEqual(len(ENTRIES.DISPATCH_TABLES), 7)
         self.assertTrue(all(len(row) == 14 for _, row in ENTRIES.DISPATCH_TABLES))
-        self.assertEqual(len(set(ENTRIES.ENTRY_POINTS)), 163)
+        self.assertEqual(len(set(ENTRIES.ENTRY_POINTS)), 172)
         self.assertEqual(len(ENTRIES.ZERO_RETURN_ENTRIES), 39)
         self.assertTrue(set(ENTRIES.ZERO_RETURN_ENTRIES) <= set(ENTRIES.ENTRY_POINTS))
         self.assertNotIn(0x00387110, ENTRIES.ENTRY_POINTS)
@@ -83,7 +83,7 @@ class TranslationEntries(unittest.TestCase):
             path = Path(temporary) / 'entries.h'
             ENTRIES.emit_check_header(path)
             content, changed = path.read_text(), path.stat().st_mtime_ns
-            self.assertIn('std::array<uint32_t, 163> entries', content)
+            self.assertIn('std::array<uint32_t, 172> entries', content)
             self.assertIn('std::array<uint32_t, 39> zero_return_entries', content)
             for address in ENTRIES.ENTRY_POINTS:
                 self.assertIn(f'0x{address:08x}u,', content)
@@ -118,6 +118,24 @@ class TranslationEntries(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'missing guest entry 0x0016d310'):
             self.verify_fixture('g_ps2RecompiledFunctionTable[1] = owner; // 0x167188',
                                 '// Address: 0x167188 - 0x1671a0', omitted=(0x0016D310,))
+
+    def test_memory_stream_interface_and_all_methods_are_registered(self):
+        base, slots = ENTRIES.MEMORY_STREAM_TABLES[0]
+        self.assertEqual(base, 0x003676A8)
+        self.assertEqual(slots[:4], (0, 0, 0, 0x0016CDA0))
+        self.assertEqual(len(slots), 12)
+        self.assertEqual(len(ENTRIES.MEMORY_STREAM_ENTRIES), 9)
+        for entry in ENTRIES.MEMORY_STREAM_ENTRIES:
+            with self.subTest(entry=entry), self.assertRaisesRegex(ValueError, f'missing guest entry 0x{entry:08x}'):
+                self.verify_fixture('g_ps2RecompiledFunctionTable[1] = owner; // 0x167188',
+                                    '// Address: 0x167188 - 0x1671a0', omitted=(entry,))
+
+    def test_memory_stream_metadata_rejects_changed_cleanup_method(self):
+        data = self.make_elf_metadata()
+        ENTRIES.verify_elf_metadata(data)
+        data[0x003676B4-0x100000+128] ^= 1
+        with self.assertRaisesRegex(ValueError, 'Indirect methods differ.*003676a8'):
+            ENTRIES.verify_elf_metadata(data)
 
     def test_sound_transfer_sdk_is_translated_with_its_exact_entry(self):
         text = ('[general]\nstubs = ["sceSdTransToIOP@0x00116268", "ret0@0x00200000", '
@@ -174,7 +192,7 @@ class TranslationEntries(unittest.TestCase):
             struct.pack_into('<'+'I'*len(values), data, address-0x100000+128, *values)
         put(0x00385748, tuple(base for base, _ in ENTRIES.DISPATCH_TABLES))
         for base, entries in (ENTRIES.DISPATCH_TABLES + ENTRIES.FILE_CALLBACK_TABLES
-                              + ENTRIES.STREAM_CALLBACK_TABLES + ENTRIES.FADE_CALLBACK_TABLES
+                              + ENTRIES.STREAM_CALLBACK_TABLES + ENTRIES.MEMORY_STREAM_TABLES + ENTRIES.FADE_CALLBACK_TABLES
                               + ENTRIES.MOVIE_CALLBACK_TABLES + ENTRIES.MOVIE_PACKET_TABLES
                               + ENTRIES.MOVIE_TIMING_TABLES):
             put(base, entries)

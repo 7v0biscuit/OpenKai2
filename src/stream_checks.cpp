@@ -15,6 +15,7 @@ void require(bool condition,const char* message) {
 }
 }
 void verify_stream_callbacks(PS2Runtime& runtime,uint8_t* memory) {
+    require(runtime.hasFunction(0x0016cda0u),"logged movie cleanup target is not registered");
     constexpr uint32_t table=0x00367b68u, record=0x24000u, chunk=0x24200u;
     constexpr uint32_t buffer=0x26000u, output=0x24300u;
     constexpr uint32_t stack=0x01fffe40u, returned=0x0019de98u;
@@ -47,6 +48,67 @@ void verify_stream_callbacks(PS2Runtime& runtime,uint8_t* memory) {
     auto method=[&](unsigned slot,uint32_t object,uint32_t a1=0u,uint32_t a2=0u,uint32_t a3=0u) {
         return call(translation::stream_callback_slots[slot],{object,a1,a2,a3});
     };
+    constexpr uint32_t memory_table=0x003676a8u,memory_object=0x003676e0u;
+    for (const auto address:translation::memory_stream_entries)
+        require(runtime.hasFunction(address),"reviewed SJMEM method is not registered");
+    std::memcpy(memory+memory_table,translation::memory_stream_slots.data(),48u);
+    auto memory_method=[&](unsigned slot,uint32_t object,uint32_t a1=0u,uint32_t a2=0u,uint32_t a3=0u) {
+        return call(translation::memory_stream_slots[slot],{object,a1,a2,a3});
+    };
+    // Recreate the logged memory-stream object, then run the original
+    // movie teardown continuation through its indirect destructor call.
+    std::memset(memory+memory_object-4u,0xa5,0x2cu);
+    runtime.memory().write32(memory_object,memory_table);
+    runtime.memory().write32(memory_object+4u,1u);
+    constexpr uint32_t player=0x00370cb8u;
+    std::memset(memory+player,0,0x210u);
+    runtime.memory().write32(player+0x14cu,memory_object);
+    runtime.memory().write64(stack,player);
+    runtime.memory().write64(stack+8u,returned);
+    R5900Context cleanup{};cleanup.pc=0x00183c38u;
+    cleanup.r[16]=_mm_cvtsi32_si128(player);cleanup.r[28]=_mm_cvtsi32_si128(0x003ac4f0u);
+    cleanup.r[29]=_mm_cvtsi32_si128(stack);cleanup.r[31]=_mm_cvtsi32_si128(returned);
+    for (unsigned step=0;step<256u && cleanup.pc!=returned;++step) {
+        require(runtime.hasFunction(cleanup.pc),"movie teardown reached a missing continuation");
+        runtime.lookupFunction(cleanup.pc)(memory,&cleanup,&runtime);
+    }
+    require(cleanup.pc==returned && getRegU32(&cleanup,16)==player
+            && getRegU32(&cleanup,29)==stack+16u && getRegU32(&cleanup,28)==0x003ac4f0u
+            && runtime.memory().read32(player)==0x00370ae0u
+            && runtime.memory().read32(player+0x14cu)==0u,
+            "movie teardown did not resume after releasing its memory stream");
+    require(std::all_of(memory+memory_object,memory+memory_object+0x24u,[](uint8_t b){return b==0;}),
+            "movie teardown did not clear the complete memory-stream object");
+    for (unsigned i=0;i<4u;++i)
+        require(memory[memory_object-4u+i]==0xa5 && memory[memory_object+0x24u+i]==0xa5,
+                "memory-stream destructor crossed its pool slot");
+    runtime.memory().write32(player+0x14cu,0u);
+    const uint32_t memory_stream=call(0x0016ccd8u,{buffer,64u,0,0});
+    require(memory_stream==memory_object && runtime.memory().read32(memory_stream)==memory_table,
+            "memory-stream constructor did not return its original pool slot");
+    require(memory_method(4,memory_stream)==0x00384878u && memory_method(9,memory_stream,1u)==64u,
+            "memory-stream identifier or initial byte count is wrong");
+    memory_method(6,memory_stream,1u,20u,chunk);
+    require(runtime.memory().read32(chunk)==buffer && runtime.memory().read32(chunk+4u)==20u
+            && memory_method(9,memory_stream,1u)==44u,"memory-stream acquisition lost data");
+    memory_method(7,memory_stream,1u,chunk);
+    require(memory_method(9,memory_stream,1u)==64u,"returning memory-stream data did not restore it");
+    memory_method(6,memory_stream,1u,20u,chunk);
+    memory_method(8,memory_stream,1u,chunk);
+    require(memory_method(10,memory_stream,1u,100u,output)==0u
+            && runtime.memory().read32(output)==44u,"memory-stream peek consumed data or returned a wrong count");
+    memory_method(6,memory_stream,1u,100u,chunk);
+    require(runtime.memory().read32(chunk)==buffer+20u && runtime.memory().read32(chunk+4u)==44u
+            && memory_method(9,memory_stream,1u)==0u,"memory-stream exhaustion lost its position");
+    memory_method(5,memory_stream);
+    require(memory_method(9,memory_stream,1u)==64u,"memory-stream reset did not restore the source");
+    std::array<uint8_t,64> memory_zero_page{};std::memcpy(memory_zero_page.data(),memory,64u);
+    memory_method(3,0u);
+    require(std::memcmp(memory,memory_zero_page.data(),64u)==0,"null memory-stream cleanup changed the zero page");
+    memory_method(11,memory_stream,0x00167188u,record);
+    require(memory_method(9,memory_stream,7u)==0u && runtime.memory().read32(0x0035fb24u)==record
+            && runtime.memory().read32(0x0035fb28u)==0xfffffffdu,"memory-stream error callback lost its arguments");
+    memory_method(3,memory_stream);
     // Recreate the logged caller and its object at the original pool address.
     // The caller clears record+8, calls slot 0x0c, then restores its own frame.
     constexpr uint32_t retail_object=0x00367ea0u;

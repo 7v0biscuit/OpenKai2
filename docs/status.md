@@ -462,6 +462,30 @@ smaller pixel-layout fixtures. Windows publication requires the scheduling test
 in the installed application. Retail frame rate, audio synchronization, title
 boot, and gameplay still require end-to-end verification.
 
+The Preview 28 follow-up confirms improved movie playback but reports a black
+screen afterward and remaining slowdown. Its movie worker has no accumulated
+wakeups and returns to priority 25. The main thread instead stops during movie
+cleanup: the indirect call at `0x00183C4C` targets the missing SJMEM destructor
+at `0x0016CDA0`, through the interface at `0x003676A8`.
+
+All nine methods in this memory-stream interface now have reviewed translation
+hints and executable-verified table metadata. The regression reproduces the
+missing destructor on the previous runtime, then runs the logged original
+teardown continuation to its caller return. It checks released objects, bounds,
+saved caller state, construction, source positions/counts, consumption, reset,
+peek, and error callbacks. The installed Windows application must pass this
+cleanup regression before publication.
+
+An isolated 512x448 GS sprite benchmark measured about 7 ms with nearest filtering
+and 18 ms with bilinear filtering on the development machine. This does not
+establish the retail movie bottleneck. Avoiding redundant interpolation for exact
+texel centers reduces the aligned bilinear case to about 14 ms while preserving
+all texture reads and cache effects. Pixel comparisons cover aligned/fractional
+samples, RGBA channels, page boundaries, and wrapping. Bounded MPEG and GS timing reports now
+separate decoding, copying, uploading, and textured drawing in future startup
+logs. The remaining retail slowdown and title-screen transition still need
+end-to-end verification.
+
 A complete retail ISO is not present in the development environment. Further
 end-to-end checks must run the updated application with the user's local ISO.
 The launcher obtains `MODULES`, `USR`, and the executable from that image;

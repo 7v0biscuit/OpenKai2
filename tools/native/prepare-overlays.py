@@ -92,7 +92,8 @@ def main():
                       patches / 'thread-wakeup.patch', patches / 'thread-priority.patch',
                       patches / 'graphics-diagnostics.patch', patches / 'interlaced-display.patch',
                       patches / 'sprite-coordinates.patch', patches / 'field-presentation.patch',
-                      patches / 'mpeg-ipu-input.patch', patches / 'mpeg-native-scheduling.patch'):
+                      patches / 'mpeg-ipu-input.patch', patches / 'mpeg-native-scheduling.patch',
+                      patches / 'movie-performance-diagnostics.patch', patches / 'sprite-sampling.patch'):
             apply_overlay_patch(temporary, patch)
         for source in temporary.rglob('*'):
             if source.is_file():
