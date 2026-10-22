@@ -6,7 +6,7 @@ The application requires the original USA ISO at every launch.
 ## Verified components
 
 - All 16 EE component probes build on Linux and as Windows x64 executables.
-- All 149 Python regression tests pass, including translation entry, portable, and release package checks.
+- All 152 Python regression tests pass, including translation entry, portable, and release package checks.
 - Synthetic and USA-executable component comparisons pass.
 - ISO verification passes 33 native Linux checks and 32 Windows-executable
   checks under Wine. Wine cannot execute the cache-symlink check.
@@ -388,6 +388,27 @@ and video handlers are checked with their streams disabled; this is a packet
 transport regression, not a movie-decoding test. The installed Windows self-test
 must pass it before publication. Visible movie playback, title boot, and gameplay
 remain unverified.
+
+The Preview 25 log advances past that packet callback: the video stream contains
+about 234 KiB and the audio stream about 22 KiB. The user confirms that screen
+shaking is fixed, but no movie appears. The movie worker then becomes dormant at
+the unregistered time-code handler `0x0019D4F0`, called indirectly from
+`0x0019D42C` with the original 29.97-rate denominator `0x7512`.
+
+Translation now explicitly includes all seven handlers in the timing table at
+`0x00387448`. Its nine rates, reserved null pair, repeated slots, and both modes
+are verified against the supported ELF; generated-source validation requires
+every handler to start at its own instruction. The complete reviewed-entry set
+has 163 entries. The existing field-presentation fix is unchanged.
+
+The previous translation reproduces the exact missing target through the
+original time-code dispatcher. The updated regression runs that dispatcher for
+all nine rates and both modes, checking zero times, seconds, minute and ten-minute
+boundaries, hours, long-duration 32-bit wrapping, original numerator/denominator
+outputs, saved registers, caller frames, input preservation, and memory guards.
+The installed Windows application's self-test must pass this regression before
+publication. These are synthetic time-code tests; full movie decoding, visible
+playback, title boot, and gameplay remain unverified.
 
 A complete retail ISO is not present in the development environment. Further
 end-to-end checks must run the updated application with the user's local ISO.

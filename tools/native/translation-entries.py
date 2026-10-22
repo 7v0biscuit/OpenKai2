@@ -135,13 +135,30 @@ MOVIE_PACKET_TABLES = ((0x00387180, (
     0x00191218, 0x00191390, 0x001915F0, 0x00191880,
 )),)
 MOVIE_PACKET_ENTRIES = tuple(address for _, slots in MOVIE_PACKET_TABLES for address in slots)
+# The time-code dispatcher at 0x0019D3A8 selects a pair of conversion
+# handlers for each rate. Preserve the reserved rate-zero pair and repeated
+# integer-rate entries as well as the fractional/drop-frame methods.
+MOVIE_TIMING_RATES = (1, 23976, 24000, 25000, 29970, 30000, 50000, 59940, 60000)
+MOVIE_TIMING_TABLES = ((0x00387448, (
+    0, 0,
+    0x0019D4B8, 0x0019D560,
+    0x0019D448, 0x0019D448,
+    0x0019D448, 0x0019D448,
+    0x0019D4F0, 0x0019D5E0,
+    0x0019D448, 0x0019D448,
+    0x0019D448, 0x0019D448,
+    0x0019D528, 0x0019D660,
+    0x0019D448, 0x0019D448,
+)),)
+MOVIE_TIMING_ENTRIES = tuple(dict.fromkeys(address for _, slots in MOVIE_TIMING_TABLES
+                                         for address in slots if address))
 # Preserve ordering and share the argument-store callback between both groups.
 ENTRY_POINTS = tuple(dict.fromkeys((0x00167188,)
     + tuple(address for _, row in DISPATCH_TABLES for address in row)
     + FILE_CALLBACK_ENTRIES + STREAM_CALLBACK_ENTRIES
     + tuple(address for _, address in TRANSLATED_SDK_ENTRIES)
     + ASSET_RELOCATION_ENTRIES + FADE_CALLBACK_ENTRIES + MOVIE_CALLBACK_ENTRIES
-    + MOVIE_PACKET_ENTRIES))
+    + MOVIE_PACKET_ENTRIES + MOVIE_TIMING_ENTRIES))
 
 
 def configure(text):
@@ -202,9 +219,12 @@ def verify_elf_metadata(data):
     if words(0x00385748, len(DISPATCH_TABLES)) != tuple(base for base, _ in DISPATCH_TABLES):
         raise ValueError('Startup dispatcher table roots differ from the reviewed metadata')
     for base, entries in (DISPATCH_TABLES + FILE_CALLBACK_TABLES + STREAM_CALLBACK_TABLES
-                          + FADE_CALLBACK_TABLES + MOVIE_CALLBACK_TABLES + MOVIE_PACKET_TABLES):
+                          + FADE_CALLBACK_TABLES + MOVIE_CALLBACK_TABLES + MOVIE_PACKET_TABLES
+                          + MOVIE_TIMING_TABLES):
         if words(base, len(entries)) != entries:
             raise ValueError(f'Indirect methods differ from the reviewed table at 0x{base:08x}')
+    if words(0x00387420, len(MOVIE_TIMING_RATES)) != MOVIE_TIMING_RATES:
+        raise ValueError('Movie timing rates differ from the reviewed metadata')
     for address in ZERO_RETURN_ENTRIES:
         if words(address, 2) != (0x03E00008, 0x0000102D):
             raise ValueError(f'Callback return instructions differ at 0x{address:08x}')
@@ -227,7 +247,10 @@ def emit_check_header(path):
                           ('movie_callback_entries', MOVIE_CALLBACK_ENTRIES),
                           ('movie_callback_slots', MOVIE_CALLBACK_TABLES[0][1]),
                           ('movie_packet_entries', MOVIE_PACKET_ENTRIES),
-                          ('movie_packet_slots', MOVIE_PACKET_TABLES[0][1])):
+                          ('movie_packet_slots', MOVIE_PACKET_TABLES[0][1]),
+                          ('movie_timing_entries', MOVIE_TIMING_ENTRIES),
+                          ('movie_timing_slots', MOVIE_TIMING_TABLES[0][1]),
+                          ('movie_timing_rates', MOVIE_TIMING_RATES)):
         lines.append(f'inline constexpr std::array<uint32_t, {len(entries)}> {name} = {{')
         lines.extend(f'    0x{address:08x}u,' for address in entries)
         lines.append('};')

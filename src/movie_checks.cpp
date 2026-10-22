@@ -14,6 +14,86 @@ namespace {
 void require(bool condition, const char* message) {
     if (!condition) throw std::runtime_error(std::string("Runtime movie callback regression: ")+message);
 }
+void verify_movie_timing(PS2Runtime& runtime,uint8_t* memory) {
+    constexpr uint32_t input=0x00258000u,outputs=0x00258100u;
+    constexpr uint32_t stack=0x01ffff60u,returned=0x0019de98u,gp=0x003ac4f0u;
+    std::memcpy(memory+0x00387420u,translation::movie_timing_rates.data(),
+                translation::movie_timing_rates.size()*4);
+    std::memcpy(memory+0x00387448u,translation::movie_timing_slots.data(),
+                translation::movie_timing_slots.size()*4);
+    // Hours, minutes, seconds, frames, and the additional frame term used by
+    // the original converter. Include minute/ten-minute boundaries and 32-bit
+    // wrapping at long durations. No decoder or host timing helper is involved.
+    const std::array<uint32_t,5> times[]={
+        {0,0,0,0,0}, {0,0,1,0,0}, {0,1,0,0,0}, {0,9,59,17,1},
+        {0,10,0,0,0}, {1,0,0,0,0}, {23,59,59,29,1},
+    };
+    // Exercise the exact logged rate first: index four, ordinary time code.
+    for (unsigned rateIndex:{4u,0u,1u,2u,3u,5u,6u,7u,8u}) {
+        const uint32_t rate=translation::movie_timing_rates[rateIndex];
+        for (uint32_t mode:{0u,1u}) for (const auto& time:times) {
+            std::memset(memory+input-16u,0xa5,64u);
+            std::memset(memory+input,0,32u);
+            std::memset(memory+outputs,0xcc,64u);
+            std::memset(memory+stack-0x810u,0xa5,0x830u);
+            runtime.memory().write32(input,rateIndex);
+            runtime.memory().write32(input+4u,mode);
+            std::memcpy(memory+input+8u,time.data(),time.size()*4);
+            const std::vector<uint8_t> original(memory+input-16u,memory+input+48u);
+            R5900Context context{};
+            context.pc=0x0019d3a8u;
+            context.r[4]=_mm_cvtsi32_si128(input);
+            context.r[5]=_mm_cvtsi32_si128(outputs+16u);
+            context.r[6]=_mm_cvtsi32_si128(outputs+32u);
+            context.r[28]=_mm_cvtsi32_si128(gp);context.r[29]=_mm_cvtsi32_si128(stack);
+            context.r[30]=_mm_cvtsi32_si128(0x1030u);context.r[31]=_mm_cvtsi32_si128(returned);
+            for (unsigned reg=16;reg<=23;++reg)
+                context.r[reg]=_mm_set_epi32(0x4400+reg,0x3300+reg,0x2200+reg,0x1100+reg);
+            const auto saved=context;
+            for (unsigned step=0;step<1024u && context.pc!=returned;++step) {
+                require(runtime.hasFunction(context.pc),"time-code caller reached an unregistered continuation");
+                runtime.lookupFunction(context.pc)(memory,&context,&runtime);
+            }
+            require(context.pc==returned && getRegU32(&context,29)==stack
+                    && getRegU32(&context,28)==gp && getRegU32(&context,30)==0x1030u
+                    && getRegU32(&context,31)==returned,
+                    "time-code dispatcher did not restore its original frame");
+            for (unsigned reg=16;reg<=23;++reg)
+                require(std::memcmp(&context.r[reg],&saved.r[reg],16)==0,
+                        "time-code dispatcher changed a saved register");
+            const uint64_t h=time[0],m=time[1],s=time[2],f=time[3]+time[4];
+            uint64_t clock=rate;
+            if (rateIndex==1u) clock=24000u;
+            if (rateIndex==4u) clock=30000u;
+            if (rateIndex==7u) clock=60000u;
+            uint32_t expected=uint32_t((h*3600u+m*60u+s)*clock+f*1000u);
+            if (mode==1u && rateIndex==1u)
+                expected=uint32_t((h*86292u+m*1438u+s*24u+2u*(m/10u)+f)*1000u);
+            if (mode==1u && rateIndex==4u)
+                expected=uint32_t((h*107892u+m*1798u+s*30u+2u*(m/10u)+f)*1000u);
+            if (mode==1u && rateIndex==7u)
+                expected=uint32_t((h*215892u+m*3598u+s*60u+2u*(m/10u)+f)*1000u);
+            if (runtime.memory().read32(outputs+16u)!=(rateIndex ? expected : 0u)
+                    || runtime.memory().read32(outputs+32u)!=(rateIndex ? rate : 1u))
+                throw std::runtime_error("Runtime movie time-code conversion: rate="+std::to_string(rate)
+                    +" mode="+std::to_string(mode)+" time="+std::to_string(h)+":"+std::to_string(m)
+                    +":"+std::to_string(s)+":"+std::to_string(f)
+                    +" expected="+std::to_string(rateIndex ? expected : 0u)+"/"+std::to_string(rateIndex ? rate : 1u)
+                    +" actual="+std::to_string(runtime.memory().read32(outputs+16u))+"/"
+                    +std::to_string(runtime.memory().read32(outputs+32u)));
+            require(std::memcmp(memory+input-16u,original.data(),original.size())==0,
+                    "time-code converter changed its input or neighboring memory");
+            for (unsigned i=0;i<64u;++i)
+                if (!(i>=16u && i<20u) && !(i>=32u && i<36u))
+                    require(memory[outputs+i]==0xcc,"time-code converter crossed an output boundary");
+            for (unsigned i=0;i<16u;++i)
+                require(memory[stack+i]==0xa5 && memory[stack-0x810u+i]==0xa5,
+                        "time-code converter crossed its stack boundary");
+        }
+    }
+    for (auto entry:translation::movie_timing_entries)
+        require(runtime.hasFunction(entry),"movie timing handler is not registered");
+}
 void verify_movie_packets(PS2Runtime& runtime,uint8_t* memory) {
     for (auto entry:translation::movie_packet_entries)
         require(runtime.hasFunction(entry),"movie packet handler is not registered");
@@ -109,6 +189,7 @@ void verify_movie_packets(PS2Runtime& runtime,uint8_t* memory) {
 }
 }
 void verify_movie_callbacks(PS2Runtime& runtime, uint8_t* memory) {
+    verify_movie_timing(runtime,memory);
     verify_movie_packets(runtime,memory);
     constexpr uint32_t table=0x00370ae0u, object=0x00370cb8u;
     constexpr uint32_t backend=0x00250000u, bridge=0x00253100u, adx=0x00254000u;

@@ -68,7 +68,7 @@ class TranslationEntries(unittest.TestCase):
     def test_reviewed_tables_have_complete_unique_coverage(self):
         self.assertEqual(len(ENTRIES.DISPATCH_TABLES), 7)
         self.assertTrue(all(len(row) == 14 for _, row in ENTRIES.DISPATCH_TABLES))
-        self.assertEqual(len(set(ENTRIES.ENTRY_POINTS)), 156)
+        self.assertEqual(len(set(ENTRIES.ENTRY_POINTS)), 163)
         self.assertEqual(len(ENTRIES.ZERO_RETURN_ENTRIES), 39)
         self.assertTrue(set(ENTRIES.ZERO_RETURN_ENTRIES) <= set(ENTRIES.ENTRY_POINTS))
         self.assertNotIn(0x00387110, ENTRIES.ENTRY_POINTS)
@@ -83,7 +83,7 @@ class TranslationEntries(unittest.TestCase):
             path = Path(temporary) / 'entries.h'
             ENTRIES.emit_check_header(path)
             content, changed = path.read_text(), path.stat().st_mtime_ns
-            self.assertIn('std::array<uint32_t, 156> entries', content)
+            self.assertIn('std::array<uint32_t, 163> entries', content)
             self.assertIn('std::array<uint32_t, 39> zero_return_entries', content)
             for address in ENTRIES.ENTRY_POINTS:
                 self.assertIn(f'0x{address:08x}u,', content)
@@ -175,8 +175,10 @@ class TranslationEntries(unittest.TestCase):
         put(0x00385748, tuple(base for base, _ in ENTRIES.DISPATCH_TABLES))
         for base, entries in (ENTRIES.DISPATCH_TABLES + ENTRIES.FILE_CALLBACK_TABLES
                               + ENTRIES.STREAM_CALLBACK_TABLES + ENTRIES.FADE_CALLBACK_TABLES
-                              + ENTRIES.MOVIE_CALLBACK_TABLES + ENTRIES.MOVIE_PACKET_TABLES):
+                              + ENTRIES.MOVIE_CALLBACK_TABLES + ENTRIES.MOVIE_PACKET_TABLES
+                              + ENTRIES.MOVIE_TIMING_TABLES):
             put(base, entries)
+        put(0x00387420, ENTRIES.MOVIE_TIMING_RATES)
         for address in ENTRIES.ZERO_RETURN_ENTRIES:
             put(address, (0x03E00008, 0x0000102D))
         put(ENTRIES.ASSET_RELOCATION_BASE, ENTRIES.ASSET_RELOCATION_WORDS)
@@ -254,6 +256,34 @@ class TranslationEntries(unittest.TestCase):
         struct.pack_into('<I', data, base-0x100000+128+0x2c, 0x00186EE0)
         with self.assertRaisesRegex(ValueError, 'Indirect methods differ.*00370ae0'):
             ENTRIES.verify_elf_metadata(data)
+
+    def test_movie_timing_covers_rates_and_both_modes(self):
+        base, slots = ENTRIES.MOVIE_TIMING_TABLES[0]
+        self.assertEqual(base, 0x00387448)
+        self.assertEqual(len(slots), len(ENTRIES.MOVIE_TIMING_RATES)*2)
+        self.assertEqual(slots[:2], (0, 0))
+        self.assertEqual(slots[8:10], (0x0019D4F0, 0x0019D5E0))
+        self.assertEqual(len(ENTRIES.MOVIE_TIMING_ENTRIES), 7)
+        self.assertTrue(set(ENTRIES.MOVIE_TIMING_ENTRIES) <= set(ENTRIES.ENTRY_POINTS))
+        output = ENTRIES.configure('[general]\nentry_points = ["timing@0x0019d4f0"]\n')
+        self.assertEqual(output.count('0x0019d4f0'), 1)
+        self.assertEqual(ENTRIES.configure(output), output)
+
+    def test_every_movie_timing_handler_must_be_registered(self):
+        for entry in ENTRIES.MOVIE_TIMING_ENTRIES:
+            with self.subTest(entry=entry), self.assertRaisesRegex(ValueError, f'missing guest entry 0x{entry:08x}'):
+                self.verify_fixture('g_ps2RecompiledFunctionTable[1] = owner; // 0x167188',
+                                    '// Address: 0x167188 - 0x1671a0', omitted=(entry,))
+
+    def test_movie_timing_metadata_rejects_changed_rate_or_handler(self):
+        for address, message in ((0x00387430, 'Movie timing rates'),
+                                 (0x00387468, 'Indirect methods differ.*00387448')):
+            with self.subTest(address=address):
+                data = self.make_elf_metadata()
+                ENTRIES.verify_elf_metadata(data)
+                data[address-0x100000+128] ^= 1
+                with self.assertRaisesRegex(ValueError, message):
+                    ENTRIES.verify_elf_metadata(data)
 
 
 if __name__ == '__main__':
