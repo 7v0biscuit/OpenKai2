@@ -442,6 +442,26 @@ These checks establish MPEG decoding for generated input. The complete retail
 movie, its visible presentation, audio synchronization, title boot, and gameplay
 still require end-to-end verification with the original ISO.
 
+The Preview 27 user confirms that the movie now plays, but reports about 5 FPS
+during the movie and a freeze afterward; the logos run normally. Its shutdown
+snapshot leaves worker 5 running at priority 1 with 67,613 pending wakeups and
+the main thread ready at priority 24. The host decoder's extra VBlank wait yields
+the synchronous worker to the caller's resume/wake loop. Those wakeups make the
+worker's eventual SleepThread nonblocking, preventing the main thread from
+finishing its priority-restoring handoff.
+
+Native SDK decoding now returns buffered pictures without this extra display
+wait; the original CRI player retains control of presentation timing. The generic
+MPEG adapter's pacing is preserved. A bounded end-of-stream message records the
+number of returned pictures. The generated-input regression reproduces the old
+worker stall after all pictures decode. The updated runtime handles EOF without
+overwriting the last image, restores main priority 24, and completes eight
+original service/sleep cycles with no accumulated worker wakeups. It covers
+padded input, the native refill callback, and 512x448 decoding as well as the
+smaller pixel-layout fixtures. Windows publication requires the scheduling test
+in the installed application. Retail frame rate, audio synchronization, title
+boot, and gameplay still require end-to-end verification.
+
 A complete retail ISO is not present in the development environment. Further
 end-to-end checks must run the updated application with the user's local ISO.
 The launcher obtains `MODULES`, `USR`, and the executable from that image;

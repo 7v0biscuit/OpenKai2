@@ -336,6 +336,7 @@ int run_runtime_checks() {
     std::cout << "Runtime MPEG setup regression passed: original work layout, allocator, callbacks, native dispatcher, reset, and reference buffers.\n";
     verify_mpeg_decode();
     std::cout << "Runtime MPEG decode regression passed: generated MPEG-2 pictures, original CRI input ring, IPU DMA, SDK frame return, and pixel layout.\n";
+    std::cout << "Runtime MPEG scheduling regression passed: synchronous decoding, end of stream, compiled worker handoff, priority restoration, and continuing frames at 32x32 and 512x448.\n";
     // Run the original compiled scratchpad-copy caller with the retail size
     // and destination, including its SADR write and receive SDK invocation.
     {
