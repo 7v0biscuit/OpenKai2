@@ -11,6 +11,7 @@
 #include "fade_checks.h"
 #include "movie_checks.h"
 #include "mpeg_checks.h"
+#include "graphics_checks.h"
 #include "iop_checks.h"
 #include "iop_wait_checks.h"
 #include "ps2_runtime.h"
@@ -150,6 +151,8 @@ void verify_file_callbacks(PS2Runtime& runtime,uint8_t* memory) {
 }
 }
 int run_runtime_checks() {
+    verify_interlaced_presentation();
+    std::cout << "Runtime interlaced presentation regression passed: half-height display, adjacent buffers, both circuits, origins, fades, and field parity.\n";
     verify_thread_bootstrap();
     verify_compiled_worker_setup();
     std::cout << "Runtime thread bootstrap regression passed: SDK priority and four compiled game workers.\n";

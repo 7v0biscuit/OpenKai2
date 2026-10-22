@@ -160,6 +160,39 @@ void report_movie_wait(const uint8_t* ram,size_t size,std::ostream& out) {
         for (uint32_t offset:{0x118u,0x11cu,0x120u,0x124u})
             text << " player_" << std::hex << offset << "=0x" << memory.word(movie.physical+offset) << std::dec;
         text << '\n';
+        uint32_t backend=0;
+        if (movie.backend_valid && memory.range(movie.backend,0x1cd0u,backend)) {
+            // The preparation loop at 0x199210 tests parameters 5/6 and
+            // driver 6/7 status words. Record those exact inputs and the
+            // bounded native driver table without calling guest code.
+            text << "[startup:movie-pipeline] requested_state=" << memory.word(backend+0x4cu)
+                 << " pending=" << memory.word(backend+0x44u);
+            for (uint32_t index:{5u,6u,7u})
+                text << " parameter_" << index << '=' << memory.word(backend+0x9a0u+index*4u);
+            text << '\n';
+            for (uint32_t index=0;index<9u;++index) {
+                const uint32_t driver=backend+0x1aa0u+index*0x44u;
+                const auto table=memory.word(driver+0xcu);
+                if (!table && index!=6u && index!=7u) continue;
+                text << "[startup:movie-driver] slot=" << index
+                     << " status=" << memory.word(driver) << ',' << memory.word(driver+4u)
+                     << " work=0x" << std::hex << memory.word(driver+8u) << " table=0x" << table;
+                uint32_t physical=0;
+                if (table && memory.range(table,12u,physical))
+                    text << " prepare=0x" << memory.word(physical+8u);
+                else text << " prepare=invalid";
+                text << std::dec << '\n';
+            }
+            const auto video=memory.word(backend+0x1b30u);
+            uint32_t physical=0;
+            if (video && memory.range(video,0xab0u,physical)) {
+                text << "[startup:movie-video] work=0x" << std::hex << video;
+                for (uint32_t offset:{0xcu,0x10u,0x7cu,0x138u,0x9d8u,0xa48u,0xa50u,
+                                      0xa54u,0xa58u,0xa5cu,0xa60u,0xa88u,0xa8cu,0xaa8u,0xaacu})
+                    text << " word_" << offset << "=0x" << memory.word(physical+offset);
+                text << std::dec << '\n';
+            }
+        }
     }
     uint32_t physical=0;
     if (memory.range(0x00370cb4u,4u,physical))

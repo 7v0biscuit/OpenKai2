@@ -53,6 +53,13 @@ void verify_startup_diagnostics() {
     memory.write32(0x00270008u,0u); memory.write32(0x0027001cu,0x002a4d40u);
     const char filename[]="INTRO.SFD";
     std::copy(std::begin(filename),std::end(filename),ram+record+0x84u);
+    memory.write32(backend+0x4cu,4u);memory.write32(backend+0x9b4u,1u);
+    memory.write32(backend+0x1c38u,1u);memory.write32(backend+0x1c3cu,0u);
+    memory.write32(backend+0x1c40u,0xa0280000u);memory.write32(backend+0x1c44u,0x80290000u);
+    memory.write32(0x00290008u,0x00197230u);
+    memory.write32(backend+0x1c88u,0x01fffffcu); // Truncated driver-7 table.
+    memory.write32(backend+0x1b30u,0xa0280000u);
+    memory.write32(0x00280138u,3u);memory.write32(0x00280a58u,2048u);
     const std::vector<uint8_t> movieBefore(ram,ram+PS2_RAM_SIZE);
     std::ostringstream movieReport;
     report_movie_wait(ram,PS2_RAM_SIZE,movieReport);
@@ -62,6 +69,11 @@ void verify_startup_diagnostics() {
             && movieReport.str().find("INTRO.SFD")!=std::string::npos
             && movieReport.str().find("last_error=-309")!=std::string::npos
             && movieReport.str().find("callback=0x2a4d40")!=std::string::npos
+            && movieReport.str().find("requested_state=4 pending=0 parameter_5=1 parameter_6=1 parameter_7=0")!=std::string::npos
+            && movieReport.str().find("slot=6 status=1,0 work=0xa0280000 table=0x80290000 prepare=0x197230")!=std::string::npos
+            && movieReport.str().find("slot=7 status=0,0 work=0x0 table=0x1fffffc prepare=invalid")!=std::string::npos
+            && movieReport.str().find("movie-video] work=0xa0280000")!=std::string::npos
+            && movieReport.str().find("word_a58=0x800")!=std::string::npos
             && std::equal(movieBefore.begin(),movieBefore.end(),ram),
             "Movie snapshot lost the live handle, true status, scene, filename, or changed guest memory");
     require(movieSamples.sample(35000u,ram,PS2_RAM_SIZE,sampled)
@@ -95,6 +107,12 @@ void verify_startup_diagnostics() {
             && invalid.str().find("interface=invalid")!=std::string::npos
             && invalid.str().find("interface=inactive")!=std::string::npos,
             "Movie wait snapshot read beyond the supplied guest range");
+    memory.write32(record,movie);memory.write32(movie+0x40u,0x01fff644u);
+    std::ostringstream truncated;
+    report_movie_wait(ram,PS2_RAM_SIZE,truncated);
+    require(truncated.str().find("backend_range=invalid")==std::string::npos
+            && truncated.str().find("movie-pipeline")==std::string::npos,
+            "Movie preparation snapshot read past a truncated backend");
     auto& scheduler=runtime.eeScheduler();
     R5900Context context{};
     context.pc=0x001863e4u;

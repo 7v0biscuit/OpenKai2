@@ -283,6 +283,27 @@ default working directory is inside the repository. Regressions cover nested
 and external working directories and reject a successful patch command that
 changes no files.
 
+The next retail run opens `/USR/MOVIE_US.SFD` and changes its backend status
+from 1 to 2 without an SDK error, but stays in preparation for over 100 seconds.
+It also shows a horizontal split, stretching, and flashing. The log configures
+interlaced FRAME mode (`SMODE2=3`) with a 512x448 display and a 512x224 memory
+buffer at page 0, immediately followed by the render target at page 56.
+
+Presentation now reads 224 memory rows and duplicates each into two output
+rows before merging the read circuits. Previously it read 448 memory rows and
+exposed the neighboring render target in the bottom half. The correction also
+honors the display buffer during black fades instead of selecting a stale
+context or preferred texture. A patterned regression checks all pixels,
+consecutive fields, both circuits, framebuffer origins, black output,
+progressive output, and full-height field parity. The installed executable
+self-test and the Windows runtime CI both require this regression.
+
+Preparation diagnostics now include the exact parameters and driver status
+words tested by the native readiness loop, callback addresses, and video input
+buffer state. These snapshots are bounded, validate guest pointers, and do not
+execute callbacks or change memory. The preparation stall remains unresolved;
+this presentation correction does not establish movie playback or title boot.
+
 A complete retail ISO is not present in the development environment. Further
 end-to-end checks must run the updated application with the user's local ISO.
 The launcher obtains `MODULES`, `USR`, and the executable from that image;

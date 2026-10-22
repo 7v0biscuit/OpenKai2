@@ -10,6 +10,8 @@ import subprocess
 import tempfile
 
 EXPECTED = {
+    'ps2xRuntime/src/lib/gs/gs_cpu_backend.cpp':
+        '3f0fea655726215f56d8c3c9cff8345a7d36a929fe3f845cc96346a247085fa9',
     'ps2xRuntime/src/lib/Kernel/Syscalls/Thread.cpp':
         'e73d7f0a46d07fc0f70d5b49b6453ed64271b3ad19ffd62a6a872095491bcdf4',
     'ps2xRuntime/src/lib/ps2_runtime.cpp':
@@ -72,6 +74,8 @@ def main():
         (temporary / 'runtime').mkdir()
         shutil.copy2(args.upstream / 'ps2xRuntime/src/lib/ps2_memory.cpp', temporary / 'runtime/ps2_memory.cpp')
         shutil.copy2(args.upstream / 'ps2xRuntime/src/lib/ps2_runtime.cpp', temporary / 'runtime/ps2_runtime.cpp')
+        (temporary / 'runtime/gs').mkdir()
+        shutil.copy2(args.upstream / 'ps2xRuntime/src/lib/gs/gs_cpu_backend.cpp', temporary / 'runtime/gs/gs_cpu_backend.cpp')
         shutil.copytree(args.upstream / 'ps2xRuntime/src/lib/Kernel/Stubs', temporary / 'Kernel/Stubs')
         shutil.copytree(args.upstream / 'ps2xRuntime/src/lib/Kernel/Syscalls', temporary / 'Kernel/Syscalls')
         shutil.copytree(args.upstream / 'ps2xIOP/src/emulator', temporary / 'emulator')
@@ -81,7 +85,7 @@ def main():
         for patch in (patches / 'disc-layout.patch', patches / 'iop-startup.patch',
                       patches / 'dma-receive.patch', patches / 'startup-diagnostics.patch',
                       patches / 'callback-stacks.patch', patches / 'thread-bootstrap.patch',
-                      patches / 'graphics-diagnostics.patch'):
+                      patches / 'graphics-diagnostics.patch', patches / 'interlaced-display.patch'):
             apply_overlay_patch(temporary, patch)
         for source in temporary.rglob('*'):
             if source.is_file():
