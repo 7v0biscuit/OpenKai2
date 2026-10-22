@@ -14,8 +14,102 @@ namespace {
 void require(bool condition, const char* message) {
     if (!condition) throw std::runtime_error(std::string("Runtime movie callback regression: ")+message);
 }
+void verify_movie_packets(PS2Runtime& runtime,uint8_t* memory) {
+    for (auto entry:translation::movie_packet_entries)
+        require(runtime.hasFunction(entry),"movie packet handler is not registered");
+    constexpr uint32_t backend=0x00250000u,work=0x00253400u,parser=0x00254000u;
+    constexpr uint32_t ring=0x00255000u,payload=0x00260000u,buffer=0x00270000u;
+    constexpr uint32_t outputs=0x00258000u,capacity=4096u,length=0x7eeu;
+    constexpr uint32_t stack=0x01ffff60u,returned=0x0019de98u,gp=0x003ac4f0u;
+    std::memcpy(memory+0x00387180u,translation::movie_packet_slots.data(),16);
+    std::memcpy(memory+0x00367b68u,translation::stream_callback_slots.data(),
+                translation::stream_callback_slots.size()*4);
+    runtime.memory().write32(0x003c07a0u,0u);
+    runtime.memory().write32(0x003c07a8u,0u);
+    auto put=[&](uint32_t address,uint32_t value) { runtime.memory().write32(address,value); };
+    struct Case { uint32_t type,position,free,maximum,bytes;bool copy,success; };
+    const Case cases[]={
+        {0u,0u,capacity,length,length,false,true},
+        {1u,0u,capacity,length,length,false,true},
+        {2u,0u,capacity,length,length,true,true},
+        {3u,0u,capacity,length,length,false,true},
+        {2u,capacity-6u,capacity,length,length,true,true},
+        {2u,0u,length-1u,length,length,false,false},
+        {2u,0u,capacity,length-1u,length,false,false},
+        {2u,0u,capacity,0u,0u,false,true},
+    };
+    for (const auto& test:cases) {
+        std::memset(memory+backend,0,0x3000u);
+        std::memset(memory+work-0x2bcu,0,0x800u);
+        std::memset(memory+parser,0,0x200u);
+        std::memset(memory+ring-16u,0xa5,96u);
+        std::memset(memory+ring,0,64u);
+        std::memset(memory+payload-32u,0,length+64u);
+        std::memset(memory+buffer-16u,0xcc,capacity+32u);
+        std::memset(memory+outputs-16u,0xa5,40u);
+        std::memset(memory+stack-0x810u,0xa5,0x830u);
+        for (uint32_t i=0;i<length;++i) memory[payload+i]=uint8_t(i*17u+(i>>5));
+        put(backend+0x1aecu,work);put(backend+0x1b00u,1u);
+        put(work,parser);put(parser,2u); // Valid original parser instance.
+        // The real packet-info query copies these eight words into the
+        // dispatcher's frame. Type two and the 0x7ee-byte body match the log.
+        put(parser+0xa4u,test.type);put(parser+0xa8u,2u);
+        put(parser+0xbcu,test.bytes);
+        put(backend+0x1150u+0x74u+2u*16u,ring);
+        put(ring,0x00367b68u);put(ring+4u,1u);put(ring+8u,0x003848c8u);
+        put(ring+0x10u,test.free);put(ring+0x14u,test.position);put(ring+0x18u,test.position);
+        put(ring+0x1cu,buffer);put(ring+0x20u,capacity);
+        const std::vector<uint8_t> beforeBackend(memory+backend,memory+backend+0x3000u);
+        R5900Context context{};
+        context.pc=0x00191048u;
+        context.r[4]=_mm_cvtsi32_si128(backend);context.r[5]=_mm_cvtsi32_si128(payload);
+        context.r[6]=_mm_cvtsi32_si128(test.maximum);context.r[7]=_mm_cvtsi32_si128(outputs);
+        context.r[8]=_mm_cvtsi32_si128(outputs+4u);
+        context.r[28]=_mm_cvtsi32_si128(gp);context.r[29]=_mm_cvtsi32_si128(stack);
+        context.r[31]=_mm_cvtsi32_si128(returned);
+        for (unsigned reg=16;reg<=23;++reg)
+            context.r[reg]=_mm_set_epi32(0x4400+reg,0x3300+reg,0x2200+reg,0x1100+reg);
+        context.r[30]=_mm_cvtsi32_si128(0x1030u);
+        const auto saved=context;
+        for (unsigned step=0;step<1024u && context.pc!=returned;++step) {
+            require(runtime.hasFunction(context.pc),"packet caller reached an unregistered continuation");
+            runtime.lookupFunction(context.pc)(memory,&context,&runtime);
+        }
+        require(context.pc==returned && getRegU32(&context,2)==0u
+                && getRegU32(&context,29)==stack && getRegU32(&context,28)==gp
+                && getRegU32(&context,31)==returned && getRegU32(&context,30)==0x1030u,
+                "packet caller did not return through its original frame");
+        for (unsigned reg=16;reg<=23;++reg)
+            require(std::memcmp(&context.r[reg],&saved.r[reg],16)==0,"packet caller changed a saved register");
+        require(runtime.memory().read32(outputs)==(test.success ? test.bytes : 0u)
+                && runtime.memory().read32(outputs+4u)==uint32_t(test.success),
+                "packet caller lost its consumed-byte or completion result");
+        const uint32_t written=test.copy ? test.bytes : 0u;
+        require(runtime.memory().read32(ring+0xcu)==written
+                && runtime.memory().read32(ring+0x10u)==test.free-written
+                && runtime.memory().read32(ring+0x14u)==(test.position+written)%capacity
+                && runtime.memory().read32(ring+0x18u)==test.position,
+                "packet callback lost data, free space, or ring positions");
+        for (uint32_t i=0;i<capacity;++i) {
+            const uint32_t offset=(i+capacity-test.position)%capacity;
+            const uint8_t expected=offset<written ? memory[payload+offset] : 0xcc;
+            require(memory[buffer+i]==expected,"packet callback copied the wrong bytes or crossed the ring boundary");
+        }
+        for (uint32_t i=0;i<length;++i)
+            require(memory[payload+i]==uint8_t(i*17u+(i>>5)),"packet callback changed its source payload");
+        require(std::memcmp(memory+backend,beforeBackend.data(),beforeBackend.size())==0,
+                "packet dispatch changed its backend configuration");
+        for (unsigned i=0;i<16u;++i)
+            require(memory[buffer-16u+i]==0xcc && memory[buffer+capacity+i]==0xcc
+                    && memory[ring-16u+i]==0xa5 && memory[ring+64u+i]==0xa5
+                    && memory[outputs-16u+i]==0xa5 && memory[outputs+8u+i]==0xa5
+                    && memory[stack+i]==0xa5 && memory[stack-0x810u+i]==0xa5,
+                    "packet callback overwrote neighboring memory");
+    }
+}
 }
 void verify_movie_callbacks(PS2Runtime& runtime, uint8_t* memory) {
+    verify_movie_packets(runtime,memory);
     constexpr uint32_t table=0x00370ae0u, object=0x00370cb8u;
     constexpr uint32_t backend=0x00250000u, bridge=0x00253100u, adx=0x00254000u;
     constexpr uint32_t decoder=0x00255000u, sound=0x00256000u, metadata=0x00257000u;

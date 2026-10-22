@@ -129,12 +129,19 @@ MOVIE_CALLBACK_TABLES = ((0x00370AE0, (
     0x00186FA0, 0x00185C58, 0x00185BA8, 0,
 )),)
 MOVIE_CALLBACK_ENTRIES = tuple(address for _, slots in MOVIE_CALLBACK_TABLES for address in slots if address)
+# The demultiplexer's packet-type dispatcher at 0x00191154 selects one
+# of these four handlers. Slot two is the logged private-stream callback.
+MOVIE_PACKET_TABLES = ((0x00387180, (
+    0x00191218, 0x00191390, 0x001915F0, 0x00191880,
+)),)
+MOVIE_PACKET_ENTRIES = tuple(address for _, slots in MOVIE_PACKET_TABLES for address in slots)
 # Preserve ordering and share the argument-store callback between both groups.
 ENTRY_POINTS = tuple(dict.fromkeys((0x00167188,)
     + tuple(address for _, row in DISPATCH_TABLES for address in row)
     + FILE_CALLBACK_ENTRIES + STREAM_CALLBACK_ENTRIES
     + tuple(address for _, address in TRANSLATED_SDK_ENTRIES)
-    + ASSET_RELOCATION_ENTRIES + FADE_CALLBACK_ENTRIES + MOVIE_CALLBACK_ENTRIES))
+    + ASSET_RELOCATION_ENTRIES + FADE_CALLBACK_ENTRIES + MOVIE_CALLBACK_ENTRIES
+    + MOVIE_PACKET_ENTRIES))
 
 
 def configure(text):
@@ -195,7 +202,7 @@ def verify_elf_metadata(data):
     if words(0x00385748, len(DISPATCH_TABLES)) != tuple(base for base, _ in DISPATCH_TABLES):
         raise ValueError('Startup dispatcher table roots differ from the reviewed metadata')
     for base, entries in (DISPATCH_TABLES + FILE_CALLBACK_TABLES + STREAM_CALLBACK_TABLES
-                          + FADE_CALLBACK_TABLES + MOVIE_CALLBACK_TABLES):
+                          + FADE_CALLBACK_TABLES + MOVIE_CALLBACK_TABLES + MOVIE_PACKET_TABLES):
         if words(base, len(entries)) != entries:
             raise ValueError(f'Indirect methods differ from the reviewed table at 0x{base:08x}')
     for address in ZERO_RETURN_ENTRIES:
@@ -218,7 +225,9 @@ def emit_check_header(path):
                           ('fade_callback_entries', FADE_CALLBACK_ENTRIES),
                           ('fade_callback_slots', FADE_CALLBACK_TABLES[0][1]),
                           ('movie_callback_entries', MOVIE_CALLBACK_ENTRIES),
-                          ('movie_callback_slots', MOVIE_CALLBACK_TABLES[0][1])):
+                          ('movie_callback_slots', MOVIE_CALLBACK_TABLES[0][1]),
+                          ('movie_packet_entries', MOVIE_PACKET_ENTRIES),
+                          ('movie_packet_slots', MOVIE_PACKET_TABLES[0][1])):
         lines.append(f'inline constexpr std::array<uint32_t, {len(entries)}> {name} = {{')
         lines.extend(f'    0x{address:08x}u,' for address in entries)
         lines.append('};')

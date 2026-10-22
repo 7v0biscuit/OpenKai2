@@ -68,7 +68,7 @@ class TranslationEntries(unittest.TestCase):
     def test_reviewed_tables_have_complete_unique_coverage(self):
         self.assertEqual(len(ENTRIES.DISPATCH_TABLES), 7)
         self.assertTrue(all(len(row) == 14 for _, row in ENTRIES.DISPATCH_TABLES))
-        self.assertEqual(len(set(ENTRIES.ENTRY_POINTS)), 152)
+        self.assertEqual(len(set(ENTRIES.ENTRY_POINTS)), 156)
         self.assertEqual(len(ENTRIES.ZERO_RETURN_ENTRIES), 39)
         self.assertTrue(set(ENTRIES.ZERO_RETURN_ENTRIES) <= set(ENTRIES.ENTRY_POINTS))
         self.assertNotIn(0x00387110, ENTRIES.ENTRY_POINTS)
@@ -83,7 +83,7 @@ class TranslationEntries(unittest.TestCase):
             path = Path(temporary) / 'entries.h'
             ENTRIES.emit_check_header(path)
             content, changed = path.read_text(), path.stat().st_mtime_ns
-            self.assertIn('std::array<uint32_t, 152> entries', content)
+            self.assertIn('std::array<uint32_t, 156> entries', content)
             self.assertIn('std::array<uint32_t, 39> zero_return_entries', content)
             for address in ENTRIES.ENTRY_POINTS:
                 self.assertIn(f'0x{address:08x}u,', content)
@@ -175,7 +175,7 @@ class TranslationEntries(unittest.TestCase):
         put(0x00385748, tuple(base for base, _ in ENTRIES.DISPATCH_TABLES))
         for base, entries in (ENTRIES.DISPATCH_TABLES + ENTRIES.FILE_CALLBACK_TABLES
                               + ENTRIES.STREAM_CALLBACK_TABLES + ENTRIES.FADE_CALLBACK_TABLES
-                              + ENTRIES.MOVIE_CALLBACK_TABLES):
+                              + ENTRIES.MOVIE_CALLBACK_TABLES + ENTRIES.MOVIE_PACKET_TABLES):
             put(base, entries)
         for address in ENTRIES.ZERO_RETURN_ENTRIES:
             put(address, (0x03E00008, 0x0000102D))
@@ -226,6 +226,26 @@ class TranslationEntries(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'missing guest entry 0x00186e88'):
             self.verify_fixture('g_ps2RecompiledFunctionTable[1] = owner; // 0x167188',
                                 '// Address: 0x167188 - 0x1671a0', omitted=(0x00186E88,))
+
+    def test_movie_packet_types_have_complete_coverage(self):
+        self.assertEqual(ENTRIES.MOVIE_PACKET_TABLES,
+                         ((0x00387180, (0x00191218, 0x00191390, 0x001915F0, 0x00191880)),))
+        self.assertTrue(set(ENTRIES.MOVIE_PACKET_ENTRIES) <= set(ENTRIES.ENTRY_POINTS))
+        output = ENTRIES.configure('[general]\nentry_points = ["packet@0x001915f0"]\n')
+        self.assertEqual(output.count('0x001915f0'), 1)
+        self.assertEqual(ENTRIES.configure(output), output)
+
+    def test_logged_movie_packet_callback_must_be_registered(self):
+        with self.assertRaisesRegex(ValueError, 'missing guest entry 0x001915f0'):
+            self.verify_fixture('g_ps2RecompiledFunctionTable[1] = owner; // 0x167188',
+                                '// Address: 0x167188 - 0x1671a0', omitted=(0x001915F0,))
+
+    def test_movie_packet_metadata_rejects_a_changed_handler(self):
+        data = self.make_elf_metadata()
+        ENTRIES.verify_elf_metadata(data)
+        struct.pack_into('<I', data, 0x00387188-0x100000+128, 0x00191880)
+        with self.assertRaisesRegex(ValueError, 'Indirect methods differ.*00387180'):
+            ENTRIES.verify_elf_metadata(data)
 
     def test_movie_metadata_validation_rejects_changed_volume_method(self):
         data = self.make_elf_metadata()

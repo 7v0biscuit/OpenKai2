@@ -328,6 +328,7 @@ int run_runtime_checks() {
     std::cout << "Runtime fade callback regression passed: four renderers, logged caller, draw packets, completion, and saved registers.\n";
     std::cout << "Runtime graphics presentation regression passed: original white/black packets, DMA, GIF, rasterization, pixels, and GS counters.\n";
     verify_movie_callbacks(runtime,memory);
+    std::cout << "Runtime movie packet regression passed: four handlers, original dispatcher, logged private payload, ring wraparound, and backpressure.\n";
     std::cout << "Runtime movie callback regression passed: interface coverage, logged caller, real volume/pan chain, clamping, and saved registers.\n";
     verify_mpeg_setup(runtime,memory);
     std::cout << "Runtime MPEG setup regression passed: original work layout, allocator, callbacks, native dispatcher, reset, and reference buffers.\n";

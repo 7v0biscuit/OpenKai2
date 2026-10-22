@@ -6,7 +6,7 @@ The application requires the original USA ISO at every launch.
 ## Verified components
 
 - All 16 EE component probes build on Linux and as Windows x64 executables.
-- All 146 Python regression tests pass, including translation entry, portable, and release package checks.
+- All 149 Python regression tests pass, including translation entry, portable, and release package checks.
 - Synthetic and USA-executable component comparisons pass.
 - ISO verification passes 33 native Linux checks and 32 Windows-executable
   checks under Wine. Wine cannot execute the cache-symlink check.
@@ -367,6 +367,27 @@ through that scheduling path and must keep advancing their service counter.
 This test reproduces the priority restoration failure before the correction.
 It uses a single preparation driver and no disc assets, so it does not verify
 movie decoding, visible logos, title-screen boot, or gameplay.
+
+The Preview 24 log confirms restored main/worker priorities and changing
+nonblack frames through startup. The movie parser now consumes its file input,
+then calls an unregistered packet handler at `0x001915F0` from `0x00191154`.
+That failure ends worker 5, leaving the player busy with no decoder input.
+
+The translation now covers all four packet-type handlers in the original table
+at `0x00387180`, including the missing private-stream handler. The table is
+verified against the supported ELF, and generated dispatch must enter each
+handler at its own instruction. The complete reviewed-entry set has 156 entries.
+
+A regression reproduces the missing handler on the previous translation. It
+executes the original packet caller, its native packet-info query, the handler,
+and the original SJRBF stream methods with the logged 2,030-byte body. It checks
+all four packet types, contiguous and wrapped writes, insufficient destination
+space, an incomplete source body, empty packets, source/configuration preservation,
+output flags, consumed bytes, saved registers, and neighboring memory. Audio
+and video handlers are checked with their streams disabled; this is a packet
+transport regression, not a movie-decoding test. The installed Windows self-test
+must pass it before publication. Visible movie playback, title boot, and gameplay
+remain unverified.
 
 A complete retail ISO is not present in the development environment. Further
 end-to-end checks must run the updated application with the user's local ISO.

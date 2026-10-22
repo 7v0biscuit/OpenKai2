@@ -55,6 +55,8 @@ def main():
         self_test = run([str(executable), '--self-test'])
         if 'Runtime interlaced presentation regression passed' not in self_test:
             raise RuntimeError('Half-height interlaced framebuffer presentation regression did not pass.')
+        if 'Runtime movie packet regression passed' not in self_test:
+            raise RuntimeError('Installed application did not pass the original movie packet dispatch regression')
         if 'Runtime frame scheduling regression passed' not in self_test:
             raise RuntimeError('Installed application did not pass the compiled frame scheduling regression')
         if 'Runtime worker wake regression passed' not in self_test:
