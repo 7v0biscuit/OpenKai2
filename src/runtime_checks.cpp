@@ -89,6 +89,61 @@ void verify_compiled_worker_setup() {
         || getRegU32(&main->context,28)!=0x003ac4f0u)
         throw std::runtime_error("Runtime regression: worker initialization changed the main thread frame");
 }
+// The original CRI caller resumes a suspended service worker, then wakes it
+// only when ResumeThread returned that worker's ID. A zero success result
+// leaves a worker that was both sleeping and suspended asleep indefinitely.
+void verify_compiled_worker_wakeup() {
+    auto owned=std::make_unique<PS2Runtime>();
+    auto& runtime=*owned;
+    if (!runtime.memory().initialize()) throw std::runtime_error("Cannot allocate worker wake regression memory");
+    auto* ram=runtime.memory().getRDRAM();
+    R5900Context context{};
+    constexpr uint32_t stack=0x01fffe40u, returned=0x001599f0u;
+    context.r[29]=_mm_cvtsi32_si128(stack);
+    context.r[28]=_mm_cvtsi32_si128(0x003ac4f0u);
+    for (unsigned reg=16;reg<=23;++reg) context.r[reg]=_mm_cvtsi32_si128(0x1000u+reg);
+    auto& scheduler=runtime.eeScheduler();
+    scheduler.bindMainContextForSyscall(context,ram);
+    EeThreadCreateParams params{};
+    params.entry=0x001587f0u;params.stack=0x003584c0u;
+    params.stackSize=0x800u;params.priority=25;
+    const int id=scheduler.createThread(params);
+    auto* worker=scheduler.thread(id);
+    if (!worker) throw std::runtime_error("Cannot create worker wake regression thread");
+    runtime.memory().write32(0x0035342cu,uint32_t(id));
+    runtime.memory().write32(0x00353398u,0u);
+    auto call=[&](uint32_t entry) {
+        context.pc=entry;context.r[31]=_mm_cvtsi32_si128(returned);
+        for (unsigned step=0;step<64u && context.pc!=returned;++step)
+            runtime.lookupFunction(context.pc)(ram,&context,&runtime);
+        if (context.pc!=returned || getRegU32(&context,29)!=stack
+            || getRegU32(&context,28)!=0x003ac4f0u)
+            throw std::runtime_error("Runtime regression: compiled worker wake caller did not restore its frame");
+        for (unsigned reg=16;reg<=23;++reg)
+            if (getRegU32(&context,reg)!=0x1000u+reg)
+                throw std::runtime_error("Runtime regression: compiled worker wake caller changed saved registers");
+    };
+    // No ready-queue entry exists for this dormant fixture; reproduce the
+    // scheduler's sleeping-and-suspended state before entering the real code.
+    worker->status=EeThreadStatus::WaitingSuspended;
+    worker->suspendCount=1;
+    worker->wait={EeWaitReason::Sleep,std::monostate{}};
+    call(0x001598b0u);
+    if (worker->status!=EeThreadStatus::Ready || worker->suspendCount!=0
+        || worker->wait.reason!=EeWaitReason::None || worker->wakeupCount!=0u)
+        throw std::runtime_error("Runtime regression: compiled CRI resume caller left its movie service worker asleep");
+    // The main-thread wake helper likewise compares WakeupThread's result
+    // against its target ID before acknowledging the pending wake request.
+    scheduler.suspendThread(id,false);
+    worker->status=EeThreadStatus::WaitingSuspended;
+    worker->wait={EeWaitReason::Sleep,std::monostate{}};
+    runtime.memory().write32(0x00353428u,uint32_t(id));
+    runtime.memory().write32(0x003533dcu,1u);
+    call(0x00159938u);
+    if (worker->status!=EeThreadStatus::Suspended || worker->wait.reason!=EeWaitReason::None
+        || worker->wakeupCount!=0u || runtime.memory().read32(0x003533dcu)!=0u)
+        throw std::runtime_error("Runtime regression: compiled CRI wake caller did not acknowledge the wake");
+}
 void verify_file_callbacks(PS2Runtime& runtime,uint8_t* memory) {
     constexpr uint32_t object=0x23000u, stack=0x01fffe40u;
     struct Query { uint32_t argument, command, sectors; int64_t expected; };
@@ -152,10 +207,14 @@ void verify_file_callbacks(PS2Runtime& runtime,uint8_t* memory) {
 }
 int run_runtime_checks() {
     verify_interlaced_presentation();
+    std::cout << "Runtime field stability regression passed: stationary alternating fields, scanline interpolation, and edge clamping.\n";
     std::cout << "Runtime sprite coordinate regression passed: fractional logo edges, fixed-point UVs, scaling, and exclusive boundaries.\n";
     std::cout << "Runtime interlaced presentation regression passed: half-height display, adjacent buffers, both circuits, origins, fades, and field parity.\n";
     verify_thread_bootstrap();
+    verify_thread_wakeup();
     verify_compiled_worker_setup();
+    verify_compiled_worker_wakeup();
+    std::cout << "Runtime worker wake regression passed: compiled CRI resume, sleep release, and wake acknowledgment.\n";
     std::cout << "Runtime thread bootstrap regression passed: SDK priority and four compiled game workers.\n";
     verify_callback_stacks();
     verify_startup_diagnostics();

@@ -49,9 +49,11 @@ function(openkai2_attach_generated_sources)
         "${project_root}/tools/native/patches/startup-diagnostics.patch"
         "${project_root}/tools/native/patches/callback-stacks.patch"
         "${project_root}/tools/native/patches/thread-bootstrap.patch"
+        "${project_root}/tools/native/patches/thread-wakeup.patch"
         "${project_root}/tools/native/patches/graphics-diagnostics.patch"
         "${project_root}/tools/native/patches/interlaced-display.patch"
         "${project_root}/tools/native/patches/sprite-coordinates.patch"
+        "${project_root}/tools/native/patches/field-presentation.patch"
         "${project_root}/tools/native/prepare-overlays.py")
     get_target_property(iop_sources ps2_iop SOURCES)
     set(overlay_iop_sources "")

@@ -63,4 +63,54 @@ void verify_thread_bootstrap() {
             && getRegU32(&context,28)==0x003ac4f0u,
             "Repeated SDK initialization changed configured priority, registers, or thread state");
 }
+void verify_thread_wakeup() {
+    auto owned=std::make_unique<PS2Runtime>();
+    auto& runtime=*owned;
+    require(runtime.memory().initialize(),"Cannot allocate EE wake regression memory");
+    auto* ram=runtime.memory().getRDRAM();
+    R5900Context context{};
+    runtime.eeScheduler().bindMainContextForSyscall(context,ram);
+    auto& scheduler=runtime.eeScheduler();
+    EeThreadCreateParams params{};
+    params.entry=0x001587f0u;params.stack=0x003584c0u;
+    params.stackSize=0x800u;params.priority=25;
+    const int id=scheduler.createThread(params);
+    auto* worker=scheduler.thread(id);
+    require(worker!=nullptr,"Cannot create EE wake regression worker");
+    worker->status=EeThreadStatus::WaitingSuspended;
+    worker->suspendCount=1;
+    worker->wait={EeWaitReason::Sleep,std::monostate{}};
+    context.r[4]=_mm_cvtsi32_si128(id);
+    ps2_syscalls::ResumeThread(ram,&context,&runtime);
+    require(int(getRegU32(&context,2))==id && worker->status==EeThreadStatus::Waiting
+            && worker->wait.reason==EeWaitReason::Sleep && worker->suspendCount==0,
+            "ResumeThread did not return the target ID while preserving its sleep wait");
+    ps2_syscalls::WakeupThread(ram,&context,&runtime);
+    require(int(getRegU32(&context,2))==id && worker->status==EeThreadStatus::Ready
+            && worker->wait.reason==EeWaitReason::None && worker->wakeupCount==0u,
+            "WakeupThread did not return the target ID and release the sleep wait");
+    ps2_syscalls::iWakeupThread(ram,&context,&runtime);
+    require(int(getRegU32(&context,2))==id && worker->wakeupCount==1u,
+            "iWakeupThread did not return the target ID and queue a wake");
+    // Failed operations retain the scheduler's precise negative error code.
+    ps2_syscalls::ResumeThread(ram,&context,&runtime);
+    require(int32_t(getRegU32(&context,2))==scheduler.resumeThread(id,false)
+            && int32_t(getRegU32(&context,2))<0,"ResumeThread hid a non-suspended error");
+    for (const int invalid:{0,1,127}) {
+        context.r[4]=_mm_cvtsi32_si128(invalid);
+        const int expected=scheduler.wakeupThread(invalid,false);
+        ps2_syscalls::WakeupThread(ram,&context,&runtime);
+        require(expected<0 && int32_t(getRegU32(&context,2))==expected,
+                "WakeupThread changed an invalid/self thread error");
+        ps2_syscalls::iWakeupThread(ram,&context,&runtime);
+        require(int32_t(getRegU32(&context,2))==expected,"iWakeupThread changed an error");
+    }
+    const int dormantId=scheduler.createThread(params);
+    require(scheduler.thread(dormantId)!=nullptr,"Cannot create dormant wake regression worker");
+    context.r[4]=_mm_cvtsi32_si128(dormantId);
+    const int dormant=scheduler.wakeupThread(dormantId,false);
+    ps2_syscalls::WakeupThread(ram,&context,&runtime);
+    require(dormant<0 && int32_t(getRegU32(&context,2))==dormant,
+            "WakeupThread accepted a dormant thread");
+}
 }

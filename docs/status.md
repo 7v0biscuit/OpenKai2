@@ -322,6 +322,32 @@ regression reproduces the error before the change and checks fractional edges,
 fractional UVs under scaling, ordinary integer rectangles, and boundary pixels.
 The remaining slight movement and retail movie playback require local testing.
 
+The latest retail log has 1 MiB of readable movie data in the file stream, but
+its service counter stops at one and the native decoder input remains empty.
+The EE ResumeThread and WakeupThread replacements returned zero on success.
+The original CRI resume helper compares the result against the worker's ID
+before waking a worker that was both sleeping and suspended. Returning zero
+therefore leaves that worker asleep. A second original helper also compares
+the WakeupThread result against the target ID before clearing its wake flag.
+
+Those syscalls now return the target ID on success and retain negative errors;
+the scheduler's internal return contract is unchanged. A regression executes
+both original compiled CRI helpers. It reproduces the stranded worker before
+the correction, then checks readiness, released sleep state, wake acknowledgment,
+and preserved caller registers. Runtime component checks cover interrupt-safe
+wakes, queued wakes, invalid IDs, self-wakes, and dormant-thread errors. These
+isolated checks do not establish retail movie decoding.
+
+The remaining presentation shake is reproduced with a stationary ramp sampled
+at alternating even and odd scanlines. Duplicating half-height rows moves that
+image by one output line between fields. Presentation now keeps the active
+field's scanlines at their own positions and interpolates missing lines from
+neighboring rows, clamping the image edges. It needs no previous frame and
+preserves black fades. Regressions cover four alternating fields, both display
+circuits, framebuffer origins, odd heights, adjacent buffers, and progressive
+output. The installed executable must pass both new regressions before release.
+Retail movie playback and the remaining visible movement need local testing.
+
 A complete retail ISO is not present in the development environment. Further
 end-to-end checks must run the updated application with the user's local ISO.
 The launcher obtains `MODULES`, `USR`, and the executable from that image;

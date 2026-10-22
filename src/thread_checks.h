@@ -2,4 +2,5 @@
 #pragma once
 namespace openkai2 {
 void verify_thread_bootstrap();
+void verify_thread_wakeup();
 }

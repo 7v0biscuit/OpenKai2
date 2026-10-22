@@ -1,0 +1,30 @@
+--- a/Kernel/Syscalls/Thread.cpp
++++ b/Kernel/Syscalls/Thread.cpp
+@@ -133,8 +133,11 @@
+                               bool interruptSafe)
+         {
+             EeScheduler &ee = scheduler(rdram, ctx, runtime);
+-            const int result = ee.wakeupThread(static_cast<int>(getRegU32(ctx, 4)), interruptSafe);
+-            setReturnS32(ctx, result);
++            const int id = static_cast<int>(getRegU32(ctx, 4));
++            const int result = ee.wakeupThread(id, interruptSafe);
++            // EE callers compare a successful wake with the target thread ID.
++            // Keep the scheduler's internal KE_OK contract at this boundary.
++            setReturnS32(ctx, result == KE_OK ? id : result);
+             ee.transferIfRequested(interruptSafe);
+         }
+ 
+@@ -321,8 +324,11 @@
+     void ResumeThread(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+     {
+         EeScheduler &ee = scheduler(rdram, ctx, runtime);
+-        const int result = ee.resumeThread(static_cast<int>(getRegU32(ctx, 4)), false);
+-        setReturnS32(ctx, result);
++        const int id = static_cast<int>(getRegU32(ctx, 4));
++        const int result = ee.resumeThread(id, false);
++        // The original CRI service wakes a sleeping worker only when this
++        // syscall returns its ID. Returning zero silently strands the worker.
++        setReturnS32(ctx, result == KE_OK ? id : result);
+         ee.transferIfRequested(false);
+     }
+ 

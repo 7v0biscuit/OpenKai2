@@ -55,6 +55,10 @@ def main():
         self_test = run([str(executable), '--self-test'])
         if 'Runtime interlaced presentation regression passed' not in self_test:
             raise RuntimeError('Half-height interlaced framebuffer presentation regression did not pass.')
+        if 'Runtime worker wake regression passed' not in self_test:
+            raise RuntimeError('Installed application is missing the compiled worker wake regression')
+        if 'Runtime field stability regression passed' not in self_test:
+            raise RuntimeError('Installed application is missing the field stability regression')
         if 'Runtime sprite coordinate regression passed' not in self_test:
             raise RuntimeError('Fractional sprite position and texture-coordinate regression did not pass.')
         if 'Runtime MPEG setup regression passed' not in self_test:

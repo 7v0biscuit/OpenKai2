@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "graphics_checks.h"
 #include "runtime/gs/gs_cpu_backend.h"
+#include <algorithm>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -21,6 +22,49 @@ void check(const PresentationFrame& frame,uint32_t height,uint32_t divisor,uint3
         require(pixel[0]==(expected&255u) && pixel[1]==((expected>>8)&255u)
                 && pixel[2]==((expected>>16)&255u) && pixel[3]==255u,
                 "display rows are stretched, shifted, or read from the adjacent buffer");
+    }
+}
+void check_interlaced_rows(const PresentationFrame& frame,uint32_t height,uint32_t field,
+                           uint32_t originX=0,uint32_t originY=0,uint32_t width=512u) {
+    require(frame && frame.width==width && frame.height==height,"wrong interlaced dimensions");
+    for (uint32_t y=0;y<height;++y) for (uint32_t x=0;x<width;++x) {
+        const uint32_t row=y/2u;
+        const bool interpolate=(y&1u)!=field;
+        const uint32_t other=field ? (row==0u ? 0u : row-1u) : std::min(row+1u,(height-1u)/2u);
+        const uint32_t a=pattern(x+originX,row+originY);
+        const uint32_t b=pattern(x+originX,other+originY);
+        const auto* pixel=frame.pixels.data()+(size_t(y)*640u+x)*4u;
+        for (unsigned channel=0;channel<3u;++channel) {
+            const auto ca=(a>>(8u*channel))&255u,cb=(b>>(8u*channel))&255u;
+            require(pixel[channel]==(interpolate ? (ca+cb+1u)/2u : ca),
+                    "interlaced output did not retain the field's scanline positions");
+        }
+        require(pixel[3]==255u,"interlaced alpha changed");
+    }
+}
+void check_field_stability() {
+    std::vector<uint8_t> vram(4u*1024u*1024u);
+    GSCpuBackend backend;
+    backend.Initialize(vram.data(),uint32_t(vram.size()));
+    GSPresentationRequest request{};
+    request.pmode=0xffa1u;request.smode2=3u;request.dispfb1=0x1000u;
+    request.display1=0x1bf1ff0003227cull;
+    // A stationary vertical ramp sampled at alternating even and odd source
+    // lines must retain its position. Duplicating each field row shifts it by
+    // one output line every field, reproducing the reported slight shake.
+    for (uint64_t tick:{0ull,1ull,2ull,3ull}) {
+        request.vsyncTick=tick;
+        for (uint32_t y=0;y<224u;++y) for (uint32_t x=0;x<512u;++x) {
+            const uint32_t value=2u*y+uint32_t(tick&1u);
+            backend.WriteVram(0u,0u,8u,x,y,0x80000000u|(value<256u ? value : 255u));
+        }
+        const auto frame=backend.Present(request);
+        require(frame && frame.width==512u && frame.height==448u,"field stability lost output");
+        for (uint32_t y=1u;y<254u;++y) for (uint32_t x=0;x<512u;++x) {
+            const auto* pixel=frame.pixels.data()+(size_t(y)*640u+x)*4u;
+            require(pixel[0]==y && pixel[1]==0u && pixel[2]==0u && pixel[3]==255u,
+                    "a stationary interlaced image moved between fields");
+        }
     }
 }
 void check_sprite_coordinates() {
@@ -68,6 +112,7 @@ void check_sprite_coordinates() {
 }
 void verify_interlaced_presentation() {
     check_sprite_coordinates();
+    check_field_stability();
     std::vector<uint8_t> vram(4u*1024u*1024u);
     GSCpuBackend backend;
     backend.Initialize(vram.data(),uint32_t(vram.size()));
@@ -85,16 +130,24 @@ void verify_interlaced_presentation() {
     request.contextFrames[0].fbp=56u; request.contextFrames[0].fbw=8u;
     for (uint64_t tick:{0ull,1ull,2ull,3ull}) {
         request.vsyncTick=tick;
-        check(backend.Present(request),448u,2u);
+        check_interlaced_rows(backend.Present(request),448u,uint32_t(request.vsyncTick&1u));
     }
     // Both read circuits and nonzero DBX/DBY must use the same memory-row
-    // convention, with the offsets applied before line duplication.
+    // convention, with the offsets applied before field interpolation.
     request.pmode=0xffa3u;
-    check(backend.Present(request),448u,2u);
+    check_interlaced_rows(backend.Present(request),448u,uint32_t(request.vsyncTick&1u));
     request.dispfb1|=(uint64_t(9u)<<32)|(uint64_t(13u)<<43);
     request.display1=(uint64_t(499u)<<32)|(uint64_t(399u)<<44);
     request.pmode=1u;
-    check(backend.Present(request),400u,2u,9u,13u,500u);
+    check_interlaced_rows(backend.Present(request),400u,uint32_t(request.vsyncTick&1u),9u,13u,500u);
+    request.dispfb1=0x1000u;
+    for (const uint32_t height:{65u,127u,447u}) {
+        request.display1=(uint64_t(499u)<<32)|(uint64_t(height-1u)<<44);
+        for (uint64_t tick:{0ull,1ull}) {
+            request.vsyncTick=tick;
+            check_interlaced_rows(backend.Present(request),height,uint32_t(tick),0u,0u,500u);
+        }
+    }
     // A black display is a valid fade, even when a neighboring context or a
     // heuristic preferred render target still contains an older image.
     request.dispfb1=0x1000u;request.display1=request.display2;
