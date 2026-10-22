@@ -60,6 +60,13 @@ void verify_startup_diagnostics() {
     memory.write32(backend+0x1c88u,0x01fffffcu); // Truncated driver-7 table.
     memory.write32(backend+0x1b30u,0xa0280000u);
     memory.write32(0x00280138u,3u);memory.write32(0x00280a58u,2048u);
+    memory.write32(backend+0x1af8u,20u);memory.write32(backend+0x1afcu,1u);
+    memory.write32(backend+0x1144u,1u);memory.write32(backend+0x1154u,0xa02a0000u);
+    memory.write32(backend+0x11c8u,0x01fffffcu);
+    memory.write32(0x002a0000u,0x00367b68u);memory.write32(0x002a000cu,1234u);
+    memory.write32(backend+0x2b78u,37u);
+    memory.write32(0x00370c4cu,1u);memory.write32(0x00370c74u,1u);
+    memory.write32(movie+0x60u,1u);
     const std::vector<uint8_t> movieBefore(ram,ram+PS2_RAM_SIZE);
     std::ostringstream movieReport;
     report_movie_wait(ram,PS2_RAM_SIZE,movieReport);
@@ -74,6 +81,12 @@ void verify_startup_diagnostics() {
             && movieReport.str().find("slot=7 status=0,0 work=0x0 table=0x1fffffc prepare=invalid")!=std::string::npos
             && movieReport.str().find("movie-video] work=0xa0280000")!=std::string::npos
             && movieReport.str().find("word_a58=0x800")!=std::string::npos
+            && movieReport.str().find("slot=0 enabled=1 state=0,0 sj=0xa02a0000 sj_0=0x367b68")!=std::string::npos
+            && movieReport.str().find("sj_c=0x4d2")!=std::string::npos
+            && movieReport.str().find("slot=1 enabled=0 state=0,0 sj=0x1fffffc range=invalid")!=std::string::npos
+            && movieReport.str().find("movie-stream] slot=20")==std::string::npos
+            && movieReport.str().find("movie-service] iterations=37")!=std::string::npos
+            && movieReport.str().find("initialized=1 global_busy=1 player_busy=1 callback_busy=0")!=std::string::npos
             && std::equal(movieBefore.begin(),movieBefore.end(),ram),
             "Movie snapshot lost the live handle, true status, scene, filename, or changed guest memory");
     require(movieSamples.sample(35000u,ram,PS2_RAM_SIZE,sampled)

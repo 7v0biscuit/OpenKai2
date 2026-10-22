@@ -152,6 +152,7 @@ void verify_file_callbacks(PS2Runtime& runtime,uint8_t* memory) {
 }
 int run_runtime_checks() {
     verify_interlaced_presentation();
+    std::cout << "Runtime sprite coordinate regression passed: fractional logo edges, fixed-point UVs, scaling, and exclusive boundaries.\n";
     std::cout << "Runtime interlaced presentation regression passed: half-height display, adjacent buffers, both circuits, origins, fades, and field parity.\n";
     verify_thread_bootstrap();
     verify_compiled_worker_setup();

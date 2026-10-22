@@ -23,8 +23,51 @@ void check(const PresentationFrame& frame,uint32_t height,uint32_t divisor,uint3
                 "display rows are stretched, shifted, or read from the adjacent buffer");
     }
 }
+void check_sprite_coordinates() {
+    std::vector<uint8_t> vram(4u*1024u*1024u);
+    GSCpuBackend backend;
+    backend.Initialize(vram.data(),uint32_t(vram.size()));
+    for (uint32_t y=0;y<32u;++y) for (uint32_t x=0;x<64u;++x)
+        backend.WriteVram(0u,4096u,1u,x,y,pattern(x,y));
+    GSPrimitiveBatch batch{};
+    batch.vertexCount=2;
+    auto& state=batch.state;
+    state.prim.type=GS_PRIM_SPRITE;state.prim.tme=true;state.prim.fst=true;
+    state.context.frame.fbp=56u;state.context.frame.fbw=8u;
+    state.context.zbuf.zmask=true;state.context.test=0x30000u;
+    state.context.scissor={0u,63u,0u,31u};
+    state.context.xyoffset.ofx=28672u;state.context.xyoffset.ofy=29184u;
+    state.context.tex0.tbp0=4096u;state.context.tex0.tbw=1u;
+    state.context.tex0.tfx=1u;state.textureWidth=64u;state.textureHeight=32u;
+    state.colclamp=1u;
+    for (auto& vertex:batch.vertices) vertex.r=vertex.g=vertex.b=vertex.a=128u;
+    // Retail logos start at -7/16, -1/2 relative to XYOFFSET. Pixel centers
+    // are integral GS coordinates: ceil the edges and interpolate from the
+    // original fractional position, retaining all four UV fraction bits.
+    for (unsigned variant=0;variant<3u;++variant) {
+        backend.ClearFramebuffer(state.context,0x80abcdefu);
+        const float left=variant==0u ? -0.4375f : 0.0f;
+        const float top=variant==0u ? -0.5f : 0.0f;
+        batch.vertices[0].x=1792.0f+left;batch.vertices[0].y=1824.0f+top;
+        batch.vertices[1].x=1824.0f+left;batch.vertices[1].y=1840.0f+top;
+        batch.vertices[0].u=variant==0u ? 1u : variant==1u ? 12u : 0u;
+        batch.vertices[0].v=0u;
+        batch.vertices[1].u=batch.vertices[0].u+(variant==1u ? 256u : 512u);
+        batch.vertices[1].v=256u;
+        backend.Submit(batch);
+        for (uint32_t y=0;y<16u;++y) for (uint32_t x=0;x<32u;++x) {
+            const uint32_t sx=variant==1u ? uint32_t(0.75f+float(x)*0.5f) : x;
+            require((backend.ReadVram(0u,56u*32u,8u,x,y)&0xffffffu)==pattern(sx,y),
+                    "fractional sprite coordinates or UVs shifted the image");
+        }
+        require(backend.ReadVram(0u,56u*32u,8u,32u,0u)==0x80abcdefu
+                && backend.ReadVram(0u,56u*32u,8u,0u,16u)==0x80abcdefu,
+                "sprite covered its exclusive bottom or right edge");
+    }
+}
 }
 void verify_interlaced_presentation() {
+    check_sprite_coordinates();
     std::vector<uint8_t> vram(4u*1024u*1024u);
     GSCpuBackend backend;
     backend.Initialize(vram.data(),uint32_t(vram.size()));

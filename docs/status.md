@@ -304,6 +304,24 @@ buffer state. These snapshots are bounded, validate guest pointers, and do not
 execute callbacks or change memory. The preparation stall remains unresolved;
 this presentation correction does not establish movie playback or title boot.
 
+A later run still finds the movie but leaves every preparation driver
+unready, with an empty native video input buffer. A bounded isolated execution
+of the original player service clears its pending flag, advances its service
+counter, and invokes the original stream preparation callback. This verifies
+that isolated control path, rather than establishing the live file handoff.
+New read-only reports include the selected stream queues, their SJ object
+headers, the service counter, and the exact global/player entry guards.
+Aliased, invalid, duplicate, and out-of-range stream references are covered.
+
+The CPU sprite renderer previously truncated 12.4 vertex positions, XYOFFSET,
+and UV coordinates separately. With the fractional logo rectangles in the
+retail log, this shifts texture sampling and can drop the last row or column.
+Sprite edges now use the GS integral pixel centers with exclusive bottom/right
+coverage, and interpolation retains the original fractions. A patterned
+regression reproduces the error before the change and checks fractional edges,
+fractional UVs under scaling, ordinary integer rectangles, and boundary pixels.
+The remaining slight movement and retail movie playback require local testing.
+
 A complete retail ISO is not present in the development environment. Further
 end-to-end checks must run the updated application with the user's local ISO.
 The launcher obtains `MODULES`, `USR`, and the executable from that image;

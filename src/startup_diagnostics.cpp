@@ -170,6 +170,27 @@ void report_movie_wait(const uint8_t* ram,size_t size,std::ostream& out) {
             for (uint32_t index:{5u,6u,7u})
                 text << " parameter_" << index << '=' << memory.word(backend+0x9a0u+index*4u);
             text << '\n';
+            bool seen[20]{};
+            for (uint32_t offset:{0x1ab4u,0x1af4u,0x1af8u,0x1afcu,0x1b38u,0x1b3cu,0x1c48u,0x1c8cu}) {
+                const auto index=memory.word(backend+offset);
+                if (index>=20u || seen[index]) continue;
+                seen[index]=true;
+                const uint32_t stream=backend+0x1140u+index*0x74u;
+                const auto sj=memory.word(stream+0x14u);
+                text << "[startup:movie-stream] slot=" << index
+                     << " enabled=" << memory.word(stream+4u)
+                     << " state=" << memory.word(stream+8u) << ',' << memory.word(stream+12u)
+                     << " sj=0x" << std::hex << sj;
+                uint32_t physical=0;
+                if (sj && memory.range(sj,0x40u,physical)) {
+                    for (uint32_t word:{0u,4u,8u,12u,0x10u,0x14u,0x18u,0x1cu,0x20u,0x24u})
+                        text << " sj_" << word << "=0x" << memory.word(physical+word);
+                } else text << " range=invalid";
+                text << std::dec << '\n';
+            }
+            uint32_t physical=0;
+            if (memory.range(movie.backend,0x2ba0u,physical))
+                text << "[startup:movie-service] iterations=" << memory.word(physical+0x2b78u) << '\n';
             for (uint32_t index=0;index<9u;++index) {
                 const uint32_t driver=backend+0x1aa0u+index*0x44u;
                 const auto table=memory.word(driver+0xcu);
@@ -184,7 +205,7 @@ void report_movie_wait(const uint8_t* ram,size_t size,std::ostream& out) {
                 text << std::dec << '\n';
             }
             const auto video=memory.word(backend+0x1b30u);
-            uint32_t physical=0;
+            physical=0;
             if (video && memory.range(video,0xab0u,physical)) {
                 text << "[startup:movie-video] work=0x" << std::hex << video;
                 for (uint32_t offset:{0xcu,0x10u,0x7cu,0x138u,0x9d8u,0xa48u,0xa50u,
@@ -197,6 +218,11 @@ void report_movie_wait(const uint8_t* ram,size_t size,std::ostream& out) {
     uint32_t physical=0;
     if (memory.range(0x00370cb4u,4u,physical))
         text << "[startup:movie-sdk] last_error=" << int32_t(memory.word(physical)) << '\n';
+    if (movie.active && memory.range(0x00370c4cu,0x2cu,physical))
+        text << "[startup:movie-guards] initialized=" << memory.word(physical)
+             << " global_busy=" << memory.word(physical+0x28u)
+             << " player_busy=" << memory.word(movie.physical+0x60u)
+             << " callback_busy=" << memory.word(movie.physical+0x64u) << '\n';
     if (memory.range(0x003a5448u,4u,physical)) {
         const auto scene=memory.word(physical);
         if (scene!=0u && memory.range(scene,0x20u,physical))
