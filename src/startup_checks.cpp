@@ -26,23 +26,73 @@ void verify_startup_diagnostics() {
             && std::count(graphicsText.begin(),graphicsText.end(),'\n')==3,
             "Empty graphics snapshot was misreported");
     require(graphics.flags()&std::ios::hex,"Graphics snapshot changed the caller's stream format");
-    constexpr uint32_t movie=0x00370cb8u,backend=0x00250000u;
-    memory.write32(movie,0x00370ae0u); memory.write32(movie+4u,1u);
-    memory.write32(movie+8u,2u); memory.write32(movie+0x40u,0xa0000000u+backend);
-    ram[backend+1u]=3u; memory.write32(backend+0x48u,1u);
+    constexpr uint32_t movie=0x00260000u,backend=0x00250000u,record=0x003b4f80u;
+    // A valid first SDK pool slot alone must not masquerade as the live player.
+    memory.write32(0x00370cb8u,0x00370ae0u);
+    std::ostringstream unlinked;
+    report_movie_wait(ram,PS2_RAM_SIZE,unlinked);
+    require(unlinked.str().find("player=0x0 interface=inactive")!=std::string::npos,
+            "Movie snapshot inspected a fixed test/pool address instead of the game handle");
+    MovieWaitDiagnostics movieSamples;
+    std::ostringstream sampled;
+    require(movieSamples.sample(0u,ram,PS2_RAM_SIZE,sampled)
+            && !movieSamples.sample(15000u,ram,PS2_RAM_SIZE,sampled)
+            && !movieSamples.sample(30000u,ram,PS2_RAM_SIZE,sampled),
+            "Logo frames consumed the movie's active sampling deadlines");
+    memory.write32(0x00370cb4u,uint32_t(-13));
+    require(movieSamples.sample(32000u,ram,PS2_RAM_SIZE,sampled),
+            "Movie creation failure was missed while no live handle existed");
+    memory.write32(record,0x80000000u+movie);
+    memory.write32(movie,0xa0370ae0u); memory.write32(movie+4u,1u);
+    memory.write32(movie+8u,2u); memory.write32(movie+0x40u,0x20000000u+backend);
+    ram[backend+1u]=0x7eu; // This byte is not mwPlyGetStat's status word.
+    memory.write32(backend+0x48u,4u);
     memory.write32(backend+0x9b8u,1u); memory.write32(backend+0x10u,0x1234u);
+    memory.write32(0x00370cb4u,uint32_t(-309));
+    memory.write32(0x003a5448u,0x00270000u);
+    memory.write32(0x00270008u,0u); memory.write32(0x0027001cu,0x002a4d40u);
+    const char filename[]="INTRO.SFD";
+    std::copy(std::begin(filename),std::end(filename),ram+record+0x84u);
     const std::vector<uint8_t> movieBefore(ram,ram+PS2_RAM_SIZE);
     std::ostringstream movieReport;
     report_movie_wait(ram,PS2_RAM_SIZE,movieReport);
-    require(movieReport.str().find("interface=sofdec valid=1 state=2 backend=0xa0250000 backend_status=3")!=std::string::npos
+    require(movieReport.str().find("player=0x80260000 interface=sofdec valid=1 state=2")!=std::string::npos
+            && movieReport.str().find("backend=0x20250000 backend_state=4")!=std::string::npos
             && movieReport.str().find("word_10=0x1234")!=std::string::npos
+            && movieReport.str().find("INTRO.SFD")!=std::string::npos
+            && movieReport.str().find("last_error=-309")!=std::string::npos
+            && movieReport.str().find("callback=0x2a4d40")!=std::string::npos
             && std::equal(movieBefore.begin(),movieBefore.end(),ram),
-            "Movie wait snapshot lost the aliased backend or changed guest memory");
+            "Movie snapshot lost the live handle, true status, scene, filename, or changed guest memory");
+    require(movieSamples.sample(35000u,ram,PS2_RAM_SIZE,sampled)
+            && !movieSamples.sample(35001u,ram,PS2_RAM_SIZE,sampled)
+            && !movieSamples.sample(39999u,ram,PS2_RAM_SIZE,sampled)
+            && movieSamples.sample(40000u,ram,PS2_RAM_SIZE,sampled),
+            "Late movie activation was missed or periodic sampling used logo time");
+    memory.write32(backend+0x48u,6u);
+    require(movieSamples.sample(41000u,ram,PS2_RAM_SIZE,sampled)
+            && !movieSamples.sample(41001u,ram,PS2_RAM_SIZE,sampled),
+            "Movie backend status changes were missed or duplicated");
+    require(movieSamples.sample(50000u,ram,PS2_RAM_SIZE,sampled)
+            && movieSamples.sample(95000u,ram,PS2_RAM_SIZE,sampled),
+            "Movie periodic snapshots after activation were lost");
+    for (unsigned i=0;i<50u;++i) {
+        memory.write32(backend+0x48u,i);
+        movieSamples.sample(96000u+i,ram,PS2_RAM_SIZE,sampled);
+    }
+    const auto movieText=sampled.str();
+    unsigned movieReports=0;
+    for (size_t at=0;(at=movieText.find("[startup:movie-sample]",at))!=std::string::npos;at+=22) ++movieReports;
+    require(movieReports==11u && !movieSamples.sample(200000u,ram,PS2_RAM_SIZE,sampled),
+            "Movie state churn exceeded the bounded report budget");
     memory.write32(movie+0x40u,0x01fffffcu);
     std::ostringstream invalid;
     report_movie_wait(ram,PS2_RAM_SIZE,invalid);
+    memory.write32(record,0x01fffffcu);
+    report_movie_wait(ram,PS2_RAM_SIZE,invalid);
     report_movie_wait(nullptr,0,invalid);
     require(invalid.str().find("backend_range=invalid")!=std::string::npos
+            && invalid.str().find("interface=invalid")!=std::string::npos
             && invalid.str().find("interface=inactive")!=std::string::npos,
             "Movie wait snapshot read beyond the supplied guest range");
     auto& scheduler=runtime.eeScheduler();

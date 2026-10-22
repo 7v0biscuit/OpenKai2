@@ -53,6 +53,10 @@ def main():
         if 'The original game ISO is required' not in help_text:
             raise RuntimeError('Installed executable did not print the expected help.')
         self_test = run([str(executable), '--self-test'])
+        if 'Runtime MPEG setup regression passed' not in self_test:
+            raise RuntimeError('Original MPEG SDK work-area and callback regression did not pass.')
+        if 'Runtime movie transition diagnostics regression passed' not in self_test:
+            raise RuntimeError('Movie activation and live-state diagnostics regression did not pass.')
         if 'Runtime graphics presentation regression passed' not in self_test:
             raise RuntimeError('Original draw packet presentation regression did not pass.')
         if 'Runtime movie callback regression passed' not in self_test:

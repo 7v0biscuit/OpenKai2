@@ -119,6 +119,11 @@ count, RGB hash, drawing state, and recent draw/transfer events. Movie-wait
 records include the original player state and display registers, sampled on the
 EE executor. A zero nonblack count means a black rendered frame when `frame=1`;
 `frame=0` means no host presentation frame is available.
+Movie activation and backend-state changes are recorded immediately, with
+follow-up samples timed from activation. Those records include the live player,
+filename, SDK error, and scene callback, with at most 12 movie reports per run.
+The self-test also checks the original MPEG SDK work area, callbacks, native
+dispatcher, reset, and reference buffers with the compiled Sofdec no-data callback.
 
 The self-test also checks callback stack separation, nested allocations, and
 resumption of an interrupted caller through the EE scheduler using an original

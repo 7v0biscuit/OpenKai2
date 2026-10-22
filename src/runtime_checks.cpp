@@ -10,6 +10,7 @@
 #include "asset_checks.h"
 #include "fade_checks.h"
 #include "movie_checks.h"
+#include "mpeg_checks.h"
 #include "iop_checks.h"
 #include "iop_wait_checks.h"
 #include "ps2_runtime.h"
@@ -155,6 +156,7 @@ int run_runtime_checks() {
     verify_callback_stacks();
     verify_startup_diagnostics();
     std::cout << "Startup diagnostics regression passed: bounded, read-only EE wait snapshots.\n";
+    std::cout << "Runtime movie transition diagnostics regression passed: live handles, backend status, activation timing, and bounded reports.\n";
     verify_iop_wait_diagnostics();
     std::cout << "IOP wait diagnostics regression passed: read-only semaphore, event, and instruction snapshots.\n";
     verify_iop_import_pipeline();
@@ -181,6 +183,8 @@ int run_runtime_checks() {
     std::cout << "Runtime graphics presentation regression passed: original white/black packets, DMA, GIF, rasterization, pixels, and GS counters.\n";
     verify_movie_callbacks(runtime,memory);
     std::cout << "Runtime movie callback regression passed: interface coverage, logged caller, real volume/pan chain, clamping, and saved registers.\n";
+    verify_mpeg_setup(runtime,memory);
+    std::cout << "Runtime MPEG setup regression passed: original work layout, allocator, callbacks, native dispatcher, reset, and reference buffers.\n";
     // Run the original compiled scratchpad-copy caller with the retail size
     // and destination, including its SADR write and receive SDK invocation.
     {

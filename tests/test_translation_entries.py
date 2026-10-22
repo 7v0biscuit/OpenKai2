@@ -68,7 +68,7 @@ class TranslationEntries(unittest.TestCase):
     def test_reviewed_tables_have_complete_unique_coverage(self):
         self.assertEqual(len(ENTRIES.DISPATCH_TABLES), 7)
         self.assertTrue(all(len(row) == 14 for _, row in ENTRIES.DISPATCH_TABLES))
-        self.assertEqual(len(set(ENTRIES.ENTRY_POINTS)), 147)
+        self.assertEqual(len(set(ENTRIES.ENTRY_POINTS)), 152)
         self.assertEqual(len(ENTRIES.ZERO_RETURN_ENTRIES), 39)
         self.assertTrue(set(ENTRIES.ZERO_RETURN_ENTRIES) <= set(ENTRIES.ENTRY_POINTS))
         self.assertNotIn(0x00387110, ENTRIES.ENTRY_POINTS)
@@ -83,7 +83,7 @@ class TranslationEntries(unittest.TestCase):
             path = Path(temporary) / 'entries.h'
             ENTRIES.emit_check_header(path)
             content, changed = path.read_text(), path.stat().st_mtime_ns
-            self.assertIn('std::array<uint32_t, 147> entries', content)
+            self.assertIn('std::array<uint32_t, 152> entries', content)
             self.assertIn('std::array<uint32_t, 39> zero_return_entries', content)
             for address in ENTRIES.ENTRY_POINTS:
                 self.assertIn(f'0x{address:08x}u,', content)
@@ -134,6 +134,23 @@ class TranslationEntries(unittest.TestCase):
         output = ENTRIES.configure('[general]\nstubs = ["sceSdTransToIOP", "ret1"]\n')
         self.assertNotIn('"sceSdTransToIOP"', output)
         self.assertIn('"ret1"', output)
+
+    def test_movie_sdk_setup_uses_original_routines(self):
+        routines = (('sceMpegCreate', 0x107978), ('sceMpegReset', 0x107d18),
+                    ('sceMpegClearRefBuff', 0x107d78), ('sceMpegAddCallback', 0x107dd0),
+                    ('sceIpuSync', 0x109390))
+        stubs = ', '.join(f'"{name}@0x{address:08x}"' for name, address in routines)
+        output = ENTRIES.configure('[general]\nstubs = ['+stubs+', "sceMpegGetPicture"]\n')
+        for name, address in routines:
+            self.assertNotIn(f'"{name}@0x{address:08x}"', output)
+            self.assertIn(f'"0x{address:08x}"', output)
+        self.assertIn('"sceMpegGetPicture"', output)
+        self.assertEqual(ENTRIES.configure(output), output)
+
+    def test_mpeg_constructor_must_have_its_own_instruction_entry(self):
+        with self.assertRaisesRegex(ValueError, 'missing guest entry 0x00107978'):
+            self.verify_fixture('g_ps2RecompiledFunctionTable[1] = owner; // 0x167188',
+                                '// Address: 0x167188 - 0x1671a0', omitted=(0x00107978,))
 
     def test_asset_relocation_handlers_preserve_tags_and_terminator(self):
         self.assertEqual(ENTRIES.ASSET_RELOCATION_BASE, 0x0033D680)

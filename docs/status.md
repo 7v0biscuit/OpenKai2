@@ -6,7 +6,7 @@ The application requires the original USA ISO at every launch.
 ## Verified components
 
 - All 16 EE component probes build on Linux and as Windows x64 executables.
-- All 144 Python regression tests pass, including translation entry, portable, and release package checks.
+- All 146 Python regression tests pass, including translation entry, portable, and release package checks.
 - Synthetic and USA-executable component comparisons pass.
 - ISO verification passes 33 native Linux checks and 32 Windows-executable
   checks under Wine. Wine cannot execute the cache-symlink check.
@@ -242,7 +242,28 @@ output, and title-screen boot remain unverified.
 Callback regression fixtures allocate their runtime devices on the heap, avoiding
 overflow of MSVC's default 1 MiB host stack. Windows source CI passes this check.
 
-The latest log contains no missing movie callback or execution exception. DMA
+The next retail run displays images/logos before turning black, and Start does
+not advance it. Its changing nonblack frames confirm early graphics output;
+there is no execution exception. Investigation found that the generic MPEG SDK
+replacement builds a different work-area layout from this game's native SDK.
+It omits the native handle link and callback records, writes unrelated fixed
+globals, and returns an allocator pointer instead of SDK success.
+
+The original create, reset, reference-clear, callback-registration, and IPU-sync
+routines are now translated, bringing reviewed entry coverage to 152. The
+regression executes the original SDK routines through return and checks aligned
+and unaligned work areas, callback/data/GP records, the original dispatcher and
+compiled no-data callback, reference buffers, reset, memory bounds, saved
+registers, and unrelated guest memory. These checks establish SDK setup;
+complete retail decoding and the transition to the title screen still require
+validation.
+
+Movie diagnostics follow the live game handle and read the actual backend
+status word. Activation/state changes are captured immediately, with later
+snapshots timed from activation. The common frame-yield path also runs during
+logos; the previous fixed deadlines could finish before the movie existed.
+
+An earlier log contains no missing movie callback or execution exception. DMA
 and GIF submissions continue for 281 seconds until the window closes. Its zero
 GS count was misleading: the counter omitted normal 32- and 64-bit privileged
 register writes. These writes now increment the counter. Bounded graphics
@@ -252,7 +273,7 @@ four executor-side movie-wait snapshots also record player and display state.
 The original solid-fade packets now pass an end-to-end regression through DMA,
 GIF decoding, CPU rasterization, and latched host presentation. An opaque white
 viewport is followed by a black viewport, checking actual RGB output and frame
-replacement. This verifies that isolated path; the latest retail log does not
+replacement. This verifies that isolated path; that retail log did not
 identify why visible startup remains unresolved. Full movie decoding and retail
 graphics still require local-ISO validation.
 
@@ -280,8 +301,8 @@ and uninstall on Windows before publishing a development prerelease.
 ## Remaining work
 
 The fallback analyzer reads a stripped ELF containing both code and data. It
-identified 5,122 function candidates. After translating the sound-transfer SDK
-routine, 4,954 functions are translated and 168 remain SDK stubs. Some data and
+identified 5,122 function candidates. Some SDK routines still use host
+replacements, and native integration remains incomplete. Some data and
 VU regions were treated as EE functions, producing 12,755
 unhandled-instruction diagnostics despite the recompiler returning zero.
 More accurate function boundaries and further runtime integration may be needed.

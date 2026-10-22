@@ -3,10 +3,12 @@
 #include "ps2_runtime.h"
 #include "runtime/ee_scheduler.h"
 #include "runtime/gs/gs_frontend.h"
+#include "runtime/ps2_address.h"
 #include <algorithm>
 #include <chrono>
 #include <cstring>
 #include <sstream>
+#include <iomanip>
 
 namespace openkai2 {
 namespace {
@@ -81,47 +83,136 @@ void report_startup_graphics(GS& gs,uint64_t elapsed_ms,std::ostream& out) {
     }
     out << text.str() << std::flush;
 }
+namespace {
+struct MovieState {
+    uint32_t player=0,physical=0,backend=0,backend_physical=0,state=0,backend_state=0;
+    uint32_t sdk_error=0,scene_callback=0;
+    bool active=false,backend_valid=false;
+};
+class MovieMemory {
+    const uint8_t* ram_;
+    size_t size_;
+public:
+    static constexpr uint32_t record=0x003b4f80u,table=0x00370ae0u;
+    MovieMemory(const uint8_t* ram,size_t size):ram_(ram),size_(std::min<size_t>(size,PS2_RAM_SIZE)) {}
+    bool range(uint32_t address,size_t length,uint32_t& physical) const {
+        if (!ram_ || (address&3u)!=0u) return false;
+        physical=(Ps2IsKseg01Address(address) || Ps2IsUncachedRamMirrorAddress(address))
+            ? Ps2DirectMappedPhysicalAddress(address) : address;
+        return size_t(physical)<=size_ && length<=size_-size_t(physical);
+    }
+    uint32_t word(uint32_t address) const {
+        uint32_t value; std::memcpy(&value,ram_+address,4); return value;
+    }
+    MovieState snapshot() const {
+        MovieState result;
+        uint32_t physical=0,table_physical=0;
+        if (range(0x00370cb4u,4u,physical)) result.sdk_error=word(physical);
+        if (range(0x003a5448u,4u,physical)) {
+            const uint32_t scene=word(physical);
+            if (scene!=0u && range(scene,0x20u,physical)) result.scene_callback=word(physical+0x1cu);
+        }
+        if (!range(record,0x108u,physical)) return result;
+        // The game stores its one active player in this record at 0x146008;
+        // the logged caller loads it at 0x2A4EEC. Do not assume a pool slot.
+        result.player=word(physical);
+        if (result.player==0u || !range(result.player,0x128u,result.physical)
+                || !range(word(result.physical),4u,table_physical) || table_physical!=table) return result;
+        result.active=true;
+        result.state=word(result.physical+8u);
+        result.backend=word(result.physical+0x40u);
+        result.backend_valid=result.backend!=0u && range(result.backend,0x9bcu,result.backend_physical);
+        // mwPlyGetStat reads a word at +0x48 (0x19BD0C). Byte +1 belongs
+        // to a different ADX interface and is not the movie backend's status.
+        if (result.backend_valid) result.backend_state=word(result.backend_physical+0x48u);
+        return result;
+    }
+    std::string filename() const {
+        uint32_t physical=0;
+        if (!range(record,0x108u,physical)) return {};
+        std::string name;
+        for (unsigned i=0;i<0x84u;++i) {
+            const uint8_t c=ram_[physical+0x84u+i];
+            if (!c) break;
+            name.push_back(c>=32u && c<127u ? char(c) : '?');
+        }
+        return name;
+    }
+};
+}
 void report_movie_wait(const uint8_t* ram,size_t size,std::ostream& out) {
-    auto range=[&](uint32_t address,size_t length) {
-        return ram && size_t(address)<=size && length<=size-size_t(address);
-    };
-    auto word=[&](uint32_t address) { uint32_t value; std::memcpy(&value,ram+address,4); return value; };
-    constexpr uint32_t object=0x00370cb8u,table=0x00370ae0u;
+    const MovieMemory memory(ram,size);
+    const auto movie=memory.snapshot();
     std::ostringstream text;
-    text << "[startup:movie-wait]";
-    if (!range(object,0x44u) || word(object)!=table) {
-        text << " interface=inactive\n";
+    text << "[startup:movie-wait] player=0x" << std::hex << movie.player << std::dec;
+    if (!movie.active) {
+        text << " interface=" << (movie.player ? "invalid" : "inactive") << '\n';
     } else {
-        const uint32_t backend=word(object+0x40u);
-        const uint32_t physical=backend&0x1fffffffu;
-        text << " interface=sofdec valid=" << word(object+4u) << " state=" << word(object+8u)
-             << " backend=0x" << std::hex << backend << std::dec;
-        if (backend!=0u && (backend<0x20000000u || (backend>=0x80000000u && backend<0xc0000000u))
-                && range(physical,0x9bcu)) {
-            text << " backend_status=" << unsigned(ram[physical+1u])
-                 << " backend_valid=" << word(physical+0x48u)
-                 << " audio=" << word(physical+0x9b8u);
+        text << " interface=sofdec valid=" << memory.word(movie.physical+4u) << " state=" << movie.state
+             << " file=" << std::quoted(memory.filename())
+             << " backend=0x" << std::hex << movie.backend << std::dec;
+        if (movie.backend_valid) {
+            text << " backend_state=" << movie.backend_state
+                 << " audio=" << memory.word(movie.backend_physical+0x9b8u);
             for (uint32_t offset:{0x10u,0x20u,0x24u,0x30u})
-                text << " word_" << std::hex << offset << "=0x" << word(physical+offset) << std::dec;
+                text << " word_" << std::hex << offset << "=0x" << memory.word(movie.backend_physical+offset) << std::dec;
         } else text << " backend_range=invalid";
+        for (uint32_t offset:{0x118u,0x11cu,0x120u,0x124u})
+            text << " player_" << std::hex << offset << "=0x" << memory.word(movie.physical+offset) << std::dec;
         text << '\n';
+    }
+    uint32_t physical=0;
+    if (memory.range(0x00370cb4u,4u,physical))
+        text << "[startup:movie-sdk] last_error=" << int32_t(memory.word(physical)) << '\n';
+    if (memory.range(0x003a5448u,4u,physical)) {
+        const auto scene=memory.word(physical);
+        if (scene!=0u && memory.range(scene,0x20u,physical))
+            text << "[startup:movie-scene] object=0x" << std::hex << scene
+                 << " callback=0x" << memory.word(physical+0x1cu)
+                 << " handle=0x" << memory.word(physical+8u) << std::dec << '\n';
     }
     out << text.str() << std::flush;
 }
+bool MovieWaitDiagnostics::sample(uint64_t elapsed_ms,const uint8_t* ram,size_t size,std::ostream& out) {
+    if (reports_>=12u) return false;
+    const auto movie=MovieMemory(ram,size).snapshot();
+    const bool changed=!initialized_ || movie.active!=active_ || movie.player!=player_ || movie.state!=state_
+        || movie.backend!=backend_ || movie.backend_state!=backend_state_
+        || movie.sdk_error!=sdk_error_ || movie.scene_callback!=scene_callback_;
+    if (movie.active && (!active_ || movie.player!=player_)) {
+        active_begin_=elapsed_ms;
+        periodic_=0;
+    }
+    active_=movie.active;
+    initialized_=true;
+    player_=movie.player; state_=movie.state; backend_=movie.backend; backend_state_=movie.backend_state;
+    sdk_error_=movie.sdk_error; scene_callback_=movie.scene_callback;
+    constexpr uint64_t deadlines[]={5000u,15000u,60000u};
+    const bool periodic=active_ && periodic_<3u && elapsed_ms-active_begin_>=deadlines[periodic_];
+    if (periodic) ++periodic_;
+    const bool transition=changed && changes_<8u;
+    if (transition) ++changes_;
+    if (!transition && !periodic) return false;
+    ++reports_;
+    std::ostringstream text;
+    text << "[startup:movie-sample] elapsed_ms=" << elapsed_ms
+         << " reason=" << (transition ? "state-change" : "periodic") << '\n';
+    report_movie_wait(ram,size,text);
+    out << text.str() << std::flush;
+    return true;
+}
 void sample_movie_wait(PS2Runtime& runtime,const uint8_t* ram,size_t size,uint32_t return_pc,std::ostream& out) {
     if (return_pc!=0x00186450u) return;
-    // Runs on the EE executor, where guest memory is stable. The host window
-    // thread only inspects the GS's locked snapshots.
+    // This is the common CRI frame yield, including logo frames before any
+    // movie exists. Observe activation immediately and time later snapshots
+    // from activation, rather than spending the movie samples on the logos.
     static thread_local const auto begin=std::chrono::steady_clock::now();
-    static thread_local unsigned samples=0;
-    constexpr uint64_t deadlines[]={0u,5000u,15000u,60000u};
+    static thread_local MovieWaitDiagnostics diagnostics;
     const auto elapsed=uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now()-begin).count());
-    if (samples<4u && elapsed>=deadlines[samples]) {
-        ++samples;
-        report_movie_wait(ram,size,out);
+    if (diagnostics.sample(elapsed,ram,size,out)) {
         std::ostringstream text;
-        text << "[startup:display] movie_wait_ms=" << elapsed << std::hex;
+        text << "[startup:display] frame_wait_ms=" << elapsed << std::hex;
         for (auto reg: {0x12000000u,0x12000020u,0x12000070u,0x12000080u,0x12000090u,0x120000a0u})
             text << " reg_" << reg << "=0x" << runtime.memory().read64(reg);
         out << text.str() << '\n' << std::flush;

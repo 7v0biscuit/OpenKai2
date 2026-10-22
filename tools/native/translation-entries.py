@@ -90,7 +90,14 @@ STREAM_CALLBACK_TABLES = ((0x00367B68, (
 STREAM_CALLBACK_ENTRIES = tuple(address for _, row in STREAM_CALLBACK_TABLES for address in row if address)
 # This SDK routine submits SIF DMA and optionally waits for completion. Its
 # numeric SIF syscalls are supported; the named runtime stub is unimplemented.
-TRANSLATED_SDK_ENTRIES = (('sceSdTransToIOP', 0x00116268),)
+TRANSLATED_SDK_ENTRIES = (
+    ('sceSdTransToIOP', 0x00116268),
+    # Sofdec also calls private MPEG helpers that inspect this SDK version's
+    # work area and callback records. The generic host layout is incompatible.
+    ('sceMpegCreate', 0x00107978), ('sceMpegReset', 0x00107D18),
+    ('sceMpegClearRefBuff', 0x00107D78), ('sceMpegAddCallback', 0x00107DD0),
+    ('sceIpuSync', 0x00109390),
+)
 # The dispatcher at 0x0012A680 selects asset relocation routines by a
 # three-letter tag. Each eight-byte record is a function and a terminated tag.
 ASSET_RELOCATION_BASE = 0x0033D680
