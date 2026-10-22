@@ -1,0 +1,14 @@
+--- a/Kernel/Syscalls/Thread.cpp
++++ b/Kernel/Syscalls/Thread.cpp
+@@ -112,7 +112,10 @@
+             const int priority = static_cast<int>(getRegU32(ctx, 5));
+             int oldPriority = 0;
+             const int result = ee.changePriority(id, priority, interruptSafe, oldPriority);
+-            setReturnS32(ctx, result);
++            // EE critical sections save this result and pass it back when
++            // leaving. Zero success would make that restore an illegal
++            // priority and strand the caller at its temporary priority.
++            setReturnS32(ctx, result == KE_OK ? oldPriority : result);
+             ee.transferIfRequested(interruptSafe);
+         }
+ 

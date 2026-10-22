@@ -44,9 +44,53 @@ void verify_compiled_worker_setup() {
         context->r[31]=_mm_cvtsi32_si128(finish);
         context->pc=0x00158fd8u;
     });
-    runtime.replaceFunction(finish,[](uint8_t*,R5900Context*,PS2Runtime* active) {
-        active->memory().write32(marker,37u);
-        active->requestStop();
+    runtime.replaceFunction(finish,[](uint8_t*,R5900Context* context,PS2Runtime* active) {
+        auto& memory=active->memory();
+        auto& ee=active->eeScheduler();
+        const uint32_t stage=memory.read32(marker);
+        if (ee.currentThreadId()!=1 || ee.currentThread()->currentPriority!=24)
+            throw std::runtime_error("Runtime regression: compiled CRI initialization or frame service did not restore main priority 24");
+        if (stage==0u) {
+            // Use the real VBlank callback and all four compiled workers.
+            // Each frame runs the synchronous service handoff, then the same
+            // resume/sleep sequence as the retail main loop. This exercises
+            // priority restoration and wake acknowledgment together.
+            ee.setGsVSyncCallback(0x00159758u,0x003ac4f0u,0x01fefe00u);
+            // The original movie callbacks mark pending work in the VBlank
+            // worker and service it in worker 5. Keep only the native stream
+            // preparation driver active; this needs no disc or movie assets.
+            constexpr uint32_t player=0x00370cb8u,backend=0x00800000u;
+            memory.write32(0x00370c4cu,1u);
+            memory.write32(player,0x00370ae0u);
+            memory.write32(player+4u,1u);
+            memory.write32(player+0x40u,backend);
+            memory.write32(backend+0x44u,1u);
+            memory.write32(backend+0x48u,2u);memory.write32(backend+0x4cu,3u);
+            memory.write32(backend+0x9b4u,1u);memory.write32(backend+0x9b8u,1u);
+            memory.write32(backend+0x1aacu,0x00387110u);
+            memory.write32(0x00387118u,0x001908f0u);
+            memory.write32(0x00387408u,0x00199060u); // Original preparation-state branch.
+            memory.write32(0x003c05e0u+2u*48u,0x0018a740u);
+            memory.write32(0x003c05e0u+6u*48u,0x0018a808u);
+        }
+        if (stage==2u) {
+            const uint32_t frames=memory.read32(marker+4u)+1u;
+            memory.write32(marker+4u,frames);
+            if (frames==16u) {
+                memory.write32(marker,37u);
+                active->requestStop();
+                return;
+            }
+        }
+        context->r[31]=_mm_cvtsi32_si128(finish);
+        if (stage==1u) {
+            memory.write32(marker,2u);
+            context->pc=0x001599e0u;
+        } else {
+            memory.write32(marker,1u);
+            context->r[4]=_mm_cvtsi32_si128(6);
+            context->pc=0x0016f6e8u;
+        }
     });
     R5900Context context{};
     context.pc=0x0010a8b8u; // Original translated SDK InitThread entry.
@@ -60,7 +104,7 @@ void verify_compiled_worker_setup() {
     bool done=false;
     std::thread watchdog([&] {
         std::unique_lock lock(mutex);
-        if (!completed.wait_for(lock,std::chrono::seconds(2),[&] { return done; })) scheduler.requestStop();
+        if (!completed.wait_for(lock,std::chrono::seconds(5),[&] { return done; })) scheduler.requestStop();
     });
     std::exception_ptr failure;
     try { scheduler.run(); } catch (...) { failure=std::current_exception(); }
@@ -68,7 +112,8 @@ void verify_compiled_worker_setup() {
     completed.notify_one();
     watchdog.join();
     if (failure) std::rethrow_exception(failure);
-    if (runtime.memory().read32(marker)!=37u || runtime.memory().read32(0x353394u)!=1u
+    if (runtime.memory().read32(marker)!=37u || runtime.memory().read32(marker+4u)!=16u
+        || runtime.memory().read32(0x353394u)!=1u
         || runtime.memory().read32(0x35acb8u)!=1u)
         throw std::runtime_error("Runtime regression: compiled SDK initialization did not supply a usable inherited priority");
     const std::pair<uint32_t,uint32_t> workers[]={
@@ -84,10 +129,45 @@ void verify_compiled_worker_setup() {
         if (!worker || worker->status!=EeThreadStatus::Waiting || worker->wait.reason!=EeWaitReason::Sleep)
             throw std::runtime_error("Runtime regression: compiled game workers did not reach their sleep points");
     }
+    if (runtime.memory().read32(0x00802b78u)<16u
+        || runtime.memory().read32(0x00801148u)!=1u)
+        throw std::runtime_error("Runtime regression: native movie service stopped across compiled frame cycles");
     const auto* main=scheduler.thread(1);
     if (!main || getRegU32(&main->context,29)!=PS2_RAM_SIZE-16u
         || getRegU32(&main->context,28)!=0x003ac4f0u)
         throw std::runtime_error("Runtime regression: worker initialization changed the main thread frame");
+}
+void verify_compiled_critical_priority() {
+    auto owned=std::make_unique<PS2Runtime>();
+    auto& runtime=*owned;
+    if (!runtime.memory().initialize()) throw std::runtime_error("Cannot allocate compiled critical-section regression memory");
+    auto* ram=runtime.memory().getRDRAM();
+    auto& ee=runtime.eeScheduler();
+    R5900Context context{};
+    constexpr uint32_t stack=0x01fffe40u,returned=0x0019de98u;
+    context.r[29]=_mm_cvtsi32_si128(stack);
+    context.r[28]=_mm_cvtsi32_si128(0x003ac4f0u);
+    context.r[16]=_mm_cvtsi32_si128(0x1010u);
+    context.r[17]=_mm_cvtsi32_si128(0x1011u);
+    context.r[18]=_mm_cvtsi32_si128(0x1012u);
+    ee.bindMainContextForSyscall(context,ram);
+    int old=0;
+    ee.changePriority(1,24,false,old);
+    runtime.memory().write32(0x003533a0u,1u);
+    const uint32_t entries[]={0x00158308u,0x00158308u,0x00158390u,0x00158390u};
+    const uint32_t depths[]={1u,2u,1u,0u};
+    for (unsigned index=0;index<4u;++index) {
+        context.pc=entries[index];context.r[31]=_mm_cvtsi32_si128(returned);
+        for (unsigned step=0;step<64u && context.pc!=returned;++step)
+            runtime.lookupFunction(context.pc)(ram,&context,&runtime);
+        if (context.pc!=returned || ee.currentThread()->currentPriority!=(index==3u ? 24 : 1)
+            || runtime.memory().read32(0x0035acb0u)!=24u
+            || runtime.memory().read32(0x003533c0u)!=depths[index]
+            || getRegU32(&context,29)!=stack || getRegU32(&context,28)!=0x003ac4f0u
+            || getRegU32(&context,16)!=0x1010u || getRegU32(&context,17)!=0x1011u
+            || getRegU32(&context,18)!=0x1012u)
+            throw std::runtime_error("Runtime regression: compiled nested CRI critical section lost priority, depth, or caller frame");
+    }
 }
 // The original CRI caller resumes a suspended service worker, then wakes it
 // only when ResumeThread returned that worker's ID. A zero success result
@@ -212,7 +292,10 @@ int run_runtime_checks() {
     std::cout << "Runtime interlaced presentation regression passed: half-height display, adjacent buffers, both circuits, origins, fades, and field parity.\n";
     verify_thread_bootstrap();
     verify_thread_wakeup();
+    verify_thread_priority();
+    verify_compiled_critical_priority();
     verify_compiled_worker_setup();
+    std::cout << "Runtime frame scheduling regression passed: nested CRI priority restoration, four compiled workers, VBlank, sixteen service/sleep cycles, and continuing native movie service.\n";
     verify_compiled_worker_wakeup();
     std::cout << "Runtime worker wake regression passed: compiled CRI resume, sleep release, and wake acknowledgment.\n";
     std::cout << "Runtime thread bootstrap regression passed: SDK priority and four compiled game workers.\n";

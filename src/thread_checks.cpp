@@ -113,4 +113,56 @@ void verify_thread_wakeup() {
     require(dormant<0 && int32_t(getRegU32(&context,2))==dormant,
             "WakeupThread accepted a dormant thread");
 }
+void verify_thread_priority() {
+    auto owned=std::make_unique<PS2Runtime>();
+    auto& runtime=*owned;
+    require(runtime.memory().initialize(),"Cannot allocate EE priority regression memory");
+    auto* ram=runtime.memory().getRDRAM();
+    auto& ee=runtime.eeScheduler();
+    R5900Context context{};
+    ee.bindMainContextForSyscall(context,ram);
+    int old=0;
+    require(ee.changePriority(1,24,false,old)==0,"Cannot set initial EE priority");
+    for (const int id:{1,0}) {
+        context.r[4]=_mm_cvtsi32_si128(id);
+        context.r[5]=_mm_cvtsi32_si128(1);
+        ps2_syscalls::ChangeThreadPriority(ram,&context,&runtime);
+        const int saved=int(getRegU32(&context,2));
+        require(saved==24 && ee.currentThread()->currentPriority==1,
+                "ChangeThreadPriority did not return the previous priority");
+        context.r[5]=_mm_cvtsi32_si128(saved);
+        ps2_syscalls::ChangeThreadPriority(ram,&context,&runtime);
+        require(getRegU32(&context,2)==1u && ee.currentThread()->currentPriority==24,
+                "ChangeThreadPriority result could not restore the caller's priority");
+    }
+    EeThreadCreateParams params{};
+    params.entry=0x001587f0u;params.stack=0x003584c0u;
+    params.stackSize=0x800u;params.priority=25;
+    const int id=ee.createThread(params);
+    require(ee.thread(id)!=nullptr,"Cannot create priority regression worker");
+    context.r[4]=_mm_cvtsi32_si128(id);
+    context.r[5]=_mm_cvtsi32_si128(30);
+    ps2_syscalls::iChangeThreadPriority(ram,&context,&runtime);
+    require(getRegU32(&context,2)==25u && ee.thread(id)->currentPriority==30,
+            "iChangeThreadPriority did not return the worker's previous priority");
+    context.r[5]=_mm_cvtsi32_si128(25);
+    ps2_syscalls::iChangeThreadPriority(ram,&context,&runtime);
+    require(getRegU32(&context,2)==30u && ee.thread(id)->currentPriority==25,
+            "Interrupt-safe priority restoration failed");
+    for (const int invalid:{-1,0,128}) {
+        const int expected=ee.changePriority(id,invalid,false,old);
+        context.r[5]=_mm_cvtsi32_si128(invalid);
+        ps2_syscalls::ChangeThreadPriority(ram,&context,&runtime);
+        require(expected<0 && int32_t(getRegU32(&context,2))==expected
+                && ee.thread(id)->currentPriority==25,"Invalid priority changed the thread or error result");
+        ps2_syscalls::iChangeThreadPriority(ram,&context,&runtime);
+        require(int32_t(getRegU32(&context,2))==expected,"Interrupt-safe priority change hid an error");
+    }
+    context.r[4]=_mm_cvtsi32_si128(127);
+    context.r[5]=_mm_cvtsi32_si128(24);
+    const int unknown=ee.changePriority(127,24,false,old);
+    ps2_syscalls::ChangeThreadPriority(ram,&context,&runtime);
+    require(unknown<0 && int32_t(getRegU32(&context,2))==unknown,
+            "ChangeThreadPriority accepted an unknown thread");
+}
 }

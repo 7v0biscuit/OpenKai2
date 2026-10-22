@@ -6,7 +6,8 @@ int main() {
     try {
         openkai2::verify_thread_bootstrap();
         openkai2::verify_thread_wakeup();
-        std::cout << "EE thread bootstrap regression passed: inherited priority, worker creation, and wake syscall results.\n";
+        openkai2::verify_thread_priority();
+        std::cout << "EE thread bootstrap regression passed: inherited priority, worker creation, and wake results, and priority restoration.\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

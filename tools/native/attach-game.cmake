@@ -50,6 +50,7 @@ function(openkai2_attach_generated_sources)
         "${project_root}/tools/native/patches/callback-stacks.patch"
         "${project_root}/tools/native/patches/thread-bootstrap.patch"
         "${project_root}/tools/native/patches/thread-wakeup.patch"
+        "${project_root}/tools/native/patches/thread-priority.patch"
         "${project_root}/tools/native/patches/graphics-diagnostics.patch"
         "${project_root}/tools/native/patches/interlaced-display.patch"
         "${project_root}/tools/native/patches/sprite-coordinates.patch"

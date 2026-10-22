@@ -85,7 +85,7 @@ def main():
         for patch in (patches / 'disc-layout.patch', patches / 'iop-startup.patch',
                       patches / 'dma-receive.patch', patches / 'startup-diagnostics.patch',
                       patches / 'callback-stacks.patch', patches / 'thread-bootstrap.patch',
-                      patches / 'thread-wakeup.patch',
+                      patches / 'thread-wakeup.patch', patches / 'thread-priority.patch',
                       patches / 'graphics-diagnostics.patch', patches / 'interlaced-display.patch',
                       patches / 'sprite-coordinates.patch', patches / 'field-presentation.patch'):
             apply_overlay_patch(temporary, patch)

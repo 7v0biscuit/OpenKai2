@@ -348,6 +348,26 @@ circuits, framebuffer origins, odd heights, adjacent buffers, and progressive
 output. The installed executable must pass both new regressions before release.
 Retail movie playback and the remaining visible movement need local testing.
 
+The Preview 23 retail log stops drawing after four fields, before the logos
+or movie player activate. The main thread is stuck at priority 1 and sleeping;
+the service worker is sleeping and suspended. ChangeThreadPriority still
+returned zero on success. The original CRI critical-section code saves that
+result as its prior priority and later tries to restore it. Zero is illegal,
+so the main thread remains at its temporary priority and the frame handoff
+cannot reliably continue with the corrected wake acknowledgments.
+
+Both normal and interrupt-safe priority changes now return the actual previous
+priority on success, preserving negative errors and the internal scheduler
+contract. Component checks exercise save/restore, self IDs, worker priorities,
+and invalid calls. Original compiled nested critical sections must restore
+priority 24, depth counters, and caller registers. The compiled worker test now
+runs sixteen synchronous-service and sleep cycles with all four original CRI
+workers and the real VBlank callback. Native movie preparation callbacks run
+through that scheduling path and must keep advancing their service counter.
+This test reproduces the priority restoration failure before the correction.
+It uses a single preparation driver and no disc assets, so it does not verify
+movie decoding, visible logos, title-screen boot, or gameplay.
+
 A complete retail ISO is not present in the development environment. Further
 end-to-end checks must run the updated application with the user's local ISO.
 The launcher obtains `MODULES`, `USR`, and the executable from that image;
