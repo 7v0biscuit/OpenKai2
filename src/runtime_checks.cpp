@@ -312,6 +312,7 @@ int run_runtime_checks() {
     verify_sound_registers();
     std::cout << "SPU2 initialization regression passed: both cores, DMA status, and guest polling.\n";
     verify_scratchpad_dma();
+    verify_ipu_input_dma();
     constexpr uint32_t entry=0x00167188, caller=0x00162dec, returned=0x00162df4;
     PS2Runtime runtime;
     if (!runtime.hasFunction(entry))
@@ -333,6 +334,8 @@ int run_runtime_checks() {
     std::cout << "Runtime movie callback regression passed: interface coverage, logged caller, real volume/pan chain, clamping, and saved registers.\n";
     verify_mpeg_setup(runtime,memory);
     std::cout << "Runtime MPEG setup regression passed: original work layout, allocator, callbacks, native dispatcher, reset, and reference buffers.\n";
+    verify_mpeg_decode();
+    std::cout << "Runtime MPEG decode regression passed: generated MPEG-2 pictures, original CRI input ring, IPU DMA, SDK frame return, and pixel layout.\n";
     // Run the original compiled scratchpad-copy caller with the retail size
     // and destination, including its SADR write and receive SDK invocation.
     {

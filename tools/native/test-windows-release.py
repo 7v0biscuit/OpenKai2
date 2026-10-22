@@ -67,6 +67,8 @@ def main():
             raise RuntimeError('Installed application is missing the field stability regression')
         if 'Runtime sprite coordinate regression passed' not in self_test:
             raise RuntimeError('Fractional sprite position and texture-coordinate regression did not pass.')
+        if 'Runtime MPEG decode regression passed' not in self_test:
+            raise RuntimeError('Original CRI input ring, IPU DMA, and real MPEG picture decoding regression did not pass.')
         if 'Runtime MPEG setup regression passed' not in self_test:
             raise RuntimeError('Original MPEG SDK work-area and callback regression did not pass.')
         if 'Runtime movie transition diagnostics regression passed' not in self_test:

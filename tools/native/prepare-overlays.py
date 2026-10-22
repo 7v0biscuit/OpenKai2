@@ -10,6 +10,10 @@ import subprocess
 import tempfile
 
 EXPECTED = {
+    'ps2xRuntime/src/lib/Kernel/Stubs/MPEG.cpp':
+        'add74172d55a5c00ec4a5bdd1a45e0768fb8b72588f2fce853b6081ca5c3bd9f',
+    'ps2xRuntime/src/lib/Kernel/Stubs/MPEG.h':
+        'd414d295f3bf9756ae5d91a7554fc1a36ac2a00ebab9b95d2dc95da45b135b25',
     'ps2xRuntime/src/lib/gs/gs_cpu_backend.cpp':
         '3f0fea655726215f56d8c3c9cff8345a7d36a929fe3f845cc96346a247085fa9',
     'ps2xRuntime/src/lib/Kernel/Syscalls/Thread.cpp':
@@ -87,7 +91,8 @@ def main():
                       patches / 'callback-stacks.patch', patches / 'thread-bootstrap.patch',
                       patches / 'thread-wakeup.patch', patches / 'thread-priority.patch',
                       patches / 'graphics-diagnostics.patch', patches / 'interlaced-display.patch',
-                      patches / 'sprite-coordinates.patch', patches / 'field-presentation.patch'):
+                      patches / 'sprite-coordinates.patch', patches / 'field-presentation.patch',
+                      patches / 'mpeg-ipu-input.patch'):
             apply_overlay_patch(temporary, patch)
         for source in temporary.rglob('*'):
             if source.is_file():

@@ -13,6 +13,35 @@ void require(bool passed,const char* message) {
     if (!passed) throw std::runtime_error(message);
 }
 }
+void verify_ipu_input_dma() {
+    PS2Runtime runtime;auto& memory=runtime.memory();
+    require(memory.initialize(),"Cannot allocate IPU DMA regression memory");
+    constexpr uint32_t channel=0x1000b400u,status=0x1000e010u,source=0x26000u,tags=0x27000u;
+    // The reset command is self-clearing, including when CRI saves/restores
+    // IPU control around a picture. Preserve unrelated channel status bits.
+    memory.write32(0x10002010u,0x40000000u);
+    require((memory.read32(0x10002010u)&0xc0000000u)==0u,"IPU reset or busy bit remained set");
+    memory.write32(channel+0x10u,0xa0000000u|source);
+    memory.write32(channel+0x20u,2u);memory.write32(channel,0x101u);
+    require(memory.read32(channel+0x10u)==(0xa0000000u|source)+32u
+            && memory.read32(channel+0x20u)==0u && (memory.read32(channel)&0x100u)==0u
+            && (memory.read32(status)&(1u<<5u))!=0u,"Normal IPU DMA did not retire its actual input");
+    for (unsigned test=0;test<4u;++test) {
+        memory.write32(channel,0u);memory.write32(status,1u<<5u);
+        const uint32_t address=test==0u ? PS2_RAM_SIZE-16u : source;
+        memory.write32(channel+0x10u,address);memory.write32(channel+0x20u,test==1u ? 0u : 2u);
+        memory.write32(channel+0x30u,tags);
+        // A non-terminating NEXT chain must exhaust its bounded tag budget
+        // without delivering partial bytes or inventing completion.
+        memory.write64(tags,uint64_t(tags)<<32u | 0x20000000u);
+        const uint32_t start=test==1u ? 0x105u : test==2u ? 0x109u : test==3u ? 0x100u : 0x101u;
+        memory.write32(channel,start);
+        require((memory.read32(channel)&0x100u)!=0u && memory.read32(channel+0x10u)==address
+                && (memory.read32(status)&(1u<<5u))==0u,
+                "Invalid or unsupported IPU DMA fabricated completion or consumed bytes");
+    }
+    memory.write32(channel,0u);memory.write32(0x10002010u,0x40000000u);
+}
 void verify_scratchpad_dma() {
     constexpr uint32_t channel=0x1000d000u, destination=0x003c4200u;
     PS2Runtime runtime;

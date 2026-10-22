@@ -410,6 +410,38 @@ The installed Windows application's self-test must pass this regression before
 publication. These are synthetic time-code tests; full movie decoding, visible
 playback, title boot, and gameplay remain unverified.
 
+The Preview 26 log passes the time-code callback and reaches picture decoding.
+Worker 5 waits for MPEG at `0x001987E4`; video data remains queued in the CRI input
+ring, and no missing-target error is reported. The runtime did not transport IPU
+DMA channel 5 input to its software decoder, so the host picture wait had no
+decoded frame to receive.
+
+IPU input DMA now delivers actual source bytes, handles bounded source chains,
+and retires MADR/QWC/STR with channel completion status. Invalid ranges,
+non-terminating chains, unsupported modes, and reverse transfers do not fabricate
+completion. The IPU reset command clears on readback. Resuming an already
+completed terminal chain preserves its position and does not resend its payload.
+
+The MPEG adapter recognizes this SDK's constructor back-pointer, consumes IPU
+input, writes this version's output fields, and preserves its decode-mode and
+picture-info fields. An empty decoder calls the original translated SDK refill
+dispatcher, which supplies the original CRI callback with its event, data, GP,
+and separate invocation stack. Decoded pictures retain VBlank presentation timing
+and the GS-compatible pixel layout. Input and picture progress reports are bounded.
+
+The old runtime reproduces the decode stall with generated MPEG-2 data. The
+updated full-application regression encodes three patterned pictures, copies them
+through the original CRI ring and DMA submission routines, and checks all decoded
+pixels, frame indices, dimensions, SDK results, memory guards, and source data.
+It checks pause/resume between pictures and a short final input that requires
+the original SDK/CRI refill path. No decoded frames are injected. Component tests
+also check normal DMA, reset readback, and invalid or unsupported requests.
+The installed Windows self-test must pass real decoding before publication.
+
+These checks establish MPEG decoding for generated input. The complete retail
+movie, its visible presentation, audio synchronization, title boot, and gameplay
+still require end-to-end verification with the original ISO.
+
 A complete retail ISO is not present in the development environment. Further
 end-to-end checks must run the updated application with the user's local ISO.
 The launcher obtains `MODULES`, `USR`, and the executable from that image;
