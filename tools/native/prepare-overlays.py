@@ -107,7 +107,8 @@ def main():
                       patches / 'sprite-throughput.patch', patches / 'host-input.patch',
                       patches / 'asynchronous-presentation.patch', patches / 'input-observation.patch', patches / 'texture-pages.patch',
                       patches / 'empty-dma-completion.patch', patches / 'parallel-sprites.patch', patches / 'guest-progress.patch',
-                      patches / 'interrupt-critical-sections.patch', patches / 'sprite-formats.patch'):
+                      patches / 'interrupt-critical-sections.patch', patches / 'sprite-formats.patch',
+                      patches / 'pixel-blending.patch'):
             apply_overlay_patch(temporary, patch)
         for source in temporary.rglob('*'):
             if source.is_file():

@@ -53,6 +53,12 @@ def main():
         if 'The original game ISO is required' not in help_text:
             raise RuntimeError('Installed executable did not print the expected help.')
         self_test = run([str(executable), '--self-test'])
+        if 'Runtime versus animation regression passed' not in self_test:
+            raise RuntimeError('Installed application is missing the original versus animation and indirect caller regression')
+        if 'Runtime triangle pipeline regression passed' not in self_test:
+            raise RuntimeError('Installed application is missing the triangle pipeline and sampler residency comparisons')
+        if 'Runtime pixel blending regression passed' not in self_test:
+            raise RuntimeError('Installed application is missing the scalar pixel blending comparisons')
         if 'Runtime draw setup regression passed' not in self_test:
             raise RuntimeError('Installed application is missing the original draw setup and indirect caller regression')
         if 'Runtime DMA critical section regression passed' not in self_test:

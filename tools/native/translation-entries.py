@@ -174,13 +174,23 @@ DRAW_SETUP_WORDS = (
     (0x001A9440, (0xC780877C, 0xE4800260, 0xC7808780, 0x03E00008, 0xE4800264)),
 )
 DRAW_SETUP_ENTRIES = tuple(address for address, _ in DRAW_SETUP_WORDS)
+# Character animation callback selected during versus setup; its tail calls
+# the original model renderer after advancing the per-character frame.
+VERSUS_ANIMATION_ENTRY = 0x002AEAC0
+VERSUS_ANIMATION_WORDS = (
+    0x80850030,0x3C023F80,0x44820000,0x27838FD8,0x00051080,0x00621021,0x8C430000,
+    0xC4610060,0xC463005C,0xC4620064,0x46000841,0x46021880,0x46011034,0x45010016,
+    0,0x80620078,0x10400011,0,0x44800000,0,0x46000836,0x4501000C,0,0,
+    0x46011081,0x46011034,0,0,0,0x4500FFFA,0,0x10000004,0,0,0x46000886,0,
+    0x080AB8A8,0xE462005C,
+)
 # Preserve ordering and share the argument-store callback between both groups.
 ENTRY_POINTS = tuple(dict.fromkeys((0x00167188,)
     + tuple(address for _, row in DISPATCH_TABLES for address in row)
     + FILE_CALLBACK_ENTRIES + STREAM_CALLBACK_ENTRIES + MEMORY_STREAM_ENTRIES
     + tuple(address for _, address in TRANSLATED_SDK_ENTRIES)
     + ASSET_RELOCATION_ENTRIES + FADE_CALLBACK_ENTRIES + MOVIE_CALLBACK_ENTRIES
-    + MOVIE_PACKET_ENTRIES + MOVIE_TIMING_ENTRIES + DRAW_SETUP_ENTRIES))
+    + MOVIE_PACKET_ENTRIES + MOVIE_TIMING_ENTRIES + DRAW_SETUP_ENTRIES + (VERSUS_ANIMATION_ENTRY,)))
 
 
 def configure(text):
@@ -253,6 +263,8 @@ def verify_elf_metadata(data):
     for address, expected in DRAW_SETUP_WORDS:
         if words(address, len(expected)) != expected:
             raise ValueError(f'Draw setup instructions differ at 0x{address:08x}')
+    if words(VERSUS_ANIMATION_ENTRY,len(VERSUS_ANIMATION_WORDS)) != VERSUS_ANIMATION_WORDS:
+        raise ValueError('Versus animation callback differs from the reviewed instructions')
     if words(ASSET_RELOCATION_BASE, len(ASSET_RELOCATION_WORDS)) != ASSET_RELOCATION_WORDS:
         raise ValueError('Asset relocation handlers or tags differ from the reviewed table')
 

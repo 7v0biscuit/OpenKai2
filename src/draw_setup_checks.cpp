@@ -9,6 +9,49 @@
 #include <stdexcept>
 
 namespace openkai2 {
+void verify_versus_animation(PS2Runtime& runtime,uint8_t* ram) {
+    constexpr uint32_t update=0x002aeac0u,draw=0x002ae2a0u,object=0x003b8c30u;
+    constexpr uint32_t gp=0x003ac4f0u,slotTable=gp-0x7028u,returned=0x001483f8u;
+    if(!runtime.hasFunction(update))throw std::runtime_error("Versus animation callback is not registered");
+    struct Restore {
+        PS2Runtime& runtime;PS2Runtime::RecompiledFunction original;
+        ~Restore(){runtime.replaceFunction(draw,original);}
+    } restore{runtime,runtime.lookupFunction(draw)};
+    // Observe the tail call before rendering needs retail character geometry.
+    // All frame arithmetic and the scene dispatch use original instructions.
+    runtime.replaceFunction(draw,[](uint8_t*,R5900Context* context,PS2Runtime* active) {
+        active->memory().write32(0x29000u,getRegU32(context,4));
+        active->memory().write32(0x29004u,getRegU32(context,5));
+        context->pc=getRegU32(context,31);
+        throw EeDispatcherTransfer{};
+    });
+    struct Case {float frame,total,step;bool loop;float expected;};
+    const Case cases[]={{0,10,1,false,1},{8,10,1,false,9},{8,10,1,true,0},
+        {8,10,20,true,1},{2,10,0.25f,true,2.25f},{3,1,1,true,0},{3,0,1,false,-1}};
+    for(unsigned slot=0;slot<2u;++slot)for(const auto& c:cases) {
+        const uint32_t model=0x27000u+slot*0x1000u;
+        std::memset(ram+model-16u,0xa5,0xa0u);std::memset(ram+object,0,0x80u);
+        runtime.memory().write32(slotTable+slot*4u,model);
+        auto put=[&](uint32_t offset,float value){std::memcpy(ram+model+offset,&value,4u);};
+        put(0x5cu,c.frame);put(0x60u,c.total);put(0x64u,c.step);
+        runtime.memory().write8(model+0x78u,c.loop);runtime.memory().write8(object+0x30u,uint8_t(slot));
+        runtime.memory().write32(object+0x1cu,update);runtime.memory().write32(0x29000u,0u);
+        std::array<uint8_t,0xa0u> expected;std::memcpy(expected.data(),ram+model-16u,expected.size());
+        std::memcpy(expected.data()+16u+0x5cu,&c.expected,4u);
+        R5900Context context{};context.pc=0x001483e8u;
+        context.r[16]=_mm_cvtsi32_si128(object);context.r[28]=_mm_cvtsi32_si128(gp);
+        context.r[29]=_mm_cvtsi32_si128(0x01ffffc0u);
+        for(unsigned step=0;step<128u && context.pc!=returned;++step) {
+            if(!runtime.hasFunction(context.pc))throw std::runtime_error("Versus scene dispatcher reached a missing continuation");
+            try { runtime.lookupFunction(context.pc)(ram,&context,&runtime); }
+            catch(const EeDispatcherTransfer&) {}
+        }
+        if(context.pc!=returned || getRegU32(&context,29)!=0x01ffffc0u || getRegU32(&context,16)!=object
+            || runtime.memory().read32(0x29000u)!=object || runtime.memory().read32(0x29004u)!=slot
+            || std::memcmp(expected.data(),ram+model-16u,expected.size())!=0)
+            throw std::runtime_error("Original versus animation changed frame wrapping, caller state, or memory guards");
+    }
+}
 void verify_draw_setup(PS2Runtime& runtime,uint8_t* ram) {
     auto require=[](bool ok,const char* message) {
         if(!ok)throw std::runtime_error(message);

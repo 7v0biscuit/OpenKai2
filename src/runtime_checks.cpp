@@ -381,7 +381,9 @@ void verify_file_callbacks(PS2Runtime& runtime,uint8_t* memory) {
 }
 int run_runtime_checks() {
     verify_interlaced_presentation();
-    std::cout << "Runtime parallel raster regression passed: persistent workers, joined errors, 58 complete VRAM comparisons, indexed and 16/24-bit textures, depth, alpha-only draws, stale cache, dependent draws, and serial fallbacks.\n";
+    std::cout << "Runtime pixel blending regression passed: 12288 scalar equation comparisons, all selectors, alpha extremes, PABE, frame masks, and 16/24/32-bit destinations.\n";
+    std::cout << "Runtime triangle pipeline regression passed: 48 complete VRAM snapshots in serial and parallel, filtered and indexed textures, depth, feedback, blending, and dependent samples.\n";
+    std::cout << "Runtime parallel raster regression passed: persistent workers, joined errors, 64 complete VRAM comparisons, indexed and 16/24-bit textures, depth, alpha-only draws, stale cache, dependent draws, and serial fallbacks.\n";
     std::cout << "Runtime texture sampling regression passed: cache eviction and stale bytes, 8192 scalar RGBA comparisons, and 64 sprite snapshots.\n";
     std::cout << "Runtime field stability regression passed: stationary alternating fields, scanline interpolation, and edge clamping.\n";
     std::cout << "Runtime sprite pipeline regression passed: 64 scalar-reference VRAM snapshots, filtering, depth, masks, blending, and feedback.\n";
@@ -436,6 +438,8 @@ int run_runtime_checks() {
     verify_asset_relocation(runtime,memory);
     std::cout << "Runtime asset relocation regression passed: seven handlers, logged AMM dispatcher, nested assets, and repeat guards.\n";
     verify_draw_setup(runtime,memory);
+    verify_versus_animation(runtime,memory);
+    std::cout << "Runtime versus animation regression passed: original scene dispatch, both characters, frame advance, clamping, wrapping, and model-render tail call.\n";
     std::cout << "Runtime draw setup regression passed: eight original callbacks, packet fields, guards, RAM aliases, original selector, and logged indirect caller.\n";
     verify_fade_callbacks(runtime,memory);
     std::cout << "Runtime fade callback regression passed: four renderers, logged caller, draw packets, completion, and saved registers.\n";

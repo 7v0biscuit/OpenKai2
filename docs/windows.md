@@ -1,7 +1,7 @@
 # Windows build and startup
 
-OpenKai2 is in development. retail testing reaches the title screen. Saving,
-performance, and gameplay still need validation.
+OpenKai2 is in development. retail testing reaches versus character loading.
+Complete matches, performance, and gameplay still need validation.
 
 ## Downloads
 
@@ -33,7 +33,7 @@ Memory-card files are stored in the disc cache's `mc0` directory. Preserve this
 directory when troubleshooting; the runtime self-test uses a separate temporary
 card. The `[startup:save]` log record shows the active save root and last command.
 The renderer currently runs on the CPU; a supported GPU does not establish a
-particular game frame rate. Large eligible sprites use up to four CPU workers,
+particular game frame rate. Large eligible sprites and textured triangles use up to four CPU workers,
 including indexed textures and independent depth buffers. Dependent draws
 retain serial execution. Stable 60 game FPS remains unverified.
 
@@ -140,7 +140,9 @@ callback as well as direct device tests; invalid empty chains must stay busy.
 After five seconds without a game-side controller read, `[startup:stall]` and
 `[startup:save-menu]` report the captured guest PC, stack, menu callback, fade
 state, and queues. `snapshot_age_ms` distinguishes a stopped executor from a
-continuing guest wait. `parallel_draws` records completed parallel batches.
+continuing guest wait. `parallel_draws` records completed parallel sprite and triangle batches.
+`[GS:timing]` records aggregate triangle, sprite, and upload work; triangle
+`bounds_pixels` counts the bounding boxes tested, including uncovered pixels.
 These reports also appear before shutdown joins the game thread, so a blocked
 shutdown can retain its last known continuation. Leave a frozen screen open
 for at least ten seconds before closing the window and retaining `startup.log`.

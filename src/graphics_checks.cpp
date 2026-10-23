@@ -11,12 +11,156 @@
 
 namespace openkai2 {
 namespace {
+void check_pixel_blending() {
+    std::vector<uint8_t> vram(4u*1024u*1024u);
+    GSCpuBackend backend;backend.Initialize(vram.data(),uint32_t(vram.size()));
+    GSPrimitiveBatch batch{};batch.vertexCount=2;auto& s=batch.state;auto& c=s.context;
+    s.prim.type=GS_PRIM_SPRITE;s.prim.abe=true;s.colclamp=1u;
+    c.frame.fbp=56u;c.frame.fbw=1u;c.zbuf.zmask=true;c.test=0x30000u;c.scissor={0u,0u,0u,0u};
+    batch.vertices[1].x=batch.vertices[1].y=1.0f;
+    uint32_t seed=0x47891123u;
+    auto random=[&](){seed=seed*1664525u+1013904223u;return seed;};
+    for(auto psm:{GS_PSM_CT32,GS_PSM_CT24,GS_PSM_CT16})for(unsigned pabe=0;pabe<2u;++pabe)
+    for(unsigned selectors=0;selectors<256u;++selectors)for(unsigned alpha:{0u,1u,63u,127u,128u,129u,254u,255u}) {
+        c.frame.psm=psm;s.pabe=pabe;c.fba=selectors&1u;c.frame.fbmsk=(selectors&2u) ? 0x00ff00ffu : 0u;
+        const uint32_t input=random(),old=random(),fix=random()&255u;
+        for(auto& v:batch.vertices){v.r=input&255u;v.g=(input>>8u)&255u;v.b=(input>>16u)&255u;v.a=uint8_t(alpha);}
+        c.alpha=selectors|(uint64_t(fix)<<32u);
+        backend.WriteVram(psm,56u*32u,1u,0u,0u,old);
+        const uint32_t raw=backend.ReadVram(psm,56u*32u,1u,0u,0u);
+        const uint32_t dest=psm==GS_PSM_CT16 ? ((raw&31u)<<3u)|(((raw>>5u)&31u)<<11u)
+            |(((raw>>10u)&31u)<<19u)|((raw&0x8000u)<<16u) : psm==GS_PSM_CT24 ? raw|0x80000000u : raw;
+        uint32_t expected=0u;
+        auto pick=[](unsigned which,int source,int destination){return which==0u ? source : which==1u ? destination : 0;};
+        const int factor=((selectors>>4u)&3u)==0u ? alpha : ((selectors>>4u)&3u)==1u ? (dest>>24u)&255u : fix;
+        for(unsigned lane=0;lane<3u;++lane) {
+            const int source=(input>>(8u*lane))&255u,destination=(dest>>(8u*lane))&255u;
+            int color=source;
+            if(!(pabe && alpha<128u))color=(((pick(selectors&3u,source,destination)
+                -pick((selectors>>2u)&3u,source,destination))*factor)>>7u)
+                +pick((selectors>>6u)&3u,source,destination);
+            expected|=uint32_t(std::clamp(color,0,255))<<(8u*lane);
+        }
+        expected|=(alpha|((c.fba && psm!=GS_PSM_CT24) ? 128u : 0u))<<24u;
+        expected=(expected&~c.frame.fbmsk)|(dest&c.frame.fbmsk);
+        if(psm==GS_PSM_CT24)expected&=0x00ffffffu;
+        if(psm==GS_PSM_CT16)expected=((expected>>3u)&31u)|(((expected>>11u)&31u)<<5u)
+            |(((expected>>19u)&31u)<<10u)|((expected>>16u)&0x8000u);
+        backend.Submit(batch);
+        if(backend.ReadVram(psm,56u*32u,1u,0u,0u)!=expected)
+            throw std::runtime_error("Pixel blend differs from scalar GS equation");
+    }
+}
+
+uint64_t triangle_pipeline_hash(unsigned variant,unsigned workers=4u,bool checkDispatch=false) {
+    const auto previous=set_raster_worker_limit(workers);
+    struct Restore {unsigned previous;~Restore(){set_raster_worker_limit(previous);}} restore{previous};
+    std::vector<uint8_t> vram(4u*1024u*1024u);
+    for(unsigned i=0;i<vram.size();++i)vram[i]=uint8_t(i*13u^(i>>9u));
+    GSCpuBackend backend;backend.Initialize(vram.data(),uint32_t(vram.size()));
+    GSPrimitiveBatch batch{};batch.vertexCount=3;auto& s=batch.state;auto& c=s.context;
+    s.prim.type=GS_PRIM_TRIANGLE;s.prim.tme=true;s.prim.fst=true;s.prim.iip=(variant&2u)!=0u;
+    s.linearFilter=(variant&1u)!=0u;s.colclamp=1u;s.textureWidth=128u;s.textureHeight=128u;
+    s.texa.ta0=s.texa.ta1=128u;
+    c.frame.fbp=56u;c.frame.fbw=2u;c.zbuf.zmask=true;c.zbuf.zbp=168u;c.zbuf.psm=GS_PSM_Z32;
+    c.test=0x30000u;c.scissor={0u,127u,0u,95u};c.tex0.tbp0=8192u;c.tex0.tbw=2u;c.tex0.tcc=true;c.tex0.tfx=1u;
+    c.tex0.psm=(variant/4u)%4u==0u ? GS_PSM_CT32 : (variant/4u)%4u==1u ? GS_PSM_CT16
+        : (variant/4u)%4u==2u ? GS_PSM_T8 : GS_PSM_T4;
+    if(variant>=16u){s.prim.abe=true;c.alpha=0x44u;
+        s.textureWidth=s.textureHeight=512u;c.tex0.tbw=c.frame.fbw=8u;
+        c.scissor={0u,511u,0u,447u};}
+    if(variant==1u)c.tex0.tbp0=56u*32u;
+    if(variant==2u)c.zbuf.zmask=false;
+    if(variant==3u)c.test|=1u<<14u;
+    if(variant==4u)c.frame.fbmsk=0x00ff00ffu;
+    if(variant==5u){s.prim.fge=true;s.fogR=31;s.fogG=73;s.fogB=113;}
+    if(variant==6u){s.prim.fst=false;}
+    if(variant==7u){c.test=0x50000u;}
+    if(variant==8u){c.clamp=3u|(3u<<2u)|(63ull<<4u)|(31ull<<24u);}
+    if(variant==9u)++c.tex0.tbp0;
+    if(variant==10u)c.frame.psm=GS_PSM_CT16;
+    if(variant==11u){c.tex0.tbp0=56u*32u;}
+    if(variant==12u){c.zbuf.zmask=false;c.zbuf.zbp=256u;}
+    if(variant==13u)c.test|=1u|(5u<<1u)|(117u<<4u)|(3u<<12u);
+    if(variant==14u)s.pabe=1u;
+    if(variant==15u)c.fba=1u;
+    if(variant==33u || variant==43u)c.tex0.tbp0=56u*32u;
+    if(variant==34u){c.zbuf.zmask=false;c.zbuf.zbp=384u;}
+    if(variant==35u){c.test=0x50000u;c.zbuf.zbp=56u;}
+    if(variant==39u)c.scissor.x0=256u;
+    if(variant==40u){c.scissor.x0=300u;c.scissor.y0=224u;}
+    if(variant==41u){c.zbuf.zmask=false;c.zbuf.zbp=256u;}
+    if(variant==42u)c.frame.fbmsk=0x00ff00ffu;
+    if(variant==44u){++c.tex0.tbp0;c.clamp=3u|(3u<<2u)|(255ull<<4u)|(256ull<<14u);}
+    if(variant==45u)c.test|=1u|(5u<<1u)|(117u<<4u)|(3u<<12u);
+    if(variant==46u){s.pabe=1u;s.prim.fge=true;s.fogR=71u;s.fogG=97u;s.fogB=131u;}
+    if(variant==47u)c.frame.psm=GS_PSM_CT16;
+    c.tex0.cbp=16000u;c.tex0.cpsm=GS_PSM_CT32;c.tex0.cld=1u;
+    for(unsigned y=0;y<16u;++y)for(unsigned x=0;x<16u;++x)
+        backend.WriteVram(GS_PSM_CT32,16000u,1u,x,y,0x80000000u|(x*17u)|((y*17u)<<8u)|(((x^y)*17u)<<16u));
+    backend.LoadClut(c.tex0,{});
+    batch.vertices[0].x=0.25f;batch.vertices[0].y=0.5f;
+    batch.vertices[1].x=127.25f;batch.vertices[1].y=8.75f;
+    batch.vertices[2].x=12.5f;batch.vertices[2].y=95.25f;
+    for(unsigned i=0;i<3u;++i){auto& v=batch.vertices[i];v.u=i==1u ? 2044u : 8u;v.v=i==2u ? 1532u : 12u;
+        v.r=uint8_t(71u+i*31u);v.g=uint8_t(113u+i*17u);v.b=uint8_t(191u-i*19u);
+        v.a=variant>=16u ? 128u : uint8_t(57u+i*31u);v.z=UINT32_MAX;v.q=1.0f+i*0.25f;
+        v.s=float(v.u)/2048.0f;v.t=float(v.v)/2048.0f;v.fog=uint8_t(101u+i*29u);}
+    if(variant>=16u){batch.vertices[1].x=511.25f;batch.vertices[2].y=447.25f;
+        batch.vertices[1].u=8188u;batch.vertices[2].v=7164u;}
+    if(variant==38u)std::swap(batch.vertices[1],batch.vertices[2]);
+    // A stale initial page must retain its bytes until the serial sampler
+    // first evicts it, even on the immutable-source path.
+    if((variant>=16u && variant<32u) || variant==36u){auto prime=batch;prime.vertices[1].x=2;prime.vertices[2].y=2;
+        for(auto& v:prime.vertices)v.u=v.v=8u;
+        backend.Submit(prime);vram[c.tex0.tbp0*256u+17u]^=255u;}
+    const auto before=raster_parallel_batches();
+    backend.Submit(batch);
+    if(checkDispatch){
+        const bool eligible=workers>1u && variant>=32u && variant!=33u && variant!=35u
+            && variant!=36u && variant!=41u && variant!=43u;
+        if(raster_workers().count()>1u && (raster_parallel_batches()!=before)!=eligible)
+            throw std::runtime_error("Triangle bypassed parallel eligibility or stale-cache guard: "+std::to_string(variant));
+    }
+    uint64_t hash=14695981039346656037ull;
+    auto hashVram=[&](){for(auto byte:vram)hash=(hash^byte)*1099511628211ull;};
+    hashVram();
+    auto dependent=batch;dependent.state.linearFilter=false;dependent.state.prim.iip=false;
+    for(auto& v:dependent.vertices)v.u=v.v=8u;
+    backend.WriteVram(c.tex0.psm,c.tex0.tbp0,c.tex0.tbw,0u,0u,0x80ff13a7u);
+    backend.Submit(dependent);
+    hashVram();
+    return hash;
+}
+
+void check_triangle_pipeline() {
+    // Complete VRAM snapshots from the previous serial renderer, before
+    // and after a dependent sample that observes the final cached page.
+    constexpr uint64_t expected[]={
+        0x308cc64e246791c0ull,0x10af1f51b16627edull,0xa6a20f730ecfc768ull,0x8f60fefe665f3279ull,
+        0x423d60b0c126c258ull,0x8d944d8fb66232c7ull,0xe83493e64ffe80a8ull,0xcff8a167de28f8c1ull,
+        0xdf5885a6650d2520ull,0x8ec815c0df63180ull,0x92d12009d72a7062ull,0x1c578a8384731a57ull,
+        0xfb786d0aa9439231ull,0x3aaa479ad16f73f4ull,0x272543d57efefac6ull,0x3aaa479ad16f73f4ull,
+        0xf6073cd714104d50ull,0x6767277e4ab292daull,0xf6073cd714104d50ull,0x6767277e4ab292daull,
+        0xc717ded35a3145e8ull,0x34f20ad9d7b85c79ull,0xc717ded35a3145e8ull,0x34f20ad9d7b85c79ull,
+        0x2b986bb5fb8a8286ull,0x437c4e67751534b3ull,0x2b986bb5fb8a8286ull,0x437c4e67751534b3ull,
+        0xed43356a060fc6c6ull,0x777aef448388fa00ull,0xed43356a060fc6c6ull,0x777aef448388fa00ull,
+        0x6f98c09f3878619eull,0xa678336bc01f5409ull,0x40f5eb742d3e20feull,0xcaf098efc68ca3a6ull,
+        0xc717ded35a3145e8ull,0x6784299ad581bbd1ull,0x86d4de36ef0b7a28ull,0xc0f097fdd8d04547ull,
+        0xd791386bcb280702ull,0xd89ced2b31eb2663ull,0xc6555c59637e92c6ull,0x3c14492bd64ff32eull,
+        0x66a1eafb20a7fc86ull,0x742c5ec6d194c9d0ull,0x139cc95fec0321c4ull,0x84e4cfef53fb4d05ull,
+    };
+    for(unsigned i=0;i<48u;++i)for(auto workers:{1u,4u})
+        if(triangle_pipeline_hash(i,workers,true)!=expected[i])
+            throw std::runtime_error("Triangle pipeline changed VRAM or sampler residency: "+std::to_string(i));
+}
+
 void check_parallel_sprites() {
     const auto previous=set_raster_worker_limit(1);
     struct Restore { unsigned previous;~Restore(){set_raster_worker_limit(previous);} } restore{previous};
     std::vector<uint8_t> original(4u*1024u*1024u);
     for(unsigned i=0;i<original.size();++i)original[i]=uint8_t((i*13u)^(i>>9u));
-    for(unsigned variant=0;variant<58u;++variant) {
+    for(unsigned variant=0;variant<64u;++variant) {
         auto serialVram=original,parallelVram=original;
         auto serial=std::make_unique<GSCpuBackend>(),parallel=std::make_unique<GSCpuBackend>();
         serial->Initialize(serialVram.data(),unsigned(serialVram.size()));
@@ -76,13 +220,22 @@ void check_parallel_sprites() {
         if(variant==51u) { ctx.tex0.psm=GS_PSM_T8;ctx.tex0.tbp0=56u*32u; }
         if(variant==52u) { batch.vertices[1].x=256;batch.vertices[1].y=128; }
         if(variant==53u) { batch.vertices[1].x=256;batch.vertices[1].y=127; }
-        if(variant>=54u) {
+        if(variant>=54u && variant<58u) {
             state.prim.abe=true;ctx.alpha=0x6au;ctx.tex0.tfx=0u;
             for(auto& v:batch.vertices) { v.a=0u;v.z=127u; }
             ctx.test=0x50000u;
             if(variant==55u) { ctx.zbuf.zmask=false;ctx.zbuf.psm=GS_PSM_Z32; }
             if(variant==56u)ctx.tex0.psm=GS_PSM_T8;
             if(variant==57u)ctx.test|=1u|(5u<<1u)|(127u<<4u)|(3u<<12u);
+        }
+        if(variant>=58u) {
+            state.prim.abe=true;ctx.alpha=0x44u;ctx.tex0.tfx=0u;
+            for(auto& v:batch.vertices)v.a=0u;
+            if(variant==59u)ctx.tex0.tcc=false;
+            if(variant==60u)ctx.alpha=0x64u; // FIX=0 also preserves destination RGB.
+            if(variant==61u)state.pabe=1u;
+            if(variant==62u)ctx.test|=1u|(5u<<1u)|(127u<<4u)|(3u<<12u);
+            if(variant==63u){ctx.zbuf.zmask=false;ctx.zbuf.psm=GS_PSM_Z32;}
         }
         if(ctx.tex0.psm==GS_PSM_T8 || ctx.tex0.psm==GS_PSM_T4 || ctx.tex0.psm==GS_PSM_T8H
                 || ctx.tex0.psm==GS_PSM_T4HL || ctx.tex0.psm==GS_PSM_T4HH) {
@@ -109,7 +262,7 @@ void check_parallel_sprites() {
         set_raster_worker_limit(4);parallel->Submit(batch);
         const bool eligible=variant!=12u && variant!=13u && variant!=15u
             && variant!=41u && variant!=48u && variant!=49u && variant!=50u && variant!=51u && variant!=53u
-            && variant<54u;
+            && (variant<54u || (variant>=58u && variant!=63u));
         if(raster_workers().count()>1u && (raster_parallel_batches()!=before)!=eligible)
             throw std::runtime_error("Parallel sprite bypassed an eligibility or stale-cache guard: "+std::to_string(variant));
         if(serialVram!=parallelVram)throw std::runtime_error("Parallel sprite changed complete VRAM output: "+std::to_string(variant));
@@ -404,6 +557,7 @@ void check_sprite_pipeline() {
 }
 }
 void verify_interlaced_presentation() {
+    check_pixel_blending();check_triangle_pipeline();
     verify_raster_workers();check_parallel_sprites();
     check_texture_cache_scope();
     check_bilinear_rounding();

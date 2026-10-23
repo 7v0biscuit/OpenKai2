@@ -79,6 +79,7 @@ function(openkai2_attach_generated_sources)
         "${project_root}/tools/native/patches/guest-progress.patch"
         "${project_root}/tools/native/patches/interrupt-critical-sections.patch"
         "${project_root}/tools/native/patches/sprite-formats.patch"
+        "${project_root}/tools/native/patches/pixel-blending.patch"
         "${project_root}/tools/native/prepare-overlays.py")
     get_target_property(iop_sources ps2_iop SOURCES)
     set(overlay_iop_sources "")
