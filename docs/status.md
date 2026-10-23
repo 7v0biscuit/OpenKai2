@@ -104,7 +104,9 @@ hidden, and fully hidden indexed-texture sprites and triangles.
 Indexed texture draws can prepare palette colors once and reuse them across
 pixels and filter taps. A small cache compares the actual latched CLUT bytes
 and all lookup state, including source and palette formats, CSM, CSA, and TEXA.
-Worker threads share the prepared colors during each synchronous draw. Small
+Draw closures carry the prepared colors directly to raster workers. Palette
+pointers are read once per draw, so pixels and filter taps avoid an extra
+thread-local lookup, including on Windows. Small
 draws with cold palettes retain scalar lookup to limit preparation overhead.
 Startup diagnostics report palette reuse, builds, and fallback counts under
 `[GS:palette]`.
@@ -118,7 +120,11 @@ The optional `openkai2_palette_bench` target measures 24 indexed-texture cases,
 including repeated, alternating, and frequently reloaded palettes. It accepts
 an optional worker count, for example `openkai2_palette_bench 1`.
 
-Serial fixtures with reusable palettes measured approximately 6–16% lower draw times using three-run medians. Parallel results were mixed, including slower cases. Frequently changing palettes can still add overhead on tiny draws. All measured VRAM hashes matched; these synthetic timings do not establish an end-to-end FPS improvement.
+The Windows binaries measured roughly 14–20% lower median draw times on visible
+serial fixtures with reusable palettes against the earlier renderer. These
+three-run measurements execute native Windows code under Wine and retain
+identical VRAM hashes. Frequently changing palettes can still add overhead on
+tiny draws. The benchmark does not establish native Windows game frame rates.
 
 ## Interpreter performance
 

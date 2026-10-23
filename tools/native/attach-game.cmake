@@ -87,6 +87,7 @@ function(openkai2_attach_generated_sources)
         "${project_root}/tools/native/patches/ct32-pixels.patch"
         "${project_root}/tools/native/patches/early-depth.patch"
         "${project_root}/tools/native/patches/prepared-clut.patch"
+        "${project_root}/tools/native/patches/draw-clut-sampling.patch"
         "${project_root}/tools/native/prepare-overlays.py")
     get_target_property(iop_sources ps2_iop SOURCES)
     set(overlay_iop_sources "")
