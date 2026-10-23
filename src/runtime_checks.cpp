@@ -12,6 +12,7 @@
 #include "sound_transfer_checks.h"
 #include "asset_checks.h"
 #include "draw_setup_checks.h"
+#include "battle_command_checks.h"
 #include "fade_checks.h"
 #include "movie_checks.h"
 #include "mpeg_checks.h"
@@ -381,6 +382,7 @@ void verify_file_callbacks(PS2Runtime& runtime,uint8_t* memory) {
 }
 int run_runtime_checks() {
     verify_interlaced_presentation();
+    std::cout << "Runtime early depth regression passed: 48 serial and parallel VRAM snapshots, hidden pixels, unsigned depth, feedback, stale pages, and deferred texture samples.\n";
     std::cout << "Runtime prepared pixel regression passed: 64 complete VRAM and dependent-sample snapshots, depth writes, buffer aliases, alpha boundaries, and fallback states.\n";
     std::cout << "Runtime pixel blending regression passed: 12288 scalar equation comparisons, all selectors, alpha extremes, PABE, frame masks, and 16/24/32-bit destinations.\n";
     std::cout << "Runtime triangle pipeline regression passed: 48 complete VRAM snapshots in serial and parallel, filtered and indexed textures, depth, feedback, blending, and dependent samples.\n";
@@ -443,6 +445,8 @@ int run_runtime_checks() {
     std::cout << "Runtime asset relocation regression passed: seven handlers, logged AMM dispatcher, nested assets, and repeat guards.\n";
     verify_draw_setup(runtime,memory);
     verify_versus_animation(runtime,memory);
+    verify_battle_commands(runtime,memory);
+    std::cout << "Runtime battle command regression passed: 24 original handlers, 45 slots, both switches, enable flags, character state, saved registers, and caller guards.\n";
     verify_scene_modes(runtime,memory);
     std::cout << "Runtime scene mode regression passed: seven original handlers, both table halves, animation state, saved registers, and indirect caller.\n";
     verify_battle_assets(runtime,memory);

@@ -11,6 +11,89 @@
 
 namespace openkai2 {
 namespace {
+uint64_t early_depth_hash(unsigned variant,unsigned workers=1u) {
+    const auto previous=set_raster_worker_limit(workers);
+    struct Restore {unsigned previous;~Restore(){set_raster_worker_limit(previous);}} restore{previous};
+    std::vector<uint8_t> vram(4u*1024u*1024u);
+    for(unsigned i=0;i<vram.size();++i)vram[i]=uint8_t(i*13u^(i>>9u));
+    GSCpuBackend backend;backend.Initialize(vram.data(),uint32_t(vram.size()));
+    const auto mode=variant%24u;const bool triangle=variant>=24u;
+    GSPrimitiveBatch batch{};batch.vertexCount=triangle ? 3u : 2u;auto& s=batch.state;auto& c=s.context;
+    s.prim.type=triangle ? GS_PRIM_TRIANGLE : GS_PRIM_SPRITE;s.prim.fst=s.prim.tme=s.prim.abe=true;
+    s.linearFilter=mode&1u;s.colclamp=1u;s.textureWidth=s.textureHeight=128u;
+    c.frame.fbp=56u;c.frame.fbw=8u;c.zbuf.zbp=168u;c.zbuf.psm=GS_PSM_Z32;c.zbuf.zmask=false;
+    c.scissor={0u,511u,0u,223u};c.test=0x50000u;c.alpha=0x44u;
+    c.tex0.tbp0=10240u;c.tex0.tbw=2u;c.tex0.tfx=1u;c.tex0.tcc=true;
+    if(mode==3u)c.test=0x10000u;
+    if(mode==4u)c.test=0x70000u;
+    if(mode==5u)c.test=0x30000u;
+    if(mode==6u)c.tex0.tbp0=56u*32u;
+    if(mode==7u)c.tex0.tbp0=168u*32u;
+    if(mode==9u)c.zbuf.psm=GS_PSM_Z16S;
+    if(mode==10u)c.frame.psm=GS_PSM_CT24;
+    if(mode==11u)c.test|=1u|(5u<<1u)|(128u<<4u)|(3u<<12u);
+    if(mode==12u)c.test|=1u<<14u;
+    if(mode==13u)c.fba=1u;
+    if(mode==14u){s.prim.fge=true;s.fogR=71u;s.fogG=97u;s.fogB=131u;}
+    if(mode==15u)c.frame.fbmsk=0x00ff00ffu;
+    if(mode==16u)c.tex0.psm=GS_PSM_T8;
+    if(mode==17u)c.tex0.psm=GS_PSM_T4;
+    if(mode==18u)s.prim.fst=false;
+    if(mode==19u)c.clamp=2u|(2u<<2u)|(127ull<<4u)|(31ull<<14u)|(127ull<<24u)|(31ull<<34u);
+    if(mode==20u){c.zbuf.zbp=56u;c.zbuf.psm=GS_PSM_CT32;}
+    c.tex0.cbp=16000u;c.tex0.cpsm=GS_PSM_CT32;c.tex0.cld=1u;
+    for(unsigned y=0;y<16u;++y)for(unsigned x=0;x<16u;++x)
+        backend.WriteVram(GS_PSM_CT32,16000u,1u,x,y,0x80000000u|(x*17u)|((y*17u)<<8u));
+    backend.LoadClut(c.tex0,{});
+    for(unsigned y=0;y<224u;++y)for(unsigned x=0;x<512u;++x){
+        uint32_t old=(x%3u)*1000u;
+        if(mode==2u || y>192u)old=2000u;
+        if(mode==4u)old=1000u;
+        if(mode==23u)old=x%3u==0u ? 0x80000000u : x%3u==1u ? 0x80000001u : 0xffffffffu;
+        backend.WriteVram(c.zbuf.psm,c.zbuf.zbp*32u,8u,x,y,old);
+    }
+    for(unsigned y=0;y<128u;++y)for(unsigned x=0;x<128u;++x)
+        backend.WriteVram(c.tex0.psm,c.tex0.tbp0,2u,x,y,0x80000000u|((x*11u+y*7u)&255u)|(((y*13u)&255u)<<8u)|(((x*17u)&255u)<<16u));
+    for(auto& v:batch.vertices){v.r=73u;v.g=127u;v.b=191u;v.a=128u;v.z=mode==23u ? 0x80000001u : 1000u;v.fog=113u;v.u=v.v=12u;v.q=1.0f;}
+    batch.vertices[1].x=512.0f;batch.vertices[1].y=224.0f;batch.vertices[1].u=512u*16u+12u;batch.vertices[1].v=224u*16u+12u;
+    if(triangle){batch.vertices[1].y=8.75f;batch.vertices[1].v=12u;
+        batch.vertices[2].x=12.5f;batch.vertices[2].y=223.25f;batch.vertices[2].v=224u*16u+12u;}
+    if(mode==22u && triangle)batch.vertices[2].y=33.25f;
+    if(mode==21u && triangle)std::swap(batch.vertices[1],batch.vertices[2]);
+    for(unsigned i=0;i<3u;++i){auto& v=batch.vertices[i];v.q=1.0f+i*0.25f;v.s=float(v.u)/2048.0f;v.t=float(v.v)/2048.0f;}
+    if(mode==8u){auto prime=batch;prime.vertices[1].x=2;prime.vertices[1].y=2;prime.vertices[2].y=2;
+        for(auto& v:prime.vertices)v.u=v.v=8u;
+        backend.Submit(prime);vram[c.tex0.tbp0*256u+17u]^=255u;}
+    backend.Submit(batch);
+    uint64_t hash=14695981039346656037ull;
+    auto snapshot=[&](){for(auto byte:vram)hash=(hash^byte)*1099511628211ull;};snapshot();
+    auto dependent=batch;dependent.state.context.test=0x30000u;dependent.state.context.zbuf.zmask=true;
+    backend.WriteVram(c.tex0.psm,c.tex0.tbp0,2u,0u,0u,0x8013579bu);
+    for(auto& v:dependent.vertices)v.u=v.v=8u;
+    backend.Submit(dependent);snapshot();return hash;
+}
+
+void check_early_depth() {
+    // Complete VRAM and dependent-sample snapshots from the previous renderer.
+    constexpr uint64_t expected[]={
+        0xee60935c6fc4f47aull,0xfea67fc77ad6e7c4ull,0x4b99100f0f054ce4ull,0xf7722b6735237d64ull,
+        0x310386ab08354ce4ull,0x7886ed23780b4764ull,0xbd668f9037e4c4a7ull,0x60edd660b37ec644ull,
+        0x2e94b6e3081873caull,0x1cebd814349e31e4ull,0x574a11f4e93d7080ull,0xfea67fc77ad6e7c4ull,
+        0x7a64b05b036aacaaull,0xfea67fc77ad6e7c4ull,0x21a5ddcf8c646f52ull,0xd1d9ae4b9f6a11e0ull,
+        0x72c58d68be94c9f5ull,0xac2387f55de27f04ull,0xc9a3430b5986f134ull,0xbb52654547626510ull,
+        0xd12384e576c76184ull,0xfea67fc77ad6e7c4ull,0xee60935c6fc4f47aull,0x29f16fdd02851ef4ull,
+        0xe7ad0269575a1995ull,0x86d910cc21d8ad42ull,0x95e12495a2f90781ull,0x7d5551f1953ac60bull,
+        0xe800a043a7b90781ull,0x844471865effc89eull,0x512da307ff8b3a08ull,0x67b495d9ea470b5ull,
+        0xff0ece65b004ea98ull,0x44f801973dd9ce72ull,0xde904564438be5a7ull,0x86d910cc21d8ad42ull,
+        0x79a8db9c72a21f23ull,0x86d910cc21d8ad42ull,0xf1b620e2fa3be3cfull,0xf7fd22a5919a828cull,
+        0xf32edf9cbf0c8c4full,0x2edee30b43b6fa57ull,0x1d23a74517eea351ull,0xa3588f2e7e81281cull,
+        0x8623c2fb67e0cab0ull,0xefdff0118d819321ull,0xd2e4618ada858d5eull,0x7fd6cb41fef8fbf0ull,
+    };
+    for(unsigned i=0;i<48u;++i)for(auto workers:{1u,4u})
+        if(early_depth_hash(i,workers)!=expected[i])
+            throw std::runtime_error("Early depth changed VRAM or final texture cache state: "+std::to_string(i));
+}
+
 uint64_t prepared_pipeline_hash(unsigned variant) {
     const auto previous=set_raster_worker_limit(1u);
     struct Restore {unsigned previous;~Restore(){set_raster_worker_limit(previous);}} restore{previous};
@@ -636,7 +719,7 @@ void check_sprite_pipeline() {
 }
 }
 void verify_interlaced_presentation() {
-    check_prepared_pipeline();check_pixel_blending();check_triangle_pipeline();
+    check_early_depth();check_prepared_pipeline();check_pixel_blending();check_triangle_pipeline();
     verify_raster_workers();check_parallel_sprites();
     check_texture_cache_scope();
     check_bilinear_rounding();

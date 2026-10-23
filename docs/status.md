@@ -25,6 +25,21 @@ markers. Direct and uncached aliases retain their object-relative addresses.
 Already relocated assets are left unchanged, and caller frames and adjacent
 memory guards are checked. These fixtures do not establish complete matches.
 
+## Battle commands
+
+The battle command dispatcher at `0x001C89A0` selects 24 handlers through a
+45-slot table at `0x00374FA0`. These entries, including `0x001C8900`, are now
+registered explicitly. The original table, reserved entries, both local
+switches, and complete handler instructions are checked against the supported
+executable.
+
+Regression fixtures execute the original dispatcher across all 45 commands,
+three context modes, and four parameter/enable combinations. They check enable
+bits, filtered and reserved commands, repeated model callbacks, character
+animation state, saved registers, source parameters, and stack guards. Model
+and sound dependencies are bounded by test recorders; these checks do not
+establish complete battle compatibility.
+
 ## Scene setup and rendering
 
 The scene-mode table at `0x00373A60` contains seven callbacks shared by its
@@ -49,6 +64,29 @@ texture fixtures, using three runs per version. They cover large parallel and
 small serial sprites/triangles with opaque, translucent, and additive blending;
 all resulting VRAM hashes matched. These are individual draw measurements and
 do not establish game frame rates.
+
+Hidden pixels can now fail depth testing before texture sampling and color
+combination. This path requires an unmasked CT32 destination, immutable texture
+pages, and an initial cache that agrees with VRAM. A small coverage-aware probe
+keeps apparently visible draws on the usual path. Deferred final samples retain
+the cache state of rejected pixels; feedback, stale pages, alpha/destination
+tests, masks, fog, and other formats retain their existing behavior.
+
+Forty-eight additional fixtures compare serial and parallel output against the
+previous renderer. They cover partially and fully hidden draws, unsigned depth,
+indexed textures, perspective coordinates, feedback, invalid region-clamp
+bounds, stale pages, and dependent samples. Startup diagnostics report enabled
+draws and the number of rejected pixels under `[GS:early-depth]`.
+
+An 18-fixture microbenchmark measured 22–46% lower draw time with approximately
+half the pixels rejected, and 79–93% lower time for fully rejected draws. The
+largest visible-draw overhead was about 4%. Medians use three runs per version;
+all VRAM hashes matched. These are synthetic draw timings, not game frame rates.
+
+The optional `openkai2_depth_bench` CMake target builds
+[`tools/benchmarks/depth_raster.cpp`](../tools/benchmarks/depth_raster.cpp). It
+prints per-draw timings and complete VRAM checksums for visible, partially
+hidden, and fully hidden indexed-texture sprites and triangles.
 
 ## Interpreter performance
 
@@ -91,7 +129,7 @@ can still cause audible gaps; buffering alone cannot restore real-time speed.
 
 ## Validation
 
-The Python suite has 166 tests. Native checks include the original BCM/BSK
+The Python suite has 168 tests. Native checks include the original BCM/BSK
 asset dispatcher, all eleven battle initialization entries, fragmented and bulk
 IOP clocks, delayed wakeups, external RPC delivery, both SPU2 DMA cores, planar
 PCM order, partial blocks, queue boundaries, and concurrent delivery.
