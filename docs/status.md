@@ -40,6 +40,21 @@ animation state, saved registers, source parameters, and stack guards. Model
 and sound dependencies are bounded by test recorders; these checks do not
 establish complete battle compatibility.
 
+## Battle state updates
+
+Both sixteen-slot battle update tables have explicit translation entries for
+all eighteen distinct methods. Seventeen were previously missing, including
+`0x001C6E00`, which stopped the main guest thread after stage selection.
+The original slots, reserved nulls, complete method instructions, and delay
+slots are checked against the supported executable.
+
+Regression fixtures execute the original caller in 545 cases covering both
+selection paths, all table modes, paused and absent contexts, character health
+and animation state, secondary progress flags, state snapshots, saved registers,
+and stack guards. Tail aliases are compared against the shared original method;
+model, allocation, and command dependencies are bounded. These checks establish
+dispatch behavior, not complete retail battles or stable 60 FPS.
+
 ## Aura updates
 
 Both character aura tables have explicit translation entries for all six

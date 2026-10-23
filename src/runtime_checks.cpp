@@ -13,6 +13,7 @@
 #include "asset_checks.h"
 #include "draw_setup_checks.h"
 #include "battle_command_checks.h"
+#include "battle_update_checks.h"
 #include "aura_checks.h"
 #include "fade_checks.h"
 #include "movie_checks.h"
@@ -447,6 +448,8 @@ int run_runtime_checks() {
     std::cout << "Runtime asset relocation regression passed: seven handlers, logged AMM dispatcher, nested assets, and repeat guards.\n";
     verify_draw_setup(runtime,memory);
     verify_versus_animation(runtime,memory);
+    verify_battle_updates(runtime,memory);
+    std::cout << "Runtime battle update regression passed: 18 original methods, both selectors, 545 caller cases, tail aliases, character state, secondary flags, snapshots, pauses, and saved registers.\n";
     verify_aura_updates(runtime,memory);
     std::cout << "Runtime aura update regression passed: six original callbacks, both selectors, both characters, inactive objects, matrix scaling, progress, completion, and saved registers.\n";
     verify_battle_commands(runtime,memory);
