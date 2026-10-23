@@ -1,7 +1,7 @@
 {
-  "version": "0.1.4-aura-updates-palette-sampling",
-  "title": "Aura updates and palette sampling",
-  "bundle_sha256": "d22bc7c8242e873d16fe7b32e00447420ab661bf16a1a7b67cd3c013c754a571",
-  "bundle_source_revision": "c2422d9c68738838921ae73773d0a0fe2f6cb047",
-  "input_commit": "a26cc4d5538e39899c0a2157e81c7ec9b172fadf"
+  "version": "0.1.5-aura-updates-windows-sampling",
+  "title": "Aura updates and Windows texture sampling",
+  "bundle_sha256": "9b1c3c8dae01b0c399a448b890e76770447c23303f089b91aa04ae76943c7565",
+  "bundle_source_revision": "a145681a0eb8db7a17c0a6d5f04af10bc138ad8f",
+  "input_commit": "94718f6493ef312633978360c732574c39b2651a"
 }

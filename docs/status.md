@@ -123,7 +123,7 @@ an optional worker count, for example `openkai2_palette_bench 1`.
 The Windows binaries measured roughly 14–20% lower median draw times on visible
 serial fixtures with reusable palettes against the earlier renderer. These
 three-run measurements execute native Windows code under Wine and retain
-identical VRAM hashes. Frequently changing palettes can still add overhead on
+identical VRAM hashes. Parallel timings remain mixed. Frequently changing palettes can still add overhead on
 tiny draws. The benchmark does not establish native Windows game frame rates.
 
 ## Interpreter performance
