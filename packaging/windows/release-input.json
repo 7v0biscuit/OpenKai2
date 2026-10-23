@@ -1,6 +1,7 @@
 {
-  "version": "0.1.0-preview.37",
+  "version": "0.1.0-battle-startup-pcm-audio",
   "bundle_sha256": "4a64d72eb89d765a5fece728eae811fca8950b68984ec68bfb6a910ec79d2be1",
   "bundle_source_revision": "aa17dc165cf2362ec4ad32e9f21d672a56658f62",
-  "input_commit": "4a32941b33262f707b6bae70e760d23b6c8150f0"
+  "input_commit": "4a32941b33262f707b6bae70e760d23b6c8150f0",
+  "title": "Battle startup and PCM audio"
 }

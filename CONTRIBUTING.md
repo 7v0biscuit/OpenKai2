@@ -1,7 +1,8 @@
 # Contributing
 
-OpenKai2 currently focuses on EE instruction behavior, guest memory, and native
-startup. Check [development status](docs/status.md) before starting runtime work.
+OpenKai2 is working toward complete Windows gameplay. Current work includes
+battle loading, frame times, audio fidelity, and runtime accuracy. Check
+[development status](docs/status.md) before starting runtime work.
 
 ## Development workflow
 

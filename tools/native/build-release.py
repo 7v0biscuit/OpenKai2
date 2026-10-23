@@ -72,9 +72,9 @@ def uninstall_commands(root):
 def release_notes(version, manifest):
     changelog = ROOT / 'docs/release-notes' / f'{version}.md'
     changes = changelog.read_text(encoding='utf-8').strip() + '\n\n' if changelog.is_file() else ''
-    return f'''OpenKai2 {version} is a Windows x64 development preview.
+    return f'''OpenKai2 {version} for Windows x64.
 
-{changes}Title-screen boot and gameplay remain unverified. An original Budokai 2 USA ISO is required at every launch; disc images and original assets are not included.
+{changes}Full gameplay and stable 60 FPS remain unverified. An original Budokai 2 USA ISO is required at every launch; disc images and original assets are not included.
 
 - **OpenKai2.exe**: a single-file portable launcher that extracts its runtime temporarily and opens the ISO picker. No installation is required.
 - **OpenKai2-windows-x64.zip**: extract the entire archive and run OpenKai2.exe. Keep the included DLLs together.

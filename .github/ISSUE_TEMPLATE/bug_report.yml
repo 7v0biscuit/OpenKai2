@@ -1,6 +1,13 @@
 name: Bug report
-description: Report a reproducible build, component, or runtime issue.
+description: Report a game, audio, performance, or build problem.
 body:
+  - type: input
+    id: version
+    attributes:
+      label: OpenKai2 version
+      description: The release tag or source commit you tested.
+    validations:
+      required: true
   - type: textarea
     id: problem
     attributes:
@@ -11,13 +18,18 @@ body:
   - type: input
     id: platform
     attributes:
-      label: Platform and toolchain
-      placeholder: Operating system, compiler, Python, and CMake versions
+      label: System and hardware
+      placeholder: Windows version, CPU, GPU, RAM, and keyboard or controller
     validations:
       required: true
   - type: textarea
     id: logs
     attributes:
-      label: Diagnostic output
-      description: Paste the relevant log excerpt. Do not attach game files.
+      label: Startup log
+      description: Attach startup.log or paste the relevant excerpt. Remove personal paths if desired. Do not attach game files.
       render: text
+  - type: textarea
+    id: build
+    attributes:
+      label: Build details (source builds only)
+      description: Include compiler, Python and CMake versions, and the failing command.

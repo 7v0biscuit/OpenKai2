@@ -99,10 +99,11 @@ jobs:
           sha256sum --check SHA256SUMS.txt
           VERSION=$(python -c 'import json; print(json.load(open("../packaging/windows/release-input.json"))["version"])')
           TAG="v$VERSION"
+          TITLE=$(python -c 'import json; c=json.load(open("../packaging/windows/release-input.json")); print(c.get("title", "OpenKai2 " + c["version"]))')
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release edit "$TAG" --draft --prerelease --title "OpenKai2 $VERSION - Windows development preview" --notes-file release-notes.md
+            gh release edit "$TAG" --draft --prerelease --title "$TITLE" --notes-file release-notes.md
           else
-            gh release create "$TAG" --verify-tag --draft --prerelease --title "OpenKai2 $VERSION - Windows development preview" --notes-file release-notes.md
+            gh release create "$TAG" --verify-tag --draft --prerelease --title "$TITLE" --notes-file release-notes.md
           fi
           gh release upload "$TAG" OpenKai2.exe OpenKai2-windows-x64.zip OpenKai2-Setup.exe SHA256SUMS.txt --clobber
           gh release edit "$TAG" --draft=false --prerelease --latest=false

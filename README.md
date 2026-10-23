@@ -1,73 +1,83 @@
 # OpenKai2
 
-[![Component tests](https://github.com/7v0biscuit/OpenKai2/actions/workflows/probes.yml/badge.svg)](https://github.com/7v0biscuit/OpenKai2/actions/workflows/probes.yml)
-[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
-
-A native PC recompilation project for **Dragon Ball Z: Budokai 2**, built with
+Native PC recompilation of **Dragon Ball Z: Budokai 2**, built with
 [PS2Recomp](https://github.com/ran-j/PS2Recomp).
 
-**Early development.** Startup requires your original USA game ISO and verifies
-its files before execution. retail testing reaches the title screen; saving, performance, and gameplay remain
-under development. See the
-[development status](docs/status.md) for current limitations.
+[![Build](https://github.com/7v0biscuit/OpenKai2/actions/workflows/probes.yml/badge.svg)](https://github.com/7v0biscuit/OpenKai2/actions/workflows/probes.yml)
+[![Windows downloads](https://img.shields.io/badge/Windows-downloads-0078D4)](https://github.com/7v0biscuit/OpenKai2/releases)
+[![GPL-3.0-only](https://img.shields.io/badge/license-GPL--3.0--only-blue.svg)](LICENSE)
+
+[Download for Windows](https://github.com/7v0biscuit/OpenKai2/releases)
+· [Setup and controls](docs/windows.md)
+· [Development status](docs/status.md)
+· [Report an issue](https://github.com/7v0biscuit/OpenKai2/issues/new/choose)
 
 ## Windows downloads
 
-Download the current development preview from [Releases](https://github.com/7v0biscuit/OpenKai2/releases).
+Choose a package from the [current release](https://github.com/7v0biscuit/OpenKai2/releases).
 
-- **OpenKai2.exe** runs without installation and opens an ISO picker.
-- **OpenKai2-windows-x64.zip** contains the application and its runtime DLLs.
-- **OpenKai2-Setup.exe** installs for the current user and adds Start-menu shortcuts.
+| Download | Use |
+| --- | --- |
+| **OpenKai2-Setup.exe** | Install for your Windows account with Start-menu shortcuts. |
+| **OpenKai2.exe** | Launch without installation. |
+| **OpenKai2-windows-x64.zip** | Extract the application and runtime DLLs into a folder. |
+| **SHA256SUMS.txt** | Verify the downloaded packages. |
 
-Every download requires your original Budokai 2 USA ISO at launch. Release
-checksums are published alongside the downloads. See the [Windows guide](docs/windows.md)
-for startup logs and system requirements.
+Launch OpenKai2 and select your original **Budokai 2 USA ISO**. The ISO is
+required at every game launch, and its files are verified before execution.
+Game files are not included in the downloads.
 
-## Getting started
+See the [Windows guide](docs/windows.md) for requirements, keyboard controls,
+audio diagnostics, and log locations.
 
-The component tests require Python 3.10+, CMake 3.16+, and a C++17 compiler.
+## Current status
+
+**In development — complete gameplay is not yet supported.** retail testing
+has reached the title screen, menus, and versus level selection. Battle loading
+still stops, frame rates are unstable, and audio playback needs further work.
+Stable 60 FPS and complete matches have not been verified.
+
+The [development status](docs/status.md) records the current failures and the
+scope of automated validation. Release checks cover component behavior and
+Windows packaging; they do not establish that the full game is playable.
+
+## Build and contribute
+
+Start with [Building OpenKai2](docs/building.md) for the native runtime, or the
+[Windows build guide](docs/windows.md) for Windows-specific setup.
+
+Component checks require Python 3.10+, CMake 3.16+, and a C++17 compiler:
 
 ```sh
-python -m unittest discover -s tests -v
+python -m unittest discover -s tests
 python tools/probes/run.py --skip-retail
 ```
 
-To compare the probes against your own USA game executable:
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow. When
+[reporting a bug](https://github.com/7v0biscuit/OpenKai2/issues/new/choose), include
+the release tag, reproduction steps, hardware, and relevant startup log.
+Do not upload game files.
 
-```sh
-python tools/probes/run.py --game /path/to/SLUS_207.79
-```
+## Source layout
 
-For native runtime setup, supported platforms, and diagnostics, see
-[Building OpenKai2](docs/building.md).
-Windows users should start with the [Windows build guide](docs/windows.md).
+| Directory | Contents |
+| --- | --- |
+| `src/` | Application, ISO verification, and runtime integration |
+| `src/probes/` | EE instruction, interrupt, and guest-memory checks |
+| `tests/` | Python regression tests and synthetic fixtures |
+| `tools/native/` | Native builds, runtime overlays, and release packaging |
+| `tools/probes/` | Component runner and reference models |
+| `docs/` | Build guides, development status, and release notes |
+| `packaging/` | Windows launcher and installer configuration |
+| `third_party/` | Third-party notices for distributed dependencies |
 
-## Project layout
+Generated sources, build output, game executables, and disc assets are excluded
+from the source tree.
 
-```text
-src/                ISO verification and native application entry
-src/probes/         Native EE, interrupt, and guest-memory probes
-tests/              Python regression tests and synthetic fixtures
-tools/probes/       Component runner, diagnostics, and reference models
-tools/native/       PS2Recomp build and runtime tools
-docs/               Build instructions and development status
-third_party/        Upstream notices for portable Windows bundles
-```
+## License and attribution
 
-The main source tree excludes build output, original game executables, disc
-images, and assets. Windows runtime binaries are distributed through Releases.
+OpenKai2 is licensed under [GPL-3.0-only](LICENSE). See [NOTICE](NOTICE) for
+third-party attribution.
 
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow.
-[Report a bug](https://github.com/7v0biscuit/OpenKai2/issues) with reproduction
-steps, your platform, and the relevant diagnostic output.
-
-## License
-
-OpenKai2 is licensed under [GPL-3.0-only](LICENSE). Third-party attribution is
-listed in [NOTICE](NOTICE).
-
-OpenKai2 is an independent fan project and is not affiliated with or endorsed
-by the game's publishers or rights holders. Game content and trademarks belong
-to their respective owners.
+OpenKai2 is an independent fan project, unaffiliated with the game's publishers
+or rights holders. Game content and trademarks belong to their respective owners.

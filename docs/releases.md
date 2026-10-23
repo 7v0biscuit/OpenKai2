@@ -1,8 +1,13 @@
 # Windows release packaging
 
-Release binaries are development previews until title-screen boot and gameplay
-are verified with the original disc. The release workflow always publishes a
-prerelease and retains that status in its notes.
+Release names describe the changes they contain. Use a semantic version with
+an issue-based suffix, such as `v0.1.0-battle-startup-pcm-audio`, and a short
+display title such as "Battle startup and PCM audio". Set `version` and `title`
+in `packaging/windows/release-input.json`; add the corresponding notes under
+`docs/release-notes/`.
+
+Releases retain GitHub's prerelease status while gameplay and performance remain
+under development. A descriptive release name does not establish full gameplay.
 
 The input is a ZIP produced by `tools/native/package-windows.py`. Its manifest
 records the native source revision and payload hashes. `build-release.py`
@@ -12,7 +17,7 @@ a portable launcher and a per-user installer.
 With NSIS 3.11 installed, run:
 
 ```sh
-python tools/native/build-release.py --bundle /path/to/OpenKai2-windows-x64.zip --output dist --version 0.1.0-preview.1
+python tools/native/build-release.py --bundle /path/to/OpenKai2-windows-x64.zip --output dist --version 0.1.0-battle-startup-pcm-audio
 ```
 
 On an isolated Windows runner, validate all three downloads:
@@ -36,6 +41,11 @@ The Windows release workflow verifies the input, builds and tests the packages,
 then publishes `OpenKai2.exe`, `OpenKai2-windows-x64.zip`, `OpenKai2-Setup.exe`,
 and `SHA256SUMS.txt` with the repository's built-in Actions token. Source-archive
 links are supplied by GitHub automatically.
+
+The release-page cleanup consolidates the earlier numbered publications into
+the current descriptive tag, preserving its four download assets. Historical
+change notes remain in the source history. The original runtime-input commit
+and its branch remain available for reproducible packaging.
 
 To retry packaging with workflow fixes while preserving an existing release tag,
 push the corrected packaging commit to `release/v<version>`. The branch name must

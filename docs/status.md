@@ -1,10 +1,12 @@
 # Development status
 
-retail testing reaches level selection. Preview 36's retail log then stops at
-an unregistered battle initializer, `0x001B2560`, called from `0x001D5778`.
-Its startup table has eleven stages, ten of which lacked explicit translation
-entries. The window remains open after the main guest thread becomes dormant.
-Complete matches and stable 60 FPS remain unverified.
+retail testing reaches level selection. The latest retail log progresses beyond
+the previous battle initializer but stops at an unregistered callback,
+`0x001D21D0`, called from `0x001D6698`. The main guest thread becomes dormant
+while the window stays open. Frame rates remain low, and retail testing shows poor
+audio quality. The shutdown log records 11,276,128 dropped PCM frames; the audio
+queue fills after the guest thread stops. Complete matches and stable 60 FPS
+remain unverified.
 
 The original Budokai 2 USA ISO is required at every game launch. A complete
 retail ISO is not present on the development host. Automated component checks
@@ -62,9 +64,10 @@ remain enabled and use isolated fixtures.
 
 The audio-device diagnostic delivered 48,000 stereo frames through the Linux
 callback using an ALSA null output. Wine has no usable playback endpoint on
-the development host. Audible Windows playback, core volume/effect accuracy,
-voice synthesis, and complete retail audio remain unverified. The synthetic
-PCM checks do not establish that a particular retail stream is producing data.
+the development host. Retail Windows testing confirms audible PCM output,
+but its quality is poor. Core volume/effect accuracy, voice synthesis, and
+complete retail audio remain incomplete. Synthetic PCM checks do not establish
+retail audio fidelity or synchronization.
 
 The Windows release workflow checks the portable launcher, ZIP, installer,
 installed application's complete self-test, ISO rejection, and uninstall
