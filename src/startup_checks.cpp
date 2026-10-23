@@ -189,6 +189,34 @@ void verify_startup_diagnostics() {
     const auto saveText=saveReport.str();
     require(std::count(saveText.begin(),saveText.end(),'\n')<=40u
             && !saveSamples.sample(200100u,ram,PS2_RAM_SIZE,saveReport),"Save wait churn exceeded the report budget");
+    reset_guest_progress();
+    EeKernelSnapshot copied;copied.sequence=77u;copied.threads.resize(1);
+    copied.threads[0].id=1;copied.threads[0].pc=0x0026d360u;
+    copied.threads[0].ra=0x001483f0u;copied.threads[0].sp=0x01fff000u;
+    memory.write32(0x01fff000u,0x00150358u);
+    memory.write32(0x003a51acu,0x26000u);memory.write32(0x2601cu,0x0026c870u);
+    memory.write32(0x003a4a48u,2u);
+    const std::vector<uint8_t> progressBefore(ram,ram+PS2_RAM_SIZE);
+    capture_guest_progress(copied,ram,PS2_RAM_SIZE);
+    require(std::equal(progressBefore.begin(),progressBefore.end(),ram),"Progress capture changed live guest memory");
+    memory.write32(0x2601cu,0u); // The window must print the executor's copy.
+    GuestStallDiagnostics stalled;std::ostringstream stallReport;
+    require(!stalled.sample(1000,5,60,stallReport) && !stalled.sample(5999,5,360,stallReport)
+            && stalled.sample(6000,5,361,stallReport) && !stalled.sample(6001,5,362,stallReport),
+            "Stall detection missed its idle deadline or duplicated reports");
+    require(stallReport.str().find("pc=0x26d360")!=std::string::npos
+            && stallReport.str().find("stack=150358,")!=std::string::npos
+            && stallReport.str().find("callback=0x26c870")!=std::string::npos,
+            "Stall report lost the captured EE continuation or read live RAM on the window thread");
+    require(!stalled.sample(7000,6,420,stallReport) && !stalled.sample(11999,6,720,stallReport)
+            && stalled.sample(12000,6,721,stallReport),"Stall recovery did not reset its deadline");
+    for(unsigned i=0;i<16;++i)stalled.sample(30000u+i*15000u,6,1000u+i,stallReport);
+    const auto stallText=stallReport.str();
+    require(std::count(stallText.begin(),stallText.end(),'\n')==16u
+            && !stalled.sample(1000000,6,60000,stallReport),"Stall reports exceeded their bounded budget");
+    require(stalled.sample(1000001,6,60001,stallReport,true)
+            && stallReport.str().find("reason=shutdown")!=std::string::npos,"Shutdown lost its pre-join guest snapshot");
+    reset_guest_progress();
     EeKernelSnapshot large;
     large.threads.resize(40);large.semaphores.resize(30);large.eventFlags.resize(20);
     std::ostringstream bounded;

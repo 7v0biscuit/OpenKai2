@@ -1,12 +1,12 @@
 # Development status
 
 retail testing reaches the title screen and New Game after movie playback, but
-Preview 31 still stalls at the create-save confirmation. Its log confirms that
-the window polls input at about 60 Hz and delivers keyboard presses, while
-game-side controller reads and drawing stop after card detection succeeds.
-Movie decoding advances at about 14 pictures per second. No save write or
-exception is recorded. Gameplay and stable 60 FPS
-remain unverified on the reported supported CPU, supported GPU, and system memory system.
+Preview 32 still freezes at the create-save confirmation and runs too slowly.
+The latest log shows empty DMA queues at the recorded card checks and ends
+during the second stability check, without a stopped-state or shutdown report.
+The user closed the window normally. This log does not identify the blocked
+callback. Gameplay and stable 60 FPS remain unverified on the reported
+supported CPU, supported GPU, and system memory system.
 
 The original Budokai 2 USA ISO is required at every launch. A complete retail
 ISO is not present on the development host, so automated component tests and
@@ -14,47 +14,54 @@ observed retail results are distinguished below.
 
 ## Current changes
 
-Empty graphics DMA transfers now signal completion. Previously a normal
-zero-length transfer, or a chain ending without a payload, could leave the
-game's queue active forever. Its VBlank callback then defers every game frame.
-The regression reproduces this with the original translated queue submission,
-two completion handlers, and VBlank callback: it fails before the change and
-passes afterward. Invalid empty chains retain their busy state, including when
-polled. This fixes a reproduced runtime defect; the reported retail save hang
-still needs verification with the ISO.
+Large eligible sprites draw across up to four persistent CPU workers. The
+renderer proves that the texture is immutable and framebuffer pixels are
+independent, uses a separate sampler cache per worker, and preserves the final
+logical row's cache. Feedback, depth reads/writes, stale sampled pages, and
+unsupported modes retain serial order. Worker exceptions join the complete
+batch before reaching the caller.
 
-Bounded frame-wait records now include the pending/retry flags, countdown,
-both queue counts and active states, and DMA ownership. These can distinguish a
-blocked DMA queue from a disabled callback if the retail stall continues.
+Draws that preserve destination RGB and have constant alpha can avoid unused
+texture sampling while retaining alpha writes, tests, masks, and final sampler
+state. This includes some fully faded textured passes. Other blend and texture
+modes retain their complete pixel calculations.
 
-Presentation runs on a worker so the window thread can poll keyboard and
-controller input while rendering is busy. Requests coalesce to the latest field,
-and shutdown joins the worker. This changes host presentation scheduling;
-it does not accelerate the guest clock or establish 60 game FPS.
+In paired 512x448 wall-time tests, filtered opaque draws average 3.96 ms instead
+of 13.30 ms, blended draws 5.31 ms instead of 17.47 ms, and eligible alpha-only
+passes 1.25 ms instead of 17.96 ms. These are isolated draw timings with one and
+four workers, not retail FPS measurements. The renderer still uses the CPU.
 
-Bilinear RGBA interpolation uses SSE4.1 with scalar-compatible rounding. When a
-CT32 draw cannot write its texture pages, sampling avoids repeated page copies
-while preserving initial stale bytes, eviction order, and the final cache page.
-Feedback and unsupported modes retain the ordinary path. In paired CPU tests,
-a 512x448 fractional bilinear draw takes 11.04 ms instead of 15.85 ms, and the
-aligned case takes 5.69 ms instead of 7.68 ms. These are isolated drawing costs,
-not retail frame rates. PS2 drawing still uses a CPU software backend.
+A stall watchdog reports five seconds without game-side controller reads. The
+EE executor captures the current PC, caller stack, save-menu callback and fade
+state, card command, and DMA queues. The window thread prints this copied state,
+its age, and the number of parallel draws without reading live guest RAM.
+Shutdown reports are written before waiting for the game thread to finish.
+These diagnostics do not release guest waits or bypass the save confirmation.
 
-Input samples remain on the window thread and short taps survive until a game
-read. Keyboard input remains active when a controller is connected. Bounded logs
-track observed and delivered buttons, original save states, presentation work,
-and the source revision. Window frames, presentation completions, and guest
-fields are recorded separately.
+The save fixture now exercises the original menu callbacks from a completed
+card check to directory search and creation. It covers repeated 21-sample card
+checks through both the blocking completion loop and original frame poller.
+Another fixture injects 21 completion interrupts through the EE scheduler and
+checks that the original stability callback finishes with its caller frame intact.
+Those component transitions pass; the retail freeze still needs diagnosis.
+
+The earlier empty-DMA completion fix, asynchronous presentation, SSE4.1
+bilinear interpolation, and latched keyboard/controller input remain enabled.
+Window frames and guest frames are counted separately.
 
 ## Validation
 
 The runtime self-test covers original translated game callbacks as well as
 synthetic disc, MPEG, graphics, scheduler, sound, input, and save fixtures.
-The save regression starts with the original 21-sample card check and missing
-directory search, then runs directory-creation and file-writing
-callback chain, verifies bytes on disk, restarts the memory-card SDK, and reads
+The save regression runs the original card checks and menu transitions,
+then runs the file-writing callback chain, verifies bytes on disk, restarts the memory-card SDK, and reads
 the payload back into guarded EE memory. It uses an isolated temporary card;
 it does not access the user's saves or bypass the in-game confirmation.
+
+Parallel rendering is compared with the serial path across 24 full-VRAM
+fixtures, including stale caches, dependent draws, blending, alpha-only passes,
+and guarded fallbacks. The worker checks cover varying partition counts,
+exception propagation, reuse, and shutdown.
 
 Renderer comparisons use complete VRAM snapshots from the previous scalar
 backend across 64 textured and solid sprite cases. They cover filtering,
@@ -75,8 +82,9 @@ checks do not establish retail gameplay or frame rate.
 
 ## Remaining work
 
-Verify the updated confirmation flow and saving with the original ISO, measure
-retail frame times, and continue through gameplay. Physical audio output,
+Locate the remaining retail save-confirmation stall using the captured guest
+continuation, verify saving with the original ISO, measure the renderer changes
+in retail runs, and continue through gameplay. Physical audio output,
 graphics accuracy, controller compatibility, and interrupt timing also need
 further validation. The stripped-executable analyzer still identifies some
 data and VU regions as EE code, so additional function-boundary corrections

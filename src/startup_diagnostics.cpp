@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "startup_diagnostics.h"
 #include "host_input.h"
+#include "raster_workers.h"
 #include "ps2_runtime.h"
 #include "runtime/ee_scheduler.h"
 #include "runtime/gs/gs_frontend.h"
@@ -12,6 +13,7 @@
 #include <cstring>
 #include <sstream>
 #include <iomanip>
+#include <mutex>
 
 namespace openkai2 {
 namespace {
@@ -290,7 +292,8 @@ bool SaveWaitDiagnostics::sample(uint64_t elapsed_ms,const uint8_t* ram,size_t s
          << " scene=0x" << scene << " scene_callback=0x" << callback
          << " buttons=0x" << pad.ports[0][0].lastButtons
          << " host_pressed=0x" << host.pressed << " delivered=0x" << host.delivered << std::dec
-         << " game_pad_reads=" << pad.ports[0][0].readCount << " window_polls=" << host.polls << '\n';
+         << " game_pad_reads=" << pad.ports[0][0].readCount << " window_polls=" << host.polls
+         << " parallel_draws=" << raster_parallel_batches() << '\n';
     if(size>=0x003b4b54u) {
         const auto frame=memory.word(0x003a4b68u),retry=memory.word(0x003a4b70u);
         text << "[startup:frame-wait] enabled=" << (frame&255u)
@@ -323,6 +326,73 @@ void sample_movie_wait(PS2Runtime& runtime,const uint8_t* ram,size_t size,uint32
             text << " reg_" << reg << "=0x" << runtime.memory().read64(reg);
         out << text.str() << '\n' << std::flush;
     }
+}
+namespace {
+struct GuestProgress {
+    uint64_t sequence=0;
+    uint32_t pc=0,ra=0,sp=0;
+    std::array<uint32_t,32> stack{};
+    std::array<uint32_t,16> words{};
+    std::chrono::steady_clock::time_point captured{};
+};
+std::mutex progressMutex;
+GuestProgress guestProgress;
+std::chrono::steady_clock::time_point nextCapture;
+}
+void reset_guest_progress() {
+    std::lock_guard lock(progressMutex);guestProgress={};nextCapture={};
+}
+void capture_guest_progress(const EeKernelSnapshot& state,const uint8_t* ram,size_t size) {
+    if(!ram || size<0x003b4b54u)return;
+    // Only the EE executor calls this hook. Publish at most four copies per
+    // second; keep all guest RAM reads on that executor.
+    const auto now=std::chrono::steady_clock::now();
+    if(now<nextCapture)return;
+    nextCapture=now+std::chrono::milliseconds(250);
+    GuestProgress copy;copy.sequence=state.sequence;copy.captured=now;
+    auto read=[&](uint32_t addr) {
+        uint32_t value=0;const uint32_t physical=(Ps2IsKseg01Address(addr) || Ps2IsUncachedRamMirrorAddress(addr))
+            ? Ps2DirectMappedPhysicalAddress(addr) : addr;
+        if(size_t(physical)<=size && sizeof(value)<=size-size_t(physical))std::memcpy(&value,ram+physical,4);
+        return value;
+    };
+    for(const auto& thread:state.threads)if(thread.id==1) {
+        copy.pc=thread.pc;copy.ra=thread.ra;copy.sp=thread.sp;
+        for(unsigned i=0;i<copy.stack.size();++i)if(uint64_t(copy.sp)+4u*i<=UINT32_MAX)copy.stack[i]=read(copy.sp+4u*i);
+    }
+    constexpr uint32_t addresses[]={0x003a4a40u,0x003a4a48u,0x003a4a4cu,0x003a4a58u,
+        0x003a51acu,0x003a51b4u,0x003a51a4u,0x003a5164u,
+        0x003a4b6cu,0x003a4b70u,0x003b4b44u,0x003b4b50u,0x003a4c20u,0x003a4c24u};
+    for(unsigned i=0;i<14u;++i)copy.words[i]=read(addresses[i]);
+    const uint32_t object=copy.words[4]&0x1fffffffu;
+    if(object && size_t(object)<=size && 0x34u<=size-size_t(object)) {
+        copy.words[14]=read(object+28u);copy.words[15]=read(object+48u);
+    }
+    { std::lock_guard lock(progressMutex);guestProgress=copy; }
+}
+bool GuestStallDiagnostics::sample(uint64_t elapsed_ms,uint64_t reads,uint64_t polls,std::ostream& out,bool final) {
+    if(reads!=previous_reads_) { previous_reads_=reads;changed_ms_=elapsed_ms;next_idle_ms_=5000; }
+    const auto idle=elapsed_ms-changed_ms_;
+    if(!final && (reads==0 || reports_>=8u || idle<next_idle_ms_))return false;
+    ++reports_;next_idle_ms_=idle+15000u;
+    GuestProgress copy;{ std::lock_guard lock(progressMutex);copy=guestProgress; }
+    const auto age=copy.sequence ? std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now()-copy.captured).count() : -1;
+    std::ostringstream text;
+    text << "[startup:stall] reason=" << (final ? "shutdown" : "no-game-input") << " elapsed_ms=" << elapsed_ms << " idle_ms=" << idle
+         << " game_pad_reads=" << reads << " window_polls=" << polls << " snapshot_age_ms=" << age
+         << " sequence=" << copy.sequence << " parallel_draws=" << raster_parallel_batches() << " pc=0x" << std::hex << copy.pc
+         << " ra=0x" << copy.ra << " sp=0x" << copy.sp << " stack=";
+    for(const auto word:copy.stack)text << word << ',';
+    text << "\n[startup:save-menu] object=0x" << copy.words[4] << " callback=0x" << copy.words[14]
+         << " next=0x" << copy.words[5] << " fade_bits=0x" << copy.words[6]
+         << " object_state=" << std::dec << copy.words[15] << " operation=" << copy.words[0]
+         << " state=" << copy.words[1] << " result=" << int32_t(copy.words[2])
+         << " samples=" << copy.words[3] << " selection=" << copy.words[7]
+         << " frame_pending=" << (copy.words[8]&255u) << " frame_retry=" << (copy.words[9]&255u)
+         << " queue_counts=" << (copy.words[10]&65535u) << ',' << (copy.words[11]&65535u)
+         << " queue_active=" << int32_t(copy.words[12]) << ',' << int32_t(copy.words[13]) << '\n';
+    out << text.str() << std::flush;return true;
 }
 bool StartupDiagnostics::due(uint64_t elapsed_ms) const {
     return samples_<4 && elapsed_ms>=sample_times[samples_];

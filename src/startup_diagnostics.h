@@ -27,6 +27,16 @@ public:
     bool sample(uint64_t elapsed_ms,const uint8_t* ram,size_t size,std::ostream&);
 };
 void sample_movie_wait(PS2Runtime&,const uint8_t* ram,size_t size,uint32_t return_pc,std::ostream&);
+// Capture RAM on the EE executor, then report the copied state on the window
+// thread. The watchdog never reads live guest memory or changes a guest wait.
+void reset_guest_progress();
+void capture_guest_progress(const EeKernelSnapshot&,const uint8_t*,size_t);
+class GuestStallDiagnostics {
+    uint64_t previous_reads_=0,changed_ms_=0,next_idle_ms_=5000;
+    unsigned reports_=0;
+public:
+    bool sample(uint64_t elapsed_ms,uint64_t reads,uint64_t polls,std::ostream&,bool final=false);
+};
 struct StartupActivity {
     uint64_t dma=0, gif=0, gs=0, vif=0;
 };

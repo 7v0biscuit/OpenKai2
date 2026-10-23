@@ -10,6 +10,8 @@ import subprocess
 import tempfile
 
 EXPECTED = {
+    'ps2xRuntime/src/lib/Kernel/EeScheduler.cpp':
+        '89383df078a13e9d13335f158ce88f0fb85935c57f2edab0ef8f4a0c9edb4b83',
     'ps2xRuntime/include/runtime/gs/gs_texture_page_cache.h':
         '51bef021981a9834cc7bcadc9a4527d3588b058c481212353499e7936d12a3e6',
     'ps2xRuntime/src/lib/ps2_pad.cpp':
@@ -89,6 +91,7 @@ def main():
         shutil.copy2(args.upstream / 'ps2xRuntime/src/lib/gs/gs_cpu_backend.cpp', temporary / 'runtime/gs/gs_cpu_backend.cpp')
         shutil.copytree(args.upstream / 'ps2xRuntime/src/lib/Kernel/Stubs', temporary / 'Kernel/Stubs')
         shutil.copytree(args.upstream / 'ps2xRuntime/src/lib/Kernel/Syscalls', temporary / 'Kernel/Syscalls')
+        shutil.copy2(args.upstream / 'ps2xRuntime/src/lib/Kernel/EeScheduler.cpp', temporary / 'Kernel/EeScheduler.cpp')
         shutil.copytree(args.upstream / 'ps2xIOP/src/emulator', temporary / 'emulator')
         for source in temporary.rglob('*'):
             if source.is_file() and source.suffix in ('.h', '.cpp', '.hpp', '.inc'):
@@ -103,7 +106,7 @@ def main():
                       patches / 'movie-performance-diagnostics.patch', patches / 'sprite-sampling.patch',
                       patches / 'sprite-throughput.patch', patches / 'host-input.patch',
                       patches / 'asynchronous-presentation.patch', patches / 'input-observation.patch', patches / 'texture-pages.patch',
-                      patches / 'empty-dma-completion.patch'):
+                      patches / 'empty-dma-completion.patch', patches / 'parallel-sprites.patch', patches / 'guest-progress.patch'):
             apply_overlay_patch(temporary, patch)
         for source in temporary.rglob('*'):
             if source.is_file():

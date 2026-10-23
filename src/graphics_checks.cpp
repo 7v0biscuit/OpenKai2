@@ -1,14 +1,84 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "graphics_checks.h"
 #include "runtime/gs/gs_cpu_backend.h"
+#include "raster_workers.h"
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <memory>
 
 namespace openkai2 {
 namespace {
+void check_parallel_sprites() {
+    const auto previous=set_raster_worker_limit(1);
+    struct Restore { unsigned previous;~Restore(){set_raster_worker_limit(previous);} } restore{previous};
+    std::vector<uint8_t> original(4u*1024u*1024u);
+    for(unsigned i=0;i<original.size();++i)original[i]=uint8_t((i*13u)^(i>>9u));
+    for(unsigned variant=0;variant<24u;++variant) {
+        auto serialVram=original,parallelVram=original;
+        auto serial=std::make_unique<GSCpuBackend>(),parallel=std::make_unique<GSCpuBackend>();
+        serial->Initialize(serialVram.data(),unsigned(serialVram.size()));
+        parallel->Initialize(parallelVram.data(),unsigned(parallelVram.size()));
+        GSPrimitiveBatch batch{};batch.vertexCount=2;auto& state=batch.state;auto& ctx=state.context;
+        state.prim.type=GS_PRIM_SPRITE;state.prim.tme=true;state.prim.fst=true;
+        state.colclamp=1u;state.linearFilter=(variant&1u)!=0;
+        state.textureWidth=512u;state.textureHeight=512u;
+        ctx.tex0.tbp0=8192u;ctx.tex0.tbw=8u;ctx.tex0.tfx=1u;ctx.tex0.tcc=true;
+        ctx.frame.fbp=56u;ctx.frame.fbw=8u;ctx.zbuf.zmask=true;ctx.test=0x30000u;
+        ctx.scissor={0u,511u,0u,447u};
+        for(auto& v:batch.vertices) { v.r=107u;v.g=131u;v.b=97u;v.a=117u;v.fog=173u;v.q=1.0f; }
+        batch.vertices[1].x=512.0f;batch.vertices[1].y=448.0f;
+        batch.vertices[0].u=batch.vertices[0].v=12u;
+        batch.vertices[1].u=512u*16u+12u;batch.vertices[1].v=448u*16u+12u;
+        if(variant>=2u && variant<=5u) { state.prim.abe=true;ctx.alpha=variant<4u ? 0x44u : 0x6au; }
+        if(variant==6u)ctx.frame.fbmsk=0x00ff00ffu;
+        if(variant==7u) { state.prim.fge=true;state.fogR=47;state.fogG=83;state.fogB=71; }
+        if(variant==8u)ctx.test|=1u<<14u;
+        if(variant==9u)ctx.test|=1u|(5u<<1u)|(117u<<4u)|(3u<<12u);
+        if(variant==10u) { state.prim.fst=false;batch.vertices[1].s=1.0f;batch.vertices[1].t=0.875f; }
+        if(variant==11u)ctx.fba=1u;
+        if(variant>=16u && variant<22u) {
+            state.prim.abe=true;ctx.alpha=0x6au;
+            if(variant<18u)ctx.tex0.tcc=false;
+            else { ctx.tex0.tfx=0u;for(auto& v:batch.vertices)v.a=0u; }
+            if(variant==20u)state.pabe=1u;
+            if(variant==21u)ctx.tex0.tfx=2u;
+        }
+        if(variant==12u)ctx.test=0x50000u;
+        if(variant==13u)ctx.tex0.tbp0=56u*32u;
+        if(variant==23u)++ctx.tex0.tbp0;
+        if(variant==14u || variant==15u || variant==22u) {
+            auto prime=batch;prime.vertices[1].x=16;prime.vertices[1].y=1;
+            if(variant==22u)prime.state.context.tex0.tbp0=4096u;
+            prime.vertices[1].u=16u*16u+12u;prime.vertices[1].v=16u+12u;
+            serial->Submit(prime);parallel->Submit(prime);
+            if(variant==15u) { serialVram[8192u*256u+17u]^=255u;parallelVram[8192u*256u+17u]^=255u; }
+            if(variant==22u) { serialVram[4096u*256u+17u]^=255u;parallelVram[4096u*256u+17u]^=255u; }
+        }
+        const auto before=raster_parallel_batches();
+        set_raster_worker_limit(1);serial->Submit(batch);
+        if(raster_parallel_batches()!=before)throw std::runtime_error("Serial sprite unexpectedly dispatched raster workers");
+        set_raster_worker_limit(4);parallel->Submit(batch);
+        const bool eligible=variant!=12u && variant!=13u && variant!=15u && variant!=23u;
+        if(raster_workers().count()>1u && (raster_parallel_batches()!=before)!=eligible)
+            throw std::runtime_error("Parallel sprite bypassed an eligibility or stale-cache guard");
+        if(serialVram!=parallelVram)throw std::runtime_error("Parallel sprite changed complete VRAM output");
+        // Mutate the last tap's texel without TEXFLUSH, then read that exact
+        // page first. Evicting it before this read would hide a lost cache.
+        const unsigned sampleX=state.linearFilter ? 0u : 511u;
+        const unsigned sampleY=state.linearFilter ? 448u : 447u;
+        serial->WriteVram(ctx.tex0.psm,ctx.tex0.tbp0,ctx.tex0.tbw,sampleX,sampleY,0x80ff13a7u);
+        parallel->WriteVram(ctx.tex0.psm,ctx.tex0.tbp0,ctx.tex0.tbw,sampleX,sampleY,0x80ff13a7u);
+        state.prim.abe=state.prim.fge=false;state.prim.fst=true;state.pabe=0u;state.linearFilter=false;
+        ctx.test=0x30000u;ctx.fba=0u;ctx.frame.fbmsk=0u;ctx.tex0.tfx=1u;ctx.tex0.tcc=true;
+        batch.vertices[1].x=32u;batch.vertices[1].y=2u;
+        for(auto& v:batch.vertices) { v.u=sampleX*16u+8u;v.v=sampleY*16u+8u; }
+        serial->Submit(batch);parallel->Submit(batch);
+        if(serialVram!=parallelVram)throw std::runtime_error("Parallel sprite lost final sampler-cache state");
+    }
+}
 void require(bool condition,const char* message) {
     if (!condition) throw std::runtime_error(std::string("Runtime interlaced presentation regression: ")+message);
 }
@@ -285,6 +355,7 @@ void check_sprite_pipeline() {
 }
 }
 void verify_interlaced_presentation() {
+    verify_raster_workers();check_parallel_sprites();
     check_texture_cache_scope();
     check_bilinear_rounding();
     check_sprite_pipeline();

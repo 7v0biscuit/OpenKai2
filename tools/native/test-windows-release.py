@@ -53,6 +53,10 @@ def main():
         if 'The original game ISO is required' not in help_text:
             raise RuntimeError('Installed executable did not print the expected help.')
         self_test = run([str(executable), '--self-test'])
+        if 'Runtime parallel raster regression passed' not in self_test:
+            raise RuntimeError('Installed application is missing parallel raster and serial-reference comparisons')
+        if 'Runtime save menu regression passed' not in self_test:
+            raise RuntimeError('Installed application is missing the original save-menu transition regression')
         if 'Runtime frame gate regression passed' not in self_test:
             raise RuntimeError('Installed application is missing the empty DMA queue and VBlank frame regression')
         if 'Runtime interlaced presentation regression passed' not in self_test:

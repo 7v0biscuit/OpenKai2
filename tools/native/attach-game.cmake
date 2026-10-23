@@ -75,6 +75,8 @@ function(openkai2_attach_generated_sources)
         "${project_root}/tools/native/patches/input-observation.patch"
         "${project_root}/tools/native/patches/texture-pages.patch"
         "${project_root}/tools/native/patches/empty-dma-completion.patch"
+        "${project_root}/tools/native/patches/parallel-sprites.patch"
+        "${project_root}/tools/native/patches/guest-progress.patch"
         "${project_root}/tools/native/prepare-overlays.py")
     get_target_property(iop_sources ps2_iop SOURCES)
     set(overlay_iop_sources "")
@@ -117,6 +119,9 @@ function(openkai2_attach_generated_sources)
     set(overlay_runtime_sources "")
     set(thread_overlay_count 0)
     foreach(source IN LISTS runtime_sources)
+        if(source MATCHES "(^|/)src/lib/Kernel/EeScheduler\\.cpp$")
+            set(source "${overlay_dir}/Kernel/EeScheduler.cpp")
+        endif()
         if(source MATCHES "(^|/)src/lib/(ps2_memory|ps2_runtime|ps2_pad)\\.cpp$")
             get_filename_component(runtime_file "${source}" NAME)
             set(source "${overlay_dir}/runtime/${runtime_file}")
@@ -181,6 +186,7 @@ function(openkai2_attach_generated_sources)
     ps2x_stage_ffmpeg_runtime_dlls(openkai2_callback_tests)
     add_test(NAME callback_stacks COMMAND openkai2_callback_tests)
     target_sources(ps2_runtime PRIVATE "${project_root}/src/startup_diagnostics.cpp"
+        "${project_root}/src/raster_workers.cpp"
         "${project_root}/src/frame_presenter.cpp")
     target_include_directories(ps2_runtime PRIVATE "${project_root}/src"
         "${CMAKE_SOURCE_DIR}/ps2xRuntime/src/lib")

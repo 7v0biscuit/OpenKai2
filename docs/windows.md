@@ -33,7 +33,8 @@ Memory-card files are stored in the disc cache's `mc0` directory. Preserve this
 directory when troubleshooting; the runtime self-test uses a separate temporary
 card. The `[startup:save]` log record shows the active save root and last command.
 The renderer currently runs on the CPU; a supported GPU does not establish a
-particular game frame rate.
+particular game frame rate. Large eligible sprites use up to four CPU workers;
+dependent draws retain serial execution. Stable 60 game FPS remains unverified.
 
 ## Build requirements
 
@@ -135,6 +136,13 @@ Adjacent `[startup:frame-wait]` records include the original frame flags,
 countdown, DMA queue counts, active commands, and channel ownership. Empty
 graphics transfers are checked through the original game's queue and VBlank
 callback as well as direct device tests; invalid empty chains must stay busy.
+After five seconds without a game-side controller read, `[startup:stall]` and
+`[startup:save-menu]` report the captured guest PC, stack, menu callback, fade
+state, and queues. `snapshot_age_ms` distinguishes a stopped executor from a
+continuing guest wait. `parallel_draws` records completed parallel batches.
+These reports also appear before shutdown joins the game thread, so a blocked
+shutdown can retain its last known continuation. Leave a frozen screen open
+for at least ten seconds before closing the window and retaining `startup.log`.
 At shutdown, presentation metrics distinguish window frames, completed renders,
 and guest fields; window refresh rate alone is not game FPS.
 Graphics records include frame dimensions, source framebuffer, nonblack pixel

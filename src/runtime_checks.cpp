@@ -342,6 +342,7 @@ void verify_file_callbacks(PS2Runtime& runtime,uint8_t* memory) {
 }
 int run_runtime_checks() {
     verify_interlaced_presentation();
+    std::cout << "Runtime parallel raster regression passed: persistent workers, joined errors, 24 complete VRAM comparisons, alpha-only draws, stale cache, dependent draws, and serial fallbacks.\n";
     std::cout << "Runtime texture sampling regression passed: cache eviction and stale bytes, 8192 scalar RGBA comparisons, and 64 sprite snapshots.\n";
     std::cout << "Runtime field stability regression passed: stationary alternating fields, scanline interpolation, and edge clamping.\n";
     std::cout << "Runtime sprite pipeline regression passed: 64 scalar-reference VRAM snapshots, filtering, depth, masks, blending, and feedback.\n";
@@ -386,6 +387,7 @@ int run_runtime_checks() {
     verify_guest_input();
     std::cout << "Runtime input regression passed: short taps, held buttons, release, analog state, reset, and independent ports.\n";
     verify_save_creation();
+    std::cout << "Runtime save menu regression passed: 21 scheduled completion interrupts, original frame poller, completed-card transition, missing directory search, and directory creation.\n";
     std::cout << "Runtime save regression passed: original directory and file callbacks, persistent payload, SDK restart, readback, and memory guards.\n";
     std::cout << "Runtime stream callback regression passed: nine methods, ring wraparound, and compiled cleanup caller.\n";
     std::cout << "Runtime movie cleanup regression passed: original teardown continuation, nine memory-stream methods, destruction, bounds, source counts, and error callbacks.\n";
