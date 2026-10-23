@@ -26,7 +26,8 @@ release's `SHA256SUMS.txt`.
 Use arrows or WASD to move, **X or Space for Cross/confirm**, C for Circle/cancel,
 and Enter for Start. A compatible gamepad uses its lower face button for Cross.
 Enter does not replace Cross in confirmation dialogs. Short taps are retained
-until the game polls input, including when game frames are slow.
+until the game polls input, including when game frames are slow. Keyboard input
+remains available when a controller is connected.
 
 Memory-card files are stored in the disc cache's `mc0` directory. Preserve this
 directory when troubleshooting; the runtime self-test uses a separate temporary
@@ -127,7 +128,11 @@ game startup.
 Normal launches retain EE wait-state and graphics-activity reports in
 `startup.log` at 5, 15, 30, and 60 seconds, and on shutdown. If the window remains
 blank, leave it open for at least 60 seconds before closing it and retaining the
-log. Reports are bounded and do not release waits or change guest state.
+log. Reports are bounded and do not release waits or change guest state. The log
+starts with the source revision. Save-wait reports retain observed/delivered
+buttons and the original card command state, including samples after the movie.
+At shutdown, presentation metrics distinguish window frames, completed renders,
+and guest fields; window refresh rate alone is not game FPS.
 Graphics records include frame dimensions, source framebuffer, nonblack pixel
 count, RGB hash, drawing state, and recent draw/transfer events. Movie-wait
 records include the original player state and display registers, sampled on the

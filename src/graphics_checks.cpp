@@ -149,6 +149,59 @@ void check_bilinear_samples() {
         }
     }
 }
+void check_texture_cache_scope() {
+    std::vector<uint8_t> vram(3u*GSMem::TexturePageCache::kPageSize);
+    GSMem::TexturePageCache scalar,scoped;
+    for(unsigned i=0;i<vram.size();++i)vram[i]=uint8_t(i*7u+(i>>13u));
+    require(*scalar.Resolve(vram.data(),17u)==*scoped.Resolve(vram.data(),17u),"initial cache fill changed");
+    vram[17u]^=255u;
+    scoped.BeginReadOnly();
+    for(unsigned address:{17u,8192u+19u,17u,16384u+23u,16384u+41u,8192u+31u})
+        require(*scalar.Resolve(vram.data(),address)==*scoped.Resolve(vram.data(),address),
+                "read-only texture scope lost initial stale bytes or eviction order");
+    scoped.EndReadOnly(vram.data());
+    vram[8192u+31u]^=255u;
+    for(unsigned address:{8192u+31u,17u,8192u+31u})
+        require(*scalar.Resolve(vram.data(),address)==*scoped.Resolve(vram.data(),address),
+                "read-only texture scope changed the final cached page");
+    scoped.Invalidate();scoped.BeginReadOnly();scoped.EndReadOnly(vram.data());
+    require(*scoped.Resolve(vram.data(),17u)==vram[17u],"empty scope populated an invalid cache page");
+}
+void check_bilinear_rounding() {
+    std::vector<uint8_t> vram(4u*1024u*1024u);
+    GSCpuBackend backend;backend.Initialize(vram.data(),uint32_t(vram.size()));
+    GSPrimitiveBatch batch{};batch.vertexCount=2;auto& state=batch.state;auto& ctx=state.context;
+    state.prim.type=GS_PRIM_SPRITE;state.prim.tme=true;state.linearFilter=true;
+    state.textureWidth=state.textureHeight=2u;state.colclamp=1u;
+    ctx.frame.fbp=56u;ctx.frame.fbw=1u;ctx.zbuf.zmask=true;ctx.test=0x30000u;
+    ctx.scissor={0u,0u,0u,0u};ctx.tex0.tbp0=4096u;ctx.tex0.tbw=1u;ctx.tex0.tfx=1u;ctx.tex0.tcc=true;
+    batch.vertices[1].x=batch.vertices[1].y=1.0f;
+    uint32_t seed=0x92348712u;
+    auto random=[&]{seed=seed*1664525u+1013904223u;return seed;};
+    for(unsigned test=0;test<8192u;++test) {
+        uint32_t colors[4];for(auto& color:colors)color=random();
+        float fx,fy;
+        state.prim.fst=test<4096u;
+        if(state.prim.fst) {
+            fx=float(test&15u)/16.0f;fy=float((test>>4u)&15u)/16.0f;
+            for(auto& vertex:batch.vertices){vertex.u=uint16_t(8u+(test&15u));vertex.v=uint16_t(8u+((test>>4u)&15u));}
+        } else {
+            fx=float(random()&65535u)/65536.0f;fy=float(random()&65535u)/65536.0f;
+            for(auto& vertex:batch.vertices){vertex.s=(0.5f+fx)/2.0f;vertex.t=(0.5f+fy)/2.0f;vertex.q=1.0f;}
+        }
+        for(unsigned i=0;i<4u;++i)backend.WriteVram(0u,4096u,1u,i&1u,i>>1u,colors[i]);
+        backend.TextureFlush();backend.Submit(batch);
+        uint32_t expected=0;
+        for(unsigned channel=0;channel<4u;++channel) {
+            auto c=[&](unsigned i){return float((colors[i]>>(8u*channel))&255u);};
+            const float top=c(0)+(c(1)-c(0))*fx,bottom=c(2)+(c(3)-c(2))*fx;
+            const auto value=std::clamp<long>(std::lround(top+(bottom-top)*fy),0l,255l);
+            expected|=uint32_t(value)<<(8u*channel);
+        }
+        require(backend.ReadVram(0u,56u*32u,1u,0u,0u)==expected,
+                "vector bilinear RGBA rounding differs from scalar sampling");
+    }
+}
 uint64_t sprite_pipeline_hash(unsigned variant) {
     std::vector<uint8_t> vram(4u*1024u*1024u);
     GSCpuBackend backend;backend.Initialize(vram.data(),uint32_t(vram.size()));
@@ -232,6 +285,8 @@ void check_sprite_pipeline() {
 }
 }
 void verify_interlaced_presentation() {
+    check_texture_cache_scope();
+    check_bilinear_rounding();
     check_sprite_pipeline();
     check_sprite_coordinates();
     check_bilinear_samples();

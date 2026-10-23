@@ -10,6 +10,8 @@ import subprocess
 import tempfile
 
 EXPECTED = {
+    'ps2xRuntime/include/runtime/gs/gs_texture_page_cache.h':
+        '51bef021981a9834cc7bcadc9a4527d3588b058c481212353499e7936d12a3e6',
     'ps2xRuntime/src/lib/ps2_pad.cpp':
         'ad7767253d4e56abbfab3bb3869b38c6d10293914a0b1f6652685cc49383fd49',
     'ps2xRuntime/src/lib/Kernel/Stubs/MPEG.cpp':
@@ -78,6 +80,8 @@ def main():
     with tempfile.TemporaryDirectory(prefix='openkai2-overlays-', dir=args.output.parent) as folder:
         temporary = Path(folder)
         (temporary / 'runtime').mkdir()
+        (temporary / 'include/runtime/gs').mkdir(parents=True)
+        shutil.copy2(args.upstream / 'ps2xRuntime/include/runtime/gs/gs_texture_page_cache.h', temporary / 'include/runtime/gs/gs_texture_page_cache.h')
         shutil.copy2(args.upstream / 'ps2xRuntime/src/lib/ps2_memory.cpp', temporary / 'runtime/ps2_memory.cpp')
         shutil.copy2(args.upstream / 'ps2xRuntime/src/lib/ps2_runtime.cpp', temporary / 'runtime/ps2_runtime.cpp')
         shutil.copy2(args.upstream / 'ps2xRuntime/src/lib/ps2_pad.cpp', temporary / 'runtime/ps2_pad.cpp')
@@ -97,7 +101,8 @@ def main():
                       patches / 'sprite-coordinates.patch', patches / 'field-presentation.patch',
                       patches / 'mpeg-ipu-input.patch', patches / 'mpeg-native-scheduling.patch',
                       patches / 'movie-performance-diagnostics.patch', patches / 'sprite-sampling.patch',
-                      patches / 'sprite-throughput.patch', patches / 'host-input.patch'):
+                      patches / 'sprite-throughput.patch', patches / 'host-input.patch',
+                      patches / 'asynchronous-presentation.patch', patches / 'input-observation.patch', patches / 'texture-pages.patch'):
             apply_overlay_patch(temporary, patch)
         for source in temporary.rglob('*'):
             if source.is_file():

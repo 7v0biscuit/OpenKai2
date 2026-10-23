@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #pragma once
 #include <cstdint>
+#include <array>
 #include <cstddef>
 #include <iosfwd>
 struct EeKernelSnapshot;
@@ -9,6 +10,13 @@ class PS2Runtime;
 namespace openkai2 {
 void report_startup_graphics(GS&,uint64_t elapsed_ms,std::ostream&);
 void report_movie_wait(const uint8_t* ram,size_t size,std::ostream&);
+class SaveWaitDiagnostics {
+    bool initialized_=false;
+    unsigned reports_=0,changes_=0,periodic_=0;
+    std::array<uint32_t,6> previous_{};
+public:
+    bool sample(uint64_t elapsed_ms,const uint8_t* ram,size_t size,std::ostream&);
+};
 class MovieWaitDiagnostics {
     bool initialized_=false, active_=false;
     unsigned changes_=0, periodic_=0, reports_=0;

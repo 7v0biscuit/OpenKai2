@@ -65,16 +65,29 @@ void verify_save_creation() {
     call(runtime,0x00118270u);
     constexpr uint32_t path=0x26000u,source=0x28000u,output=0x2a000u,result=0x25000u;
     auto text=[&](const char* value) { std::strcpy(reinterpret_cast<char*>(memory+path),value); };
-    auto finish=[&] {
+    auto finish=[&](uint32_t expectedStatus=2u) {
         for (unsigned i=0;i<64u;++i) {
             const auto busy=call(runtime,0x0013d020u,{1u});
             if (busy==0) {
-                require(runtime.memory().read32(0x003a4a48u)==2u,"game save command ended in an error state");
+                require(runtime.memory().read32(0x003a4a48u)==expectedStatus,"game save command ended in an error state");
                 return;
             }
         }
         require(false,"game save command never completed");
     };
+    // Begin where the retail log stops: card detection must complete all 21
+    // stability samples, and the initial directory search must report absence.
+    require(call(runtime,0x0013d130u,{0,0,1u})==0,"initial card check did not queue");
+    finish();
+    require(runtime.memory().read32(0x003b4a80u)==2u
+            && runtime.memory().read32(0x003b4a88u)==1u
+            && runtime.memory().read32(0x003a4a4cu)==0u,"formatted PS2 card detection failed");
+    text("/BASLUS-20779DBZ2/*");
+    require(call(runtime,0x0013d270u,{0,0,path,output,5u})==0,"initial save search did not queue");
+    finish(3u);
+    require(int32_t(runtime.memory().read32(0x003a4a4cu))==-4,"missing save directory did not report absence");
+    require(call(runtime,0x0013d130u,{0,0,1u})==0,"confirmation card check did not queue");
+    finish();
     text("/BASLUS-20779DBZ2");
     require(call(runtime,0x0013d390u,{0,0,path})==0,"game directory creation did not queue");
     finish();

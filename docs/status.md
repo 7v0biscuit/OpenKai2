@@ -1,9 +1,10 @@
 # Development status
 
-retail testing of Preview 29 reaches the title screen and New Game after movie
-playback. The next reported stop is the confirmation asking whether to create a
-save. retail testing shows about 2 FPS in this scene on an supported CPU, supported GPU,
-and system memory. Gameplay and stable 60 FPS are not verified.
+retail testing reaches the title screen and New Game after movie playback, but
+Preview 30 still hangs at the create-save confirmation. The window stays open
+and stops responding. The latest log records about 13 movie FPS, no save write
+or exception, and a normal window-close request. Gameplay and stable 60 FPS
+remain unverified on the reported supported CPU, supported GPU, and system memory system.
 
 The original Budokai 2 USA ISO is required at every launch. A complete retail
 ISO is not present on the development host, so automated component tests and
@@ -11,35 +12,31 @@ observed retail results are distinguished below.
 
 ## Current changes
 
-- Host input is sampled on the window thread. Short button presses remain
-  pending until the game reads them, even when a press and release occur
-  between slow game frames. Held buttons and analog positions remain live;
-  controller ports have independent state. Confirm uses Cross (`X` or Space
-  on the keyboard); Enter is Start.
-- Translated game code now builds with optimization enabled. One oversized
-  translation remains separate and unoptimized to limit compiler resources.
-- Common opaque CT32 sprite writes avoid repeated pixel-state classification.
-  Exact bilinear texel centers avoid redundant reads only when all four taps
-  occupy the same texture-cache page. Other modes retain the full pipeline.
-- Save and controller snapshots join the bounded startup log reports, including
-  the last memory-card command/result, open files, save root, pad reads, and
-  button state.
+Presentation runs on a worker so the window thread can poll keyboard and
+controller input while rendering is busy. Requests coalesce to the latest field,
+and shutdown joins the worker. This changes host presentation scheduling;
+it does not accelerate the guest clock or establish 60 game FPS.
 
-The latest log records roughly 0.33 seconds of MPEG decoding and 0.12 seconds of
-output copying during 41 seconds of movie playback. It also records about 127
-seconds of textured sprite drawing across the 265-second run. Rendering uses a
-CPU software backend; the supported GPU does not rasterize the PS2 drawing commands.
+Bilinear RGBA interpolation uses SSE4.1 with scalar-compatible rounding. When a
+CT32 draw cannot write its texture pages, sampling avoids repeated page copies
+while preserving initial stale bytes, eviction order, and the final cache page.
+Feedback and unsupported modes retain the ordinary path. In paired CPU tests,
+a 512x448 fractional bilinear draw takes 11.04 ms instead of 15.85 ms, and the
+aligned case takes 5.69 ms instead of 7.68 ms. These are isolated drawing costs,
+not retail frame rates. PS2 drawing still uses a CPU software backend.
 
-An isolated aligned 512x448 bilinear sprite benchmark improved from about
-14.0 to 7.9 milliseconds of CPU time per draw on the development host. This
-measures one rendering operation, not retail FPS. A stable 60 FPS result still
-requires end-to-end measurement on the supported game.
+Input samples remain on the window thread and short taps survive until a game
+read. Keyboard input remains active when a controller is connected. Bounded logs
+track observed and delivered buttons, original save states, presentation work,
+and the source revision. Window frames, presentation completions, and guest
+fields are recorded separately.
 
 ## Validation
 
 The runtime self-test covers original translated game callbacks as well as
 synthetic disc, MPEG, graphics, scheduler, sound, input, and save fixtures.
-The new save regression runs the original directory-creation and file-writing
+The save regression starts with the original 21-sample card check and missing
+directory search, then runs directory-creation and file-writing
 callback chain, verifies bytes on disk, restarts the memory-card SDK, and reads
 the payload back into guarded EE memory. It uses an isolated temporary card;
 it does not access the user's saves or bypass the in-game confirmation.
@@ -47,9 +44,15 @@ it does not access the user's saves or bypass the in-game confirmation.
 Renderer comparisons use complete VRAM snapshots from the previous scalar
 backend across 64 textured and solid sprite cases. They cover filtering,
 blending, alpha tests, depth, masks, fog, fractional coordinates, cache-page
-boundaries, wrapping, and framebuffer/texture feedback. Input checks cover a
+boundaries, wrapping, and framebuffer/texture feedback. Input checks include a released Cross tap through the compiled pad-read entry,
+its guest packet and memory bounds. Additional checks cover a
 press released between guest reads, held input, releases, simultaneous pending
 presses, analog state, reset, and independent ports.
+
+The presentation regression deliberately blocks rendering while a thousand
+requests continue to arrive, checks coalescing to the latest field, and verifies
+shutdown and error reporting. Bilinear checks compare 8,192 samples against scalar
+rounding and retain complete VRAM comparisons against the preceding renderer.
 
 The Windows release workflow checks the portable launcher, ZIP, installer,
 installed self-test, ISO rejection, and uninstall before publication. These

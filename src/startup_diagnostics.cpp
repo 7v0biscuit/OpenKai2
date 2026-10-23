@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "startup_diagnostics.h"
+#include "host_input.h"
 #include "ps2_runtime.h"
 #include "runtime/ee_scheduler.h"
 #include "runtime/gs/gs_frontend.h"
@@ -262,6 +263,37 @@ bool MovieWaitDiagnostics::sample(uint64_t elapsed_ms,const uint8_t* ram,size_t 
     out << text.str() << std::flush;
     return true;
 }
+bool SaveWaitDiagnostics::sample(uint64_t elapsed_ms,const uint8_t* ram,size_t size,std::ostream& out) {
+    if (!ram || size<0x003a4aa4u || reports_>=20u) return false;
+    const MovieMemory memory(ram,size);
+    uint32_t scene=0,scenePhysical=0,callback=0;
+    if (size>=0x003a544cu) {
+        scene=memory.word(0x003a5448u);
+        if (scene && memory.range(scene,32u,scenePhysical)) callback=memory.word(scenePhysical+28u);
+    }
+    std::array<uint32_t,6> current={memory.word(0x003a4a40u),memory.word(0x003a4a48u),
+        memory.word(0x003a4a4cu),memory.word(0x003a4a9cu),memory.word(0x003a4aa0u),callback};
+    constexpr uint64_t deadlines[]={120000u,180000u,240000u,300000u,600000u};
+    const bool changed=(!initialized_ || current!=previous_) && changes_<12u;
+    const bool periodic=periodic_<5u && elapsed_ms>=deadlines[periodic_];
+    initialized_=true;previous_=current;
+    if (!changed && !periodic) return false;
+    if(changed)++changes_;if(periodic)++periodic_;++reports_;
+    const auto pad=ps2_stubs::getPadDebugSnapshot();
+    const auto host=host_input_stats(0);
+    std::ostringstream text;
+    text << "[startup:save-wait] elapsed_ms=" << elapsed_ms
+         << " port=" << memory.word(0x003a4a38u) << " slot=" << memory.word(0x003a4a3cu)
+         << " operation=" << current[0] << " state=" << current[1] << " result=" << int32_t(current[2])
+         << " pending=" << memory.word(0x003a4a44u) << " samples=" << memory.word(0x003a4a58u)
+         << " completion=0x" << std::hex << current[3] << " next=0x" << current[4]
+         << " scene=0x" << scene << " scene_callback=0x" << callback
+         << " buttons=0x" << pad.ports[0][0].lastButtons
+         << " host_pressed=0x" << host.pressed << " delivered=0x" << host.delivered << std::dec
+         << " game_pad_reads=" << pad.ports[0][0].readCount << " window_polls=" << host.polls << '\n';
+    out << text.str() << std::flush;
+    return true;
+}
 void sample_movie_wait(PS2Runtime& runtime,const uint8_t* ram,size_t size,uint32_t return_pc,std::ostream& out) {
     if (return_pc!=0x00186450u) return;
     // This is the common CRI frame yield, including logo frames before any
@@ -269,8 +301,10 @@ void sample_movie_wait(PS2Runtime& runtime,const uint8_t* ram,size_t size,uint32
     // from activation, rather than spending the movie samples on the logos.
     static thread_local const auto begin=std::chrono::steady_clock::now();
     static thread_local MovieWaitDiagnostics diagnostics;
+    static thread_local SaveWaitDiagnostics saveDiagnostics;
     const auto elapsed=uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now()-begin).count());
+    saveDiagnostics.sample(elapsed,ram,size,out);
     if (diagnostics.sample(elapsed,ram,size,out)) {
         std::ostringstream text;
         text << "[startup:display] frame_wait_ms=" << elapsed << std::hex;
@@ -326,9 +360,12 @@ void StartupDiagnostics::report(const char* reason,uint64_t elapsed_ms,const EeK
          << " open_files=" << card.openFiles.size() << " root=" << card.ports[0].rootPath.string() << '\n';
     for (unsigned i=0;i<2u;++i) {
         const auto& pad=input.ports[i][0];
+        const auto host=host_input_stats(int(i));
         text << "[startup:pad] port=" << i << " open=" << pad.open << " reads=" << pad.readCount
              << " ok=" << pad.lastReadOk << " backend=" << pad.lastUsedBackend
-             << " buttons=0x" << std::hex << pad.lastButtons << std::dec << '\n';
+             << " buttons=0x" << std::hex << pad.lastButtons
+             << " host_pressed=0x" << host.pressed << " delivered=0x" << host.delivered
+             << std::dec << " window_polls=" << host.polls << '\n';
     }
     out << text.str() << std::flush;
 }

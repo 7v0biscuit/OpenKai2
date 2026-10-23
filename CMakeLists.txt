@@ -48,3 +48,13 @@ if(BUILD_TESTING)
     target_compile_features(openkai2_input_tests PRIVATE cxx_std_17)
     add_test(NAME host_input COMMAND openkai2_input_tests)
 endif()
+
+if(BUILD_TESTING)
+    find_package(Threads REQUIRED)
+    add_executable(openkai2_presenter_tests tests/frame_presenter_tests.cpp
+        src/frame_presenter.cpp src/frame_presenter_checks.cpp)
+    target_include_directories(openkai2_presenter_tests PRIVATE src)
+    target_compile_features(openkai2_presenter_tests PRIVATE cxx_std_17)
+    target_link_libraries(openkai2_presenter_tests PRIVATE Threads::Threads)
+    add_test(NAME asynchronous_presentation COMMAND openkai2_presenter_tests)
+endif()

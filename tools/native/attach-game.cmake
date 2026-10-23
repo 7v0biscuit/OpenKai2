@@ -19,10 +19,20 @@ function(openkai2_attach_generated_sources)
         message(FATAL_ERROR "No generated Budokai 2 sources; run ps2_recomp first")
     endif()
     get_filename_component(project_root "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../.." ABSOLUTE)
+    execute_process(COMMAND git -C "${project_root}" rev-parse HEAD
+        OUTPUT_VARIABLE runtime_revision OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+    if(NOT runtime_revision)
+        set(runtime_revision "unknown")
+    endif()
+    file(CONFIGURE OUTPUT "${CMAKE_BINARY_DIR}/openkai2_build_revision.h"
+        CONTENT "#define OPENKAI2_SOURCE_REVISION \"@runtime_revision@\"\n" @ONLY)
+    set_property(SOURCE "${project_root}/src/main.cpp" TARGET_DIRECTORY ps2EntryRunner
+        APPEND PROPERTY INCLUDE_DIRECTORIES "${CMAKE_BINARY_DIR}")
     add_library(openkai2_disc STATIC "${project_root}/src/disc_image.cpp")
     target_include_directories(openkai2_disc PUBLIC "${project_root}/src")
     target_compile_features(openkai2_disc PUBLIC cxx_std_17)
     find_package(Python3 3.10 REQUIRED COMPONENTS Interpreter)
+    find_package(Threads REQUIRED)
     execute_process(COMMAND "${Python3_EXECUTABLE}"
         "${project_root}/tools/native/translation-entries.py"
         --emit-check-header "${CMAKE_BINARY_DIR}/openkai2_translation_entries.h"
@@ -61,6 +71,9 @@ function(openkai2_attach_generated_sources)
         "${project_root}/tools/native/patches/sprite-sampling.patch"
         "${project_root}/tools/native/patches/sprite-throughput.patch"
         "${project_root}/tools/native/patches/host-input.patch"
+        "${project_root}/tools/native/patches/asynchronous-presentation.patch"
+        "${project_root}/tools/native/patches/input-observation.patch"
+        "${project_root}/tools/native/patches/texture-pages.patch"
         "${project_root}/tools/native/prepare-overlays.py")
     get_target_property(iop_sources ps2_iop SOURCES)
     set(overlay_iop_sources "")
@@ -118,6 +131,10 @@ function(openkai2_attach_generated_sources)
             math(EXPR thread_overlay_count "${thread_overlay_count}+1")
             message(STATUS "EE thread implementation: ${source}")
         endif()
+        if(source MATCHES "/gs/(gs_cpu_backend|gs_frontend|ps2_gs_memory)\\.cpp$")
+            set_property(SOURCE "${source}" TARGET_DIRECTORY ps2_runtime APPEND PROPERTY
+                INCLUDE_DIRECTORIES "${overlay_dir}/include")
+        endif()
         list(APPEND overlay_runtime_sources "${source}")
     endforeach()
     if(NOT thread_overlay_count EQUAL 1)
@@ -128,7 +145,14 @@ function(openkai2_attach_generated_sources)
     target_link_libraries(ps2_runtime PRIVATE openkai2_disc)
     add_library(openkai2_thread_checks STATIC "${project_root}/src/thread_checks.cpp")
     target_sources(openkai2_thread_checks PRIVATE "${project_root}/src/save_checks.cpp"
-        "${project_root}/src/host_input_checks.cpp")
+        "${project_root}/src/host_input_checks.cpp" "${project_root}/src/frame_presenter_checks.cpp"
+        "${project_root}/src/pad_checks.cpp")
+    add_executable(openkai2_presenter_tests "${project_root}/tests/frame_presenter_tests.cpp"
+        "${project_root}/src/frame_presenter.cpp" "${project_root}/src/frame_presenter_checks.cpp")
+    target_include_directories(openkai2_presenter_tests PRIVATE "${project_root}/src")
+    target_compile_features(openkai2_presenter_tests PRIVATE cxx_std_17)
+    target_link_libraries(openkai2_presenter_tests PRIVATE Threads::Threads)
+    add_test(NAME asynchronous_presentation COMMAND openkai2_presenter_tests)
     add_executable(openkai2_input_tests "${project_root}/tests/host_input_tests.cpp"
         "${project_root}/src/host_input_checks.cpp")
     target_include_directories(openkai2_input_tests PRIVATE "${project_root}/src")
@@ -155,7 +179,8 @@ function(openkai2_attach_generated_sources)
     endif()
     ps2x_stage_ffmpeg_runtime_dlls(openkai2_callback_tests)
     add_test(NAME callback_stacks COMMAND openkai2_callback_tests)
-    target_sources(ps2_runtime PRIVATE "${project_root}/src/startup_diagnostics.cpp")
+    target_sources(ps2_runtime PRIVATE "${project_root}/src/startup_diagnostics.cpp"
+        "${project_root}/src/frame_presenter.cpp")
     target_include_directories(ps2_runtime PRIVATE "${project_root}/src"
         "${CMAKE_SOURCE_DIR}/ps2xRuntime/src/lib")
     add_library(openkai2_startup_checks STATIC "${project_root}/src/startup_checks.cpp")
@@ -171,6 +196,7 @@ function(openkai2_attach_generated_sources)
     add_test(NAME startup_diagnostics COMMAND openkai2_startup_tests)
     add_library(openkai2_graphics_checks STATIC "${project_root}/src/graphics_checks.cpp")
     target_include_directories(openkai2_graphics_checks PUBLIC "${project_root}/src")
+    target_include_directories(openkai2_graphics_checks BEFORE PRIVATE "${overlay_dir}/include")
     target_link_libraries(openkai2_graphics_checks PUBLIC ps2_runtime)
     add_executable(openkai2_graphics_tests "${project_root}/tests/graphics_presentation_tests.cpp")
     target_link_libraries(openkai2_graphics_tests PRIVATE openkai2_graphics_checks)

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "disc_image.h"
+#include "openkai2_build_revision.h"
 #include "runtime_checks.h"
 #include "ps2_runtime.h"
 #include <exception>
@@ -120,6 +121,8 @@ int main(int argc, char* argv[]) {
         image=argv[1];
 #endif
         log.open();
+        std::cout << "[build] source_revision=" << OPENKAI2_SOURCE_REVISION
+                  << " renderer=cpu presentation=async" << std::endl;
         std::cout << "[launcher] Startup log: " << log.path.string() << std::endl;
 #ifdef _WIN32
         if (interactive) {
