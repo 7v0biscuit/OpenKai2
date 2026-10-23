@@ -9,6 +9,68 @@
 #include <stdexcept>
 
 namespace openkai2 {
+void verify_battle_initialization(PS2Runtime& runtime,uint8_t* ram) {
+    constexpr uint32_t init=0x001b2560u,returned=0x001d5780u,sp=0x01ffff70u;
+    for(auto address:translation::battle_init_entries)
+        if(!runtime.hasFunction(address))throw std::runtime_error("Battle initialization stage is not registered");
+    // Bound the asset operations while executing the original surrounding
+    // copy/clear logic. A complete battle also requires the retail geometry.
+    constexpr uint32_t dependencies[]={0x1b1570u,0x1b1470u,0x1b0fd0u,0x1b0e20u,0x1b10c0u};
+    struct Restore {
+        PS2Runtime& runtime;std::vector<std::pair<uint32_t,PS2Runtime::RecompiledFunction>> entries;
+        ~Restore(){for(auto& entry:entries)runtime.replaceFunction(entry.first,entry.second);}
+    } restore{runtime,{}};
+    for(auto address:dependencies){
+        restore.entries.emplace_back(address,runtime.lookupFunction(address));
+        runtime.replaceFunction(address,[](uint8_t*,R5900Context* c,PS2Runtime* r){
+            auto& m=r->memory();const auto n=m.read32(0x29000u);
+            m.write32(0x29004u+n*8u,c->pc);m.write32(0x29008u+n*8u,getRegU32(c,4));
+            m.write32(0x29000u,n+1u);c->pc=getRegU32(c,31);
+        });
+    }
+    auto call=[&](){
+        R5900Context c{};c.pc=init;c.r[28]=_mm_cvtsi32_si128(0x3ac4f0u);
+        c.r[29]=_mm_cvtsi32_si128(sp);c.r[31]=_mm_cvtsi32_si128(returned);
+        for(unsigned step=0;step<128u && c.pc!=returned;++step){
+            if(!runtime.hasFunction(c.pc))throw std::runtime_error("Battle initializer reached a missing continuation");
+            runtime.lookupFunction(c.pc)(ram,&c,&runtime);
+        }
+        if(c.pc!=returned || getRegU32(&c,29)!=sp)
+            throw std::runtime_error("Battle initializer did not restore its caller frame");
+    };
+    for(unsigned copy=0;copy<2u;++copy){
+        std::memset(ram+0x373c50u,0xa5,0x70u);std::memset(ram+0x373d28u,0x6b,0x70u);
+        for(unsigned i=0;i<19u;++i)runtime.memory().write32(0x373d38u+i*4u,0x100u+i);
+        runtime.memory().write32(0x373d38u,2u);runtime.memory().write32(0x373d54u,0u);
+        runtime.memory().write32(0x373d64u,copy);runtime.memory().write32(0x373c60u,2u);
+        runtime.memory().write32(0x3732d0u+2u*156u,0x12345678u);runtime.memory().write32(0x29000u,0u);
+        std::array<uint8_t,0x4cu> source;std::memcpy(source.data(),ram+0x373d38u,source.size());
+        call();
+        if(runtime.memory().read32(0x29000u)!=4u+copy || runtime.memory().read32(0x373cacu)!=0x12345678u
+            || (copy && (std::memcmp(source.data(),ram+0x373c60u,source.size())!=0
+                || !std::all_of(ram+0x373d38u,ram+0x373d84u,[](uint8_t b){return b==0u;}))))
+            throw std::runtime_error("Battle initializer changed stage order, asset state copy, or source clear");
+        for(unsigned i=0;i<4u+copy;++i)
+            if(runtime.memory().read32(0x29004u+i*8u)!=dependencies[i]
+                || runtime.memory().read32(0x29008u+i*8u)!=(i==4u ? 0x373c60u : 0x373d38u))
+                throw std::runtime_error("Battle initializer passed an incorrect asset argument");
+    }
+    // Stop at the callback return before later stages consume retail assets.
+    constexpr uint32_t bridge=0x001908e8u,object=0x003ba3b0u;
+    restore.entries.emplace_back(bridge,runtime.lookupFunction(bridge));
+    restore.entries.emplace_back(init,runtime.lookupFunction(init));
+    runtime.replaceFunction(bridge,runtime.lookupFunction(init));
+    runtime.replaceFunction(init,[](uint8_t* data,R5900Context* c,PS2Runtime* r){
+        r->lookupFunction(bridge)(data,c,r);throw EeDispatcherTransfer{};
+    });
+    runtime.memory().write32(0x375230u,init);runtime.memory().write32(object+0x30u,0u);
+    runtime.memory().write32(0x373d54u,1u);
+    R5900Context c{};c.pc=0x1d5740u;c.r[4]=c.r[17]=_mm_cvtsi32_si128(object);
+    c.r[28]=_mm_cvtsi32_si128(0x3ac4f0u);c.r[29]=_mm_cvtsi32_si128(sp+0x50u);
+    try{runtime.lookupFunction(c.pc)(ram,&c,&runtime);}catch(const EeDispatcherTransfer&){}
+    if(c.pc!=returned || getRegU32(&c,29)!=sp || getRegU32(&c,18)!=object+0x30u)
+        throw std::runtime_error("Original battle dispatcher did not return from its logged indirect call");
+}
 void verify_versus_animation(PS2Runtime& runtime,uint8_t* ram) {
     constexpr uint32_t update=0x002aeac0u,draw=0x002ae2a0u,object=0x003b8c30u;
     constexpr uint32_t gp=0x003ac4f0u,slotTable=gp-0x7028u,returned=0x001483f8u;

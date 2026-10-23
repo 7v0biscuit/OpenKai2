@@ -184,13 +184,40 @@ VERSUS_ANIMATION_WORDS = (
     0x46011081,0x46011034,0,0,0,0x4500FFFA,0,0x10000004,0,0,0x46000886,0,
     0x080AB8A8,0xE462005C,
 )
+# Battle startup stages selected by the original dispatcher after level select.
+BATTLE_INIT_TABLES = ((0x00375230, (
+    0x001B2560,0x001E7260,0x001CE280,0x001BEA10,
+    0x001CB190,0x00212BA0,0x00213B00,0x0020C1A0,
+    0x002028D0,0x001FF040,0x001D20E0,0x00000000,
+)),)
+BATTLE_INIT_ENTRIES = tuple(address for _, slots in BATTLE_INIT_TABLES for address in slots if address)
+BATTLE_INIT_WORDS = (
+    0x27BDFFF0,0x3C010037,0xFFBF0000,0x8C233D54,0x14600073,0x3C040037,0x0C06C55C,
+    0x24843D38,0x3C040037,0x0C06C51C,0x24843D38,0x3C040037,0x0C06C3F4,0x24843D38,
+    0x3C040037,0x0C06C388,0x24843D38,0x3C010037,0x8C233D64,0x10600056,0x3C040037,
+    0x0C06C430,0x24843C60,0x3C010037,0x3C030037,0x8C2A3D38,0x3C020037,0x3C040037,
+    0x24633D48,0x24423C70,0x24843D38,0x0000282D,0x2406004C,0x3C010037,0x8C293D3C,
+    0x3C010037,0x8C283D40,0x3C010037,0x8C273D44,0x3C010037,0xAC2A3C60,0x3C010037,
+    0xAC293C64,0x3C010037,0xAC283C68,0x3C010037,0xAC273C6C,0xC4600000,0x3C010037,
+    0xE4400000,0x8C2A3D4C,0x3C010037,0x8C293D50,0x3C010037,0x8C283D54,0x3C010037,
+    0x8C273D58,0x3C010037,0x8C233D5C,0x3C010037,0x8C223D60,0x3C010037,0xAC2A3C74,
+    0x3C010037,0xAC293C78,0x3C010037,0xAC283C7C,0x3C010037,0xAC273C80,0x3C010037,
+    0xAC233C84,0x3C010037,0xAC223C88,0x3C010037,0x8C2A3D64,0x3C010037,0x8C293D68,
+    0x3C010037,0x8C283D6C,0x3C010037,0x8C273D70,0x3C010037,0x8C233D74,0x3C010037,
+    0x8C223D78,0x3C010037,0xAC2A3C8C,0x3C010037,0xAC293C90,0x3C010037,0xAC283C94,
+    0x3C010037,0xAC273C98,0x3C010037,0xAC233C9C,0x3C010037,0xAC223CA0,0x3C010037,
+    0x8C233D7C,0x3C010037,0x8C223D80,0x3C010037,0xAC233CA4,0x3C010037,0x0C048F06,
+    0xAC223CA8,0x3C010037,0x8C253C60,0x3C030037,0x246332D0,0x00052080,0x3C010037,
+    0x00852021,0x000420C0,0x00852023,0x00042080,0x00641821,0x8C630000,0xAC233CAC,
+    0x00000000,0xDFBF0000,0x03E00008,0x27BD0010,
+)
 # Preserve ordering and share the argument-store callback between both groups.
 ENTRY_POINTS = tuple(dict.fromkeys((0x00167188,)
     + tuple(address for _, row in DISPATCH_TABLES for address in row)
     + FILE_CALLBACK_ENTRIES + STREAM_CALLBACK_ENTRIES + MEMORY_STREAM_ENTRIES
     + tuple(address for _, address in TRANSLATED_SDK_ENTRIES)
     + ASSET_RELOCATION_ENTRIES + FADE_CALLBACK_ENTRIES + MOVIE_CALLBACK_ENTRIES
-    + MOVIE_PACKET_ENTRIES + MOVIE_TIMING_ENTRIES + DRAW_SETUP_ENTRIES + (VERSUS_ANIMATION_ENTRY,)))
+    + MOVIE_PACKET_ENTRIES + MOVIE_TIMING_ENTRIES + DRAW_SETUP_ENTRIES + (VERSUS_ANIMATION_ENTRY,) + BATTLE_INIT_ENTRIES))
 
 
 def configure(text):
@@ -252,7 +279,7 @@ def verify_elf_metadata(data):
         raise ValueError('Startup dispatcher table roots differ from the reviewed metadata')
     for base, entries in (DISPATCH_TABLES + FILE_CALLBACK_TABLES + STREAM_CALLBACK_TABLES + MEMORY_STREAM_TABLES
                           + FADE_CALLBACK_TABLES + MOVIE_CALLBACK_TABLES + MOVIE_PACKET_TABLES
-                          + MOVIE_TIMING_TABLES):
+                          + MOVIE_TIMING_TABLES + BATTLE_INIT_TABLES):
         if words(base, len(entries)) != entries:
             raise ValueError(f'Indirect methods differ from the reviewed table at 0x{base:08x}')
     if words(0x00387420, len(MOVIE_TIMING_RATES)) != MOVIE_TIMING_RATES:
@@ -265,6 +292,8 @@ def verify_elf_metadata(data):
             raise ValueError(f'Draw setup instructions differ at 0x{address:08x}')
     if words(VERSUS_ANIMATION_ENTRY,len(VERSUS_ANIMATION_WORDS)) != VERSUS_ANIMATION_WORDS:
         raise ValueError('Versus animation callback differs from the reviewed instructions')
+    if words(BATTLE_INIT_ENTRIES[0],len(BATTLE_INIT_WORDS)) != BATTLE_INIT_WORDS:
+        raise ValueError('Battle initialization instructions differ from the reviewed sequence')
     if words(ASSET_RELOCATION_BASE, len(ASSET_RELOCATION_WORDS)) != ASSET_RELOCATION_WORDS:
         raise ValueError('Asset relocation handlers or tags differ from the reviewed table')
 
@@ -290,7 +319,9 @@ def emit_check_header(path):
                           ('movie_timing_entries', MOVIE_TIMING_ENTRIES),
                           ('movie_timing_slots', MOVIE_TIMING_TABLES[0][1]),
                           ('movie_timing_rates', MOVIE_TIMING_RATES),
-                          ('draw_setup_entries', DRAW_SETUP_ENTRIES)):
+                          ('draw_setup_entries', DRAW_SETUP_ENTRIES),
+                          ('battle_init_entries', BATTLE_INIT_ENTRIES),
+                          ('battle_init_slots', BATTLE_INIT_TABLES[0][1])):
         lines.append(f'inline constexpr std::array<uint32_t, {len(entries)}> {name} = {{')
         lines.extend(f'    0x{address:08x}u,' for address in entries)
         lines.append('};')

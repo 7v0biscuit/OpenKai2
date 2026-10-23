@@ -53,6 +53,10 @@ def main():
         if 'The original game ISO is required' not in help_text:
             raise RuntimeError('Installed executable did not print the expected help.')
         self_test = run([str(executable), '--self-test'])
+        for marker in ('Runtime battle initialization regression passed',
+                       'Runtime streamed audio regression passed', 'Runtime IOP import cache regression passed'):
+            if marker not in self_test:
+                raise RuntimeError('Installed application is missing required battle/audio execution checks: '+marker)
         if 'Runtime versus animation regression passed' not in self_test:
             raise RuntimeError('Installed application is missing the original versus animation and indirect caller regression')
         if 'Runtime triangle pipeline regression passed' not in self_test:

@@ -1,6 +1,6 @@
 # Windows build and startup
 
-OpenKai2 is in development. retail testing reaches versus character loading.
+OpenKai2 is in development. retail testing reaches level selection.
 Complete matches, performance, and gameplay still need validation.
 
 ## Downloads
@@ -36,6 +36,30 @@ The renderer currently runs on the CPU; a supported GPU does not establish a
 particular game frame rate. Large eligible sprites and textured triangles use up to four CPU workers,
 including indexed textures and independent depth buffers. Dependent draws
 retain serial execution. Stable 60 game FPS remains unverified.
+
+## Audio output
+
+Decoded SPU2 AutoDMA PCM is routed to the default Windows playback device at
+48 kHz in stereo. OpenKai2 uses the existing Windows audio system through
+miniaudio. Select your normal speakers or headphones as the Windows default
+output device. No separate OpenKai2 driver installation is required.
+
+To test the host output independently of the game:
+
+```powershell
+& ".\OpenKai2.exe" --audio-test
+```
+
+This plays a quiet one-second tone and checks that the output callback consumes
+its frames. It writes `audio-test.log` beside `startup.log`, preserving the
+game's latest startup log. A successful callback test verifies the host stream;
+hearing the tone also checks the selected physical output. An unavailable
+playback endpoint produces an explicit diagnostic failure.
+
+Normal game logs include `[audio:output]` for stream readiness and
+`[audio:pcm]` for received frames, nonzero samples, queued frames, and dropped
+frames. Audio depends on the guest driver supplying PCM. Voice synthesis,
+hardware volume/effect accuracy, and complete retail audio remain unverified.
 
 ## Build requirements
 

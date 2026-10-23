@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
+#include "host_audio.h"
 #include "disc_image.h"
 #include "openkai2_build_revision.h"
 #include "runtime_checks.h"
@@ -56,8 +57,8 @@ class StartupLog {
     std::streambuf *old_output_=nullptr, *old_errors_=nullptr;
 public:
     std::filesystem::path path;
-    void open() {
-        path=openkai2::default_cache_directory().parent_path()/"logs/startup.log";
+    void open(const char* filename="startup.log") {
+        path=openkai2::default_cache_directory().parent_path()/"logs"/filename;
         std::filesystem::create_directories(path.parent_path());
         file_.open(path,std::ios::out|std::ios::trunc);
         if (!file_) throw std::runtime_error("Cannot write startup log: "+path.string());
@@ -73,7 +74,8 @@ public:
 void usage() {
     std::cout << "Usage: OpenKai2 <path-to-Budokai-2-USA.iso>\n"
               << "The original game ISO is required on every boot.\n"
-              << "OpenKai2 --self-test checks compiled callback dispatch without booting the game.\n";
+              << "OpenKai2 --self-test checks compiled callback dispatch without booting the game.\n"
+              << "OpenKai2 --audio-test plays a quiet one-second tone through the output device.\n";
 #ifdef _WIN32
     std::cout << "Double-click OpenKai2.exe to choose an ISO.\n";
 #endif
@@ -110,12 +112,14 @@ int main(int argc, char* argv[]) {
         const std::wstring argument=count==2 ? arguments[1] : L"";
         LocalFree(arguments);
         if (count==2 && (argument==L"--help" || argument==L"-h")) { usage(); return 0; }
+        if (count==2 && argument==L"--audio-test") { log.open("audio-test.log");return openkai2::test_host_audio(); }
         if (count==2 && argument==L"--self-test") return openkai2::run_runtime_checks();
         if (count>2) { usage(); return 2; }
         interactive=count==1;
         if (!interactive) image=argument;
 #else
         if (argc==2 && (std::string(argv[1])=="--help" || std::string(argv[1])=="-h")) { usage(); return 0; }
+        if (argc==2 && std::string(argv[1])=="--audio-test") { log.open("audio-test.log");return openkai2::test_host_audio(); }
         if (argc==2 && std::string(argv[1])=="--self-test") return openkai2::run_runtime_checks();
         if (argc!=2) { usage(); return 2; }
         image=argv[1];

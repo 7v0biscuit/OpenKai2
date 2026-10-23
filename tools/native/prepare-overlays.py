@@ -10,6 +10,19 @@ import subprocess
 import tempfile
 
 EXPECTED = {
+    'ps2xIOP/src/emulator/imports/iop_imports.cpp':
+        'e724e0bbfa64fa639aa6d72519edcf3c2ac94d0d1430d13160378869ad73924b',
+    'ps2xIOP/src/emulator/imports/iop_imports.h':
+        '056894c369e6e8e8f8efcaae910c95414e7c7935658723fc7ff6af9b3fb6fd16',
+    'ps2xIOP/src/emulator/core/iop_memory.h':
+        '5a5b73ab69c4b58531111cad2743847ef00f3a8dd73004eea01ec8de4053135c',
+    'ps2xIOP/include/ps2x/iop/iop_host.h':
+        '9bfbcd65c5c61847d3427dcdaebaf383617c2bf3a5595155be8d9107c0bc6acc',
+    'ps2xRuntime/src/lib/ps2_iop_host.h':
+        '5116812cb61fd5be00c002f98d0b19f4f138ba10248e9e24cb9d91425b197704',
+    'ps2xRuntime/src/lib/ps2_iop_host.cpp':
+        '17a35b99e8535f38b47097361fb7bfedb30966c9d85b04e83f4e97a86d8ae0f6',
+
     'ps2xRuntime/src/lib/Kernel/EeScheduler.cpp':
         '89383df078a13e9d13335f158ce88f0fb85935c57f2edab0ef8f4a0c9edb4b83',
     'ps2xRuntime/include/runtime/gs/gs_texture_page_cache.h':
@@ -82,6 +95,10 @@ def main():
     with tempfile.TemporaryDirectory(prefix='openkai2-overlays-', dir=args.output.parent) as folder:
         temporary = Path(folder)
         (temporary / 'runtime').mkdir()
+        (temporary / 'ps2x/iop').mkdir(parents=True)
+        shutil.copy2(args.upstream / 'ps2xIOP/include/ps2x/iop/iop_host.h',temporary / 'ps2x/iop/iop_host.h')
+        for name in ('ps2_iop_host.cpp','ps2_iop_host.h'):
+            shutil.copy2(args.upstream / 'ps2xRuntime/src/lib' / name,temporary / 'runtime' / name)
         (temporary / 'include/runtime/gs').mkdir(parents=True)
         shutil.copy2(args.upstream / 'ps2xRuntime/include/runtime/gs/gs_texture_page_cache.h', temporary / 'include/runtime/gs/gs_texture_page_cache.h')
         shutil.copy2(args.upstream / 'ps2xRuntime/src/lib/ps2_memory.cpp', temporary / 'runtime/ps2_memory.cpp')
@@ -108,7 +125,7 @@ def main():
                       patches / 'asynchronous-presentation.patch', patches / 'input-observation.patch', patches / 'texture-pages.patch',
                       patches / 'empty-dma-completion.patch', patches / 'parallel-sprites.patch', patches / 'guest-progress.patch',
                       patches / 'interrupt-critical-sections.patch', patches / 'sprite-formats.patch',
-                      patches / 'pixel-blending.patch'):
+                      patches / 'pixel-blending.patch', patches / 'spu2-pcm-output.patch', patches / 'iop-import-cache.patch', patches / 'small-triangles.patch'):
             apply_overlay_patch(temporary, patch)
         for source in temporary.rglob('*'):
             if source.is_file():

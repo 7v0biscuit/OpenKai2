@@ -68,7 +68,7 @@ class TranslationEntries(unittest.TestCase):
     def test_reviewed_tables_have_complete_unique_coverage(self):
         self.assertEqual(len(ENTRIES.DISPATCH_TABLES), 7)
         self.assertTrue(all(len(row) == 14 for _, row in ENTRIES.DISPATCH_TABLES))
-        self.assertEqual(len(set(ENTRIES.ENTRY_POINTS)), 181)
+        self.assertEqual(len(set(ENTRIES.ENTRY_POINTS)), 192)
         self.assertEqual(len(ENTRIES.ZERO_RETURN_ENTRIES), 39)
         self.assertTrue(set(ENTRIES.ZERO_RETURN_ENTRIES) <= set(ENTRIES.ENTRY_POINTS))
         self.assertNotIn(0x00387110, ENTRIES.ENTRY_POINTS)
@@ -83,7 +83,7 @@ class TranslationEntries(unittest.TestCase):
             path = Path(temporary) / 'entries.h'
             ENTRIES.emit_check_header(path)
             content, changed = path.read_text(), path.stat().st_mtime_ns
-            self.assertIn('std::array<uint32_t, 181> entries', content)
+            self.assertIn('std::array<uint32_t, 192> entries', content)
             self.assertIn('std::array<uint32_t, 39> zero_return_entries', content)
             for address in ENTRIES.ENTRY_POINTS:
                 self.assertIn(f'0x{address:08x}u,', content)
@@ -207,6 +207,25 @@ class TranslationEntries(unittest.TestCase):
             self.verify_fixture('g_ps2RecompiledFunctionTable[1] = owner; // 0x167188',
                                 '// Address: 0x167188 - 0x1671a0', omitted=(0x0012AC30,))
 
+    def test_battle_stages_require_exact_resume_entries(self):
+        self.assertEqual(len(ENTRIES.BATTLE_INIT_ENTRIES),11)
+        for address in ENTRIES.BATTLE_INIT_ENTRIES:
+            with self.subTest(address=address), self.assertRaisesRegex(ValueError,f'missing guest entry 0x{address:08x}'):
+                self.verify_fixture('g_ps2RecompiledFunctionTable[1] = owner; // 0x167188',
+                                    '// Address: 0x167188 - 0x1671a0', omitted=(address,))
+
+    def test_battle_stage_table_change_rejected(self):
+        data=self.make_elf_metadata()
+        data[0x375234-0x100000+128]^=1
+        with self.assertRaisesRegex(ValueError,'Indirect methods differ.*00375230'):
+            ENTRIES.verify_elf_metadata(data)
+
+    def test_battle_initializer_return_delay_slot_change_rejected(self):
+        data=self.make_elf_metadata()
+        struct.pack_into('<I',data,0x1b2748-0x100000+128,0)
+        with self.assertRaisesRegex(ValueError,'Battle initialization instructions differ'):
+            ENTRIES.verify_elf_metadata(data)
+
     def make_elf_metadata(self):
         data = bytearray(0x290000 + 128)
         struct.pack_into('<I', data, 28, 52)
@@ -226,6 +245,9 @@ class TranslationEntries(unittest.TestCase):
         for address, words in ENTRIES.DRAW_SETUP_WORDS:
             put(address, words)
         put(ENTRIES.VERSUS_ANIMATION_ENTRY,ENTRIES.VERSUS_ANIMATION_WORDS)
+        put(ENTRIES.BATTLE_INIT_ENTRIES[0],ENTRIES.BATTLE_INIT_WORDS)
+        for base, slots in ENTRIES.BATTLE_INIT_TABLES:
+            put(base,slots)
         put(ENTRIES.ASSET_RELOCATION_BASE, ENTRIES.ASSET_RELOCATION_WORDS)
         return data
 

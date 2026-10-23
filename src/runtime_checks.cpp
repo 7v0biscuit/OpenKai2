@@ -409,6 +409,8 @@ int run_runtime_checks() {
     verify_iop_module_startup();
     std::cout << "IOP module startup regression passed: nested RPC worker registration, sleep, and bounded scheduling.\n";
     verify_sound_registers();
+    std::cout << "Runtime streamed audio regression passed: both SPU2 AutoDMA cores, signed stereo PCM, partial transfers, input guards, queue overflow, wraparound, and concurrent delivery.\n";
+    std::cout << "Runtime IOP import cache regression passed: stack writes, KSEG aliases, edited code and tables, negative entries, and module reset.\n";
     std::cout << "SPU2 initialization regression passed: both cores, DMA status, and guest polling.\n";
     verify_scratchpad_dma();
     verify_ipu_input_dma();
@@ -439,6 +441,8 @@ int run_runtime_checks() {
     std::cout << "Runtime asset relocation regression passed: seven handlers, logged AMM dispatcher, nested assets, and repeat guards.\n";
     verify_draw_setup(runtime,memory);
     verify_versus_animation(runtime,memory);
+    verify_battle_initialization(runtime,memory);
+    std::cout << "Runtime battle initialization regression passed: 11 stage entries, original state copy and clear, guarded return, asset argument order, and logged indirect caller.\n";
     std::cout << "Runtime versus animation regression passed: original scene dispatch, both characters, frame advance, clamping, wrapping, and model-render tail call.\n";
     std::cout << "Runtime draw setup regression passed: eight original callbacks, packet fields, guards, RAM aliases, original selector, and logged indirect caller.\n";
     verify_fade_callbacks(runtime,memory);
