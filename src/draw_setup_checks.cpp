@@ -9,6 +9,83 @@
 #include <stdexcept>
 
 namespace openkai2 {
+void verify_scene_modes(PS2Runtime& runtime,uint8_t* ram) {
+    auto require=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
+    for(auto entry:translation::scene_mode_entries)
+        require(runtime.hasFunction(entry),"Scene mode callback is not registered");
+    struct Restore {
+        PS2Runtime& runtime;std::vector<std::pair<uint32_t,PS2Runtime::RecompiledFunction>> entries;
+        ~Restore(){for(auto& entry:entries)runtime.replaceFunction(entry.first,entry.second);}
+    } restore{runtime,{}};
+    constexpr uint32_t dependencies[]={0x1b04b0u,0x1b0250u,0x1b00e0u,0x1afe20u,0x1afd90u,0x1afa60u,0x1a6a40u,0x21c150u};
+    for(auto entry:dependencies){
+        restore.entries.emplace_back(entry,runtime.lookupFunction(entry));
+        runtime.replaceFunction(entry,[](uint8_t*,R5900Context* c,PS2Runtime* r){
+            auto& m=r->memory();const auto count=m.read32(0x29000u);
+            m.write32(0x29004u+count*8u,c->pc);m.write32(0x29008u+count*8u,getRegU32(c,4));m.write32(0x29000u,count+1u);
+            c->r[2]=_mm_cvtsi32_si128(0x1f1000u);c->pc=getRegU32(c,31);
+        });
+    }
+    constexpr uint32_t create=0x1adc40u,bridge=0x1908e8u,returned=0x1af7a0u,sp=0x1ffff10u;
+    restore.entries.emplace_back(create,runtime.lookupFunction(create));
+    restore.entries.emplace_back(bridge,runtime.lookupFunction(bridge));
+    runtime.replaceFunction(create,[](uint8_t*,R5900Context* c,PS2Runtime* r){
+        auto& m=r->memory();const auto count=m.read32(0x29200u),record=0x2a0000u+count*0x100u;
+        m.write32(0x29204u+count*20u,getRegU32(c,4));m.write32(0x29208u+count*20u,getRegU32(c,5));
+        m.write32(0x2920cu+count*20u,getRegU32(c,6));m.write32(0x29210u+count*20u,getRegU32(c,7));
+        m.write32(0x29214u+count*20u,getRegU32(c,8));m.write32(0x29200u,count+1u);
+        m.write32(record+0x10u,0x2b0000u);m.write32(record+0x20u,0xa5a5a5a5u);
+        c->r[2]=_mm_cvtsi32_si128(record);c->pc=getRegU32(c,31);
+    });
+    for(unsigned slot=0;slot<translation::scene_mode_slots.size();++slot){
+        const auto target=translation::scene_mode_slots[slot];if(!target)continue;
+        for(unsigned kind=0;kind<2u;++kind){
+            std::memset(ram+0x1c0000u,0,0x40000u);std::memset(ram+0x29000u,0,0x800u);
+            std::memset(ram+0x2a0000u,0,0x2000u);std::memset(ram+0x2b0000u,0,0x200u);
+            auto& m=runtime.memory();
+            for(unsigned i=0;i<translation::scene_mode_slots.size();++i)m.write32(0x373a60u+i*4u,translation::scene_mode_slots[i]);
+            m.write32(0x373c60u,slot);m.write32(0x373cacu,kind);m.write32(0x373ca8u,0x1c0000u);
+            m.write32(0x373ca0u,0x1d0000u);m.write32(0x373c98u,0x1f0000u);
+            m.write32(0x1d000cu+kind*36u,0x1e0000u);
+            m.write32(0x373270u+slot*156u+kind*28u+0x64u+0x14u,0x1f2000u);
+            m.write32(0x2b0008u,0x2b0100u);m.write32(0x2b0104u,0xabcdef12u);
+            for(auto offset:{0x14u,0x54u,0x94u,0xa4u})m.write32(0x1c0000u+offset,0x1e1000u+offset*16u);
+            for(auto offset:{0x14u,0x54u,0x94u,0xa4u}){
+                const auto list=0x1e1000u+offset*16u;m.write32(list+4u,3u);
+                for(unsigned i=0;i<3u;++i)m.write32(list+8u+i*8u,0xeeeeeeeeu);
+            }
+            const auto original=runtime.lookupFunction(target);
+            runtime.replaceFunction(bridge,original);
+            runtime.replaceFunction(target,[](uint8_t* data,R5900Context* c,PS2Runtime* r){
+                r->lookupFunction(bridge)(data,c,r);throw EeDispatcherTransfer{};
+            });
+            R5900Context c{};c.pc=0x1af720u;c.r[28]=_mm_cvtsi32_si128(0x3ac4f0u);c.r[29]=_mm_cvtsi32_si128(sp+0x50u);
+            for(unsigned i=16;i<=18;++i)c.r[i]=_mm_set_epi32(0x4400+i,0x3300+i,0x2200+i,0x1100+i);
+            // The dispatcher saves s0 before invoking the mode; s1/s2 remain live.
+            const auto saved=c;
+            try{runtime.lookupFunction(c.pc)(ram,&c,&runtime);}catch(const EeDispatcherTransfer&){}
+            runtime.replaceFunction(target,original);
+            require(c.pc==returned && getRegU32(&c,29)==sp && getRegU32(&c,28)==0x3ac4f0u,
+                "Scene mode did not return to its original indirect caller");
+            for(unsigned i=16;i<=18;++i)require(std::memcmp(&saved.r[i],&c.r[i],16u)==0,
+                "Scene mode changed a saved register");
+            require(m.read32(0x373d14u)==1u && (m.read32(0x2a0020u)&15u)==8u,
+                "Scene dispatcher did not initialize its root record");
+            if(target==0x1b3070u && kind==0u){
+                require(m.read32(0x29200u)==2u && m.read32(0x29218u)==0x82000000u
+                    && m.read32(0x2921cu)==0x388040u && m.read32(0x29220u)==0x1e0020u
+                    && m.read32(0x29224u)==0x1b2ec0u && m.read32(0x29228u)==0x1b2f30u,
+                    "Stage mode created an incorrect animation record");
+                require(m.read32(0x2a0120u)==(0xa5a5a5a5u|0x80u) && m.read32(0x2b0104u)==0u,
+                    "Stage mode did not set its animation flag or clear frame state");
+            }
+            if(target==0x1b3070u && kind==1u)
+                for(unsigned i=0;i<3u;++i)require(m.read32(0x1e1548u+i*8u)==0u,
+                    "Stage mode failed to clear all animation entries");
+        }
+    }
+}
+
 void verify_battle_assets(PS2Runtime& runtime,uint8_t* ram) {
     auto require=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
     for(auto entry:translation::battle_asset_entries)

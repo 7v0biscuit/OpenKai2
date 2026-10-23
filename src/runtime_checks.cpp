@@ -381,6 +381,7 @@ void verify_file_callbacks(PS2Runtime& runtime,uint8_t* memory) {
 }
 int run_runtime_checks() {
     verify_interlaced_presentation();
+    std::cout << "Runtime prepared pixel regression passed: 64 complete VRAM and dependent-sample snapshots, depth writes, buffer aliases, alpha boundaries, and fallback states.\n";
     std::cout << "Runtime pixel blending regression passed: 12288 scalar equation comparisons, all selectors, alpha extremes, PABE, frame masks, and 16/24/32-bit destinations.\n";
     std::cout << "Runtime triangle pipeline regression passed: 48 complete VRAM snapshots in serial and parallel, filtered and indexed textures, depth, feedback, blending, and dependent samples.\n";
     std::cout << "Runtime parallel raster regression passed: persistent workers, joined errors, 64 complete VRAM comparisons, indexed and 16/24-bit textures, depth, alpha-only draws, stale cache, dependent draws, and serial fallbacks.\n";
@@ -442,6 +443,8 @@ int run_runtime_checks() {
     std::cout << "Runtime asset relocation regression passed: seven handlers, logged AMM dispatcher, nested assets, and repeat guards.\n";
     verify_draw_setup(runtime,memory);
     verify_versus_animation(runtime,memory);
+    verify_scene_modes(runtime,memory);
+    std::cout << "Runtime scene mode regression passed: seven original handlers, both table halves, animation state, saved registers, and indirect caller.\n";
     verify_battle_assets(runtime,memory);
     std::cout << "Runtime battle asset regression passed: original BCM/BSK dispatcher, nested pointer relocation, nulls, KSEG aliases, saved registers, and repeat guards.\n";
     verify_battle_initialization(runtime,memory);

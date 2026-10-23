@@ -3,6 +3,7 @@
 #include <cstdint>
 class PS2Runtime;
 namespace openkai2 {
+void verify_scene_modes(PS2Runtime&,uint8_t*);
 void verify_battle_assets(PS2Runtime&,uint8_t*);
 void verify_draw_setup(PS2Runtime&,uint8_t*);
 void verify_versus_animation(PS2Runtime&,uint8_t*);

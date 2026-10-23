@@ -68,7 +68,7 @@ class TranslationEntries(unittest.TestCase):
     def test_reviewed_tables_have_complete_unique_coverage(self):
         self.assertEqual(len(ENTRIES.DISPATCH_TABLES), 7)
         self.assertTrue(all(len(row) == 14 for _, row in ENTRIES.DISPATCH_TABLES))
-        self.assertEqual(len(set(ENTRIES.ENTRY_POINTS)), 194)
+        self.assertEqual(len(set(ENTRIES.ENTRY_POINTS)), 201)
         self.assertEqual(len(ENTRIES.ZERO_RETURN_ENTRIES), 39)
         self.assertTrue(set(ENTRIES.ZERO_RETURN_ENTRIES) <= set(ENTRIES.ENTRY_POINTS))
         self.assertNotIn(0x00387110, ENTRIES.ENTRY_POINTS)
@@ -83,7 +83,7 @@ class TranslationEntries(unittest.TestCase):
             path = Path(temporary) / 'entries.h'
             ENTRIES.emit_check_header(path)
             content, changed = path.read_text(), path.stat().st_mtime_ns
-            self.assertIn('std::array<uint32_t, 194> entries', content)
+            self.assertIn('std::array<uint32_t, 201> entries', content)
             self.assertIn('std::array<uint32_t, 39> zero_return_entries', content)
             for address in ENTRIES.ENTRY_POINTS:
                 self.assertIn(f'0x{address:08x}u,', content)
@@ -214,6 +214,24 @@ class TranslationEntries(unittest.TestCase):
                 self.verify_fixture('g_ps2RecompiledFunctionTable[1] = owner; // 0x167188',
                                     '// Address: 0x167188 - 0x1671a0', omitted=(address,))
 
+    def test_scene_modes_require_exact_entries(self):
+        self.assertEqual(set(ENTRIES.SCENE_MODE_ENTRIES),{0x1b2c60,0x1b2da0,0x1b2e30,0x1b3070,0x1b35b0,0x1b38f0,0x1b3ae0})
+        for address in ENTRIES.SCENE_MODE_ENTRIES:
+            with self.subTest(address=address),self.assertRaisesRegex(ValueError,f'missing guest entry 0x{address:08x}'):
+                self.verify_fixture('g_ps2RecompiledFunctionTable[1] = owner; // 0x167188',
+                                    '// Address: 0x167188 - 0x1671a0',omitted=(address,))
+
+    def test_scene_modes_verify_instructions_and_table_nulls(self):
+        for address,words in ENTRIES.SCENE_MODE_WORDS:
+            for index in (0,len(words)-1):
+                data=self.make_elf_metadata();data[address-0x100000+128+index*4]^=1
+                with self.subTest(address=address,index=index),self.assertRaisesRegex(ValueError,'Scene mode instructions'):
+                    ENTRIES.verify_elf_metadata(data)
+        for index in range(16):
+            data=self.make_elf_metadata();data[0x373a60-0x100000+128+index*4]^=1
+            with self.subTest(slot=index),self.assertRaisesRegex(ValueError,'Indirect methods differ.*00373a60'):
+                ENTRIES.verify_elf_metadata(data)
+
     def test_battle_asset_handlers_both_require_registration(self):
         self.assertEqual(set(ENTRIES.BATTLE_ASSET_ENTRIES),{0x1d21d0,0x1d2100})
         for address in ENTRIES.BATTLE_ASSET_ENTRIES:
@@ -259,7 +277,7 @@ class TranslationEntries(unittest.TestCase):
         for base, entries in (ENTRIES.DISPATCH_TABLES + ENTRIES.FILE_CALLBACK_TABLES
                               + ENTRIES.STREAM_CALLBACK_TABLES + ENTRIES.MEMORY_STREAM_TABLES + ENTRIES.FADE_CALLBACK_TABLES
                               + ENTRIES.MOVIE_CALLBACK_TABLES + ENTRIES.MOVIE_PACKET_TABLES
-                              + ENTRIES.MOVIE_TIMING_TABLES):
+                              + ENTRIES.MOVIE_TIMING_TABLES + ENTRIES.SCENE_MODE_TABLES):
             put(base, entries)
         put(0x00387420, ENTRIES.MOVIE_TIMING_RATES)
         for address in ENTRIES.ZERO_RETURN_ENTRIES:
@@ -272,6 +290,8 @@ class TranslationEntries(unittest.TestCase):
             put(base,slots)
         put(ENTRIES.BATTLE_ASSET_TABLE_BASE,ENTRIES.BATTLE_ASSET_TABLE_WORDS)
         for address,words in ENTRIES.BATTLE_ASSET_WORDS:
+            put(address,words)
+        for address,words in ENTRIES.SCENE_MODE_WORDS:
             put(address,words)
         put(ENTRIES.ASSET_RELOCATION_BASE, ENTRIES.ASSET_RELOCATION_WORDS)
         return data

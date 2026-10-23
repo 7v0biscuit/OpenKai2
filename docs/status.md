@@ -25,6 +25,31 @@ markers. Direct and uncached aliases retain their object-relative addresses.
 Already relocated assets are left unchanged, and caller frames and adjacent
 memory guards are checked. These fixtures do not establish complete matches.
 
+## Scene setup and rendering
+
+The scene-mode table at `0x00373A60` contains seven callbacks shared by its
+sixteen slots. All seven now have explicit translation entries, including
+`0x001B3070`. Their complete instructions, repeated table entries, and reserved
+null slots are verified against the supported executable. Regression fixtures
+execute the original indirect caller in both scene variants, checking record
+creation, animation state, saved registers, and the callback return.
+
+The CPU renderer prepares common unmasked CT32 writes once per primitive.
+Sprites and triangles can use this path with depth writes enabled and
+predecoded blend selectors, including opaque source-over and PABE behavior.
+Alpha/destination tests, framebuffer masks, fog, and other framebuffer formats
+retain the general pixel pipeline. Color/depth write order remains unchanged when
+buffers overlap.
+
+Sixty-four additional fixtures compare complete VRAM and subsequent cached
+texture samples against the previous renderer. Existing serial/parallel,
+filtering, blending, and texture-feedback comparisons remain enabled. Renderer
+microbenchmarks measured 7–16% lower median draw times across twelve indexed
+texture fixtures, using three runs per version. They cover large parallel and
+small serial sprites/triangles with opaque, translucent, and additive blending;
+all resulting VRAM hashes matched. These are individual draw measurements and
+do not establish game frame rates.
+
 ## Interpreter performance
 
 The IOP scheduler now skips periods with no runnable thread or pending event
@@ -66,7 +91,7 @@ can still cause audible gaps; buffering alone cannot restore real-time speed.
 
 ## Validation
 
-The Python suite has 164 tests. Native checks include the original BCM/BSK
+The Python suite has 166 tests. Native checks include the original BCM/BSK
 asset dispatcher, all eleven battle initialization entries, fragmented and bulk
 IOP clocks, delayed wakeups, external RPC delivery, both SPU2 DMA cores, planar
 PCM order, partial blocks, queue boundaries, and concurrent delivery.
