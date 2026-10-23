@@ -9,6 +9,69 @@
 #include <stdexcept>
 
 namespace openkai2 {
+void verify_battle_assets(PS2Runtime& runtime,uint8_t* ram) {
+    auto require=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
+    for(auto entry:translation::battle_asset_entries)
+        require(runtime.hasFunction(entry),"Battle asset relocation callback is missing");
+    for(unsigned i=0;i<translation::battle_asset_table.size();++i)
+        runtime.memory().write32(0x3939e0u+i*4u,translation::battle_asset_table[i]);
+    constexpr uint32_t base=0x0190d9d0u,returned=0x001d5780u,sp=0x01fffea0u;
+    for(unsigned kind=0;kind<2u;++kind)for(unsigned variant=0;variant<3u;++variant)
+        for(uint32_t alias:{base,base|0x20000000u}) {
+        std::memset(ram+base-16u,0xa5,0x840u);
+        std::memset(ram+base,0,0x800u);
+        auto word=[&](unsigned offset,uint32_t value){runtime.memory().write32(base+offset,value);};
+        word(0,kind ? 0x4b534223u : 0x4d434223u); // #BSK / #BCM
+        std::array<uint8_t,0x840u> expected{};
+        if(!kind){
+            word(4,variant ? 3u : 0u);word(8,0x10u);
+            runtime.memory().write16(base+0x10u+0xeu,2u);
+            word(0x50u,0x600u);word(0x54u,0u);
+            runtime.memory().write16(base+0x58u+0xeu,0u);
+            runtime.memory().write16(base+0x98u+0xeu,1u);word(0xd8u,0x700u);
+        }else{
+            word(0x10u,variant ? 3u : 0u);word(0x14u,0x80u);
+            word(0x1cu,variant==2u ? 0u : 0x600u);
+            word(0x80u,0u);word(0x84u,0x100u);word(0x88u,0x240u);
+            word(0x128u,2u);word(0x12cu,0x400u);
+            word(0x268u,0u);word(0x26cu,0u);
+            word(0x400u,0x12345678u);word(0x404u,0x700u);
+            word(0x408u,0x87654321u);word(0x40cu,0u);
+        }
+        std::memcpy(expected.data(),ram+base-16u,expected.size());
+        auto expect=[&](unsigned offset,uint32_t value){std::memcpy(expected.data()+16u+offset,&value,4u);};
+        expected[16u]='!';
+        if(!kind){
+            expect(8,alias+0x10u);
+            if(variant){expect(0x50u,alias+0x600u);expect(0x54u,alias);expect(0xd8u,alias+0x700u);}
+        }else{
+            expect(0x14u,alias+0x80u);if(variant!=2u)expect(0x1cu,alias+0x600u);
+            if(variant){expect(0x84u,alias+0x100u);expect(0x88u,alias+0x240u);
+                expect(0x12cu,alias+0x400u);expect(0x404u,alias+0x700u);}
+        }
+        auto call=[&](){
+            R5900Context c{};c.pc=0x001d65e0u;c.r[4]=_mm_cvtsi32_si128(alias);
+            c.r[28]=_mm_cvtsi32_si128(0x3ac4f0u);c.r[29]=_mm_cvtsi32_si128(sp);
+            c.r[31]=_mm_cvtsi32_si128(returned);
+            for(unsigned i=16u;i<=21u;++i)c.r[i]=_mm_set_epi32(0x4400+i,0x3300+i,0x2200+i,0x1100+i);
+            const auto saved=c;
+            for(unsigned steps=0;steps<1024u && c.pc!=returned;++steps){
+                require(runtime.hasFunction(c.pc),"Battle asset dispatcher reached a missing continuation");
+                runtime.lookupFunction(c.pc)(ram,&c,&runtime);
+            }
+            require(c.pc==returned && getRegU32(&c,29)==sp && getRegU32(&c,28)==0x3ac4f0u,
+                "Battle asset dispatcher did not restore its caller frame");
+            for(unsigned i=16u;i<=21u;++i)require(std::memcmp(&saved.r[i],&c.r[i],16u)==0,
+                "Battle asset dispatcher changed a saved register");
+            return getRegU32(&c,2);
+        };
+        require(call()==1u && std::memcmp(expected.data(),ram+base-16u,expected.size())==0,
+            "Original battle asset dispatcher changed relative pointers, nulls, or memory guards");
+        require(call()==0u && std::memcmp(expected.data(),ram+base-16u,expected.size())==0,
+            "Already relocated battle asset was relocated twice");
+    }
+}
+
 void verify_battle_initialization(PS2Runtime& runtime,uint8_t* ram) {
     constexpr uint32_t init=0x001b2560u,returned=0x001d5780u,sp=0x01ffff70u;
     for(auto address:translation::battle_init_entries)

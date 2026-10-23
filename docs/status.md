@@ -1,86 +1,84 @@
 # Development status
 
-Battle loading progresses beyond the initial startup table but stops at an
-unregistered asset callback,
-`0x001D21D0`, called from `0x001D6698`. The main guest thread becomes dormant
-while the window stays open. Frame rates and audio quality remain poor. The shutdown log records 11,276,128 dropped PCM frames; the audio
-queue fills after the guest thread stops. Complete matches and stable 60 FPS
-remain unverified.
+The runtime reaches the title screen, menus, and versus level selection.
+Battle loading, frame rates, and audio fidelity remain under development.
+Complete matches and stable 60 FPS have not been verified.
 
 The original Budokai 2 USA ISO is required at every game launch. Automated
-component checks cover bounded runtime behavior; full retail gameplay requires
-separate validation.
+checks cover bounded runtime behavior and Windows packaging; full retail
+compatibility requires separate validation.
 
-## Current changes
+## Battle asset loading
 
-All eleven battle startup stages are explicit translation entries. Validation
-checks their original table, the first initializer's complete instructions,
-and exact generated resume points. The regression executes the original
-state copy/clear and logged indirect caller, checking asset argument order,
-return guards, and caller frames. Asset operations are bounded in the fixture;
-a complete retail match still needs confirmation.
+Battle startup uses an eleven-stage initialization table. Its entries are
+registered explicitly, with the original table and initializer instructions
+verified against the supported executable.
 
-SPU2 AutoDMA PCM writes now reach a 48 kHz stereo host stream through raylib's
-miniaudio backend. The Windows build uses the system's playback APIs; no kernel
-driver or additional driver installer is included. Ordinary voice/sample DMA
-is excluded because it can contain compressed data. Partial planar blocks,
-both cores, resets, stream stops, and invalid source ranges are handled.
-The device callback mixes bounded queues without allocating or reading guest
-memory. Full queues discard new frames, and stopping a stream retains samples
-submitted after the stop boundary.
+The subsequent asset dispatcher calls two additional relocation routines:
+BCM animation data at `0x001D21D0` and BSK skeleton data at `0x001D2100`.
+The missing BCM entry previously left the main guest thread dormant after
+stage selection. Both routines now have explicit translation entries.
 
-PCM AutoDMA completion now uses 768 IOP cycles per stereo frame, corresponding
-to 36.864 MHz and 48 kHz. A 1,024-byte transfer takes 196,608 cycles instead of
-the 512-cycle ordinary-transfer delay. This avoids repeatedly waking the audio
-driver much faster than its playback rate. Ordinary voice DMA retains its
-previous transfer timing. Guest EE, timer, and VBlank rates are unchanged.
+Regressions execute the original tag dispatcher, including its nested pointer
+updates, variable record sizes, null pointers, empty records, and completion
+markers. Direct and uncached aliases retain their object-relative addresses.
+Already relocated assets are left unchanged, and caller frames and adjacent
+memory guards are checked. These fixtures do not establish complete matches.
 
-IOP import decoding caches validated table results. RAM page generations
-invalidate cached entries after code/table edits, module replacement, and reset;
-stack writes to unrelated pages retain cache hits. An isolated benchmark of
-100,000 repeated imports measured a median 38.59 ms before and 1.43 ms after,
-with identical results. This is a lookup benchmark, not a game-FPS measurement.
+## Interpreter performance
 
-Triangle rasterization tests four pixel positions at once with SSE, retaining
-scalar interpolation order and shading covered pixels in original order.
-Fog interpolation is skipped when fog is disabled. Forty-eight prior-renderer
-VRAM fixtures still match in serial and parallel, including feedback, stale
-pages, clipping, empty partitions, depth, and dependent texture samples.
-The small-triangle benchmark improved from about 29.64 to 27.86 microseconds
-per draw on the development host. Renderer, import-cache, and audio timing
-improvements do not establish constant 60 FPS in the game.
+The IOP scheduler now skips periods with no runnable thread or pending event
+until the next known wake, timer, DMA, or callback deadline. Operations that can
+wake a thread invalidate that deadline. Fractional EE-to-IOP clock conversion
+and guest interrupt timing remain unchanged.
+
+Instruction fetches are shared between import detection and execution. Thread
+selection combines its wake and priority scans. Diagnostic CPU snapshots and
+import text formatting are deferred until needed instead of being copied or
+formatted at each instruction or import.
+
+An isolated benchmark using two million single-cycle scheduling charges measured
+these median times:
+
+| Workload | Previous | Updated |
+| --- | ---: | ---: |
+| Sleeping IOP threads | 67.67 ms | 9.62 ms |
+| Busy interpreted thread | 97.24 ms | 65.43 ms |
+
+Both versions executed the same guest cycle and instruction counts. These
+measurements cover the interpreter; they are not game-FPS results. Graphics
+still use the CPU renderer, and sustained 60 FPS requires a frame budget of
+about 16.7 ms across the complete runtime.
+
+## Audio
+
+SPU2 AutoDMA PCM reaches a 48 kHz stereo host stream through raylib's miniaudio
+backend. Ordinary compressed voice/sample DMA is excluded from the PCM path.
+A 2,048-frame prefill buffers delivery jitter. Short ramps soften startup,
+starvation, and stream replacement boundaries while retaining sample rate and
+channel order. After queue overflow, the callback discards old buffered latency.
+It does not repeat or time-stretch missing audio.
+
+Diagnostics report underruns, frames without queued input, producer drops, and
+consumer latency trimming. PCM output does not yet provide complete SPU2 voice
+synthesis, volume/effect behavior, or retail audio fidelity. Runtime slowdown
+can still cause audible gaps; buffering alone cannot restore real-time speed.
 
 ## Validation
 
-The Python suite has 161 tests. Linux runtime checks include original game
-callbacks, both SPU2 DMA cores, signed PCM channel order, partial blocks,
-48 kHz completion timing, stop/reset boundaries, queue overflow, 200,000-frame
-concurrent delivery, and import-cache invalidation. Existing checks retain
-12,288 scalar blend comparisons, 48 serial/parallel triangle snapshots,
-64 sprite comparisons, 64 scalar-reference sprite snapshots, and 8,192 scalar
-bilinear samples. Movie, DMA, scheduler, input, and persistent-save checks
-remain enabled and use isolated fixtures.
+The Python suite has 164 tests. Native checks include the original BCM/BSK
+asset dispatcher, all eleven battle initialization entries, fragmented and bulk
+IOP clocks, delayed wakeups, external RPC delivery, both SPU2 DMA cores, planar
+PCM order, partial blocks, queue boundaries, and concurrent delivery.
 
-The audio-device diagnostic delivered 48,000 stereo frames through the Linux
-callback using an ALSA null output. Wine has no usable playback endpoint on
-the development host. Retail Windows testing confirms audible PCM output,
-but its quality is poor. Core volume/effect accuracy, voice synthesis, and
-complete retail audio remain incomplete. Synthetic PCM checks do not establish
-retail audio fidelity or synchronization.
+Renderer checks retain scalar blend comparisons, serial/parallel triangle and
+sprite snapshots, texture filtering, feedback, and depth behavior. Movie, DMA,
+scheduler, input, and persistent-save regressions remain enabled.
 
-The Windows release workflow checks the portable launcher, ZIP, installer,
-installed application's complete self-test, ISO rejection, and uninstall
-before publication. The self-test does not require an audio endpoint.
+The audio-device diagnostic delivered 48,000 stereo frames through a Linux
+callback using an ALSA null output. That validates callback delivery, not
+physical playback fidelity. Windows release checks cover the portable launcher,
+ZIP, installed application's full self-test, ISO rejection, and uninstall.
 
-## Remaining work
-
-Verify progress beyond level selection and a complete match with the original
-ISO. Measure frame times across movies, menus, and matches on supported Windows
-systems. A sustained 60 FPS requires a
-frame budget of about 16.7 ms. The renderer still uses the CPU. Further runtime
-optimization, graphics accuracy, audio fidelity, controller compatibility,
-and newly reached indirect callbacks need validation.
-
-See [Windows build and startup](windows.md) for controls, audio diagnostics,
-requirements, and logs, and [Windows release packaging](releases.md) for
-package verification.
+See [Windows setup and controls](windows.md), [building](building.md), and
+[release packaging](releases.md).

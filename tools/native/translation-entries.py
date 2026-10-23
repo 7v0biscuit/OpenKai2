@@ -211,13 +211,37 @@ BATTLE_INIT_WORDS = (
     0x00852021,0x000420C0,0x00852023,0x00042080,0x00641821,0x8C630000,0xAC233CAC,
     0x00000000,0xDFBF0000,0x03E00008,0x27BD0010,
 )
+# Battle-specific BCM animation and BSK skeleton relocation. The dispatcher
+# at 0x001D65E0 uses 16-byte records, including a null record terminator.
+BATTLE_ASSET_TABLE_BASE = 0x003939E0
+BATTLE_ASSET_TABLE_WORDS = (0x001D21D0,0x004D4342,0x00000000,0x00000000,0x001D2100,0x004B5342,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000)
+BATTLE_ASSET_WORDS = (
+    (0x001D21D0, (
+    0x8C830008,0x00641821,0xAC830008,0x8C830004,0x8C890008,0x0003082A,0x10200019,
+    0x0000402D,0x8525000E,0x0005082A,0x1020000B,0x0000382D,0x0120302D,0x00000000,
+    0x8CC30040,0x24E70001,0x00641821,0xACC30040,0x8525000E,0x00E5182A,0x1460FFF9,
+    0x24C60004,0x24A3FFFF,0x00031880,0x25250044,0x00A34821,0x25080001,0x8C830004,
+    0x0103182A,0x1460FFEA,0x00000000,0x00000000,0x03E00008,0x00000000,
+    )),
+    (0x001D2100, (
+    0x8C830014,0x00641821,0xAC830014,0x8C830010,0x0003082A,0x10200026,0x0000482D,
+    0x0000382D,0x8C830014,0x00671821,0x8C650000,0x10A0001A,0x00855021,0xAC6A0000,
+    0x8D43002C,0x10600016,0x00000000,0x00641821,0xAD43002C,0x8D430028,0x0003082A,
+    0x10200010,0x0000402D,0x0000302D,0x8D43002C,0x00661821,0x24650004,0x8C630004,
+    0x10600003,0x00000000,0x00831821,0xACA30000,0x8D430028,0x25080001,0x0103182A,
+    0x1460FFF4,0x24C60008,0x00000000,0x8C830010,0x25290001,0x0123182A,0x1460FFDE,
+    0x24E70004,0x00000000,0x8C83001C,0x10600004,0x00000000,0x00641821,0xAC83001C,
+    0x00000000,0x03E00008,0x00000000,
+    )),
+)
+BATTLE_ASSET_ENTRIES = tuple(address for address, _ in BATTLE_ASSET_WORDS)
 # Preserve ordering and share the argument-store callback between both groups.
 ENTRY_POINTS = tuple(dict.fromkeys((0x00167188,)
     + tuple(address for _, row in DISPATCH_TABLES for address in row)
     + FILE_CALLBACK_ENTRIES + STREAM_CALLBACK_ENTRIES + MEMORY_STREAM_ENTRIES
     + tuple(address for _, address in TRANSLATED_SDK_ENTRIES)
     + ASSET_RELOCATION_ENTRIES + FADE_CALLBACK_ENTRIES + MOVIE_CALLBACK_ENTRIES
-    + MOVIE_PACKET_ENTRIES + MOVIE_TIMING_ENTRIES + DRAW_SETUP_ENTRIES + (VERSUS_ANIMATION_ENTRY,) + BATTLE_INIT_ENTRIES))
+    + MOVIE_PACKET_ENTRIES + MOVIE_TIMING_ENTRIES + DRAW_SETUP_ENTRIES + (VERSUS_ANIMATION_ENTRY,) + BATTLE_INIT_ENTRIES + BATTLE_ASSET_ENTRIES))
 
 
 def configure(text):
@@ -294,6 +318,11 @@ def verify_elf_metadata(data):
         raise ValueError('Versus animation callback differs from the reviewed instructions')
     if words(BATTLE_INIT_ENTRIES[0],len(BATTLE_INIT_WORDS)) != BATTLE_INIT_WORDS:
         raise ValueError('Battle initialization instructions differ from the reviewed sequence')
+    if words(BATTLE_ASSET_TABLE_BASE,len(BATTLE_ASSET_TABLE_WORDS)) != BATTLE_ASSET_TABLE_WORDS:
+        raise ValueError('Battle asset handlers or tags differ from the reviewed table')
+    for address,expected in BATTLE_ASSET_WORDS:
+        if words(address,len(expected)) != expected:
+            raise ValueError(f'Battle asset relocation instructions differ at 0x{address:08x}')
     if words(ASSET_RELOCATION_BASE, len(ASSET_RELOCATION_WORDS)) != ASSET_RELOCATION_WORDS:
         raise ValueError('Asset relocation handlers or tags differ from the reviewed table')
 
@@ -320,6 +349,8 @@ def emit_check_header(path):
                           ('movie_timing_slots', MOVIE_TIMING_TABLES[0][1]),
                           ('movie_timing_rates', MOVIE_TIMING_RATES),
                           ('draw_setup_entries', DRAW_SETUP_ENTRIES),
+                          ('battle_asset_entries', BATTLE_ASSET_ENTRIES),
+                          ('battle_asset_table', BATTLE_ASSET_TABLE_WORDS),
                           ('battle_init_entries', BATTLE_INIT_ENTRIES),
                           ('battle_init_slots', BATTLE_INIT_TABLES[0][1])):
         lines.append(f'inline constexpr std::array<uint32_t, {len(entries)}> {name} = {{')

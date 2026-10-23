@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "host_audio.h"
 #include "audio_queue.h"
+#include "audio_buffer.h"
 #include "ps2_host_backend.h"
 #include <iostream>
 #include <mutex>
@@ -12,6 +13,7 @@
 namespace openkai2 {
 namespace {
 std::array<StereoAudioQueue,2> queues;
+std::array<StereoAudioPlayback,2> playback;
 std::atomic<const void*> activeOwner{nullptr};
 std::mutex lifecycle;
 AudioStream stream{};
@@ -25,7 +27,8 @@ void fill(void* buffer,unsigned frameCount){
         const auto count=std::min(512u,frameCount-first);
         std::array<int32_t,1024> mixed{};
         auto target=std::span<int32_t>(mixed.data(),count*2u);
-        for(auto& queue:queues)delivered.fetch_add(queue.mix(target),std::memory_order_relaxed);
+        for(unsigned core=0;core<2u;++core)
+            delivered.fetch_add(playback[core].mix(queues[core],target),std::memory_order_relaxed);
         for(unsigned i=0;i<count*2u;++i)out[first*2u+i]=int16_t(std::clamp(mixed[i],-32768,32767));
     }
 }
@@ -36,6 +39,7 @@ void start_host_audio(const void* owner,bool ready){
     if(!ready){std::cerr<<"[audio:output] ready=0 reason=device-initialization\n";return;}
     if(activeOwner.load(std::memory_order_acquire))return;
     for(auto& queue:queues)queue.reset();blocks=0;frames=0;nonzero=0;delivered=0;
+    for(auto& output:playback)output.reset();
     SetAudioStreamBufferSizeDefault(1024);
     stream=LoadAudioStream(48000,16,2);
     if(!IsAudioStreamValid(stream)){
@@ -43,7 +47,8 @@ void start_host_audio(const void* owner,bool ready){
     }
     SetAudioStreamCallback(stream,fill);PlayAudioStream(stream);
     activeOwner.store(owner,std::memory_order_release);
-    std::cerr<<"[audio:output] ready=1 rate=48000 channels=2 backend=raylib-miniaudio\n";
+    std::cerr<<"[audio:output] ready=1 rate=48000 channels=2 prefill_frames="<<StereoAudioPlayback::prefill
+        <<" backend=raylib-miniaudio\n";
 }
 void stop_host_audio(const void* owner){
     std::lock_guard lock(lifecycle);
@@ -52,7 +57,9 @@ void stop_host_audio(const void* owner){
     StopAudioStream(stream);UnloadAudioStream(stream);stream={};
     std::cerr<<"[audio:output] blocks="<<blocks<<" frames="<<frames<<" nonzero_samples="<<nonzero
         <<" delivered_frames="<<delivered
-        <<" dropped_frames="<<queues[0].dropped()+queues[1].dropped()<<'\n';
+        <<" dropped_frames="<<queues[0].dropped()+queues[1].dropped()
+        <<" underruns="<<playback[0].underruns()+playback[1].underruns()
+        <<" trimmed_frames="<<playback[0].trimmedFrames()+playback[1].trimmedFrames()<<'\n';
 }
 void submit_host_audio(const void* owner,unsigned core,std::span<const int16_t> samples,uint32_t rate){
     if(rate!=48000u || core>=2u || activeOwner.load(std::memory_order_acquire)!=owner)return;
@@ -62,7 +69,9 @@ void submit_host_audio(const void* owner,unsigned core,std::span<const int16_t> 
     if(count<=2u || (count&(count-1u))==0u)
         std::cerr<<"[audio:pcm] blocks="<<blocks<<" core="<<core<<" frames="<<frames
             <<" nonzero_samples="<<nonzero<<" queued="<<queues[core].queued()
-            <<" dropped="<<queues[core].dropped()<<'\n';
+            <<" dropped="<<queues[core].dropped()<<" underruns="<<playback[core].underruns()
+            <<" silent_frames="<<playback[core].silentFrames()
+            <<" trimmed_frames="<<playback[core].trimmedFrames()<<'\n';
 }
 int test_host_audio(){
     InitAudioDevice();

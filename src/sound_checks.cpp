@@ -4,6 +4,7 @@
 #include "emulator/core/iop_memory.h"
 #include "emulator/imports/iop_imports.h"
 #include "audio_queue.h"
+#include "audio_buffer.h"
 #include <array>
 #include <cstring>
 #include <memory>
@@ -138,6 +139,50 @@ void verify_sound_registers() {
     std::array<int32_t,8> afterStop{};
     require(queue->mix(afterStop)==2u && afterStop[0]==5 && afterStop[3]==8,
         "Audio stop discarded new samples or retained the stopped stream");
+
+    auto playback=std::make_unique<StereoAudioPlayback>();queue->reset();
+    std::vector<int16_t> buffered(StereoAudioPlayback::prefill*2u);
+    for(unsigned i=0;i<StereoAudioPlayback::prefill;++i){buffered[i*2u]=12000;buffered[i*2u+1u]=-12000;}
+    queue->push(std::span<const int16_t>(buffered.data(),buffered.size()-2u));
+    std::array<int32_t,512> rendered{};
+    require(playback->mix(*queue,rendered)==0u && queue->available()==StereoAudioPlayback::prefill-1u
+        && std::all_of(rendered.begin(),rendered.end(),[](int32_t v){return v==0;}),
+        "Audio prefill consumed a short jitter burst");
+    queue->push(std::span<const int16_t>(buffered.data(),2u));
+    require(playback->mix(*queue,rendered)==256u,"Audio did not start after its prefill");
+    for(unsigned i=0;i<256u;++i){const int expected=12000*int(std::min(i+1u,128u))/128;
+        require(rendered[i*2u]==expected && rendered[i*2u+1u]==-expected,
+            "Audio startup ramp changed stereo sign or full-level samples");}
+    // Once primed, every continuous sample retains its value and order.
+    std::vector<int32_t> remaining((StereoAudioPlayback::prefill-256u)*2u);
+    require(playback->mix(*queue,remaining)==remaining.size()/2u && remaining.front()==12000
+        && remaining.back()==-12000,"Buffered continuous audio changed pitch or channel order");
+    rendered={};require(playback->mix(*queue,rendered)==0u && playback->underruns()==1u,
+        "Audio starvation did not enter its rebuffer state");
+    for(unsigned i=0;i<256u;++i){const int expected=i<128u ? 12000*int(127u-i)/128 : 0;
+        require(rendered[i*2u]==expected && rendered[i*2u+1u]==-expected,
+            "Audio gap was not ramped to silence");}
+    rendered={};playback->mix(*queue,rendered);
+    require(playback->underruns()==1u && rendered[0]==0,"An empty stream repeated stale samples");
+    // Stop and a replacement stream must retain the new stream, fading across
+    // the boundary instead of playing the stopped stream's queued backlog.
+    queue->push(buffered);rendered={};playback->mix(*queue,rendered);
+    queue->discardPending();std::fill(buffered.begin(),buffered.end(),4000);queue->push(buffered);
+    rendered={};require(playback->mix(*queue,rendered)==256u,"Audio stop lost the replacement stream");
+    require(rendered[0]==12000*127/128+4000/128 && rendered[1]==-12000*127/128+4000/128
+        && rendered[254]==4000 && rendered[255]==4000,
+        "Audio stream replacement did not crossfade to its new samples");
+    // Consumer-only trimming after overflow bounds stale playback latency.
+    queue->reset();playback->reset();
+    std::vector<int16_t> overflow((StereoAudioQueue::capacity+2u)*2u);
+    for(unsigned i=0;i<StereoAudioQueue::capacity+2u;++i){overflow[i*2u]=int16_t(i%30000u);overflow[i*2u+1u]=-overflow[i*2u];}
+    queue->push(overflow);rendered={};playback->mix(*queue,rendered);
+    require(playback->trimmedFrames()==StereoAudioQueue::capacity-4096u
+        && queue->available()==4096u-256u && queue->dropped()==2u,
+        "Audio overflow retained unbounded stale latency");
+    const auto retained=StereoAudioQueue::capacity-4096u+128u;
+    require(rendered[256]==int32_t(retained%30000u) && rendered[257]==-rendered[256],
+        "Audio overflow trimming changed the retained stereo sequence");
 
     // Import-cache hits must observe code edits, table edits, aliases and reset.
     memory.reset();IopImportRegistry imports(memory);

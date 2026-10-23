@@ -204,5 +204,34 @@ void verify_iop_module_startup() {
             "Module startup fast-forwarded a delayed worker's wake deadline");
     iop.runEeCycles(4'000'000u);
     require(iop.canBindRpc(0x11u),"Delayed startup worker did not register after its real wake deadline");
+    // Clock fragmentation must not skip a delayed wake or invent instructions
+    // during idle time. Compare a large charge with sub-IOP-cycle charges.
+    CheckHost bulkHost,fragmentedHost;
+    make_startup_image(bulkHost,false,true);make_startup_image(fragmentedHost,false,true);
+    IopSubsystem bulk(bulkHost),fragmented(fragmentedHost);
+    require(bulk.loadModuleBuffer(0x100u).moduleId>0 && fragmented.loadModuleBuffer(0x100u).moduleId>0,
+        "Cannot load idle-clock fixtures");
+    const auto before=fragmented.debugSnapshot();
+    for(unsigned i=0;i<10000u;++i)fragmented.runEeCycles(7u);
+    const auto idle=fragmented.debugSnapshot();
+    require(idle.emulatorCycles==before.emulatorCycles+8750u
+        && idle.emulatorInstructions==before.emulatorInstructions && !fragmented.canBindRpc(0x11u),
+        "Idle clock skipped a wake deadline or executed a sleeping thread");
+    constexpr uint64_t total=3200003u;
+    uint64_t charged=70000u;
+    while(charged+7u<=total){fragmented.runEeCycles(7u);charged+=7u;}
+    fragmented.runEeCycles(total-charged);bulk.runEeCycles(total);
+    auto a=bulk.debugSnapshot(),b=fragmented.debugSnapshot();
+    require(bulk.canBindRpc(0x11u) && fragmented.canBindRpc(0x11u)
+        && a.emulatorCycles==b.emulatorCycles && a.emulatorInstructions==b.emulatorInstructions,
+        "Fragmented IOP clock changed delayed worker scheduling");
+    bulk.runEeCycles(5u);fragmented.runEeCycles(5u);
+    require(bulk.debugSnapshot().emulatorCycles==a.emulatorCycles+1u
+        && fragmented.debugSnapshot().emulatorCycles==b.emulatorCycles+1u,
+        "Idle fast path lost fractional EE-to-IOP cycles");
+    request.function=41;answer=0;
+    require(fragmented.handleRpc(request).handled && fragmentedHost.readGuest(0x3000u,&answer,4u) && answer==42u,
+        "An idle IOP did not service an external RPC request");
+
 }
 } // namespace openkai2

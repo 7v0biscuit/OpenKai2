@@ -10,6 +10,10 @@ import subprocess
 import tempfile
 
 EXPECTED = {
+    'ps2xIOP/src/emulator/core/iop_cpu.cpp':
+        'c9742864bee0bb3c29f1d18b5a25b73fa376bd3c066a8ca850c65db2bfa83dae',
+    'ps2xIOP/src/emulator/core/iop_cpu.h':
+        'eaf4ea244cb1650eaf0bb82f6c5c3f2895ee88e6d09a38d91f74f9dceb93291c',
     'ps2xIOP/src/emulator/imports/iop_imports.cpp':
         'e724e0bbfa64fa639aa6d72519edcf3c2ac94d0d1430d13160378869ad73924b',
     'ps2xIOP/src/emulator/imports/iop_imports.h':
@@ -125,7 +129,7 @@ def main():
                       patches / 'asynchronous-presentation.patch', patches / 'input-observation.patch', patches / 'texture-pages.patch',
                       patches / 'empty-dma-completion.patch', patches / 'parallel-sprites.patch', patches / 'guest-progress.patch',
                       patches / 'interrupt-critical-sections.patch', patches / 'sprite-formats.patch',
-                      patches / 'pixel-blending.patch', patches / 'spu2-pcm-output.patch', patches / 'iop-import-cache.patch', patches / 'small-triangles.patch'):
+                      patches / 'pixel-blending.patch', patches / 'spu2-pcm-output.patch', patches / 'iop-import-cache.patch', patches / 'small-triangles.patch', patches / 'iop-execution.patch'):
             apply_overlay_patch(temporary, patch)
         for source in temporary.rglob('*'):
             if source.is_file():

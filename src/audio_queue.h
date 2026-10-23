@@ -32,7 +32,24 @@ public:
             output[i*2u]+=samples_[at];output[i*2u+1u]+=samples_[at+1u];}
         read_.store(read+frames,std::memory_order_release);return size_t(frames);
     }
-    uint64_t queued()const{return written_.load(std::memory_order_acquire)-read_.load(std::memory_order_acquire);}
+    uint64_t queued()const{
+        const auto read=read_.load(std::memory_order_acquire);
+        const auto write=written_.load(std::memory_order_acquire);
+        return write>=read ? write-read : 0u;
+    }
+    // Consumer-only operations: honor the stop boundary before checking a
+    // prefill or dropping old latency. Only the callback advances the reader.
+    uint64_t available()const{
+        const auto read=std::max(read_.load(std::memory_order_relaxed),stopBoundary());
+        return written_.load(std::memory_order_acquire)-read;
+    }
+    uint64_t stopBoundary()const{return discardBefore_.load(std::memory_order_acquire);}
+    uint64_t trimPending(uint64_t keep){
+        const auto read=std::max(read_.load(std::memory_order_relaxed),stopBoundary());
+        const auto write=written_.load(std::memory_order_acquire);
+        const auto skipped=write-read>keep ? write-read-keep : 0u;
+        read_.store(read+skipped,std::memory_order_release);return skipped;
+    }
     uint64_t dropped()const{return dropped_.load(std::memory_order_relaxed);}
 private:
     std::array<int16_t,capacity*2u> samples_{};
