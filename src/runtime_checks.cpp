@@ -6,6 +6,8 @@
 #include "callback_checks.h"
 #include "thread_checks.h"
 #include "stream_checks.h"
+#include "save_checks.h"
+#include "host_input.h"
 #include "sound_transfer_checks.h"
 #include "asset_checks.h"
 #include "fade_checks.h"
@@ -288,6 +290,7 @@ void verify_file_callbacks(PS2Runtime& runtime,uint8_t* memory) {
 int run_runtime_checks() {
     verify_interlaced_presentation();
     std::cout << "Runtime field stability regression passed: stationary alternating fields, scanline interpolation, and edge clamping.\n";
+    std::cout << "Runtime sprite pipeline regression passed: 64 scalar-reference VRAM snapshots, filtering, depth, masks, blending, and feedback.\n";
     std::cout << "Runtime sprite coordinate regression passed: fractional logo edges, fixed-point UVs, scaling, and exclusive boundaries.\n";
     std::cout << "Runtime interlaced presentation regression passed: half-height display, adjacent buffers, both circuits, origins, fades, and field parity.\n";
     verify_thread_bootstrap();
@@ -320,6 +323,10 @@ int run_runtime_checks() {
     if (!runtime.memory().initialize()) throw std::runtime_error("Cannot allocate regression-test guest memory");
     auto* memory=runtime.memory().getRDRAM();
     verify_stream_callbacks(runtime,memory);
+    verify_host_input();
+    std::cout << "Runtime input regression passed: short taps, held buttons, release, analog state, reset, and independent ports.\n";
+    verify_save_creation();
+    std::cout << "Runtime save regression passed: original directory and file callbacks, persistent payload, SDK restart, readback, and memory guards.\n";
     std::cout << "Runtime stream callback regression passed: nine methods, ring wraparound, and compiled cleanup caller.\n";
     std::cout << "Runtime movie cleanup regression passed: original teardown continuation, nine memory-stream methods, destruction, bounds, source counts, and error callbacks.\n";
     verify_sound_transfer(runtime,memory);

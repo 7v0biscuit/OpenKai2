@@ -59,6 +59,8 @@ function(openkai2_attach_generated_sources)
         "${project_root}/tools/native/patches/mpeg-native-scheduling.patch"
         "${project_root}/tools/native/patches/movie-performance-diagnostics.patch"
         "${project_root}/tools/native/patches/sprite-sampling.patch"
+        "${project_root}/tools/native/patches/sprite-throughput.patch"
+        "${project_root}/tools/native/patches/host-input.patch"
         "${project_root}/tools/native/prepare-overlays.py")
     get_target_property(iop_sources ps2_iop SOURCES)
     set(overlay_iop_sources "")
@@ -101,7 +103,7 @@ function(openkai2_attach_generated_sources)
     set(overlay_runtime_sources "")
     set(thread_overlay_count 0)
     foreach(source IN LISTS runtime_sources)
-        if(source MATCHES "(^|/)src/lib/(ps2_memory|ps2_runtime)\\.cpp$")
+        if(source MATCHES "(^|/)src/lib/(ps2_memory|ps2_runtime|ps2_pad)\\.cpp$")
             get_filename_component(runtime_file "${source}" NAME)
             set(source "${overlay_dir}/runtime/${runtime_file}")
         endif()
@@ -125,6 +127,13 @@ function(openkai2_attach_generated_sources)
     target_include_directories(ps2_runtime PRIVATE "${CMAKE_SOURCE_DIR}/ps2xRuntime/src/lib/Kernel/Stubs")
     target_link_libraries(ps2_runtime PRIVATE openkai2_disc)
     add_library(openkai2_thread_checks STATIC "${project_root}/src/thread_checks.cpp")
+    target_sources(openkai2_thread_checks PRIVATE "${project_root}/src/save_checks.cpp"
+        "${project_root}/src/host_input_checks.cpp")
+    add_executable(openkai2_input_tests "${project_root}/tests/host_input_tests.cpp"
+        "${project_root}/src/host_input_checks.cpp")
+    target_include_directories(openkai2_input_tests PRIVATE "${project_root}/src")
+    target_compile_features(openkai2_input_tests PRIVATE cxx_std_17)
+    add_test(NAME host_input COMMAND openkai2_input_tests)
     target_include_directories(openkai2_thread_checks PUBLIC "${project_root}/src")
     target_link_libraries(openkai2_thread_checks PUBLIC ps2_runtime)
     add_executable(openkai2_thread_tests "${project_root}/tests/thread_bootstrap_tests.cpp"
@@ -206,12 +215,18 @@ function(openkai2_attach_generated_sources)
         INCLUDE_DIRECTORIES "${CMAKE_BINARY_DIR}")
     target_include_directories(ps2EntryRunner BEFORE PRIVATE
         "$ENV{OPENKAI2_WORK_DIR}/budokai2-native/output")
-    # Initial execution diagnosis: keep the very large generated translation
-    # inexpensive to compile while retaining the upstream runtime's optimization.
+    # Optimize translated game code in development packages as well as release
+    # builds. Keep the oversized translation separate to bound compiler
+    # memory use; ordinary game and SDK routines retain full optimization.
+    set(large_translation "$ENV{OPENKAI2_WORK_DIR}/budokai2-native/output/sub_002C2824_0x2c2824.cpp")
     if(MSVC)
-        target_compile_options(ps2EntryRunner PRIVATE /Od /bigobj)
+        target_compile_options(ps2EntryRunner PRIVATE /O2 /bigobj)
+        set_source_files_properties("${large_translation}" TARGET_DIRECTORY ps2EntryRunner
+            PROPERTIES COMPILE_OPTIONS /Od SKIP_UNITY_BUILD_INCLUSION TRUE)
     else()
-        target_compile_options(ps2EntryRunner PRIVATE -O0 -g0)
+        target_compile_options(ps2EntryRunner PRIVATE -O2 -g0 -fno-strict-aliasing -fwrapv)
+        set_source_files_properties("${large_translation}" TARGET_DIRECTORY ps2EntryRunner
+            PROPERTIES COMPILE_OPTIONS -O0 SKIP_UNITY_BUILD_INCLUSION TRUE)
     endif()
     get_target_property(runner_pch ps2EntryRunner PRECOMPILE_HEADERS)
     if(NOT runner_pch)

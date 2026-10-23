@@ -48,11 +48,13 @@ def main():
         source = Path(command[command.index('-c') + 1])
         if not source.is_absolute():
             source = BUILD / source
-        if source.name.startswith('unity_') and source.is_file():
+        if source.name == 'sub_002C2824_0x2c2824.cpp':
+            large.append(command)
+        elif source.name.startswith('unity_') and source.is_file():
             if 'sub_002C2824_0x2c2824.cpp' in source.read_text():
                 large.append(command)
     if len(large) != 1:
-        raise RuntimeError('Expected exactly one unity unit containing the oversized translation')
+        raise RuntimeError('Expected exactly one compile unit containing the oversized translation')
     original = large[0]
     old_object = original[original.index('-o') + 1]
     links = [command for command in commands

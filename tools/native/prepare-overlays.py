@@ -10,6 +10,8 @@ import subprocess
 import tempfile
 
 EXPECTED = {
+    'ps2xRuntime/src/lib/ps2_pad.cpp':
+        'ad7767253d4e56abbfab3bb3869b38c6d10293914a0b1f6652685cc49383fd49',
     'ps2xRuntime/src/lib/Kernel/Stubs/MPEG.cpp':
         'add74172d55a5c00ec4a5bdd1a45e0768fb8b72588f2fce853b6081ca5c3bd9f',
     'ps2xRuntime/src/lib/Kernel/Stubs/MPEG.h':
@@ -78,6 +80,7 @@ def main():
         (temporary / 'runtime').mkdir()
         shutil.copy2(args.upstream / 'ps2xRuntime/src/lib/ps2_memory.cpp', temporary / 'runtime/ps2_memory.cpp')
         shutil.copy2(args.upstream / 'ps2xRuntime/src/lib/ps2_runtime.cpp', temporary / 'runtime/ps2_runtime.cpp')
+        shutil.copy2(args.upstream / 'ps2xRuntime/src/lib/ps2_pad.cpp', temporary / 'runtime/ps2_pad.cpp')
         (temporary / 'runtime/gs').mkdir()
         shutil.copy2(args.upstream / 'ps2xRuntime/src/lib/gs/gs_cpu_backend.cpp', temporary / 'runtime/gs/gs_cpu_backend.cpp')
         shutil.copytree(args.upstream / 'ps2xRuntime/src/lib/Kernel/Stubs', temporary / 'Kernel/Stubs')
@@ -93,7 +96,8 @@ def main():
                       patches / 'graphics-diagnostics.patch', patches / 'interlaced-display.patch',
                       patches / 'sprite-coordinates.patch', patches / 'field-presentation.patch',
                       patches / 'mpeg-ipu-input.patch', patches / 'mpeg-native-scheduling.patch',
-                      patches / 'movie-performance-diagnostics.patch', patches / 'sprite-sampling.patch'):
+                      patches / 'movie-performance-diagnostics.patch', patches / 'sprite-sampling.patch',
+                      patches / 'sprite-throughput.patch', patches / 'host-input.patch'):
             apply_overlay_patch(temporary, patch)
         for source in temporary.rglob('*'):
             if source.is_file():

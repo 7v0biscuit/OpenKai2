@@ -175,7 +175,7 @@ void verify_startup_diagnostics() {
     diagnostics.report("bounded",1,large,{},bounded);
     const auto limited=bounded.str();
     require(limited.find("[startup:truncated] threads=24 semaphores=14 events=4")!=std::string::npos
-            && std::count(limited.begin(),limited.end(),'\n')==50,
+            && std::count(limited.begin(),limited.end(),'\n')==53,
             "Large startup snapshot did not respect record limits");
 }
 }

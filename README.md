@@ -7,7 +7,8 @@ A native PC recompilation project for **Dragon Ball Z: Budokai 2**, built with
 [PS2Recomp](https://github.com/ran-j/PS2Recomp).
 
 **Early development.** Startup requires your original USA game ISO and verifies
-its files before execution. Title-screen boot and gameplay are not yet verified. See the
+its files before execution. retail testing reaches the title screen; saving, performance, and gameplay remain
+under development. See the
 [development status](docs/status.md) for current limitations.
 
 ## Windows downloads

@@ -1,6 +1,7 @@
 # Windows build and startup
 
-OpenKai2 is in development. Title-screen boot and gameplay have not been verified.
+OpenKai2 is in development. retail testing reaches the title screen. Saving,
+performance, and gameplay still need validation.
 
 ## Downloads
 
@@ -19,6 +20,19 @@ The downloads need Windows 10/11 x64, an SSE4.1-capable CPU, and your original
 USA ISO. Python and Visual Studio are needed only for building from source.
 Development downloads are unsigned. Verify their SHA-256 values against the
 release's `SHA256SUMS.txt`.
+
+## Controls and saving
+
+Use arrows or WASD to move, **X or Space for Cross/confirm**, C for Circle/cancel,
+and Enter for Start. A compatible gamepad uses its lower face button for Cross.
+Enter does not replace Cross in confirmation dialogs. Short taps are retained
+until the game polls input, including when game frames are slow.
+
+Memory-card files are stored in the disc cache's `mc0` directory. Preserve this
+directory when troubleshooting; the runtime self-test uses a separate temporary
+card. The `[startup:save]` log record shows the active save root and last command.
+The renderer currently runs on the CPU; a supported GPU does not establish a
+particular game frame rate.
 
 ## Build requirements
 

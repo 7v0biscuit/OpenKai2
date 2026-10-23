@@ -87,6 +87,10 @@ def main():
             raise RuntimeError('Compiled sound transfer regression did not pass.')
         if 'Runtime stream callback regression passed' not in self_test:
             raise RuntimeError('Compiled stream interface regression did not pass.')
+        for marker in ('Runtime input regression passed', 'Runtime save regression passed',
+                       'Runtime sprite pipeline regression passed'):
+            if marker not in self_test:
+                raise RuntimeError('Installed application did not pass ' + marker)
         if 'Runtime movie cleanup regression passed' not in self_test:
             raise RuntimeError('Original movie teardown and memory-stream interface regression did not pass.')
         if 'Runtime thread bootstrap regression passed' not in self_test:

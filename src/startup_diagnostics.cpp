@@ -4,6 +4,8 @@
 #include "runtime/ee_scheduler.h"
 #include "runtime/gs/gs_frontend.h"
 #include "runtime/ps2_address.h"
+#include "Kernel/Stubs/Pad.h"
+#include "Kernel/Stubs/MemoryCard.h"
 #include <algorithm>
 #include <chrono>
 #include <cstring>
@@ -318,6 +320,16 @@ void StartupDiagnostics::report(const char* reason,uint64_t elapsed_ms,const EeK
         text << "[startup:truncated] threads=" << state.threads.size()-std::min(limit,state.threads.size())
              << " semaphores=" << state.semaphores.size()-std::min(limit,state.semaphores.size())
              << " events=" << state.eventFlags.size()-std::min(limit,state.eventFlags.size()) << '\n';
+    const auto card=ps2_stubs::getMemoryCardDebugSnapshot();
+    const auto input=ps2_stubs::getPadDebugSnapshot();
+    text << "[startup:save] command=" << card.lastCmd << " result=" << card.lastResult
+         << " open_files=" << card.openFiles.size() << " root=" << card.ports[0].rootPath.string() << '\n';
+    for (unsigned i=0;i<2u;++i) {
+        const auto& pad=input.ports[i][0];
+        text << "[startup:pad] port=" << i << " open=" << pad.open << " reads=" << pad.readCount
+             << " ok=" << pad.lastReadOk << " backend=" << pad.lastUsedBackend
+             << " buttons=0x" << std::hex << pad.lastButtons << std::dec << '\n';
+    }
     out << text.str() << std::flush;
 }
 }

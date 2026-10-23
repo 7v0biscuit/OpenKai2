@@ -149,8 +149,90 @@ void check_bilinear_samples() {
         }
     }
 }
+uint64_t sprite_pipeline_hash(unsigned variant) {
+    std::vector<uint8_t> vram(4u*1024u*1024u);
+    GSCpuBackend backend;backend.Initialize(vram.data(),uint32_t(vram.size()));
+    GSPrimitiveBatch batch{};batch.vertexCount=2;auto& state=batch.state;
+    state.prim.type=GS_PRIM_SPRITE;state.prim.tme=variant<32u;state.prim.fst=true;
+    state.linearFilter=(variant&1u)!=0u;state.colclamp=1u;
+    auto& ctx=state.context;
+    ctx.frame.fbp=56u;ctx.frame.fbw=8u;ctx.zbuf.zbp=120u;
+    ctx.zbuf.psm=GS_PSM_Z32;ctx.zbuf.zmask=true;ctx.test=0x30000u;
+    ctx.scissor={0u,127u,0u,63u};ctx.tex0.tbp0=4096u;ctx.tex0.tbw=2u;
+    ctx.tex0.psm=GS_PSM_CT32;ctx.tex0.tfx=1u;ctx.tex0.tcc=true;
+    state.textureWidth=128u;state.textureHeight=64u;
+    switch ((variant/2u)%16u) {
+    case 1: state.prim.abe=true;ctx.alpha=0u;break; // Identity blend.
+    case 2: state.prim.abe=true;ctx.alpha=0x44u;break;
+    case 3: ctx.test|=1u|(5u<<1u)|(100u<<4u);break;
+    case 4: ctx.fba=1u;break;
+    case 5: ctx.frame.fbmsk=0x00ff00ffu;break;
+    case 6: ctx.test|=1u<<14u;break;
+    case 7: state.prim.fge=true;state.fogR=71;state.fogG=83;state.fogB=97;break;
+    case 8: ctx.test=0x50000u;break; // GE depth comparison.
+    case 9: ctx.test=0x70000u;ctx.zbuf.psm=GS_PSM_Z16;break;
+    case 10: ctx.test=0x10000u;break; // Never pass depth.
+    case 11: ctx.frame.psm=GS_PSM_CT24;break;
+    case 12: ctx.zbuf.zmask=false;ctx.tex0.tfx=0u;ctx.tex0.tcc=false;break;
+    case 13: ctx.tex0.tbp0=4097u;ctx.tex0.psm=GS_PSM_CT24;state.texa.ta0=73u;break;
+    case 14: ctx.clamp=3u|(3u<<2u)|(63ull<<4u)|(31ull<<24u);break;
+    case 15: ctx.tex0.tbp0=56u*32u;break; // Framebuffer/texture feedback.
+    }
+    for (unsigned y=0;y<64u;++y) for (unsigned x=0;x<128u;++x) {
+        backend.WriteVram(ctx.frame.psm,56u*32u,8u,x,y,0x80907050u);
+        backend.WriteVram(ctx.zbuf.psm,120u*32u,8u,x,y,(x+3u*y)%13u);
+    }
+    for (unsigned y=0;y<64u;++y) for (unsigned x=0;x<128u;++x)
+        backend.WriteVram(ctx.tex0.psm,ctx.tex0.tbp0,2u,x,y,
+                          pattern(x,y)|(((x*13u+y*17u)&255u)<<24u));
+    for (auto& vertex:batch.vertices) {
+        vertex.r=113u;vertex.g=128u;vertex.b=157u;vertex.a=117u;vertex.z=7.0;vertex.fog=173u;
+    }
+    batch.vertices[1].x=128.0f;batch.vertices[1].y=64.0f;
+    batch.vertices[0].u=batch.vertices[0].v=8u;
+    batch.vertices[1].u=128u*16u+8u;batch.vertices[1].v=64u*16u+8u;
+    backend.Submit(batch);
+    // Change VRAM without TEXFLUSH, then cross cache-page and wrap boundaries.
+    for (unsigned i=0;i<8u;++i)
+        backend.WriteVram(ctx.tex0.psm,ctx.tex0.tbp0,2u,(i*23u)%128u,(i*11u)%64u,0x8071e219u+i);
+    batch.vertices[0].x=-0.4375f;batch.vertices[0].y=-0.5f;
+    batch.vertices[1].x=127.5625f;batch.vertices[1].y=63.5f;
+    batch.vertices[0].u=batch.vertices[0].v=12u;
+    batch.vertices[1].u=128u*16u+12u;batch.vertices[1].v=64u*16u+12u;
+    backend.Submit(batch);
+    std::vector<uint8_t> snapshot;backend.SnapshotVram(snapshot);
+    uint64_t hash=14695981039346656037ull;
+    for (const auto byte:snapshot) hash=(hash^byte)*1099511628211ull;
+    return hash;
+}
+void check_sprite_pipeline() {
+    // Complete VRAM snapshots from the preceding scalar renderer (9ce860a),
+    // covering fast-path eligibility, depth, masks, blending, cache feedback,
+    // texel centers, fractional coordinates, page crossings, and wrapping.
+    constexpr uint64_t expected[]={
+        0x6dc38cd12c2caad7ull,0xcf069afb661d0adcull,0x6dc38cd12c2caad7ull,0xcf069afb661d0adcull,
+        0x857be7086093fbabull,0xea10bbc36f895c34ull,0x3d61446891bed2ebull,0x12cb6605727376eeull,
+        0xc2ce7e9c69963cd7ull,0x457554df6d8d99dcull,0x8559df93d60219abull,0x53f7605ef8367699ull,
+        0x17f842cb6011516bull,0x17f842cb6011516bull,0x39ee0c2e0e151e26ull,0x16160cfaf892fe8bull,
+        0x18f25febae5bae99ull,0x7e267d573a1996a9ull,0x380d895b49eaef1ull,0xb45343935ef19b64ull,
+        0x17f842cb6011516bull,0x17f842cb6011516bull,0x297dfb1a7080b807ull,0xae00998d530ac954ull,
+        0x507d2e152a052adbull,0xfa945c21c5edffd5ull,0xf3a984d05277286eull,0x19841978e4c96f1dull,
+        0x2f0d963bb31c9f6bull,0x23ae255a451a432bull,0xb537da85ac144ef6ull,0xbfa7d80952b681faull,
+        0xb932e97fd271d16bull,0xb932e97fd271d16bull,0xb932e97fd271d16bull,0xb932e97fd271d16bull,
+        0xbe2519791586d16bull,0xbe2519791586d16bull,0xb932e97fd271d16bull,0xb932e97fd271d16bull,
+        0x5cfe48847971d16bull,0x5cfe48847971d16bull,0x1659a20f1cd4516bull,0x1659a20f1cd4516bull,
+        0x17f842cb6011516bull,0x17f842cb6011516bull,0x110770923c81516bull,0x110770923c81516bull,
+        0x759ad5731756db43ull,0x759ad5731756db43ull,0x977b47e89f242bf8ull,0x977b47e89f242bf8ull,
+        0x17f842cb6011516bull,0x17f842cb6011516bull,0xe339880c2f93516bull,0xe339880c2f93516bull,
+        0xc59521f0e3d4278dull,0xc59521f0e3d4278dull,0x1cd95a6689b25b72ull,0x1cd95a6689b25b72ull,
+        0xb932e97fd271d16bull,0xb932e97fd271d16bull,0x8592208c19cf993cull,0x8592208c19cf993cull,
+    };
+    for (unsigned i=0;i<64u;++i)
+        require(sprite_pipeline_hash(i)==expected[i],"sprite optimization changed VRAM or texture-cache behavior");
+}
 }
 void verify_interlaced_presentation() {
+    check_sprite_pipeline();
     check_sprite_coordinates();
     check_bilinear_samples();
     check_field_stability();
