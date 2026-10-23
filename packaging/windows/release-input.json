@@ -1,7 +1,7 @@
 {
-  "version": "0.1.3-battle-commands-depth-culling",
-  "title": "Battle commands and depth culling",
-  "bundle_sha256": "833325577ba0213a7437c1e719dff3d1990ac55e42182dbd8cace827e9f931b8",
-  "bundle_source_revision": "b0edf1fe9f66001dc6d5af645ec000e861cf3428",
-  "input_commit": "e5b666358f3824b19eac8e4abbfc6928b9b0ab27"
+  "version": "0.1.4-aura-updates-palette-sampling",
+  "title": "Aura updates and palette sampling",
+  "bundle_sha256": "d22bc7c8242e873d16fe7b32e00447420ab661bf16a1a7b67cd3c013c754a571",
+  "bundle_source_revision": "c2422d9c68738838921ae73773d0a0fe2f6cb047",
+  "input_commit": "a26cc4d5538e39899c0a2157e81c7ec9b172fadf"
 }
