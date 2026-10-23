@@ -40,6 +40,19 @@ animation state, saved registers, source parameters, and stack guards. Model
 and sound dependencies are bounded by test recorders; these checks do not
 establish complete battle compatibility.
 
+## Aura updates
+
+Both character aura tables have explicit translation entries for all six
+methods, including `0x00211FC0`. Their original slots, reserved nulls, complete
+instructions, and return delay slots are verified against the supported
+executable. This addresses a missing indirect call during battle setup.
+
+The original primary and secondary selectors run in 576 bounded cases covering
+both characters, inactive primary and secondary objects, short and full matrix
+copies, scale and progress fields, special states, completion, saved registers,
+and stack guards. Model submission is recorded by a test dependency; the
+fixtures stop at the real callback return before unrelated asset processing.
+
 ## Scene setup and rendering
 
 The scene-mode table at `0x00373A60` contains seven callbacks shared by its
@@ -87,6 +100,25 @@ The optional `openkai2_depth_bench` CMake target builds
 [`tools/benchmarks/depth_raster.cpp`](../tools/benchmarks/depth_raster.cpp). It
 prints per-draw timings and complete VRAM checksums for visible, partially
 hidden, and fully hidden indexed-texture sprites and triangles.
+
+Indexed texture draws can prepare palette colors once and reuse them across
+pixels and filter taps. A small cache compares the actual latched CLUT bytes
+and all lookup state, including source and palette formats, CSM, CSA, and TEXA.
+Worker threads share the prepared colors during each synchronous draw. Small
+draws with cold palettes retain scalar lookup to limit preparation overhead.
+Startup diagnostics report palette reuse, builds, and fallback counts under
+`[GS:palette]`.
+
+Fifty additional fixtures compare fourteen draws each against the previous
+renderer in serial and parallel modes. They cover all five indexed formats,
+32/24/16-bit and invalid palette formats, both CSM modes, high CSA values,
+explicit and skipped CLD loads, transparency changes, reset, reinitialization,
+and alternating backend instances. Complete VRAM hashes must agree.
+The optional `openkai2_palette_bench` target measures 24 indexed-texture cases,
+including repeated, alternating, and frequently reloaded palettes. It accepts
+an optional worker count, for example `openkai2_palette_bench 1`.
+
+Serial fixtures with reusable palettes measured approximately 6–16% lower draw times using three-run medians. Parallel results were mixed, including slower cases. Frequently changing palettes can still add overhead on tiny draws. All measured VRAM hashes matched; these synthetic timings do not establish an end-to-end FPS improvement.
 
 ## Interpreter performance
 

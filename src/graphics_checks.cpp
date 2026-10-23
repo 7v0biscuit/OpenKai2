@@ -11,6 +11,73 @@
 
 namespace openkai2 {
 namespace {
+uint64_t palette_pipeline_hash(unsigned variant,unsigned workers=1u) {
+    const auto previous=set_raster_worker_limit(workers);
+    struct Restore {unsigned previous;~Restore(){set_raster_worker_limit(previous);}} restore{previous};
+    std::vector<uint8_t> vram(4u*1024u*1024u);
+    for(unsigned i=0;i<vram.size();++i)vram[i]=uint8_t(i*13u^(i>>9u));
+    GSCpuBackend backend;backend.Initialize(vram.data(),uint32_t(vram.size()));
+    GSCpuBackend other;other.Initialize(vram.data(),uint32_t(vram.size()));
+    constexpr uint8_t formats[]={GS_PSM_T8,GS_PSM_T8H,GS_PSM_T4,GS_PSM_T4HL,GS_PSM_T4HH};
+    constexpr uint8_t palettes[]={GS_PSM_CT32,GS_PSM_CT24,GS_PSM_CT16,GS_PSM_CT16S,GS_PSM_Z32};
+    GSPrimitiveBatch b{};b.vertexCount=2u;auto& s=b.state;auto& c=s.context;auto& tex=c.tex0;
+    s.prim.type=GS_PRIM_SPRITE;s.prim.tme=s.prim.fst=s.prim.abe=true;s.colclamp=1u;
+    s.linearFilter=variant&1u;s.textureWidth=s.textureHeight=128u;
+    c.frame.fbp=56u;c.frame.fbw=8u;c.zbuf.zbp=168u;c.zbuf.zmask=true;c.test=0x30000u;
+    c.alpha=0x44u;c.scissor={0u,511u,0u,95u};
+    tex.psm=formats[variant%5u];tex.cpsm=palettes[(variant/5u)%5u];tex.csm=variant/25u;
+    tex.tbp0=10240u;tex.tbw=2u;tex.tfx=1u;tex.tcc=true;tex.cbp=16000u;tex.csa=uint8_t((variant*7u)%32u);
+    GSTexClutReg clut{};clut.cbw=2u;clut.cou=1u;clut.cov=3u;
+    for(unsigned y=0;y<128u;++y)for(unsigned x=0;x<128u;++x)
+        backend.WriteVram(tex.psm,tex.tbp0,2u,x,y,(x*11u+y*7u)&255u);
+    auto fill=[&](unsigned seed){for(unsigned y=0;y<64u;++y)for(unsigned x=0;x<128u;++x){
+        const auto value=(x+y)%7u==0u ? 0u : ((x*13u+seed)&255u)|(((y*17u+seed)&255u)<<8u)
+            |(((x*19u+seed)&255u)<<16u)|(((x+y)&1u ? 0x80u : 0u)<<24u);
+        backend.WriteVram(tex.cpsm==GS_PSM_Z32 ? GS_PSM_CT32 : tex.cpsm,tex.cbp,2u,x,y,value);
+    }};
+    for(auto& v:b.vertices){v.r=73u;v.g=127u;v.b=191u;v.a=128u;v.q=1.0f;v.z=1000u;v.u=v.v=12u;}
+    b.vertices[1].x=512.0f;b.vertices[1].y=96.0f;b.vertices[1].u=512u*16u+12u;b.vertices[1].v=96u*16u+12u;
+    fill(23u);tex.cld=2u;backend.LoadClut(tex,clut);
+    uint64_t hash=14695981039346656037ull;
+    auto draw=[&](GSCpuBackend& target){target.Submit(b);for(auto byte:vram)hash=(hash^byte)*1099511628211ull;};
+    draw(backend);draw(backend); // Reuse the same latched palette and lookup key.
+    fill(67u);tex.cld=4u;backend.LoadClut(tex,clut);draw(backend); // CBP0 match: retain the old palette.
+    s.texa.ta0=53u;s.texa.ta1=211u;s.texa.aem=true;draw(backend);
+    tex.cld=3u;backend.LoadClut(tex,clut);draw(backend); // Explicit reload also remembers CBP1.
+    fill(101u);tex.cld=5u;backend.LoadClut(tex,clut);draw(backend); // CBP1 match: retain latched bytes.
+    tex.csa^=31u;draw(backend);tex.cld=1u;backend.LoadClut(tex,clut);draw(backend);
+    // A second backend has a different palette, even with identical TEX0/TEXA.
+    fill(149u);other.LoadClut(tex,clut);draw(other);draw(backend);
+    backend.Reset();draw(backend);backend.LoadClut(tex,clut);draw(backend);
+    // Reinitialize at the same backend address and change lookup state again.
+    backend.Initialize(vram.data(),uint32_t(vram.size()));s.texa.aem=false;s.texa.ta0=127u;
+    draw(backend);tex.csm^=1u;backend.LoadClut(tex,clut);draw(backend);
+    return hash;
+}
+
+void check_prepared_palette() {
+    // Full VRAM snapshots of fourteen draws per fixture from the previous
+    // renderer, covering all indexed formats, palette formats, and CSM modes.
+    constexpr uint64_t expected[]={
+        0x6faa381880d34ff1ull,0x399b4f485fcdef41ull,0xfafc5238b0dadc8bull,0xa641a60bb2990cedull,
+        0xd0d33d5aa12e5c8bull,0xd48f1060b6f32b93ull,0x8abbfdabb9c43b78ull,0x6432a1721517ead2ull,
+        0xb730ac02270f56beull,0xe5ad6c68a9d0ded2ull,0xb0f51fc6f0f406b8ull,0xf180d346e6907fc7ull,
+        0x67e8c57ee183f6e4ull,0xd704c34c138df3efull,0xd819a871fa238ae4ull,0xc50cac874b842f68ull,
+        0xb5b31949d479e321ull,0xde15303b98a4cd7full,0x450f0e70fc823decull,0xdf167e4444697d7full,
+        0xe4ae3aff8926b78bull,0x6e92ba3305f31e8bull,0x5218e71dea92528bull,0xb0c5f50f95b04b8bull,
+        0x27efd23fdae5d28bull,0xfd595ce268b1c0bfull,0xf39fad9ff03ef7feull,0xeff1cef37fc5c85dull,
+        0x2a9d45f93cfb2a8bull,0x470d0cdf9c73cc5dull,0xe5bf53a940fb8147ull,0x3d53e65caea1e82ull,
+        0x4a791e2cdcecd4d0ull,0x300be0f7e5db373eull,0x3b940b24647680d0ull,0x14cba80fdca58ebull,
+        0xab99c7b1c169aff3ull,0x1c957ea4f7f1406eull,0xa0bbbe62f95b885cull,0x582575b532ad906eull,
+        0x3589a05f250576faull,0x1ec5fa2484bb6c6cull,0x5cf67363f90603c4ull,0xe8bf3f50a4735a36ull,
+        0x9bfc39219cc9ffc4ull,0xe4ae3aff8926b78bull,0x6e92ba3305f31e8bull,0x5218e71dea92528bull,
+        0xb0c5f50f95b04b8bull,0x27efd23fdae5d28bull,
+    };
+    for(unsigned i=0;i<50u;++i)for(auto workers:{1u,4u})
+        if(palette_pipeline_hash(i,workers)!=expected[i])
+            throw std::runtime_error("Prepared palette changed latched colors or VRAM: "+std::to_string(i));
+}
+
 uint64_t early_depth_hash(unsigned variant,unsigned workers=1u) {
     const auto previous=set_raster_worker_limit(workers);
     struct Restore {unsigned previous;~Restore(){set_raster_worker_limit(previous);}} restore{previous};
@@ -719,7 +786,7 @@ void check_sprite_pipeline() {
 }
 }
 void verify_interlaced_presentation() {
-    check_early_depth();check_prepared_pipeline();check_pixel_blending();check_triangle_pipeline();
+    check_prepared_palette();check_early_depth();check_prepared_pipeline();check_pixel_blending();check_triangle_pipeline();
     verify_raster_workers();check_parallel_sprites();
     check_texture_cache_scope();
     check_bilinear_rounding();
