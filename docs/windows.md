@@ -131,6 +131,10 @@ blank, leave it open for at least 60 seconds before closing it and retaining the
 log. Reports are bounded and do not release waits or change guest state. The log
 starts with the source revision. Save-wait reports retain observed/delivered
 buttons and the original card command state, including samples after the movie.
+Adjacent `[startup:frame-wait]` records include the original frame flags,
+countdown, DMA queue counts, active commands, and channel ownership. Empty
+graphics transfers are checked through the original game's queue and VBlank
+callback as well as direct device tests; invalid empty chains must stay busy.
 At shutdown, presentation metrics distinguish window frames, completed renders,
 and guest fields; window refresh rate alone is not game FPS.
 Graphics records include frame dimensions, source framebuffer, nonblack pixel

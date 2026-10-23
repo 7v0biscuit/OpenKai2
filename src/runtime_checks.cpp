@@ -21,6 +21,7 @@
 #include "runtime/ee_scheduler.h"
 #include "openkai2_translation_entries.h"
 #include <cstring>
+#include <array>
 #include <iostream>
 #include <stdexcept>
 #include <utility>
@@ -32,6 +33,57 @@
 
 namespace openkai2 {
 namespace {
+void verify_compiled_empty_dma_queue() {
+    auto owned=std::make_unique<PS2Runtime>();auto& runtime=*owned;auto& memory=runtime.memory();
+    auto require=[](bool condition,const char* message) {
+        if(!condition) throw std::runtime_error(std::string("Runtime frame gate regression: ")+message);
+    };
+    require(memory.initialize(),"cannot allocate guest memory");
+    constexpr uint32_t stack=0x01fffe00u,gp=0x003ac4f0u,returned=0x0019de98u,tags=0x26000u,queue=0x28000u;
+    auto call=[&](uint32_t entry,std::array<uint32_t,8> args={}) {
+        R5900Context context{};context.pc=entry;
+        for(unsigned i=0;i<args.size();++i)context.r[4+i]=_mm_cvtsi32_si128(args[i]);
+        context.r[28]=_mm_cvtsi32_si128(gp);context.r[29]=_mm_cvtsi32_si128(stack);
+        context.r[31]=_mm_cvtsi32_si128(returned);
+        for(unsigned step=0;step<4096u && context.pc!=returned;++step) {
+            require(runtime.hasFunction(context.pc),"unregistered compiled queue continuation");
+            runtime.lookupFunction(context.pc)(memory.getRDRAM(),&context,&runtime);
+        }
+        require(context.pc==returned && getRegU32(&context,29)==stack && getRegU32(&context,28)==gp,
+                "compiled queue lost its caller frame");
+    };
+    call(0x0014a2e0u); // Original frame-wait initialization.
+    call(0x001432e0u,{0u,6u}); // Queue zero owns VIF1 and GIF.
+    memory.write32(0x003a4abcu,16u);memory.write32(0x003a4ac0u,queue);
+    memory.write32(0x003a4c20u,0xffffffffu);memory.write32(0x003a4c24u,0xffffffffu);
+    memory.write32(0x0033e0d8u,0x1000a000u); // Original channel-register table slot.
+    memory.write32(0x0033e108u,0x1000a000u); // Original completion-handler table slot.
+    std::memset(memory.getRDRAM()+0x003b4b00u,0xff,0x40u);
+    memory.write64(tags,0x70000000u);memory.write64(tags+8u,0u);
+    // Two valid END(0) chains: one active, one queued behind it. Completion
+    // must run the game's real handlers, which retire and start the next item.
+    call(0x001435f0u,{0u,2u,1u,1u,0u,0u,0u,tags});
+    call(0x001435f0u,{0u,2u,1u,1u,0u,0u,0u,tags});
+    require(memory.read16(0x003b4b44u)==1u && memory.read32(0x003a4c20u)==1u,
+            "original submission did not leave one active and one queued chain");
+    memory.write8(0x003a4b6cu,1u);call(0x00149ff0u);
+    require(memory.read8(0x003a4b70u)==1u,"VBlank did not defer the frame while DMA remained queued");
+    unsigned completions=0;
+    for(unsigned round=0;round<4u;++round) {
+        memory.processPendingTransfers();
+        const auto causes=memory.consumeCompletedDmacCauses();
+        if(causes.empty())break;
+        for(const auto cause:causes) {
+            require(cause==2u,"unexpected completion channel");
+            call(0x00143920u,{cause,0u});call(0x00143ae0u,{cause});++completions;
+        }
+    }
+    require(completions==2u && memory.read16(0x003b4b44u)==0u && memory.read32(0x003a4c20u)==0xffffffffu,
+            "empty graphics chains stranded the original game's frame wait");
+    memory.write8(0x003a4b70u,0u);memory.write8(0x003a4b6cu,1u);call(0x00149ff0u);
+    require(memory.read8(0x003a4b70u)==0u && memory.read8(0x003a4b6cu)==0u,
+            "original VBlank handler did not release the next frame after DMA completed");
+}
 void verify_compiled_worker_setup() {
     auto owned=std::make_unique<PS2Runtime>();
     auto& runtime=*owned;
@@ -318,6 +370,9 @@ int run_runtime_checks() {
     std::cout << "SPU2 initialization regression passed: both cores, DMA status, and guest polling.\n";
     verify_scratchpad_dma();
     verify_ipu_input_dma();
+    verify_compiled_empty_dma_queue();
+    verify_empty_graphics_dma();
+    std::cout << "Runtime frame gate regression passed: empty graphics DMA, original queued submissions, completion handlers, and VBlank frame release.\n";
     constexpr uint32_t entry=0x00167188, caller=0x00162dec, returned=0x00162df4;
     PS2Runtime runtime;
     if (!runtime.hasFunction(entry))

@@ -1,9 +1,11 @@
 # Development status
 
 retail testing reaches the title screen and New Game after movie playback, but
-Preview 30 still hangs at the create-save confirmation. The window stays open
-and stops responding. The latest log records about 13 movie FPS, no save write
-or exception, and a normal window-close request. Gameplay and stable 60 FPS
+Preview 31 still stalls at the create-save confirmation. Its log confirms that
+the window polls input at about 60 Hz and delivers keyboard presses, while
+game-side controller reads and drawing stop after card detection succeeds.
+Movie decoding advances at about 14 pictures per second. No save write or
+exception is recorded. Gameplay and stable 60 FPS
 remain unverified on the reported supported CPU, supported GPU, and system memory system.
 
 The original Budokai 2 USA ISO is required at every launch. A complete retail
@@ -11,6 +13,19 @@ ISO is not present on the development host, so automated component tests and
 observed retail results are distinguished below.
 
 ## Current changes
+
+Empty graphics DMA transfers now signal completion. Previously a normal
+zero-length transfer, or a chain ending without a payload, could leave the
+game's queue active forever. Its VBlank callback then defers every game frame.
+The regression reproduces this with the original translated queue submission,
+two completion handlers, and VBlank callback: it fails before the change and
+passes afterward. Invalid empty chains retain their busy state, including when
+polled. This fixes a reproduced runtime defect; the reported retail save hang
+still needs verification with the ISO.
+
+Bounded frame-wait records now include the pending/retry flags, countdown,
+both queue counts and active states, and DMA ownership. These can distinguish a
+blocked DMA queue from a disabled callback if the retail stall continues.
 
 Presentation runs on a worker so the window thread can poll keyboard and
 controller input while rendering is busy. Requests coalesce to the latest field,

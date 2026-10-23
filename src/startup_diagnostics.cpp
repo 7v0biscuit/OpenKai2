@@ -291,6 +291,17 @@ bool SaveWaitDiagnostics::sample(uint64_t elapsed_ms,const uint8_t* ram,size_t s
          << " buttons=0x" << pad.ports[0][0].lastButtons
          << " host_pressed=0x" << host.pressed << " delivered=0x" << host.delivered << std::dec
          << " game_pad_reads=" << pad.ports[0][0].readCount << " window_polls=" << host.polls << '\n';
+    if(size>=0x003b4b54u) {
+        const auto frame=memory.word(0x003a4b68u),retry=memory.word(0x003a4b70u);
+        text << "[startup:frame-wait] enabled=" << (frame&255u)
+             << " pending=" << (memory.word(0x003a4b6cu)&255u) << " retry=" << (retry&255u)
+             << " countdown=" << int32_t(memory.word(0x003a4b58u))
+             << " period=" << int32_t(memory.word(0x003a4b54u))
+             << " queue_counts=" << (memory.word(0x003b4b44u)&65535u) << ',' << (memory.word(0x003b4b50u)&65535u)
+             << " queue_active=" << int32_t(memory.word(0x003a4c20u)) << ',' << int32_t(memory.word(0x003a4c24u))
+             << " dma_owners=" << std::hex << memory.word(0x003b4b00u) << ',' << memory.word(0x003b4b08u)
+             << " fields_since_update=" << std::dec << memory.word(0x003a4b74u) << '\n';
+    }
     out << text.str() << std::flush;
     return true;
 }

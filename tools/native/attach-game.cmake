@@ -74,6 +74,7 @@ function(openkai2_attach_generated_sources)
         "${project_root}/tools/native/patches/asynchronous-presentation.patch"
         "${project_root}/tools/native/patches/input-observation.patch"
         "${project_root}/tools/native/patches/texture-pages.patch"
+        "${project_root}/tools/native/patches/empty-dma-completion.patch"
         "${project_root}/tools/native/prepare-overlays.py")
     get_target_property(iop_sources ps2_iop SOURCES)
     set(overlay_iop_sources "")

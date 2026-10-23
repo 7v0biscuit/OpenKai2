@@ -171,6 +171,8 @@ void verify_startup_diagnostics() {
             "Inspected semaphore no longer resumes its waiting thread");
     SaveWaitDiagnostics saveSamples;std::ostringstream saveReport;
     memory.write32(0x003a4a40u,1u);memory.write32(0x003a4a48u,2u);
+    memory.write32(0x003b4b44u,3u);memory.write32(0x003b4b50u,4u);
+    memory.write32(0x003a4c20u,1u);memory.write32(0x003a4c24u,0xffffffffu);
     const std::vector<uint8_t> saveBefore(ram,ram+PS2_RAM_SIZE);
     require(!saveSamples.sample(0,nullptr,0,saveReport)
             && saveSamples.sample(0,ram,PS2_RAM_SIZE,saveReport)
@@ -179,12 +181,13 @@ void verify_startup_diagnostics() {
     require(saveReport.str().find("operation=1 state=2")!=std::string::npos
             && saveReport.str().find("window_polls=")!=std::string::npos
             && saveReport.str().find("delivered=0x")!=std::string::npos
+            && saveReport.str().find("queue_counts=3,4 queue_active=1,-1")!=std::string::npos
             && std::equal(saveBefore.begin(),saveBefore.end(),ram),"Save wait report changed memory or lost input delivery");
     for(unsigned i=0;i<64u;++i) {
         memory.write32(0x003a4a48u,i);saveSamples.sample(200000u+i,ram,PS2_RAM_SIZE,saveReport);
     }
     const auto saveText=saveReport.str();
-    require(std::count(saveText.begin(),saveText.end(),'\n')<=20u
+    require(std::count(saveText.begin(),saveText.end(),'\n')<=40u
             && !saveSamples.sample(200100u,ram,PS2_RAM_SIZE,saveReport),"Save wait churn exceeded the report budget");
     EeKernelSnapshot large;
     large.threads.resize(40);large.semaphores.resize(30);large.eventFlags.resize(20);

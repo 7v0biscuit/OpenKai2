@@ -4,6 +4,8 @@
 #include "ps2_stubs.h"
 #include <algorithm>
 #include <cstring>
+#include <memory>
+#include <utility>
 #include <stdexcept>
 #include <vector>
 
@@ -12,6 +14,41 @@ namespace {
 void require(bool passed,const char* message) {
     if (!passed) throw std::runtime_error(message);
 }
+}
+void verify_empty_graphics_dma() {
+    auto owned=std::make_unique<PS2Runtime>();auto& memory=owned->memory();
+    require(memory.initialize(),"Cannot allocate empty DMA regression memory");
+    constexpr uint32_t tags=0x26000u,status=0x1000e010u;
+    const std::pair<uint32_t,uint32_t> channels[]={{0x10008000u,0u},{0x10009000u,1u},{0x1000a000u,2u}};
+    for(const auto& [channel,cause]:channels) for(unsigned variant=0;variant<6u;++variant) {
+        memory.write32(status,0x3ffu);memory.consumeCompletedDmacCauses();
+        memory.write32(channel,0u);memory.write32(channel+0x10u,tags);
+        memory.write32(channel+0x20u,variant==4u ? 1u : 0u);memory.write32(channel+0x30u,tags);
+        // Normal zero-QWC, END(0), REFE(0), and IRQ-terminated CNT(0).
+        // Include ordinary nonempty normal/chain transfers to retain their IRQ behavior.
+        const uint64_t tag=variant==1u ? 0x70000000ull : variant==3u ? 0x90000000ull
+            : variant==5u ? 0x70000001ull : 0ull;
+        memory.write64(tags,tag);memory.write64(tags+8u,0u);
+        memory.write64(tags+16u,0u);memory.write64(tags+24u,0u);
+        memory.write32(channel,variant==0u || variant==4u ? 0x101u : variant==3u ? 0x185u : 0x105u);
+        memory.processPendingTransfers();
+        require(memory.consumeCompletedDmacCauses()==std::vector<uint32_t>{cause},
+                "Empty graphics DMA lost its completion interrupt");
+        require((memory.read32(channel)&0x100u)==0u && memory.read32(channel+0x20u)==0u
+                && (memory.read32(status)&(1u<<cause))!=0u,"Empty graphics DMA remained busy");
+        memory.processPendingTransfers();
+        require(memory.consumeCompletedDmacCauses().empty(),"Empty graphics DMA completed twice");
+    }
+    for(const auto& [channel,cause]:channels) for(unsigned variant=0;variant<2u;++variant) {
+        memory.write32(channel,0u);memory.write32(status,0x3ffu);memory.consumeCompletedDmacCauses();
+        memory.write32(channel+0x20u,0u);
+        memory.write32(channel+0x30u,variant ? PS2_RAM_SIZE : tags);
+        memory.write64(tags,(uint64_t(tags)<<32u)|0x20000000u); // Endless NEXT(0).
+        memory.write32(channel,0x105u);memory.processPendingTransfers();
+        require(memory.consumeCompletedDmacCauses().empty() && (memory.read32(status)&(1u<<cause))==0u
+                && (memory.read32(channel)&0x100u)!=0u && (memory.read32(channel)&0x100u)!=0u,
+                "Invalid empty graphics chain fabricated completion or polling cleared its busy bit");
+    }
 }
 void verify_ipu_input_dma() {
     PS2Runtime runtime;auto& memory=runtime.memory();
