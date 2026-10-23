@@ -1,7 +1,7 @@
 {
-  "version": "0.1.5-aura-updates-windows-sampling",
-  "title": "Aura updates and Windows texture sampling",
-  "bundle_sha256": "9b1c3c8dae01b0c399a448b890e76770447c23303f089b91aa04ae76943c7565",
-  "bundle_source_revision": "a145681a0eb8db7a17c0a6d5f04af10bc138ad8f",
-  "input_commit": "94718f6493ef312633978360c732574c39b2651a"
+  "version": "0.1.6-battle-state-updates",
+  "title": "Battle state updates",
+  "bundle_sha256": "011df4a1a5b6cf9e0ed41c80badb7d7ce762359b1a5cfebf1f58f44292315202",
+  "bundle_source_revision": "f34d8c5177fe2fe0267664ef34aadde48121b94d",
+  "input_commit": "e3872243aebb56ff93024bbf53804909a12e68ad"
 }
