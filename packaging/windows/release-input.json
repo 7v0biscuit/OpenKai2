@@ -1,7 +1,7 @@
 {
-  "version": "0.1.1-battle-assets-audio-buffering",
-  "title": "Battle asset loading and audio buffering",
-  "bundle_sha256": "2cc2d8c8f305929700f61966b16fac137df289ab7a80c1a9c9b6a53c2ada5e06",
-  "bundle_source_revision": "55f983468a0b4b753062402120cb435a01f51633",
-  "input_commit": "cf70c9547613a02af8f7407f455d77d6f969816b"
+  "version": "0.1.2-rendering-scene-setup",
+  "title": "Rendering performance and scene setup",
+  "bundle_sha256": "56481f34577155715eb47eefdbba0c979ad440deb5d703756b609262d9a52b49",
+  "bundle_source_revision": "b0b4c14610d9c041755b15a5fc5c47d90a54cb2f",
+  "input_commit": "1c1b3acfde593ce8f81216a7386ebe1651ec16b9"
 }
