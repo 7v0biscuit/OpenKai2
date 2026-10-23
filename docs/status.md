@@ -1,16 +1,15 @@
 # Development status
 
-retail testing reaches level selection. The latest retail log progresses beyond
-the previous battle initializer but stops at an unregistered callback,
+Battle loading progresses beyond the initial startup table but stops at an
+unregistered asset callback,
 `0x001D21D0`, called from `0x001D6698`. The main guest thread becomes dormant
-while the window stays open. Frame rates remain low, and retail testing shows poor
-audio quality. The shutdown log records 11,276,128 dropped PCM frames; the audio
+while the window stays open. Frame rates and audio quality remain poor. The shutdown log records 11,276,128 dropped PCM frames; the audio
 queue fills after the guest thread stops. Complete matches and stable 60 FPS
 remain unverified.
 
-The original Budokai 2 USA ISO is required at every game launch. A complete
-retail ISO is not present on the development host. Automated component checks
-and observed retail progress are distinguished below.
+The original Budokai 2 USA ISO is required at every game launch. Automated
+component checks cover bounded runtime behavior; full retail gameplay requires
+separate validation.
 
 ## Current changes
 
@@ -76,8 +75,8 @@ before publication. The self-test does not require an audio endpoint.
 ## Remaining work
 
 Verify progress beyond level selection and a complete match with the original
-ISO. Measure frame times across movies, menus, and matches on the reported
-supported CPU, supported GPU, and system memory system. A sustained 60 FPS requires a
+ISO. Measure frame times across movies, menus, and matches on supported Windows
+systems. A sustained 60 FPS requires a
 frame budget of about 16.7 ms. The renderer still uses the CPU. Further runtime
 optimization, graphics accuracy, audio fidelity, controller compatibility,
 and newly reached indirect callbacks need validation.

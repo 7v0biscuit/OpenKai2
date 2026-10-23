@@ -1,6 +1,6 @@
 # Windows build and startup
 
-OpenKai2 is in development. retail testing reaches level selection.
+OpenKai2 is in development. The runtime reaches level selection.
 Complete matches, performance, and gameplay still need validation.
 
 ## Downloads
