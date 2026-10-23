@@ -161,13 +161,26 @@ MOVIE_TIMING_TABLES = ((0x00387448, (
 )),)
 MOVIE_TIMING_ENTRIES = tuple(dict.fromkeys(address for _, slots in MOVIE_TIMING_TABLES
                                          for address in slots if address))
+# Render setup selected by 0x001A9460 and invoked by the packet builder's
+# JALR at 0x0013A20C. The depth initializer was hidden after an earlier JR.
+DRAW_SETUP_WORDS = (
+    (0x001A9380, (0xC7808094, 0x03E00008, 0xE4800024)),
+    (0x001A9390, (0xC780877C, 0xE4800088, 0xC7808780, 0x03E00008, 0xE480008C)),
+    (0x001A93B0, (0x3C030005, 0x34634000, 0xAC8300F0, 0xC780878C, 0x03E00008, 0xE4800024)),
+    (0x001A93D0, (0x3C030005, 0x03E00008, 0xAC8300F0)),
+    (0x001A93E0, (0xC7818784, 0xC7808788, 0xE781877C, 0x03E00008, 0xE7808780)),
+    (0x001A9400, (0xC781877C, 0xC7808780, 0xE7818784, 0x03E00008, 0xE7808788)),
+    (0x001A9420, (0xC4800260, 0xE780877C, 0xC4800264, 0x03E00008, 0xE7808780)),
+    (0x001A9440, (0xC780877C, 0xE4800260, 0xC7808780, 0x03E00008, 0xE4800264)),
+)
+DRAW_SETUP_ENTRIES = tuple(address for address, _ in DRAW_SETUP_WORDS)
 # Preserve ordering and share the argument-store callback between both groups.
 ENTRY_POINTS = tuple(dict.fromkeys((0x00167188,)
     + tuple(address for _, row in DISPATCH_TABLES for address in row)
     + FILE_CALLBACK_ENTRIES + STREAM_CALLBACK_ENTRIES + MEMORY_STREAM_ENTRIES
     + tuple(address for _, address in TRANSLATED_SDK_ENTRIES)
     + ASSET_RELOCATION_ENTRIES + FADE_CALLBACK_ENTRIES + MOVIE_CALLBACK_ENTRIES
-    + MOVIE_PACKET_ENTRIES + MOVIE_TIMING_ENTRIES))
+    + MOVIE_PACKET_ENTRIES + MOVIE_TIMING_ENTRIES + DRAW_SETUP_ENTRIES))
 
 
 def configure(text):
@@ -237,6 +250,9 @@ def verify_elf_metadata(data):
     for address in ZERO_RETURN_ENTRIES:
         if words(address, 2) != (0x03E00008, 0x0000102D):
             raise ValueError(f'Callback return instructions differ at 0x{address:08x}')
+    for address, expected in DRAW_SETUP_WORDS:
+        if words(address, len(expected)) != expected:
+            raise ValueError(f'Draw setup instructions differ at 0x{address:08x}')
     if words(ASSET_RELOCATION_BASE, len(ASSET_RELOCATION_WORDS)) != ASSET_RELOCATION_WORDS:
         raise ValueError('Asset relocation handlers or tags differ from the reviewed table')
 
@@ -261,7 +277,8 @@ def emit_check_header(path):
                           ('movie_packet_slots', MOVIE_PACKET_TABLES[0][1]),
                           ('movie_timing_entries', MOVIE_TIMING_ENTRIES),
                           ('movie_timing_slots', MOVIE_TIMING_TABLES[0][1]),
-                          ('movie_timing_rates', MOVIE_TIMING_RATES)):
+                          ('movie_timing_rates', MOVIE_TIMING_RATES),
+                          ('draw_setup_entries', DRAW_SETUP_ENTRIES)):
         lines.append(f'inline constexpr std::array<uint32_t, {len(entries)}> {name} = {{')
         lines.extend(f'    0x{address:08x}u,' for address in entries)
         lines.append('};')

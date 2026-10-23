@@ -1,0 +1,97 @@
+// SPDX-License-Identifier: GPL-3.0-only
+#include "draw_setup_checks.h"
+#include "ps2_runtime.h"
+#include "runtime/ee_scheduler.h"
+#include "openkai2_translation_entries.h"
+#include <algorithm>
+#include <array>
+#include <cstring>
+#include <stdexcept>
+
+namespace openkai2 {
+void verify_draw_setup(PS2Runtime& runtime,uint8_t* ram) {
+    auto require=[](bool ok,const char* message) {
+        if(!ok)throw std::runtime_error(message);
+    };
+    for(auto entry:translation::draw_setup_entries)
+        require(runtime.hasFunction(entry),"Draw setup callback is not registered at its own instruction");
+    constexpr uint32_t gp=0x003ac4f0u,physical=0x01df2680u,alias=0x21df2680u;
+    constexpr uint32_t sp=0x01fffba0u,returned=0x0013a214u;
+    auto& memory=runtime.memory();
+    auto call=[&](uint32_t entry,uint32_t object) {
+        R5900Context context{};context.pc=entry;
+        context.r[4]=_mm_cvtsi32_si128(object);context.r[28]=_mm_cvtsi32_si128(gp);
+        context.r[29]=_mm_cvtsi32_si128(sp);context.r[31]=_mm_cvtsi32_si128(returned);
+        for(unsigned i=16;i<=23u;++i)context.r[i]=_mm_set_epi32(0x4400+i,0x3300+i,0x2200+i,0x1100+i);
+        const auto saved=context;
+        for(unsigned step=0;step<32u && context.pc!=returned;++step) {
+            require(runtime.hasFunction(context.pc),"Draw setup reached an untranslated continuation");
+            runtime.lookupFunction(context.pc)(ram,&context,&runtime);
+        }
+        require(context.pc==returned && getRegU32(&context,28)==gp && getRegU32(&context,29)==sp,
+                "Draw setup did not return with its caller frame intact");
+        for(unsigned i=16;i<=23u;++i)require(std::memcmp(&saved.r[i],&context.r[i],16u)==0,
+                "Draw setup changed a saved register");
+    };
+    constexpr uint32_t globals[]={gp-0x7f6cu,gp-0x7884u,gp-0x7880u,gp-0x787cu,gp-0x7878u,gp-0x7874u};
+    constexpr uint32_t values[]={0x3fa00000u,0x40200000u,0x40700000u,0x40900000u,0x40b00000u,0x40d00000u};
+    for(unsigned variant=0;variant<8u;++variant)for(auto address:{physical,alias}) {
+        std::memset(ram+physical-16u,0xa5u,0x2a0u);
+        memory.write32(physical+0x260u,0x41200000u);memory.write32(physical+0x264u,0x41400000u);
+        for(unsigned i=0;i<6u;++i)memory.write32(globals[i],values[i]);
+        std::array<uint8_t,0x2a0u> expected{};std::memcpy(expected.data(),ram+physical-16u,expected.size());
+        auto expect=[&](unsigned offset,uint32_t value){std::memcpy(expected.data()+16u+offset,&value,4u);};
+        auto expectedGlobals=std::array<uint32_t,6>{};std::copy(std::begin(values),std::end(values),expectedGlobals.begin());
+        switch(variant) {
+        case 0:expect(0x24u,values[0]);break;
+        case 1:expect(0x88u,values[1]);expect(0x8cu,values[2]);break;
+        case 2:expect(0xf0u,0x54000u);expect(0x24u,values[5]);break;
+        case 3:expect(0xf0u,0x50000u);break;
+        case 4:expectedGlobals[1]=values[3];expectedGlobals[2]=values[4];break;
+        case 5:expectedGlobals[3]=values[1];expectedGlobals[4]=values[2];break;
+        case 6:expectedGlobals[1]=0x41200000u;expectedGlobals[2]=0x41400000u;break;
+        case 7:expect(0x260u,values[1]);expect(0x264u,values[2]);break;
+        }
+        call(translation::draw_setup_entries[variant],address);
+        require(std::memcmp(expected.data(),ram+physical-16u,expected.size())==0,
+                "Draw setup changed the wrong packet fields or adjacent guards");
+        for(unsigned i=0;i<6u;++i)require(memory.read32(globals[i])==expectedGlobals[i],
+                "Draw setup changed the wrong shared float fields");
+    }
+    // Recreate the logged selector and the actual packet-builder JALR. The
+    // object is the uncached 0x20000000 RAM alias seen in the retail trace.
+    memory.write32(gp-0x7b48u,1u);
+    R5900Context selector{};selector.pc=0x001a9460u;
+    selector.r[4]=_mm_cvtsi32_si128(0x27000u);selector.r[6]=_mm_cvtsi32_si128(0x10802a1du);
+    selector.r[28]=_mm_cvtsi32_si128(gp);selector.r[31]=_mm_cvtsi32_si128(returned);
+    runtime.lookupFunction(selector.pc)(ram,&selector,&runtime);
+    require(selector.pc==returned && memory.read32(0x003b3114u)==0x001a9380u,
+            "Original selector did not choose the logged depth initializer");
+    memory.write32(gp-0x7f6cu,0x3fc00000u);memory.write32(physical+0x24u,0xdeadbeefu);
+    memory.write32(sp+0xd8u,0u);memory.write32(sp+0xd4u,0u);
+    R5900Context caller{};caller.pc=0x0013a1f0u;
+    caller.r[18]=_mm_cvtsi32_si128(alias);caller.r[28]=_mm_cvtsi32_si128(gp);caller.r[29]=_mm_cvtsi32_si128(sp);
+    // Stop at the callback's return boundary, before the rest of the packet
+    // builder consumes the scene's geometry. Run the original callback first;
+    // the dispatcher transfer only bounds this isolated caller fixture.
+    constexpr uint32_t bridge=0x001908e8u,initializer=0x001a9380u;
+    struct Restore {
+        PS2Runtime& runtime;uint32_t entry;PS2Runtime::RecompiledFunction original;
+        ~Restore(){runtime.replaceFunction(entry,original);}
+    } restoreBridge{runtime,bridge,runtime.lookupFunction(bridge)},
+      restoreInitializer{runtime,initializer,runtime.lookupFunction(initializer)};
+    runtime.replaceFunction(bridge,restoreInitializer.original);
+    runtime.replaceFunction(initializer,[](uint8_t* data,R5900Context* context,PS2Runtime* active) {
+        active->lookupFunction(bridge)(data,context,active);
+        throw EeDispatcherTransfer{};
+    });
+    for(unsigned step=0;step<32u && caller.pc!=returned;++step) {
+        require(runtime.hasFunction(caller.pc),"Original draw caller reached an untranslated callback");
+        try { runtime.lookupFunction(caller.pc)(ram,&caller,&runtime); }
+        catch(const EeDispatcherTransfer&) {}
+    }
+    require(caller.pc==returned && memory.read32(physical+0x24u)==0x3fc00000u
+            && getRegU32(&caller,18)==alias && getRegU32(&caller,29)==sp,
+            "Original packet caller did not run the depth initializer through the logged RAM alias");
+}
+}

@@ -1,12 +1,16 @@
 # Development status
 
-retail testing on Preview 33 reaches the title and New Game, writes the save
-files, then freezes while waiting for the graphics DMA queue. The log records
-successful writes and file closes; afterward, queue zero remains active with
-two pending entries, and game-side input reads stop. Movies remain very slow
-and menus run at a reported 2–5 FPS on an supported CPU, supported GPU, and
-system memory system. No parallel drawing batches ran in that retail session.
-Gameplay and stable 60 FPS remain unverified.
+Preview 34's retail log gets past the former graphics DMA wait. It records
+9,351 completed parallel draws, empty graphics queues, and a successful read
+and close of the existing 2,736-byte save. The next stop is an unregistered
+render-setup callback at `0x001A9380`, called from `0x0013A20C`. The main guest
+thread becomes dormant while the window remains open. Full gameplay and
+stable 60 FPS remain unverified.
+
+The movie decoder returned 240 pictures in about 13.74 seconds in this run.
+This is about 17.5 returned pictures per second, not a measurement of displayed
+frames. Rendering and overall game speed still need improvement on the
+reported supported CPU, supported GPU, and system memory system.
 
 The original Budokai 2 USA ISO is required at every launch. A complete retail
 ISO is not present on the development host, so automated component tests and
@@ -14,12 +18,22 @@ observed retail results are distinguished below.
 
 ## Current changes
 
+The original depth initializer at `0x001A9380` is now an explicit translation
+entry, along with seven related render setup callbacks. ELF validation checks
+their original instructions, including return delay slots. Runtime comparisons
+exercise their exact packet/global writes, both direct RAM and the logged
+uncached RAM alias, surrounding guards, saved registers, and return paths.
+The original selector and packet builder's indirect call are tested together.
+The callback performs its original depth write; it is not replaced by a no-op.
+Retail progress beyond this callback still needs confirmation.
+
 Maskable interrupt callbacks now respect the guest COP0 IE/EIE enables and
 EXL/ERL exception state. Automatic thread preemption also waits until interrupts
 are enabled. The original DMA queue submission test reproduces an interrupt
 running inside its DI/EI section before this change; it now verifies deferred
-delivery, completion order, and released queue ownership. This fixes a
-scheduler defect, but does not yet prove the retail post-save freeze is fixed.
+delivery, completion order, and released queue ownership. The following retail
+log has empty DMA queues and reaches the later draw
+setup callback; further scene initialization remains unverified.
 
 Sprite workers now support indexed and 16/24-bit textures, unaligned texture
 bases, region wrapping, independent depth buffers, and additional framebuffer

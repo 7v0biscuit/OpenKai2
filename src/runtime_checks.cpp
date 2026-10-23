@@ -11,6 +11,7 @@
 #include "frame_presenter.h"
 #include "sound_transfer_checks.h"
 #include "asset_checks.h"
+#include "draw_setup_checks.h"
 #include "fade_checks.h"
 #include "movie_checks.h"
 #include "mpeg_checks.h"
@@ -434,6 +435,8 @@ int run_runtime_checks() {
     std::cout << "Runtime sound transfer regression passed: compiled SDK, IOP payload, completion, aliases, and logged caller.\n";
     verify_asset_relocation(runtime,memory);
     std::cout << "Runtime asset relocation regression passed: seven handlers, logged AMM dispatcher, nested assets, and repeat guards.\n";
+    verify_draw_setup(runtime,memory);
+    std::cout << "Runtime draw setup regression passed: eight original callbacks, packet fields, guards, RAM aliases, original selector, and logged indirect caller.\n";
     verify_fade_callbacks(runtime,memory);
     std::cout << "Runtime fade callback regression passed: four renderers, logged caller, draw packets, completion, and saved registers.\n";
     std::cout << "Runtime graphics presentation regression passed: original white/black packets, DMA, GIF, rasterization, pixels, and GS counters.\n";
