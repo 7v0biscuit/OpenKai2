@@ -33,8 +33,9 @@ Memory-card files are stored in the disc cache's `mc0` directory. Preserve this
 directory when troubleshooting; the runtime self-test uses a separate temporary
 card. The `[startup:save]` log record shows the active save root and last command.
 The renderer currently runs on the CPU; a supported GPU does not establish a
-particular game frame rate. Large eligible sprites use up to four CPU workers;
-dependent draws retain serial execution. Stable 60 game FPS remains unverified.
+particular game frame rate. Large eligible sprites use up to four CPU workers,
+including indexed textures and independent depth buffers. Dependent draws
+retain serial execution. Stable 60 game FPS remains unverified.
 
 ## Build requirements
 
@@ -194,3 +195,9 @@ the complete ISO still requires verification.
 The fallback translation still reports unresolved instructions. Analyzer and
 recompiler logs remain in the native working directory. See
 [development status](status.md) for the current evidence and limitations.
+
+`[startup:dma-queue]` and `[startup:dma-channel]` retain the executor's DMA
+registers, tag words, queue entries, and interrupt enables at a stall.
+`[GS:sprite]` identifies large-draw formats, depth state, and worker eligibility.
+The latest retail log shows successful save-file writes followed by a graphics
+queue stall; preserving the existing `mc0` files is appropriate.

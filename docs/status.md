@@ -1,12 +1,12 @@
 # Development status
 
-retail testing reaches the title screen and New Game after movie playback, but
-Preview 32 still freezes at the create-save confirmation and runs too slowly.
-The latest log shows empty DMA queues at the recorded card checks and ends
-during the second stability check, without a stopped-state or shutdown report.
-The user closed the window normally. This log does not identify the blocked
-callback. Gameplay and stable 60 FPS remain unverified on the reported
-supported CPU, supported GPU, and system memory system.
+retail testing on Preview 33 reaches the title and New Game, writes the save
+files, then freezes while waiting for the graphics DMA queue. The log records
+successful writes and file closes; afterward, queue zero remains active with
+two pending entries, and game-side input reads stop. Movies remain very slow
+and menus run at a reported 2–5 FPS on an supported CPU, supported GPU, and
+system memory system. No parallel drawing batches ran in that retail session.
+Gameplay and stable 60 FPS remain unverified.
 
 The original Budokai 2 USA ISO is required at every launch. A complete retail
 ISO is not present on the development host, so automated component tests and
@@ -14,40 +14,36 @@ observed retail results are distinguished below.
 
 ## Current changes
 
-Large eligible sprites draw across up to four persistent CPU workers. The
-renderer proves that the texture is immutable and framebuffer pixels are
-independent, uses a separate sampler cache per worker, and preserves the final
-logical row's cache. Feedback, depth reads/writes, stale sampled pages, and
-unsupported modes retain serial order. Worker exceptions join the complete
-batch before reaching the caller.
+Maskable interrupt callbacks now respect the guest COP0 IE/EIE enables and
+EXL/ERL exception state. Automatic thread preemption also waits until interrupts
+are enabled. The original DMA queue submission test reproduces an interrupt
+running inside its DI/EI section before this change; it now verifies deferred
+delivery, completion order, and released queue ownership. This fixes a
+scheduler defect, but does not yet prove the retail post-save freeze is fixed.
 
-Draws that preserve destination RGB and have constant alpha can avoid unused
-texture sampling while retaining alpha writes, tests, masks, and final sampler
-state. This includes some fully faded textured passes. Other blend and texture
-modes retain their complete pixel calculations.
+Sprite workers now support indexed and 16/24-bit textures, unaligned texture
+bases, region wrapping, independent depth buffers, and additional framebuffer
+formats. Conservative VRAM bounds exclude feedback and cross-worker color/depth
+dependencies. A maximum unsigned depth value with a greater-or-equal test needs
+no depth read. Each worker retains a separate sampler cache, and the last
+logical row determines the final cached page. Stale sampled pages retain serial
+order. Constant-alpha passes that preserve destination RGB can avoid unused
+texture sampling even when depth dependencies require serial drawing.
 
-In paired 512x448 wall-time tests, filtered opaque draws average 3.96 ms instead
-of 13.30 ms, blended draws 5.31 ms instead of 17.47 ms, and eligible alpha-only
-passes 1.25 ms instead of 17.96 ms. These are isolated draw timings with one and
-four workers, not retail FPS measurements. The renderer still uses the CPU.
+Isolated 512x448 comparisons of the previous and updated renderer measured
+roughly 14–17 ms versus 3–5 ms per draw across newly supported cases, with
+identical complete VRAM hashes. These timings do not establish retail FPS.
+The renderer continues to use the CPU.
 
-A stall watchdog reports five seconds without game-side controller reads. The
-EE executor captures the current PC, caller stack, save-menu callback and fade
-state, card command, and DMA queues. The window thread prints this copied state,
-its age, and the number of parallel draws without reading live guest RAM.
-Shutdown reports are written before waiting for the game thread to finish.
-These diagnostics do not release guest waits or bypass the save confirmation.
+Bounded draw-profile records identify formats, depth state, and worker eligibility
+for large sprites. Stall records now include copied DMA registers, current tags,
+queue entries, owners, and interrupt state. Copies are made on the EE executor;
+the window thread prints the copy without reading live guest RAM. Reports do
+not release waits or bypass save confirmation.
 
-The save fixture now exercises the original menu callbacks from a completed
-card check to directory search and creation. It covers repeated 21-sample card
-checks through both the blocking completion loop and original frame poller.
-Another fixture injects 21 completion interrupts through the EE scheduler and
-checks that the original stability callback finishes with its caller frame intact.
-Those component transitions pass; the retail freeze still needs diagnosis.
-
-The earlier empty-DMA completion fix, asynchronous presentation, SSE4.1
-bilinear interpolation, and latched keyboard/controller input remain enabled.
-Window frames and guest frames are counted separately.
+The earlier empty-DMA completion fix, asynchronous presentation, SSE4.1 bilinear
+interpolation, latched keyboard/controller input, original save-menu callbacks,
+and persistent save readback checks remain enabled.
 
 ## Validation
 
@@ -58,8 +54,8 @@ then runs the file-writing callback chain, verifies bytes on disk, restarts the 
 the payload back into guarded EE memory. It uses an isolated temporary card;
 it does not access the user's saves or bypass the in-game confirmation.
 
-Parallel rendering is compared with the serial path across 24 full-VRAM
-fixtures, including stale caches, dependent draws, blending, alpha-only passes,
+Parallel rendering is compared with the serial path across 58 full-VRAM
+fixtures, including indexed palettes, depth writes, stale caches, dependent draws, blending, alpha-only passes,
 and guarded fallbacks. The worker checks cover varying partition counts,
 exception propagation, reuse, and shutdown.
 

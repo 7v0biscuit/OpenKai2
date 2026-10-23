@@ -1,0 +1,57 @@
+--- a/Kernel/EeScheduler.cpp
++++ b/Kernel/EeScheduler.cpp
+@@ -12,6 +12,16 @@
+ 
+ namespace
+ {
++    bool interruptsEnabled(const R5900Context& context) {
++        // EIE and IE must be set; EXL/ERL defer maskable interrupts.
++        return (context.cop0_status & 0x00010007u) == 0x00010001u;
++    }
++
++    bool maskableInvocation(GuestInvocationKind kind) {
++        return kind == GuestInvocationKind::Interrupt || kind == GuestInvocationKind::Alarm
++            || kind == GuestInvocationKind::GsCallback;
++    }
++
+     constexpr int KE_OK = 0;
+     constexpr int KE_ERROR = -1;
+     constexpr int KE_ILLEGAL_PRIORITY = -403;
+@@ -255,7 +265,8 @@
+             continue;
+         }
+ 
+-        if (!m_pendingInvocations.empty() && running->invocations.empty())
++        if (!m_pendingInvocations.empty() && running->invocations.empty()
++            && (!maskableInvocation(m_pendingInvocations.front().kind) || interruptsEnabled(context)))
+         {
+             GuestInvocation invocation = std::move(m_pendingInvocations.front());
+             m_pendingInvocations.pop_front();
+@@ -315,7 +326,8 @@
+         }
+ 
+         processPendingEvents();
+-        if (m_rescheduleRequested && m_currentThreadId != 0)
++        if (m_rescheduleRequested && m_currentThreadId != 0
++            && interruptsEnabled(currentThread()->activeContext()))
+         {
+             GuestThread *preempted = currentThread();
+             assert(preempted != nullptr);
+@@ -1542,7 +1554,7 @@
+     }
+     std::sort(next.eventFlags.begin(), next.eventFlags.end(), [](const auto &left, const auto &right)
+               { return left.id < right.id; });
+-    openkai2::capture_guest_progress(next,m_rdram,PS2_RAM_SIZE);
++    openkai2::capture_guest_progress(next,m_rdram,PS2_RAM_SIZE,&m_runtime);
+     {
+         std::lock_guard lock(m_snapshotMutex);
+         m_snapshot = std::move(next);
+@@ -1736,6 +1748,8 @@
+     }
+     GuestThread *self = currentThread();
+     assert(self != nullptr);
++    if (!interruptsEnabled(self->activeContext()))
++        return;
+     enqueueReady(*self, !m_timeSliceExpired);
+     m_currentThreadId = 0;
+     m_rescheduleRequested = false;

@@ -333,6 +333,9 @@ struct GuestProgress {
     uint32_t pc=0,ra=0,sp=0;
     std::array<uint32_t,32> stack{};
     std::array<uint32_t,16> words{};
+    std::array<std::array<uint32_t,10>,3> dma{};
+    std::array<uint32_t,12> queued{};
+    uint32_t dstat=0,owner=0,status=0;
     std::chrono::steady_clock::time_point captured{};
 };
 std::mutex progressMutex;
@@ -342,7 +345,7 @@ std::chrono::steady_clock::time_point nextCapture;
 void reset_guest_progress() {
     std::lock_guard lock(progressMutex);guestProgress={};nextCapture={};
 }
-void capture_guest_progress(const EeKernelSnapshot& state,const uint8_t* ram,size_t size) {
+void capture_guest_progress(const EeKernelSnapshot& state,const uint8_t* ram,size_t size,PS2Runtime* runtime) {
     if(!ram || size<0x003b4b54u)return;
     // Only the EE executor calls this hook. Publish at most four copies per
     // second; keep all guest RAM reads on that executor.
@@ -368,6 +371,22 @@ void capture_guest_progress(const EeKernelSnapshot& state,const uint8_t* ram,siz
     if(object && size_t(object)<=size && 0x34u<=size-size_t(object)) {
         copy.words[14]=read(object+28u);copy.words[15]=read(object+48u);
     }
+    const uint32_t queue=read(0x003a4ac0u),head=read(0x003b4b44u)>>16u;
+    for(unsigned i=0;i<copy.queued.size();++i)if(uint64_t(queue)+uint64_t(head)*24u+4u*i<=UINT32_MAX)
+        copy.queued[i]=read(queue+head*24u+4u*i);
+    copy.owner=read(0x003b4b00u);
+    if(runtime) {
+        // These modeled graphics channel registers do not acknowledge IRQs
+        // or advance transfers on reads. Stay on the EE executor.
+        constexpr uint32_t channels[]={0x10008000u,0x10009000u,0x1000a000u};
+        for(unsigned i=0;i<3u;++i) {
+            auto& words=copy.dma[i];const auto base=channels[i];
+            for(unsigned j=0;j<6u;++j)words[j]=runtime->memory().readIORegister(base+j*16u);
+            for(unsigned j=0;j<4u;++j)if(uint64_t(words[3])+4u*j<=UINT32_MAX)words[6+j]=read(words[3]+4u*j);
+        }
+        copy.dstat=runtime->memory().readIORegister(0x1000e010u);
+        if(const auto* main=runtime->eeScheduler().thread(1))copy.status=main->context.cop0_status;
+    }
     { std::lock_guard lock(progressMutex);guestProgress=copy; }
 }
 bool GuestStallDiagnostics::sample(uint64_t elapsed_ms,uint64_t reads,uint64_t polls,std::ostream& out,bool final) {
@@ -392,6 +411,18 @@ bool GuestStallDiagnostics::sample(uint64_t elapsed_ms,uint64_t reads,uint64_t p
          << " frame_pending=" << (copy.words[8]&255u) << " frame_retry=" << (copy.words[9]&255u)
          << " queue_counts=" << (copy.words[10]&65535u) << ',' << (copy.words[11]&65535u)
          << " queue_active=" << int32_t(copy.words[12]) << ',' << int32_t(copy.words[13]) << '\n';
+    text << "[startup:dma-queue] status=0x" << std::hex << copy.status << " dstat=0x" << copy.dstat
+         << " owners=0x" << copy.owner << " items=";
+    for(const auto word:copy.queued)text << word << ',';
+    text << '\n';
+    for(unsigned i=0;i<3u;++i) {
+        const auto& words=copy.dma[i];
+        text << "[startup:dma-channel] channel=" << std::dec << i << std::hex
+             << " chcr=0x" << words[0] << " madr=0x" << words[1] << " qwc=0x" << words[2]
+             << " tadr=0x" << words[3] << " asr=0x" << words[4] << ',' << words[5] << " tag=";
+        for(unsigned j=6;j<10u;++j)text << words[j] << ',';
+        text << '\n';
+    }
     out << text.str() << std::flush;return true;
 }
 bool StartupDiagnostics::due(uint64_t elapsed_ms) const {

@@ -53,6 +53,8 @@ def main():
         if 'The original game ISO is required' not in help_text:
             raise RuntimeError('Installed executable did not print the expected help.')
         self_test = run([str(executable), '--self-test'])
+        if 'Runtime DMA critical section regression passed' not in self_test:
+            raise RuntimeError('Installed application is missing the compiled DMA interrupt masking regression')
         if 'Runtime parallel raster regression passed' not in self_test:
             raise RuntimeError('Installed application is missing parallel raster and serial-reference comparisons')
         if 'Runtime save menu regression passed' not in self_test:

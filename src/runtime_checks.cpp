@@ -83,6 +83,44 @@ void verify_compiled_empty_dma_queue() {
     memory.write8(0x003a4b70u,0u);memory.write8(0x003a4b6cu,1u);call(0x00149ff0u);
     require(memory.read8(0x003a4b70u)==0u && memory.read8(0x003a4b6cu)==0u,
             "original VBlank handler did not release the next frame after DMA completed");
+
+    // Dispatch real completion handlers at translated call boundaries. Manual
+    // handler calls above cannot expose an interrupt delivered between CHCR
+    // submission and publication of the queue owner inside the DI/EI region.
+    constexpr uint32_t finish=0x001908e8u;
+    const auto original=runtime.lookupFunction(finish);
+    struct Restore {
+        PS2Runtime& runtime;uint32_t entry;PS2Runtime::RecompiledFunction function;
+        ~Restore(){runtime.replaceFunction(entry,function);}
+    } restore{runtime,finish,original};
+    runtime.replaceFunction(finish,[](uint8_t*,R5900Context*,PS2Runtime* active) {
+        auto& mem=active->memory();
+        if(mem.read16(0x003b4b44u)!=0u || mem.read32(0x003a4c20u)!=0xffffffffu
+                || mem.read8(0x003b4b02u)!=0xffu || mem.read8(0x003b4b12u)!=0xffu || mem.read32(0x25000u)!=1u)
+            throw std::runtime_error("Runtime DMA critical section regression: completion ran before the original queue published its owner");
+        active->requestStop();
+    });
+    R5900Context submitted{};submitted.pc=0x001435f0u;
+    const uint32_t args[]={0u,2u,1u,1u,tags,0u,0u,0u};
+    for(unsigned i=0;i<8u;++i)submitted.r[4+i]=_mm_cvtsi32_si128(args[i]);
+    submitted.r[28]=_mm_cvtsi32_si128(gp);submitted.r[29]=_mm_cvtsi32_si128(stack);
+    submitted.r[31]=_mm_cvtsi32_si128(finish);
+    auto& scheduler=runtime.eeScheduler();scheduler.reset(memory.getRDRAM(),submitted);
+    const auto irqOriginal=runtime.lookupFunction(0x00143920u);
+    constexpr uint32_t irqCopy=0x001908f0u;
+    Restore restoreCopy{runtime,irqCopy,runtime.lookupFunction(irqCopy)};
+    Restore restoreIrq{runtime,0x00143920u,irqOriginal};
+    runtime.replaceFunction(irqCopy,irqOriginal);
+    runtime.replaceFunction(0x00143920u,[](uint8_t* ram,R5900Context* c,PS2Runtime* active) {
+        const auto* t=active->eeScheduler().currentThread();
+        if((t->context.cop0_status&0x10007u)!=0x10001u)
+            throw std::runtime_error("Runtime DMA critical section regression: IRQ entered while guest interrupts were masked");
+        active->memory().write32(0x25000u,active->memory().read32(0x25000u)+1u);
+        active->lookupFunction(irqCopy)(ram,c,active);
+    });
+    scheduler.addIrqHandler(true,2u,0x00143920u,true,0u,gp,stack);
+    scheduler.addIrqHandler(true,2u,0x00143ae0u,true,0u,gp,stack);
+    scheduler.run();
 }
 void verify_compiled_worker_setup() {
     auto owned=std::make_unique<PS2Runtime>();
@@ -342,7 +380,7 @@ void verify_file_callbacks(PS2Runtime& runtime,uint8_t* memory) {
 }
 int run_runtime_checks() {
     verify_interlaced_presentation();
-    std::cout << "Runtime parallel raster regression passed: persistent workers, joined errors, 24 complete VRAM comparisons, alpha-only draws, stale cache, dependent draws, and serial fallbacks.\n";
+    std::cout << "Runtime parallel raster regression passed: persistent workers, joined errors, 58 complete VRAM comparisons, indexed and 16/24-bit textures, depth, alpha-only draws, stale cache, dependent draws, and serial fallbacks.\n";
     std::cout << "Runtime texture sampling regression passed: cache eviction and stale bytes, 8192 scalar RGBA comparisons, and 64 sprite snapshots.\n";
     std::cout << "Runtime field stability regression passed: stationary alternating fields, scanline interpolation, and edge clamping.\n";
     std::cout << "Runtime sprite pipeline regression passed: 64 scalar-reference VRAM snapshots, filtering, depth, masks, blending, and feedback.\n";
@@ -372,6 +410,7 @@ int run_runtime_checks() {
     verify_scratchpad_dma();
     verify_ipu_input_dma();
     verify_compiled_empty_dma_queue();
+    std::cout << "Runtime DMA critical section regression passed: original submission, deferred masked interrupts, completion order, and queue ownership.\n";
     verify_empty_graphics_dma();
     std::cout << "Runtime frame gate regression passed: empty graphics DMA, original queued submissions, completion handlers, and VBlank frame release.\n";
     constexpr uint32_t entry=0x00167188, caller=0x00162dec, returned=0x00162df4;

@@ -16,7 +16,7 @@ void check_parallel_sprites() {
     struct Restore { unsigned previous;~Restore(){set_raster_worker_limit(previous);} } restore{previous};
     std::vector<uint8_t> original(4u*1024u*1024u);
     for(unsigned i=0;i<original.size();++i)original[i]=uint8_t((i*13u)^(i>>9u));
-    for(unsigned variant=0;variant<24u;++variant) {
+    for(unsigned variant=0;variant<58u;++variant) {
         auto serialVram=original,parallelVram=original;
         auto serial=std::make_unique<GSCpuBackend>(),parallel=std::make_unique<GSCpuBackend>();
         serial->Initialize(serialVram.data(),unsigned(serialVram.size()));
@@ -49,6 +49,52 @@ void check_parallel_sprites() {
         if(variant==12u)ctx.test=0x50000u;
         if(variant==13u)ctx.tex0.tbp0=56u*32u;
         if(variant==23u)++ctx.tex0.tbp0;
+        if(variant>=24u && variant<34u) {
+            constexpr uint32_t formats[]={GS_PSM_CT24,GS_PSM_CT16,GS_PSM_CT16S,GS_PSM_T8,GS_PSM_T4,
+                GS_PSM_T8H,GS_PSM_T4HL,GS_PSM_T4HH,GS_PSM_Z32,GS_PSM_Z16};
+            ctx.tex0.psm=formats[variant-24u];ctx.tex0.tbp0=8192u;
+            state.texa.ta0=state.texa.ta1=128u;ctx.tex0.cpsm=GS_PSM_CT32;
+        }
+        if(variant>=34u && variant<40u) {
+            ctx.tex0.tbp0=0u;ctx.frame.fbp=128u;ctx.zbuf.zbp=256u;
+            ctx.zbuf.psm=variant<38u ? GS_PSM_Z32 : variant==38u ? GS_PSM_Z24 : GS_PSM_Z16;
+            ctx.test=variant==34u ? 0x50000u : variant==35u ? 0x70000u : 0x30000u;
+            ctx.zbuf.zmask=variant<36u;
+            for(auto& v:batch.vertices)v.z=UINT32_MAX;
+        }
+        if(variant==40u || variant==41u) {
+            ctx.test=0x50000u;for(auto& v:batch.vertices)v.z=variant==40u ? UINT32_MAX : 127u;
+        }
+        if(variant==42u)ctx.tex0.tbp0=8193u;
+        if(variant==43u)ctx.clamp=2u|(2u<<2u)|(uint64_t(511u)<<14u)|(uint64_t(511u)<<34u);
+        if(variant==44u)ctx.clamp=3u|(3u<<2u)|(uint64_t(255u)<<4u)|(uint64_t(256u)<<14u)
+            |(uint64_t(255u)<<24u)|(uint64_t(256u)<<34u);
+        if(variant>=45u && variant<=47u)ctx.frame.psm=variant==45u ? GS_PSM_CT24 : variant==46u ? GS_PSM_CT16 : GS_PSM_CT16S;
+        if(variant==48u) { ctx.zbuf.zmask=false;ctx.zbuf.psm=GS_PSM_Z32;ctx.zbuf.zbp=0u; }
+        if(variant==49u) { ctx.zbuf.zmask=false;ctx.zbuf.psm=GS_PSM_Z32;ctx.zbuf.zbp=256u; }
+        if(variant==50u) { ctx.frame.fbp=480u; }
+        if(variant==51u) { ctx.tex0.psm=GS_PSM_T8;ctx.tex0.tbp0=56u*32u; }
+        if(variant==52u) { batch.vertices[1].x=256;batch.vertices[1].y=128; }
+        if(variant==53u) { batch.vertices[1].x=256;batch.vertices[1].y=127; }
+        if(variant>=54u) {
+            state.prim.abe=true;ctx.alpha=0x6au;ctx.tex0.tfx=0u;
+            for(auto& v:batch.vertices) { v.a=0u;v.z=127u; }
+            ctx.test=0x50000u;
+            if(variant==55u) { ctx.zbuf.zmask=false;ctx.zbuf.psm=GS_PSM_Z32; }
+            if(variant==56u)ctx.tex0.psm=GS_PSM_T8;
+            if(variant==57u)ctx.test|=1u|(5u<<1u)|(127u<<4u)|(3u<<12u);
+        }
+        if(ctx.tex0.psm==GS_PSM_T8 || ctx.tex0.psm==GS_PSM_T4 || ctx.tex0.psm==GS_PSM_T8H
+                || ctx.tex0.psm==GS_PSM_T4HL || ctx.tex0.psm==GS_PSM_T4HH) {
+            ctx.tex0.cbp=16000u;ctx.tex0.cpsm=GS_PSM_CT32;ctx.tex0.cld=1u;
+            for(unsigned y=0;y<16u;++y)for(unsigned x=0;x<16u;++x) {
+                const uint32_t index=y*16u+x;
+                const uint32_t color=0x80000000u|index|((index^0x63u)<<8u)|((255u-index)<<16u);
+                serial->WriteVram(GS_PSM_CT32,16000u,1u,x,y,color);
+                parallel->WriteVram(GS_PSM_CT32,16000u,1u,x,y,color);
+            }
+            serial->LoadClut(ctx.tex0,{});parallel->LoadClut(ctx.tex0,{});
+        }
         if(variant==14u || variant==15u || variant==22u) {
             auto prime=batch;prime.vertices[1].x=16;prime.vertices[1].y=1;
             if(variant==22u)prime.state.context.tex0.tbp0=4096u;
@@ -61,16 +107,19 @@ void check_parallel_sprites() {
         set_raster_worker_limit(1);serial->Submit(batch);
         if(raster_parallel_batches()!=before)throw std::runtime_error("Serial sprite unexpectedly dispatched raster workers");
         set_raster_worker_limit(4);parallel->Submit(batch);
-        const bool eligible=variant!=12u && variant!=13u && variant!=15u && variant!=23u;
+        const bool eligible=variant!=12u && variant!=13u && variant!=15u
+            && variant!=41u && variant!=48u && variant!=49u && variant!=50u && variant!=51u && variant!=53u
+            && variant<54u;
         if(raster_workers().count()>1u && (raster_parallel_batches()!=before)!=eligible)
-            throw std::runtime_error("Parallel sprite bypassed an eligibility or stale-cache guard");
-        if(serialVram!=parallelVram)throw std::runtime_error("Parallel sprite changed complete VRAM output");
+            throw std::runtime_error("Parallel sprite bypassed an eligibility or stale-cache guard: "+std::to_string(variant));
+        if(serialVram!=parallelVram)throw std::runtime_error("Parallel sprite changed complete VRAM output: "+std::to_string(variant));
         // Mutate the last tap's texel without TEXFLUSH, then read that exact
         // page first. Evicting it before this read would hide a lost cache.
         const unsigned sampleX=state.linearFilter ? 0u : 511u;
         const unsigned sampleY=state.linearFilter ? 448u : 447u;
-        serial->WriteVram(ctx.tex0.psm,ctx.tex0.tbp0,ctx.tex0.tbw,sampleX,sampleY,0x80ff13a7u);
-        parallel->WriteVram(ctx.tex0.psm,ctx.tex0.tbp0,ctx.tex0.tbw,sampleX,sampleY,0x80ff13a7u);
+        const auto changed=serial->ReadVram(ctx.tex0.psm,ctx.tex0.tbp0,ctx.tex0.tbw,sampleX,sampleY)^0x80ff13a7u;
+        serial->WriteVram(ctx.tex0.psm,ctx.tex0.tbp0,ctx.tex0.tbw,sampleX,sampleY,changed);
+        parallel->WriteVram(ctx.tex0.psm,ctx.tex0.tbp0,ctx.tex0.tbw,sampleX,sampleY,changed);
         state.prim.abe=state.prim.fge=false;state.prim.fst=true;state.pabe=0u;state.linearFilter=false;
         ctx.test=0x30000u;ctx.fba=0u;ctx.frame.fbmsk=0u;ctx.tex0.tfx=1u;ctx.tex0.tcc=true;
         batch.vertices[1].x=32u;batch.vertices[1].y=2u;

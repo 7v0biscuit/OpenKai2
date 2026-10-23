@@ -197,8 +197,12 @@ void verify_startup_diagnostics() {
     memory.write32(0x003a51acu,0x26000u);memory.write32(0x2601cu,0x0026c870u);
     memory.write32(0x003a4a48u,2u);
     const std::vector<uint8_t> progressBefore(ram,ram+PS2_RAM_SIZE);
-    capture_guest_progress(copied,ram,PS2_RAM_SIZE);
-    require(std::equal(progressBefore.begin(),progressBefore.end(),ram),"Progress capture changed live guest memory");
+    memory.write32(0x1000a030u,0x26000u);
+    const auto oldDstat=memory.readIORegister(0x1000e010u),oldChcr=memory.readIORegister(0x1000a000u);
+    capture_guest_progress(copied,ram,PS2_RAM_SIZE,&runtime);
+    require(std::equal(progressBefore.begin(),progressBefore.end(),ram)
+            && memory.readIORegister(0x1000e010u)==oldDstat && memory.readIORegister(0x1000a000u)==oldChcr,
+            "Progress capture changed live guest memory, DMA status, or the channel busy bit");
     memory.write32(0x2601cu,0u); // The window must print the executor's copy.
     GuestStallDiagnostics stalled;std::ostringstream stallReport;
     require(!stalled.sample(1000,5,60,stallReport) && !stalled.sample(5999,5,360,stallReport)
@@ -212,7 +216,7 @@ void verify_startup_diagnostics() {
             && stalled.sample(12000,6,721,stallReport),"Stall recovery did not reset its deadline");
     for(unsigned i=0;i<16;++i)stalled.sample(30000u+i*15000u,6,1000u+i,stallReport);
     const auto stallText=stallReport.str();
-    require(std::count(stallText.begin(),stallText.end(),'\n')==16u
+    require(std::count(stallText.begin(),stallText.end(),'\n')==48u
             && !stalled.sample(1000000,6,60000,stallReport),"Stall reports exceeded their bounded budget");
     require(stalled.sample(1000001,6,60001,stallReport,true)
             && stallReport.str().find("reason=shutdown")!=std::string::npos,"Shutdown lost its pre-join guest snapshot");
