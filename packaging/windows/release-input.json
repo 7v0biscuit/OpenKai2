@@ -1,7 +1,7 @@
 {
-  "version": "0.1.0-battle-startup-pcm-audio",
-  "bundle_sha256": "4a64d72eb89d765a5fece728eae811fca8950b68984ec68bfb6a910ec79d2be1",
-  "bundle_source_revision": "aa17dc165cf2362ec4ad32e9f21d672a56658f62",
-  "input_commit": "4a32941b33262f707b6bae70e760d23b6c8150f0",
-  "title": "Battle startup and PCM audio"
+  "version": "0.1.1-battle-assets-audio-buffering",
+  "title": "Battle asset loading and audio buffering",
+  "bundle_sha256": "2cc2d8c8f305929700f61966b16fac137df289ab7a80c1a9c9b6a53c2ada5e06",
+  "bundle_source_revision": "55f983468a0b4b753062402120cb435a01f51633",
+  "input_commit": "cf70c9547613a02af8f7407f455d77d6f969816b"
 }

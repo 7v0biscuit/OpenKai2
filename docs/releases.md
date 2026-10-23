@@ -42,10 +42,10 @@ then publishes `OpenKai2.exe`, `OpenKai2-windows-x64.zip`, `OpenKai2-Setup.exe`,
 and `SHA256SUMS.txt` with the repository's built-in Actions token. Source-archive
 links are supplied by GitHub automatically.
 
-The release-page cleanup consolidates the earlier numbered publications into
-the current descriptive tag, preserving its four download assets. Historical
-change notes remain in the source history. The original runtime-input commit
-and its branch remain available for reproducible packaging.
+After all packages pass validation and publication, superseded development
+releases and their tags are removed. Newer publications and stable releases
+are retained. Historical change notes and runtime-input branches remain
+available for reproducible packaging.
 
 To retry packaging with workflow fixes while preserving an existing release tag,
 push the corrected packaging commit to `release/v<version>`. The branch name must

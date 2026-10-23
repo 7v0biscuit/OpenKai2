@@ -107,3 +107,24 @@ jobs:
           fi
           gh release upload "$TAG" OpenKai2.exe OpenKai2-windows-x64.zip OpenKai2-Setup.exe SHA256SUMS.txt --clobber
           gh release edit "$TAG" --draft=false --prerelease --latest=false
+      - name: Retain the current development release
+        shell: python
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          import json, subprocess
+          from pathlib import Path
+          version = json.loads(Path('packaging/windows/release-input.json').read_text())['version']
+          tag = 'v' + version
+          releases = json.loads(subprocess.check_output([
+              'gh', 'release', 'list', '--limit', '100', '--json',
+              'tagName,isPrerelease,isDraft,publishedAt']))
+          current = next(release for release in releases if release['tagName'] == tag)
+          assert current['publishedAt'] and not current['isDraft']
+          for release in releases:
+              if (release['tagName'] != tag and release['isPrerelease']
+                      and not release['isDraft'] and release['publishedAt']
+                      and release['publishedAt'] < current['publishedAt']):
+                  subprocess.run(['gh', 'release', 'delete', release['tagName'],
+                                  '--yes', '--cleanup-tag'], check=True)
