@@ -1,3 +1,0 @@
-{"source":"unverified_manual","capture_id":"SYNTHETIC-EXAMPLE-NOT-A-CAPTURE","instruction":"ei","pc":"0x00113398","status_before":"0x00000000","status_after":"0x00010000","external_event":"none","pc_after":"0x0011339C"}
-{"source":"unverified_manual","capture_id":"SYNTHETIC-EXAMPLE-NOT-A-CAPTURE","instruction":"mtc0_status","pc":"0x001133D0","status_before":"0x00010000","status_after":"0x00010004","external_event":"none","write_value":"0x00010004","pc_after":"0x001133D4"}
-{"source":"unverified_manual","capture_id":"SYNTHETIC-EXAMPLE-NOT-A-CAPTURE","instruction":"eret","pc":"0x001133E4","status_before":"0x00000004","status_after":"0x00000000","external_event":"none","epc":"0x80001000","error_epc":"0x80002000","pc_after":"0x80002000"}
