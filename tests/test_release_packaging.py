@@ -20,10 +20,10 @@ class ReleasePackaging(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
 
-    def bundle(self, changed=None, extra=None, imports=()):
-        files = {'OpenKai2.exe': bytes(pe_fixture(imports)), 'LICENSE': b'license',
+    def bundle(self, changed=None, extra=None, imports=(), revision="a"*40):
+        files = {'OpenKai2.exe': bytes(pe_fixture(imports))+b'[build] source_revision='+b'a'*40+b' renderer=cpu', 'LICENSE': b'license',
                  'NOTICE': b'notice', 'README.txt': b'readme'}
-        manifest = {'architecture': 'windows-x64',
+        manifest = {'architecture': 'windows-x64', 'source_revision': revision,
                     'files_sha256': {name: hashlib.sha256(data).hexdigest() for name, data in files.items()}}
         files['manifest.json'] = json.dumps(manifest).encode()
         if changed:
@@ -40,6 +40,10 @@ class ReleasePackaging(unittest.TestCase):
         root, manifest = RELEASE.extract_verified_bundle(self.bundle(), self.root / 'unpacked')
         self.assertTrue((root / 'OpenKai2.exe').is_file())
         self.assertEqual(manifest['architecture'], 'windows-x64')
+
+    def test_stale_native_revision_rejected(self):
+        with self.assertRaisesRegex(ValueError,'native build revision does not match'):
+            RELEASE.extract_verified_bundle(self.bundle(revision='b'*40),self.root/'unpacked')
 
     def test_tampered_payload_rejected(self):
         with self.assertRaisesRegex(ValueError, 'hash mismatch'):

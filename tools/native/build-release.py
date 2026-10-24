@@ -50,6 +50,8 @@ def extract_verified_bundle(bundle, destination):
             raise ValueError(f'Bundle is missing {required}')
     if manifest.get('architecture') != 'windows-x64':
         raise ValueError('Expected a Windows x64 bundle')
+    if PACKAGE.binary_source_revision(root / 'OpenKai2.exe') != manifest.get('source_revision'):
+        raise ValueError('Bundle native build revision does not match its manifest')
     return root, manifest
 
 

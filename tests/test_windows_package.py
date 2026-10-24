@@ -51,6 +51,18 @@ class WindowsPackage(unittest.TestCase):
         path.write_bytes(pe_fixture(imports, delay))
         return path
 
+    def test_native_revision_stamp(self):
+        binary=self.binary();revision='a'*40
+        binary.write_bytes(binary.read_bytes()+b'[build] source_revision='+revision.encode()+b' renderer=cpu')
+        self.assertEqual(PACKAGE.binary_source_revision(binary),revision)
+
+    def test_invalid_native_revision_stamp(self):
+        for marker in [b'',b'[build] source_revision=unknown renderer=cpu',
+                       b'[build] source_revision='+b'a'*40+b' renderer=cpu'+b'[build] source_revision='+b'b'*40+b' renderer=cpu']:
+            binary=self.binary();binary.write_bytes(binary.read_bytes()+marker)
+            with self.subTest(marker=marker),self.assertRaisesRegex(ValueError,'missing or ambiguous'):
+                PACKAGE.binary_source_revision(binary)
+
     def test_normal_and_delay_imports(self):
         binary = self.binary(imports=['KERNEL32.dll'], delay=['Media.DLL'])
         self.assertEqual(PACKAGE.pe_imports(binary), ['kernel32.dll', 'media.dll'])

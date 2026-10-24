@@ -4,6 +4,7 @@
 import argparse
 import hashlib
 import json
+import re
 from pathlib import Path
 import shutil
 import struct
@@ -18,6 +19,15 @@ SYSTEM_DLLS = set('''advapi32 avicap32 bcrypt cfgmgr32 comctl32 comdlg32 crypt32
     msvcrt ncrypt ntdll ole32 oleaut32 opengl32 powrprof propsys psapi rpcrt4
     secur32 setupapi shell32 shlwapi user32 userenv usp10 uxtheme version winhttp
     wininet winmm winscard winspool ws2_32 wtsapi32'''.split())
+
+
+def binary_source_revision(path):
+    """Read the contiguous runtime log marker retained in the PE payload."""
+    revisions = set(re.findall(rb'\[build\] source_revision=([0-9a-f]{40})(?= renderer=)',
+                               Path(path).read_bytes()))
+    if len(revisions) != 1:
+        raise ValueError('Native build revision marker is missing or ambiguous; rebuild the runtime')
+    return revisions.pop().decode('ascii')
 
 
 def pe_imports(path):
@@ -121,6 +131,11 @@ def main():
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--strip-tool', help='Optional compiler strip tool; the original binary is preserved')
     args = parser.parse_args()
+    source_revision = binary_source_revision(args.binary)
+    revision = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=ROOT,
+                              capture_output=True, text=True, check=False)
+    if revision.returncode == 0 and source_revision != revision.stdout.strip():
+        raise ValueError('Native build revision does not match the source checkout; rebuild the runtime')
     files = dependency_files(args.binary, [args.binary.parent, *args.runtime_dir])
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='openkai2-bundle-') as temporary:
@@ -131,6 +146,8 @@ def main():
         if args.strip_tool:
             subprocess.run([args.strip_tool, '--strip-debug', str(root / 'OpenKai2.exe')], check=True)
         dependency_files(root / 'OpenKai2.exe', [root])
+        if binary_source_revision(root / 'OpenKai2.exe') != source_revision:
+            raise ValueError('Stripped native build revision changed')
         for name in ('LICENSE', 'NOTICE'):
             shutil.copy2(ROOT / name, root / name)
         notices = ROOT / 'third_party/licenses'
@@ -154,10 +171,8 @@ def main():
         for path in sorted(root.rglob('*')):
             if path.is_file():
                 payload[path.relative_to(root).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
-        revision = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=ROOT,
-                                  capture_output=True, text=True, check=False)
         manifest = {'architecture': 'windows-x64',
-                    'source_revision': revision.stdout.strip() if revision.returncode == 0 else None,
+                    'source_revision': source_revision,
                     'game_boot_verified': False,
                     'gameplay_verified': False, 'files_sha256': payload,
                     'imports': {path.name: pe_imports(path) for path in root.iterdir()

@@ -225,7 +225,11 @@ can still cause audible gaps; buffering alone cannot restore real-time speed.
 
 ## Validation
 
-The Python suite has 174 tests. Native checks include the original BCM/BSK
+The executable embeds its source revision in a contiguous log marker. Native
+builds refresh this stamp after a commit; portable and installer packaging
+reject binaries whose marker disagrees with the checkout or bundle manifest.
+
+The Python suite has 177 tests. Native checks include the original BCM/BSK
 asset dispatcher, all eleven battle initialization entries, fragmented and bulk
 IOP clocks, delayed wakeups, external RPC delivery, both SPU2 DMA cores, planar
 PCM order, partial blocks, queue boundaries, and concurrent delivery.
