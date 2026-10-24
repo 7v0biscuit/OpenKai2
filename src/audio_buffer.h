@@ -9,18 +9,18 @@ class StereoAudioPlayback {
 public:
     static constexpr unsigned prefill=2048u,fadeFrames=128u;
     void reset(){
-        primed_=false;fadeIn_=0;fadeOut_=0;last_={};boundary_=0;drops_=0;
+        primed_=false;fadeIn_=0;fadeOut_=0;last_={};tail_={};boundary_=0;drops_=0;
         underruns_=0;silent_=0;trimmed_=0;
     }
     size_t mix(StereoAudioQueue& queue,std::span<int32_t> output){
         size_t consumed=0;
         const auto stop=queue.stopBoundary();
-        if(stop!=boundary_){boundary_=stop;primed_=false;fadeIn_=0;fadeOut_=fadeFrames;}
+        if(stop!=boundary_){boundary_=stop;primed_=false;fadeIn_=0;beginFade();}
         const auto drops=queue.dropped();
         if(drops!=drops_){
             drops_=drops;trimmed_.fetch_add(queue.trimPending(prefill*2u),std::memory_order_relaxed);
             // Crossfade to the retained queue head after discarding old latency.
-            primed_=false;fadeIn_=0;fadeOut_=fadeFrames;
+            primed_=false;fadeIn_=0;beginFade();
         }
         for(size_t first=0;first<output.size()/2u;first+=512u){
             const auto count=std::min<size_t>(512u,output.size()/2u-first);
@@ -35,20 +35,22 @@ public:
                     if(fadeOut_)--fadeOut_;
                     for(unsigned channel=0;channel<2u;++channel){
                         const int32_t value=raw[i*2u+channel]*int32_t(fadeIn_)/int32_t(fadeFrames);
-                        const int32_t tail=fadeOut_ ? last_[channel]*int32_t(fadeOut_)/int32_t(fadeFrames) : 0;
-                        output[at+channel]+=value+tail;
-                        if(!fadeOut_)last_[channel]=value;
+                        const int32_t tail=fadeOut_ ? tail_[channel]*int32_t(fadeOut_)/int32_t(fadeFrames) : 0;
+                        last_[channel]=value+tail;
+                        output[at+channel]+=last_[channel];
                     }
                 }else{
                     if(i==frames && primed_){
-                        primed_=false;fadeIn_=0;fadeOut_=fadeFrames;
+                        primed_=false;fadeIn_=0;beginFade();
                         underruns_.fetch_add(1u,std::memory_order_relaxed);
                     }
                     if(fadeOut_){
                         --fadeOut_;
-                        for(unsigned channel=0;channel<2u;++channel)
-                            output[at+channel]+=last_[channel]*int32_t(fadeOut_)/int32_t(fadeFrames);
-                    }
+                        for(unsigned channel=0;channel<2u;++channel){
+                            last_[channel]=tail_[channel]*int32_t(fadeOut_)/int32_t(fadeFrames);
+                            output[at+channel]+=last_[channel];
+                        }
+                    }else last_={};
                 }
             }
             silent_.fetch_add(count-frames,std::memory_order_relaxed);
@@ -61,7 +63,10 @@ public:
 private:
     bool primed_=false;
     unsigned fadeIn_=0,fadeOut_=0;
-    std::array<int32_t,2> last_{};
+    // A new boundary starts from what the device actually heard. Keep that
+    // anchor separate from the continually updated output of an active fade.
+    void beginFade(){tail_=last_;fadeOut_=fadeFrames;}
+    std::array<int32_t,2> last_{},tail_{};
     uint64_t boundary_=0,drops_=0;
     std::atomic<uint64_t> underruns_{0},silent_{0},trimmed_{0};
 };

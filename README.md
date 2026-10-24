@@ -33,8 +33,9 @@ audio diagnostics, and log locations.
 ## Current status
 
 **In development — complete gameplay is not yet supported.** The runtime
-reaches the title screen, menus, and versus level selection. Battle loading
-still stops, frame rates are unstable, and audio playback needs further work.
+reaches the title screen, menus, versus level selection, and fight intros.
+Fight progression still stops, frame rates are unstable, character poses need
+further validation, and audio playback needs further work.
 Stable 60 FPS and complete matches have not been verified.
 
 The [development status](docs/status.md) records the current failures and the

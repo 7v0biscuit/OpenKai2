@@ -1,7 +1,8 @@
 # Development status
 
-The runtime reaches the title screen, menus, and versus level selection.
-Battle loading, frame rates, and audio fidelity remain under development.
+The runtime reaches the title screen, menus, versus level selection, and fight
+intros. Fight progression, character poses, frame rates, and audio fidelity
+remain under development.
 Complete matches and stable 60 FPS have not been verified.
 
 The original Budokai 2 USA ISO is required at every game launch. Automated
@@ -39,6 +40,26 @@ bits, filtered and reserved commands, repeated model callbacks, character
 animation state, saved registers, source parameters, and stack guards. Model
 and sound dependencies are bounded by test recorders; these checks do not
 establish complete battle compatibility.
+
+## Fight intro drawing and skeletal transforms
+
+The battle draw dispatcher at `0x001BE0D0` selects two tables with sixteen and
+fourteen slots. All 24 distinct methods have explicit translation entries,
+including `0x001BA250`. The original table slots and complete method instructions
+are verified against the supported executable. Numeric data following the
+secondary table is excluded from its callback entries.
+
+Regressions run the original caller in 224 cases covering both mode-selection
+paths, enable masks, reserved entries, callback order, and saved registers.
+Sixteen additional cases execute the original intro method through its paused,
+empty-command, animated-model, and visibility paths with bounded dependencies.
+
+Main, newly started, restarted, and callback contexts retain VU0's hardwired
+`VF0 = (0, 0, 0, 1)`. Previously, newly created contexts could supply zero for
+the homogeneous component. Sixty-four cases execute the original quaternion
+transform in started and restarted workers, comparing rotation, parent matrices,
+translation, and homogeneous coordinates against an independent matrix reference.
+Retail character poses and complete fight intros still require validation.
 
 ## Battle state updates
 
@@ -166,6 +187,23 @@ measurements cover the interpreter; they are not game-FPS results. Graphics
 still use the CPU renderer, and sustained 60 FPS requires a frame budget of
 about 16.7 ms across the complete runtime.
 
+Startup logs include sampled inclusive guest-call timings under `[guest:timing]`
+and `[guest:hotspot]`, with separate dispatch, IOP, and VU0 entries. These are
+host execution samples, not game frame-rate counters; nested timings of the same
+kind are suppressed. Only the active EE executor records samples.
+
+During gameplay, graphics diagnostics retain one in 64 draw-history entries.
+This avoids copying graphics state and taking a backend snapshot lock for every
+primitive. Register and transfer history remain at full detail. Component checks
+compare complete VRAM from full and sampled histories for sprites, triangles,
+and blending. The optional `openkai2_submission_bench` target compares the two
+diagnostic modes; its measurements cover synthetic submission work.
+
+Three-run Windows binary measurements under Wine showed roughly 3–22% lower
+median times for the smallest sprite and triangle submissions, with matching
+VRAM checksums. Larger-draw timings were mixed, including small regressions.
+These measurements do not establish retail game frame rates.
+
 ## Audio
 
 SPU2 AutoDMA PCM reaches a 48 kHz stereo host stream through raylib's miniaudio
@@ -175,6 +213,11 @@ starvation, and stream replacement boundaries while retaining sample rate and
 channel order. After queue overflow, the callback discards old buffered latency.
 It does not repeat or time-stretch missing audio.
 
+Interrupted fades now restart from the last emitted stereo sample. Repeated
+stops, replacements during a fade, and later stops after silence cannot restart
+an older, louder tail. These checks address boundary clicks; they do not restore
+missing source audio or complete SPU2 synthesis.
+
 Diagnostics report underruns, frames without queued input, producer drops, and
 consumer latency trimming. PCM output does not yet provide complete SPU2 voice
 synthesis, volume/effect behavior, or retail audio fidelity. Runtime slowdown
@@ -182,7 +225,7 @@ can still cause audible gaps; buffering alone cannot restore real-time speed.
 
 ## Validation
 
-The Python suite has 168 tests. Native checks include the original BCM/BSK
+The Python suite has 174 tests. Native checks include the original BCM/BSK
 asset dispatcher, all eleven battle initialization entries, fragmented and bulk
 IOP clocks, delayed wakeups, external RPC delivery, both SPU2 DMA cores, planar
 PCM order, partial blocks, queue boundaries, and concurrent delivery.

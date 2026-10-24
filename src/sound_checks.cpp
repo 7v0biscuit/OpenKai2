@@ -172,6 +172,31 @@ void verify_sound_registers() {
     require(rendered[0]==12000*127/128+4000/128 && rendered[1]==-12000*127/128+4000/128
         && rendered[254]==4000 && rendered[255]==4000,
         "Audio stream replacement did not crossfade to its new samples");
+    // Replacing a stream during a fade must continue from the last emitted
+    // stereo sample, rather than jumping back to its old full-level anchor.
+    queue->reset();playback->reset();
+    for(unsigned i=0;i<StereoAudioPlayback::prefill;++i){buffered[i*2u]=12000;buffered[i*2u+1u]=-8000;}
+    queue->push(buffered);rendered={};playback->mix(*queue,rendered);
+    queue->discardPending();
+    std::array<int32_t,64> partialFade{};playback->mix(*queue,partialFade);
+    const int32_t previousLeft=partialFade[62],previousRight=partialFade[63];
+    require(previousLeft==9000 && previousRight==-6000,"Audio fade did not reach its expected intermediate sample");
+    // Advance a stop boundary while the first fade is still audible.
+    const std::array<int16_t,2> discarded{123,456};queue->push(discarded);queue->discardPending();
+    std::array<int32_t,2> nextSample{};playback->mix(*queue,nextSample);
+    require(nextSample[0]==previousLeft*127/128 && nextSample[1]==previousRight*127/128,
+        "Repeated audio stop restarted an old louder fade");
+    rendered={};playback->mix(*queue,rendered);
+    queue->push(discarded);queue->discardPending();nextSample={};playback->mix(*queue,nextSample);
+    require(nextSample[0]==0 && nextSample[1]==0,"A later audio stop resurrected a stale signal after silence");
+    // A replacement arriving halfway through that tail crossfades from the
+    // audible intermediate level, with independent left and right channels.
+    queue->reset();playback->reset();queue->push(buffered);rendered={};playback->mix(*queue,rendered);
+    queue->discardPending();partialFade={};playback->mix(*queue,partialFade);
+    std::fill(buffered.begin(),buffered.end(),4000);queue->push(buffered);queue->discardPending();queue->push(buffered);
+    nextSample={};require(playback->mix(*queue,nextSample)==1u,"Audio fade replacement was not consumed");
+    require(nextSample[0]==9000*127/128+4000/128 && nextSample[1]==-6000*127/128+4000/128,
+        "Audio crossfade ignored its most recent emitted stereo sample");
     // Consumer-only trimming after overflow bounds stale playback latency.
     queue->reset();playback->reset();
     std::vector<int16_t> overflow((StereoAudioQueue::capacity+2u)*2u);

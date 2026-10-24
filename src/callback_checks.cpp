@@ -37,6 +37,9 @@ void resume(uint8_t*,R5900Context* context,PS2Runtime* runtime) {
     context->pc=returned;
 }
 void callback(uint8_t*,R5900Context* context,PS2Runtime* runtime) {
+    alignas(16) float constant[4];_mm_store_ps(constant,context->vu0_vf[0]);
+    require(constant[0]==0.0f && constant[1]==0.0f && constant[2]==0.0f && constant[3]==1.0f,
+        "EE interrupt callback lost its constant VU vector");
     const uint32_t sp=getRegU32(context,29)-16u;
     runtime->memory().write64(sp,uint64_t(getRegU32(context,31)));
     context->pc=uint32_t(runtime->memory().read64(sp));

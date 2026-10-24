@@ -10,6 +10,8 @@ import subprocess
 import tempfile
 
 EXPECTED = {
+    'ps2xRuntime/src/lib/gs/gs_frontend.cpp':
+        '4c6e6391972ecaafd18bf3e3e047ef980b4cd0907c8199a52cb9d98d8b7397b8',
     'ps2xIOP/src/emulator/core/iop_cpu.cpp':
         'c9742864bee0bb3c29f1d18b5a25b73fa376bd3c066a8ca850c65db2bfa83dae',
     'ps2xIOP/src/emulator/core/iop_cpu.h':
@@ -110,6 +112,7 @@ def main():
         shutil.copy2(args.upstream / 'ps2xRuntime/src/lib/ps2_pad.cpp', temporary / 'runtime/ps2_pad.cpp')
         (temporary / 'runtime/gs').mkdir()
         shutil.copy2(args.upstream / 'ps2xRuntime/src/lib/gs/gs_cpu_backend.cpp', temporary / 'runtime/gs/gs_cpu_backend.cpp')
+        shutil.copy2(args.upstream / 'ps2xRuntime/src/lib/gs/gs_frontend.cpp', temporary / 'runtime/gs/gs_frontend.cpp')
         shutil.copytree(args.upstream / 'ps2xRuntime/src/lib/Kernel/Stubs', temporary / 'Kernel/Stubs')
         shutil.copytree(args.upstream / 'ps2xRuntime/src/lib/Kernel/Syscalls', temporary / 'Kernel/Syscalls')
         shutil.copy2(args.upstream / 'ps2xRuntime/src/lib/Kernel/EeScheduler.cpp', temporary / 'Kernel/EeScheduler.cpp')
@@ -129,7 +132,7 @@ def main():
                       patches / 'asynchronous-presentation.patch', patches / 'input-observation.patch', patches / 'texture-pages.patch',
                       patches / 'empty-dma-completion.patch', patches / 'parallel-sprites.patch', patches / 'guest-progress.patch',
                       patches / 'interrupt-critical-sections.patch', patches / 'sprite-formats.patch',
-                      patches / 'pixel-blending.patch', patches / 'spu2-pcm-output.patch', patches / 'iop-import-cache.patch', patches / 'small-triangles.patch', patches / 'iop-execution.patch', patches / 'ct32-pixels.patch', patches / 'early-depth.patch', patches / 'prepared-clut.patch', patches / 'draw-clut-sampling.patch'):
+                      patches / 'pixel-blending.patch', patches / 'spu2-pcm-output.patch', patches / 'iop-import-cache.patch', patches / 'small-triangles.patch', patches / 'iop-execution.patch', patches / 'ct32-pixels.patch', patches / 'early-depth.patch', patches / 'prepared-clut.patch', patches / 'draw-clut-sampling.patch', patches / 'guest-timing.patch', patches / 'vu-context.patch', patches / 'draw-history-sampling.patch'):
             apply_overlay_patch(temporary, patch)
         for source in temporary.rglob('*'):
             if source.is_file():

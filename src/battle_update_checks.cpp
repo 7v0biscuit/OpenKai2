@@ -149,3 +149,88 @@ void verify_battle_updates(PS2Runtime& runtime,uint8_t* ram) {
     require(m.read32(0x29000u)==0u && m.read32(0x29820u)==0u,"Absent battle context executed an update or state copy");
 }
 }
+
+namespace openkai2 {
+void verify_battle_draws(PS2Runtime& runtime,uint8_t* ram) {
+    auto require=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
+    for(auto entry:translation::battle_draw_entries)
+        require(runtime.hasFunction(entry),"Battle draw method is not registered");
+    struct Restore {
+        PS2Runtime& runtime;std::vector<std::pair<uint32_t,PS2Runtime::RecompiledFunction>> entries;
+        ~Restore(){for(auto i=entries.rbegin();i!=entries.rend();++i)runtime.replaceFunction(i->first,i->second);}
+        void replace(uint32_t entry,PS2Runtime::RecompiledFunction f){entries.emplace_back(entry,runtime.lookupFunction(entry));runtime.replaceFunction(entry,f);}
+    } restore{runtime,{}};
+    constexpr uint32_t root=0x600000u,globals=0x640000u,sp=0x1ffffc0u,returned=0x1be1c4u;
+    auto& memory=runtime.memory();
+    auto context=[&](uint32_t entry){R5900Context c{};c.pc=entry;c.r[28]=_mm_cvtsi32_si128(0x3ac4f0u);
+        c.r[29]=_mm_cvtsi32_si128(sp);c.r[31]=_mm_cvtsi32_si128(returned);
+        for(unsigned i=16;i<=23u;++i)c.r[i]=_mm_set_epi32(0x4400+i,0x3300+i,0x2200+i,0x1100+i);return c;};
+    auto run=[&](R5900Context& c){for(unsigned step=0;step<64u && c.pc!=returned;++step){
+        require(runtime.hasFunction(c.pc),"Battle draw reached a missing continuation");runtime.lookupFunction(c.pc)(ram,&c,&runtime);}
+        require(c.pc==returned && getRegU32(&c,29)==sp,"Battle draw did not return with its original stack");};
+    auto recorder=[](uint8_t*,R5900Context* c,PS2Runtime* r){auto& m=r->memory();const auto n=m.read32(0x29800u);
+        if(n>=8u)throw std::runtime_error("Battle draw exceeded its callback bound");
+        m.write32(0x29810u+n*8u,c->pc);m.write32(0x29814u+n*8u,getRegU32(c,4));m.write32(0x29800u,n+1u);
+        c->pc=getRegU32(c,31);};
+    for(auto entry:translation::battle_draw_entries)restore.replace(entry,recorder);
+    restore.replace(0x1a89c0u,recorder);
+    for(unsigned mode=0;mode<14u;++mode)for(unsigned direct=0;direct<2u;++direct)for(unsigned flags=0;flags<8u;++flags){
+        std::memset(ram+root,0,0x100u);std::memset(ram+0x29800u,0,0x100u);std::memset(ram+sp-0x40u,0xa5,0x50u);
+        memory.write32(0x3df4e8u,root);memory.write32(root+0xd0u,direct ? mode : 0u);
+        memory.write32(root+0xd4u,direct && mode ? 13u : mode);memory.write32(0x3df634u,flags);
+        for(unsigned i=0;i<16u;++i)memory.write32(0x3746d0u+i*4u,translation::battle_draw_primary_slots[i]);
+        for(unsigned i=0;i<14u;++i)memory.write32(0x374710u+i*4u,translation::battle_draw_secondary_slots[i]);
+        auto c=context(0x1be0d0u);const auto saved=c;run(c);
+        std::array<uint32_t,3> expected{};unsigned count=0;
+        if(flags&4u)expected[count++]=translation::battle_draw_secondary_slots[mode];
+        if((flags&2u) && translation::battle_draw_primary_slots[mode])expected[count++]=translation::battle_draw_primary_slots[mode];
+        expected[count++]=0x1a89c0u;
+        require(memory.read32(0x29800u)==count,"Battle draw selected an incorrect enabled or reserved callback");
+        for(unsigned i=0;i<count;++i)require(memory.read32(0x29810u+i*8u)==expected[i],"Battle draw changed callback order");
+        require(memory.read32(0x29814u+(count-1u)*8u)==1u,"Battle draw changed its final submission argument");
+        for(unsigned i=16;i<=23u;++i)require(std::memcmp(&c.r[i],&saved.r[i],16u)==0,"Battle draw lost a saved register");
+        require(std::all_of(ram+sp-0x40u,ram+sp-0x20u,[](uint8_t v){return v==0xa5;})
+            && std::all_of(ram+sp,ram+sp+0x10u,[](uint8_t v){return v==0xa5;}),"Battle draw changed its stack guards");
+    }
+    // Restore original methods before executing the failing intro method.
+    for(auto entry:translation::battle_draw_entries)
+        for(const auto& old:restore.entries)if(old.first==entry){runtime.replaceFunction(entry,old.second);break;}
+    constexpr uint32_t dependencies[]={0x148ef0u,0x1a8d10u,0x1be300u,0x1be260u};
+    for(auto entry:dependencies)restore.replace(entry,[](uint8_t* ram,R5900Context* c,PS2Runtime* r){
+        auto& m=r->memory();const auto n=m.read32(0x29800u),out=0x29810u+n*24u,target=c->pc;
+        if(n>=8u)throw std::runtime_error("Intro draw exceeded its dependency bound");
+        m.write32(out,target);m.write32(out+4u,getRegU32(c,4));m.write32(out+8u,getRegU32(c,5));
+        m.write32(out+12u,getRegU32(c,6));std::memcpy(ram+out+16u,&c->f[12],4u);m.write32(0x29800u,n+1u);
+        if(target==0x1be300u){const auto at=getRegU32(c,4);std::memset(ram+at,0,8u);
+            m.write8(at+3u,17u);m.write8(at+4u,29u);}
+        if(target==0x1a8d10u)c->r[2]=_mm_cvtsi32_si128(0x720000u+n*32u);
+        c->pc=getRegU32(c,31);
+    });
+    for(unsigned variant=0;variant<16u;++variant){
+        std::memset(ram+globals,0,0x20000u);std::memset(ram+0x29800u,0,0x200u);
+        memory.write32(0x3a4cb4u,globals);memory.write16(globals+0x19c5cu,variant&1u);
+        memory.write32(0x3df5a4u,0x700000u);memory.write32(0x3df5b0u,0x710000u);
+        memory.write32(0x3df5c4u,(variant&2u) ? 0xffffffffu : 42u);memory.write32(0x3df5c8u,0x40200000u);
+        memory.write32(0x3a4978u,0xa5a5a5a5u);
+        auto c=context(0x1ba250u);const auto saved=c;run(c);
+        const bool paused=(variant&1u)!=0u,negative=(variant&2u)!=0u;
+        require(memory.read32(0x29800u)==(paused ? 0u : negative ? 3u : 7u),"Intro draw changed its pause or command path");
+        require(memory.read32(0x3a4978u)==(paused ? 0xa5a5a5a5u : 0u),"Intro draw changed its submission state");
+        if(!paused){
+            require(memory.read32(0x29810u)==0x148ef0u && memory.read32(0x29814u)==0x700000u
+                && memory.read32(0x29818u)==0x05000000u,"Intro draw changed its list binding");
+            require(memory.read32(0x29828u)==0x1a8d10u && memory.read32(0x2982cu)==0x710000u
+                && memory.read32(0x29830u)==1u && memory.read32(0x29838u)==0u,"Intro draw changed its base model submission");
+            if(negative)require(memory.read32(0x29848u)==4u,"Intro draw changed its empty-command model group");
+            else {
+                require(memory.read32(0x29840u)==0x1be300u && memory.read32(0x29848u)==42u && memory.read32(0x2984cu)==0u,"Intro draw changed its command query");
+                require(memory.read32(0x29860u)==2u && memory.read32(0x29868u)==0x40200000u
+                    && memory.read32(0x29890u)==3u && memory.read32(0x29898u)==0x40200000u,"Intro draw changed its animated model groups or progress");
+                require(memory.read32(0x29870u)==0x1be260u && memory.read32(0x29878u)==17u
+                    && memory.read32(0x298a0u)==0x1be260u && memory.read32(0x298a8u)==29u,"Intro draw changed command-dependent visibility");
+            }
+        }
+        for(unsigned i=16;i<=23u;++i)require(std::memcmp(&c.r[i],&saved.r[i],16u)==0,"Intro draw lost a saved register");
+    }
+}
+}

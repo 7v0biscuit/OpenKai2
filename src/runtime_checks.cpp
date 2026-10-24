@@ -14,6 +14,7 @@
 #include "draw_setup_checks.h"
 #include "battle_command_checks.h"
 #include "battle_update_checks.h"
+#include "animation_checks.h"
 #include "aura_checks.h"
 #include "fade_checks.h"
 #include "movie_checks.h"
@@ -384,6 +385,7 @@ void verify_file_callbacks(PS2Runtime& runtime,uint8_t* memory) {
 }
 int run_runtime_checks() {
     verify_interlaced_presentation();
+    std::cout << "Runtime draw history regression passed: sampled diagnostics preserve complete VRAM for sprites, triangles, and blending.\n";
     std::cout << "Runtime prepared palette regression passed: all indexed formats, CLUT formats, CSM/CSA, skipped loads, TEXA, reset, backend reuse, and serial/parallel VRAM.\n";
     std::cout << "Runtime early depth regression passed: 48 serial and parallel VRAM snapshots, hidden pixels, unsigned depth, feedback, stale pages, and deferred texture samples.\n";
     std::cout << "Runtime prepared pixel regression passed: 64 complete VRAM and dependent-sample snapshots, depth writes, buffer aliases, alpha boundaries, and fallback states.\n";
@@ -448,6 +450,10 @@ int run_runtime_checks() {
     std::cout << "Runtime asset relocation regression passed: seven handlers, logged AMM dispatcher, nested assets, and repeat guards.\n";
     verify_draw_setup(runtime,memory);
     verify_versus_animation(runtime,memory);
+    verify_skeletal_transforms(runtime,memory);
+    std::cout << "Runtime skeletal transform regression passed: 64 original quaternion transforms, worker start/restart, parent matrices, translation, and homogeneous coordinates.\n";
+    verify_battle_draws(runtime,memory);
+    std::cout << "Runtime battle draw regression passed: 24 original methods registered, 224 selector cases, 16 original intro cases, enable masks, model groups, visibility, and saved registers.\n";
     verify_battle_updates(runtime,memory);
     std::cout << "Runtime battle update regression passed: 18 original methods, both selectors, 545 caller cases, tail aliases, character state, secondary flags, snapshots, pauses, and saved registers.\n";
     verify_aura_updates(runtime,memory);

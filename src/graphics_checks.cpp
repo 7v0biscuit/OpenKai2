@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "graphics_checks.h"
 #include "runtime/gs/gs_cpu_backend.h"
+#include "runtime/gs/gs_frontend.h"
+#include "guest_timing.h"
 #include "raster_workers.h"
 #include <algorithm>
 #include <cmath>
@@ -53,6 +55,38 @@ uint64_t palette_pipeline_hash(unsigned variant,unsigned workers=1u) {
     backend.Initialize(vram.data(),uint32_t(vram.size()));s.texa.aem=false;s.texa.ta0=127u;
     draw(backend);tex.csm^=1u;backend.LoadClut(tex,clut);draw(backend);
     return hash;
+}
+
+void check_draw_history_sampling() {
+    struct Disable {~Disable(){enable_guest_timings(false);}} disable;
+    for(unsigned variant=0;variant<4u;++variant){
+        std::vector<uint8_t> expected;
+        for(bool sampled:{false,true}){
+            enable_guest_timings(sampled);
+            std::vector<uint8_t> vram(4u*1024u*1024u,0x35u);
+            auto gs=std::make_unique<GS>();gs->init(vram.data(),uint32_t(vram.size()));gs->setDebugHistoryPaused(false);
+            gs->writeRegister(0x4cu,56u|(uint64_t(2u)<<16u));
+            gs->writeRegister(0x4eu,168u|(1ull<<32u));
+            gs->writeRegister(0x40u,(127ull<<16u)|(63ull<<48u));
+            gs->writeRegister(0x47u,0x30000u);gs->writeRegister(0x46u,1u);gs->writeRegister(0x42u,0x44u);
+            const bool triangle=(variant&1u)!=0u;
+            gs->writeRegister(0x00u,(triangle ? 3u : 6u)|((variant&2u) ? 64u : 0u));
+            auto vertex=[&](unsigned x,unsigned y){gs->writeRegister(0x05u,uint64_t(x*16u)|(uint64_t(y*16u)<<16u)|(1000ull<<32u));};
+            for(unsigned i=0;i<128u;++i){
+                gs->writeRegister(0x01u,(uint64_t(0x3f800000u)<<32u)|0x80000000u|(i*71u&255u)|((i*17u&255u)<<8u)|((i*31u&255u)<<16u));
+                const unsigned x=3u+i%12u*7u,y=3u+i/12u*5u;
+                vertex(x,y);vertex(x+6u,triangle ? y+1u : y+4u);if(triangle)vertex(x+1u,y+4u);
+            }
+            const auto history=gs->getDebugHistory();const auto draws=std::count_if(history.begin(),history.end(),[](const auto& row){return row.kind==GSDebugEventKind::Draw;});
+            if(draws!=(sampled ? 2 : 128))throw std::runtime_error("Draw history did not retain its intended sampling rate");
+            if(!sampled){
+                if(std::all_of(vram.begin(),vram.end(),[](uint8_t value){return value==0x35u;}))
+                    throw std::runtime_error("Draw history fixture did not render any pixels");
+                expected=vram;
+            }
+            else if(vram!=expected)throw std::runtime_error("Draw history sampling changed rendered VRAM");
+        }
+    }
 }
 
 void check_prepared_palette() {
@@ -786,7 +820,7 @@ void check_sprite_pipeline() {
 }
 }
 void verify_interlaced_presentation() {
-    check_prepared_palette();check_early_depth();check_prepared_pipeline();check_pixel_blending();check_triangle_pipeline();
+    check_draw_history_sampling();check_prepared_palette();check_early_depth();check_prepared_pipeline();check_pixel_blending();check_triangle_pipeline();
     verify_raster_workers();check_parallel_sprites();
     check_texture_cache_scope();
     check_bilinear_rounding();

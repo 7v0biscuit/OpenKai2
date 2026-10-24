@@ -62,6 +62,18 @@ void verify_thread_bootstrap() {
             && getRegU32(&context,29)==PS2_RAM_SIZE-16u
             && getRegU32(&context,28)==0x003ac4f0u,
             "Repeated SDK initialization changed configured priority, registers, or thread state");
+    // New and restarted workers must see the hardwired homogeneous constant.
+    for(unsigned restart=0;restart<2u;++restart){
+        auto* target=scheduler.thread(id);
+        require(scheduler.startThread(id,0x1234u,context,true)==0,"Cannot start VU worker fixture");
+        alignas(16) float constant[4];_mm_store_ps(constant,target->context.vu0_vf[0]);
+        require(constant[0]==0.0f && constant[1]==0.0f && constant[2]==0.0f && constant[3]==1.0f,
+            "Started EE worker lost its constant VU vector");
+        require(_mm_cvtsi128_si32(_mm_castps_si128(target->context.vu0_r))==0x3f800000,
+            "Started EE worker lost its VU random seed");
+        target->context.vu0_vf[0]=_mm_setzero_ps();uint32_t stack=0;
+        require(scheduler.terminateThread(id,stack,true)==0,"Cannot stop VU worker fixture");
+    }
 }
 void verify_thread_wakeup() {
     auto owned=std::make_unique<PS2Runtime>();

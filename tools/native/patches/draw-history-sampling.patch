@@ -1,0 +1,20 @@
+--- a/runtime/gs/gs_frontend.cpp
++++ b/runtime/gs/gs_frontend.cpp
+@@ -1,4 +1,5 @@
+ #include "runtime/gs/gs_frontend.h"
++#include "guest_timing.h"
+ #include "runtime/gs/gs_cpu_backend.h"
+ #include "ps2_log.h"
+ #include "runtime/ps2_memory.h"
+@@ -410,7 +411,10 @@
+ 
+ void GS::recordDrawDebugEventUnlocked(int vertexCount)
+ {
+-    if (m_debugHistoryPaused)
++    // Full history remains available to component checks and tooling. During
++    // gameplay, sample draw diagnostics before copying state or taking the
++    // backend snapshot lock. Rasterization and GS state are unchanged.
++    if (m_debugHistoryPaused || !openkai2::sample_draw_history())
+     {
+         return;
+     }

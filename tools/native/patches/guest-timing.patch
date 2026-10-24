@@ -1,0 +1,67 @@
+--- a/Kernel/EeScheduler.cpp
++++ b/Kernel/EeScheduler.cpp
+@@ -1,5 +1,6 @@
+ #include "runtime/ee_scheduler.h"
+ #include "startup_diagnostics.h"
++#include "guest_timing.h"
+ 
+ #include "ps2_log.h"
+ #include "ps2_runtime_macros.h"
+@@ -308,6 +309,7 @@
+         {
+             m_insideInterrupt = !running->invocations.empty() && running->invocations.back().kind == GuestInvocationKind::Interrupt;
+             m_guestExecuting.store(true, std::memory_order_release);
++            openkai2::GuestTimingScope timing(openkai2::GuestWork::dispatch,context.pc);
+             function(m_rdram, &context, &m_runtime);
+             m_guestExecuting.store(false, std::memory_order_release);
+             m_insideInterrupt = false;
+--- a/runtime/ps2_runtime.cpp
++++ b/runtime/ps2_runtime.cpp
+@@ -1,5 +1,6 @@
+ #include "ps2_runtime.h"
+ #include "host_audio.h"
++#include "guest_timing.h"
+ #include "startup_diagnostics.h"
+ #include "host_input.h"
+ #include "frame_presenter.h"
+@@ -606,6 +607,7 @@
+ 
+ void PS2Runtime::advanceIopEeCycles(uint64_t eeCycles) noexcept
+ {
++    openkai2::GuestTimingScope timing(openkai2::GuestWork::iop,0u);
+     m_iopSubsystem->runEeCycles(eeCycles);
+ }
+ 
+@@ -1397,6 +1399,7 @@
+ 
+     RecompiledFunction targetFn = lookupFunction(targetPc);
+     const uint32_t entryPc = ctx->pc;
++    openkai2::GuestTimingScope timing(openkai2::GuestWork::dispatch,targetPc);
+     targetFn(rdram, ctx, this);
+ 
+     if (isStopRequested() || ctx->pc == 0u)
+@@ -1439,6 +1442,7 @@
+ 
+ void PS2Runtime::executeVU0Microprogram(uint8_t *rdram, R5900Context *ctx, uint32_t address)
+ {
++    openkai2::GuestTimingScope timing(openkai2::GuestWork::vu0,address);
+     (void)rdram;
+ 
+     uint8_t *const vu0Code = m_memory.getVU0Code();
+@@ -2388,6 +2392,7 @@
+     std::thread gameThread([&]()
+                            {
+         ThreadNaming::SetCurrentThreadName("GameThread");
++        openkai2::enable_guest_timings(true);
+         try
+         {
+             m_eeScheduler->reset(m_memory.getRDRAM(), m_cpuContext);
+@@ -2404,6 +2409,8 @@
+         {
+             std::cerr << "Error during program execution: unknown exception" << std::endl;
+         }
++        openkai2::flush_guest_timings();
++        openkai2::enable_guest_timings(false);
+         gameThreadFinished.store(true, std::memory_order_release); });
+ 
+     openkai2::StartupDiagnostics startupDiagnostics;
