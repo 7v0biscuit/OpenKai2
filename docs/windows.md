@@ -32,6 +32,8 @@ remains available when a controller is connected.
 Memory-card files are stored in the disc cache's `mc0` directory. Preserve this
 directory when troubleshooting; the runtime self-test uses a separate temporary
 card. The `[startup:save]` log record shows the active save root and last command.
+Cumulative `[runtime:work]` log records separate guest execution, DMA, and
+vector-unit work. These are inclusive host timings, not a game-FPS counter.
 The renderer currently runs on the CPU; a supported GPU does not establish a
 particular game frame rate. Large eligible sprites and textured triangles use up to four CPU workers,
 including indexed textures and independent depth buffers. Dependent draws

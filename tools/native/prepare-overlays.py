@@ -10,6 +10,8 @@ import subprocess
 import tempfile
 
 EXPECTED = {
+    'ps2xRuntime/src/lib/vu/ps2_vu1_core.cpp':
+        '2c19f489f0ed5c22c8dbb2712825dcd2004b0bd93644204c274b4c829003af59',
     'ps2xRuntime/src/lib/gs/gs_frontend.cpp':
         '4c6e6391972ecaafd18bf3e3e047ef980b4cd0907c8199a52cb9d98d8b7397b8',
     'ps2xIOP/src/emulator/core/iop_cpu.cpp':
@@ -110,6 +112,8 @@ def main():
         shutil.copy2(args.upstream / 'ps2xRuntime/src/lib/ps2_memory.cpp', temporary / 'runtime/ps2_memory.cpp')
         shutil.copy2(args.upstream / 'ps2xRuntime/src/lib/ps2_runtime.cpp', temporary / 'runtime/ps2_runtime.cpp')
         shutil.copy2(args.upstream / 'ps2xRuntime/src/lib/ps2_pad.cpp', temporary / 'runtime/ps2_pad.cpp')
+        (temporary / 'runtime/vu').mkdir()
+        shutil.copy2(args.upstream / 'ps2xRuntime/src/lib/vu/ps2_vu1_core.cpp', temporary / 'runtime/vu/ps2_vu1_core.cpp')
         (temporary / 'runtime/gs').mkdir()
         shutil.copy2(args.upstream / 'ps2xRuntime/src/lib/gs/gs_cpu_backend.cpp', temporary / 'runtime/gs/gs_cpu_backend.cpp')
         shutil.copy2(args.upstream / 'ps2xRuntime/src/lib/gs/gs_frontend.cpp', temporary / 'runtime/gs/gs_frontend.cpp')
@@ -132,7 +136,7 @@ def main():
                       patches / 'asynchronous-presentation.patch', patches / 'input-observation.patch', patches / 'texture-pages.patch',
                       patches / 'empty-dma-completion.patch', patches / 'parallel-sprites.patch', patches / 'guest-progress.patch',
                       patches / 'interrupt-critical-sections.patch', patches / 'sprite-formats.patch',
-                      patches / 'pixel-blending.patch', patches / 'spu2-pcm-output.patch', patches / 'iop-import-cache.patch', patches / 'small-triangles.patch', patches / 'iop-execution.patch', patches / 'ct32-pixels.patch', patches / 'early-depth.patch', patches / 'prepared-clut.patch', patches / 'draw-clut-sampling.patch', patches / 'guest-timing.patch', patches / 'vu-context.patch', patches / 'draw-history-sampling.patch', patches / 'texture-cache-binding.patch', patches / 'tested-pixel-writer.patch', patches / 'host-audio-disabled.patch'):
+                      patches / 'pixel-blending.patch', patches / 'spu2-pcm-output.patch', patches / 'iop-import-cache.patch', patches / 'small-triangles.patch', patches / 'iop-execution.patch', patches / 'ct32-pixels.patch', patches / 'early-depth.patch', patches / 'prepared-clut.patch', patches / 'draw-clut-sampling.patch', patches / 'guest-timing.patch', patches / 'vu-context.patch', patches / 'draw-history-sampling.patch', patches / 'texture-cache-binding.patch', patches / 'tested-pixel-writer.patch', patches / 'host-audio-disabled.patch', patches / 'vector-throughput.patch', patches / 'work-timings.patch'):
             apply_overlay_patch(temporary, patch)
         for source in temporary.rglob('*'):
             if source.is_file():

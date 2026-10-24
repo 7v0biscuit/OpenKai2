@@ -192,6 +192,12 @@ and `[guest:hotspot]`, with separate dispatch, IOP, and VU0 entries. These are
 host execution samples, not game frame-rate counters; nested timings of the same
 kind are suppressed. Only the active EE executor records samples.
 
+Startup logs also include cumulative `[runtime:work]` measurements for the
+outer guest executor, DMA submission, pending DMA processing, VU0, and VU1.
+These record complete host elapsed times rather than extrapolating sampled
+calls. Parent scopes include child work, so the totals are not additive and
+do not measure game FPS. Empty pending-transfer polls do not take timestamps.
+
 During gameplay, graphics diagnostics retain one in 64 draw-history entries.
 This avoids copying graphics state and taking a backend snapshot lock for every
 primitive. Register and transfer history remain at full detail. Component checks
@@ -215,6 +221,60 @@ Native checks execute the original call site across 896 cases. They cover all
 14 valid rule slots, timers, knockouts, ties, state commands, and saved
 registers. This validates the translated rule dispatch; uninterrupted retail
 matches still require gameplay testing.
+
+## Impact-effect dispatch
+
+The reviewed effect lifecycle includes all four seven-type impact tables and
+six adjacent aura callbacks. The original impact factory now resolves the
+constructor at `0x210c00`, along with the corresponding update, draw, and
+teardown entries. Original instruction words and table slots are checked
+against the supported executable.
+
+Native checks cover 112 original factory cases across all seven impact types,
+allocation success and failure, actor state, packed parameters, resource
+binding, saved registers, and memory guards. These checks validate dispatch
+and initialization; they do not establish complete retail attack sequences.
+
+## Vector execution throughput
+
+The vector interpreter retains decoded instruction pairs by reference during
+a synchronous execute/resume call. Cache identity is validated at that
+boundary; a cheap generation check between instructions also observes host
+callback writes. Reuploads decode only instruction pairs whose words changed.
+Sparse integer-register masks are walked directly during hazard checks.
+On GNU x86 builds, rounding changes update x87/SSE control bits directly,
+avoiding MinGW's repeated CPU-feature probes. Another 128 checks cover host
+rounding modes and sticky exception flags.
+
+XGKICK resets transfer metadata and initializes the consumed packet prefix
+instead of clearing its entire 64 KiB backing buffer on each launch. Qwords
+are copied in one or two contiguous pieces while preserving wraparound and
+the cycle at which each qword is read.
+
+Forty upstream vector conformance cases cover pipeline hazards, flags, branch
+delays, code invalidation, and transfers. Sixty-four additional original
+interpreter references compare registers, flags, guest cycles, memory, and
+packet bytes across VU0/VU1, cache reloads, resume, and wrapped transfers. A live-code check also verifies
+that a GIF callback can change the next instruction without changing the
+already fetched pair. The
+optional `openkai2_vector_bench` target reports synthetic host execution costs
+and verifies guest cycle counts and output hashes.
+
+Three-run synthetic measurements use the same guest cycles and output hashes
+before and after the change. Representative times per vector call are:
+
+| Workload | Native Linux, before → after | Windows under Wine, before → after |
+| --- | ---: | ---: |
+| Short vector launch | 1.36 → 0.63 µs | 9.71 → 0.74 µs |
+| Vector arithmetic | 8.11 → 7.12 µs | 16.91 → 6.82 µs |
+| 4 KiB XGKICK packet | 20.73 → 17.40 µs | 30.32 → 17.52 µs |
+| Repeated code upload | 27.54 → 5.31 µs | 35.87 → 5.68 µs |
+
+All sixteen workloads retain matching register/memory hashes, packet checksums,
+and guest cycle counts across both platforms. CPU-feature probe costs depend
+strongly on the execution environment, so the Windows-under-Wine gains are
+not estimates of native Windows game FPS. Complete retail performance remains
+unverified.
 
 ## Attack-effect dispatch
 
@@ -275,7 +335,7 @@ The executable embeds its source revision in a contiguous log marker. Native
 builds refresh this stamp after a commit; portable and installer packaging
 reject binaries whose marker disagrees with the checkout or bundle manifest.
 
-The Python suite has 181 tests. Native checks include the original BCM/BSK
+The Python suite has 183 tests. Native checks include the original BCM/BSK
 asset dispatcher, all eleven battle initialization entries, fragmented and bulk
 IOP clocks, delayed wakeups, external RPC delivery, both SPU2 DMA cores, planar
 PCM order, partial blocks, queue boundaries, and concurrent delivery.
