@@ -276,6 +276,31 @@ strongly on the execution environment, so the Windows-under-Wine gains are
 not estimates of native Windows game FPS. Complete retail performance remains
 unverified.
 
+### Active pipeline scheduling
+
+Pipeline queues now track occupied slots with masks. Allocation still chooses
+its original lowest free slot, and commits preserve slot and pipeline order.
+The interpreter skips repeated scans before the next result is ready and jumps
+over idle cycles when PATH1 is inactive. During PATH1 transfers, stores and
+qword reads retain their original cycle boundaries. Vector instruction handlers
+are compiled together to inline operand and scheduler helpers.
+
+Another 128 original interpreter references compare intermediate registers,
+flags, memory, guest cycles, resets, and packet callback cycles across eight
+resume budgets on both vector units. The component suite contains 42 cases,
+including the forty upstream conformance cases.
+
+Three alternating native Linux benchmark runs against the preceding release
+reduced arithmetic workload time from 7.06 to 4.09 microseconds (42%), integer
+work from 3.51 to 1.34 microseconds (62%), and a 4 KiB XGKICK workload from 17.31
+to 3.32 microseconds (81%). All sixteen workloads retain identical guest cycles
+and state/packet hashes. These measurements describe synthetic kernels; stable
+retail 60 FPS remains unverified.
+
+The inclusive `path1-submit` work total separately records graphics work
+inside vector execution, allowing its cost to be distinguished from the
+interpreter. Nested totals must not be added together.
+
 ## Attack-effect dispatch
 
 The reviewed translation includes the 19-slot attack-effect constructor table

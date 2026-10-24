@@ -60,6 +60,7 @@ function(openkai2_attach_generated_sources)
         "${project_root}/tools/native/patches/tested-pixel-writer.patch"
         "${project_root}/tools/native/patches/host-audio-disabled.patch"
         "${project_root}/tools/native/patches/vector-throughput.patch"
+        "${project_root}/tools/native/patches/vector-scheduling.patch"
         "${project_root}/tools/native/patches/work-timings.patch"
         "${project_root}/tools/native/patches/disc-layout.patch"
         "${project_root}/tools/native/patches/iop-startup.patch"
@@ -140,8 +141,11 @@ function(openkai2_attach_generated_sources)
     set(overlay_runtime_sources "")
     set(thread_overlay_count 0)
     foreach(source IN LISTS runtime_sources)
+        if(source MATCHES "(^|/)src/lib/vu/ps2_vu1_(upper|lower)\\.cpp$")
+            continue()
+        endif()
         if(source MATCHES "(^|/)src/lib/vu/ps2_vu1_core\\.cpp$")
-            set(source "${overlay_dir}/runtime/vu/ps2_vu1_core.cpp")
+            set(source "${project_root}/tools/native/vector-unit.cpp")
             set_property(SOURCE "${source}" TARGET_DIRECTORY ps2_runtime APPEND PROPERTY
                 INCLUDE_DIRECTORIES "${CMAKE_SOURCE_DIR}/ps2xRuntime/src/lib/vu")
         endif()
@@ -178,6 +182,7 @@ function(openkai2_attach_generated_sources)
     endif()
     set_property(TARGET ps2_runtime PROPERTY SOURCES "${overlay_runtime_sources}")
     target_sources(ps2_runtime PRIVATE "${project_root}/src/host_audio.cpp" "${project_root}/src/work_timings.cpp")
+    target_include_directories(ps2_runtime BEFORE PUBLIC "${overlay_dir}/include")
     target_include_directories(ps2_runtime BEFORE PRIVATE "${overlay_dir}" "${overlay_dir}/runtime")
     target_include_directories(ps2_runtime PRIVATE "${CMAKE_SOURCE_DIR}/ps2xRuntime/src/lib/Kernel/Stubs")
     target_link_libraries(ps2_runtime PRIVATE openkai2_disc)
@@ -260,7 +265,7 @@ function(openkai2_attach_generated_sources)
     endif()
     ps2x_stage_ffmpeg_runtime_dlls(openkai2_vector_tests)
     add_test(NAME vector_pipelines COMMAND openkai2_vector_tests)
-    add_library(openkai2_vector_checks STATIC "${project_root}/src/vector_checks.cpp")
+    add_library(openkai2_vector_checks STATIC "${project_root}/src/vector_checks.cpp" "${project_root}/src/vector_pipeline_checks.cpp")
     target_include_directories(openkai2_vector_checks PUBLIC "${project_root}/src")
     target_link_libraries(openkai2_vector_checks PUBLIC ps2_runtime)
     add_executable(openkai2_vector_bench EXCLUDE_FROM_ALL "${project_root}/tools/benchmarks/vector_execution.cpp"

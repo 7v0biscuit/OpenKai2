@@ -457,6 +457,8 @@ int run_runtime_checks() {
     verify_versus_animation(runtime,memory);
     verify_skeletal_transforms(runtime,memory);
     std::cout << "Runtime skeletal transform regression passed: 64 original quaternion transforms, worker start/restart, parent matrices, translation, and homogeneous coordinates.\n";
+    verify_vector_pipeline_scheduling();
+    std::cout << "Runtime vector scheduling regression passed: 128 original register, flag, memory and cycle references across pipeline stalls, resume budgets, reset and PATH1 callbacks.\n";
     verify_vector_execution();
     std::cout << "Runtime vector execution regression passed: 64 original register, flag, cycle, memory and packet references, cache invalidation, resume, wrapping, VU0/VU1, and 128 host floating-point control cases.\n";
     verify_impact_effects(runtime,memory);
