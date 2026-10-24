@@ -204,6 +204,36 @@ median times for the smallest sprite and triangle submissions, with matching
 VRAM checksums. Larger-draw timings were mixed, including small regressions.
 These measurements do not establish retail game frame rates.
 
+## Fight rules and result transitions
+
+The reviewed translation includes all 20 distinct methods from the adjacent
+fight initialization, update, and result-rule tables. This covers the indirect
+rule call reached after the fight introduction, including the previously
+unregistered target at `0x1d34f0`.
+
+Native checks execute the original call site across 896 cases. They cover all
+14 valid rule slots, timers, knockouts, ties, state commands, and saved
+registers. This validates the translated rule dispatch; uninterrupted retail
+matches still require gameplay testing.
+
+## Texture sampling throughput
+
+Sprite and triangle rasterization now passes each worker's texture cache
+directly to the sampler. This removes repeated thread-local cache lookups from
+texture taps while retaining palette handling, filtering, wrapping, feedback,
+and cache visibility.
+
+The optional `openkai2_texture_cache_bench` target covers 40 sprite and triangle
+cases with direct and indexed textures, point and bilinear filtering, small
+draws, perspective, and feedback. It accepts a worker count, for example
+`openkai2_texture_cache_bench 1`.
+
+Three-run Windows binary measurements under Wine showed about 29–36% lower
+serial bilinear draw times and 3–24% lower point-filtered draw times. All 40
+VRAM checksums matched the previous renderer with both one and four workers.
+These are synthetic draw timings, not retail game frame rates. The CPU renderer
+still needs further optimization to establish sustained 60 FPS.
+
 ## Audio
 
 SPU2 AutoDMA PCM reaches a 48 kHz stereo host stream through raylib's miniaudio
@@ -229,7 +259,7 @@ The executable embeds its source revision in a contiguous log marker. Native
 builds refresh this stamp after a commit; portable and installer packaging
 reject binaries whose marker disagrees with the checkout or bundle manifest.
 
-The Python suite has 177 tests. Native checks include the original BCM/BSK
+The Python suite has 179 tests. Native checks include the original BCM/BSK
 asset dispatcher, all eleven battle initialization entries, fragmented and bulk
 IOP clocks, delayed wakeups, external RPC delivery, both SPU2 DMA cores, planar
 PCM order, partial blocks, queue boundaries, and concurrent delivery.

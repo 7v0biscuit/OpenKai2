@@ -53,7 +53,7 @@ def main():
         if 'The original game ISO is required' not in help_text:
             raise RuntimeError('Installed executable did not print the expected help.')
         self_test = run([str(executable), '--self-test'])
-        for marker in ('Runtime draw history regression passed', 'Runtime skeletal transform regression passed', 'Runtime battle draw regression passed', 'Runtime battle update regression passed', 'Runtime prepared palette regression passed', 'Runtime early depth regression passed', 'Runtime aura update regression passed', 'Runtime battle command regression passed', 'Runtime prepared pixel regression passed', 'Runtime scene mode regression passed', 'Runtime buffered audio regression passed', 'Runtime battle asset regression passed', 'Runtime battle initialization regression passed',
+        for marker in ('Runtime fight rule regression passed', 'Runtime draw history regression passed', 'Runtime skeletal transform regression passed', 'Runtime battle draw regression passed', 'Runtime battle update regression passed', 'Runtime prepared palette regression passed', 'Runtime early depth regression passed', 'Runtime aura update regression passed', 'Runtime battle command regression passed', 'Runtime prepared pixel regression passed', 'Runtime scene mode regression passed', 'Runtime buffered audio regression passed', 'Runtime battle asset regression passed', 'Runtime battle initialization regression passed',
                        'Runtime streamed audio regression passed', 'Runtime IOP import cache regression passed'):
             if marker not in self_test:
                 raise RuntimeError('Installed application is missing required battle/audio execution checks: '+marker)

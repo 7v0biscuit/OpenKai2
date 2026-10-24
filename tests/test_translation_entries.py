@@ -68,7 +68,7 @@ class TranslationEntries(unittest.TestCase):
     def test_reviewed_tables_have_complete_unique_coverage(self):
         self.assertEqual(len(ENTRIES.DISPATCH_TABLES), 7)
         self.assertTrue(all(len(row) == 14 for _, row in ENTRIES.DISPATCH_TABLES))
-        self.assertEqual(len(set(ENTRIES.ENTRY_POINTS)), 273)
+        self.assertEqual(len(set(ENTRIES.ENTRY_POINTS)), 293)
         self.assertEqual(len(ENTRIES.ZERO_RETURN_ENTRIES), 39)
         self.assertTrue(set(ENTRIES.ZERO_RETURN_ENTRIES) <= set(ENTRIES.ENTRY_POINTS))
         self.assertNotIn(0x00387110, ENTRIES.ENTRY_POINTS)
@@ -83,7 +83,7 @@ class TranslationEntries(unittest.TestCase):
             path = Path(temporary) / 'entries.h'
             ENTRIES.emit_check_header(path)
             content, changed = path.read_text(), path.stat().st_mtime_ns
-            self.assertIn('std::array<uint32_t, 273> entries', content)
+            self.assertIn('std::array<uint32_t, 293> entries', content)
             self.assertIn('std::array<uint32_t, 39> zero_return_entries', content)
             for address in ENTRIES.ENTRY_POINTS:
                 self.assertIn(f'0x{address:08x}u,', content)
@@ -213,6 +213,26 @@ class TranslationEntries(unittest.TestCase):
             with self.subTest(address=address), self.assertRaisesRegex(ValueError,f'missing guest entry 0x{address:08x}'):
                 self.verify_fixture('g_ps2RecompiledFunctionTable[1] = owner; // 0x167188',
                                     '// Address: 0x167188 - 0x1671a0', omitted=(address,))
+
+    def test_fight_state_tables_require_every_original_entry(self):
+        self.assertEqual(tuple(len(slots) for _,slots in ENTRIES.FIGHT_STATE_TABLES),(8,8,16))
+        self.assertEqual({x for _,slots in ENTRIES.FIGHT_STATE_TABLES for x in slots}-{0},set(ENTRIES.FIGHT_STATE_ENTRIES))
+        for address in ENTRIES.FIGHT_STATE_ENTRIES:
+            with self.subTest(address=address),self.assertRaisesRegex(ValueError,f'missing guest entry 0x{address:08x}'):
+                self.verify_fixture('g_ps2RecompiledFunctionTable[1] = owner; // 0x167188',
+                                    '// Address: 0x167188 - 0x1671a0',omitted=(address,))
+
+    def test_fight_state_metadata_checks_tables_and_complete_handlers(self):
+        for base,slots in ENTRIES.FIGHT_STATE_TABLES:
+            for index in range(len(slots)):
+                data=self.make_elf_metadata();data[base-0x100000+128+index*4]^=1
+                with self.subTest(base=base,index=index),self.assertRaisesRegex(ValueError,'Indirect methods differ'):
+                    ENTRIES.verify_elf_metadata(data)
+        for address,words in ENTRIES.FIGHT_STATE_WORDS:
+            for index in range(len(words)):
+                data=self.make_elf_metadata();data[address-0x100000+128+index*4]^=1
+                with self.subTest(address=address,index=index),self.assertRaisesRegex(ValueError,'Fight state instructions'):
+                    ENTRIES.verify_elf_metadata(data)
 
     def test_battle_draw_tables_require_every_original_entry(self):
         self.assertEqual(tuple(len(slots) for _,slots in ENTRIES.BATTLE_DRAW_TABLES),(16,14))
@@ -359,7 +379,7 @@ class TranslationEntries(unittest.TestCase):
         for base, entries in (ENTRIES.DISPATCH_TABLES + ENTRIES.FILE_CALLBACK_TABLES
                               + ENTRIES.STREAM_CALLBACK_TABLES + ENTRIES.MEMORY_STREAM_TABLES + ENTRIES.FADE_CALLBACK_TABLES
                               + ENTRIES.MOVIE_CALLBACK_TABLES + ENTRIES.MOVIE_PACKET_TABLES
-                              + ENTRIES.MOVIE_TIMING_TABLES + ENTRIES.SCENE_MODE_TABLES + ENTRIES.BATTLE_COMMAND_TABLES + ENTRIES.AURA_UPDATE_TABLES + ENTRIES.BATTLE_UPDATE_TABLES + ENTRIES.BATTLE_DRAW_TABLES):
+                              + ENTRIES.MOVIE_TIMING_TABLES + ENTRIES.SCENE_MODE_TABLES + ENTRIES.BATTLE_COMMAND_TABLES + ENTRIES.AURA_UPDATE_TABLES + ENTRIES.BATTLE_UPDATE_TABLES + ENTRIES.BATTLE_DRAW_TABLES + ENTRIES.FIGHT_STATE_TABLES):
             put(base, entries)
         put(0x00387420, ENTRIES.MOVIE_TIMING_RATES)
         for address in ENTRIES.ZERO_RETURN_ENTRIES:
@@ -372,6 +392,8 @@ class TranslationEntries(unittest.TestCase):
             put(base,slots)
         put(ENTRIES.BATTLE_ASSET_TABLE_BASE,ENTRIES.BATTLE_ASSET_TABLE_WORDS)
         for address,words in ENTRIES.BATTLE_ASSET_WORDS:
+            put(address,words)
+        for address,words in ENTRIES.FIGHT_STATE_WORDS:
             put(address,words)
         for address,words in ENTRIES.BATTLE_DRAW_WORDS:
             put(address,words)

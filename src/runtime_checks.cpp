@@ -14,6 +14,7 @@
 #include "draw_setup_checks.h"
 #include "battle_command_checks.h"
 #include "battle_update_checks.h"
+#include "fight_state_checks.h"
 #include "animation_checks.h"
 #include "aura_checks.h"
 #include "fade_checks.h"
@@ -452,6 +453,8 @@ int run_runtime_checks() {
     verify_versus_animation(runtime,memory);
     verify_skeletal_transforms(runtime,memory);
     std::cout << "Runtime skeletal transform regression passed: 64 original quaternion transforms, worker start/restart, parent matrices, translation, and homogeneous coordinates.\n";
+    verify_fight_states(runtime,memory);
+    std::cout << "Runtime fight rule regression passed: 20 registered mode methods, six original rule handlers, 896 call-site cases, timers, knockouts, ties, state commands, and saved registers.\n";
     verify_battle_draws(runtime,memory);
     std::cout << "Runtime battle draw regression passed: 24 original methods registered, 224 selector cases, 16 original intro cases, enable masks, model groups, visibility, and saved registers.\n";
     verify_battle_updates(runtime,memory);
