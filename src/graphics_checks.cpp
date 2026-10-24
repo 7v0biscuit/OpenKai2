@@ -274,6 +274,50 @@ void check_prepared_pipeline() {
         throw std::runtime_error("Prepared pixel path changed VRAM or cached texture state: "+std::to_string(i));
 }
 
+// Compare prepared sprite/triangle writes with the unchanged scalar point
+// pipeline. This oracle retains the original alpha/depth/write-mask ordering.
+void check_tested_pixels() {
+    std::vector<uint8_t> expected(4u*1024u*1024u),actual(expected.size());
+    auto reference=std::make_unique<GSCpuBackend>(),candidate=std::make_unique<GSCpuBackend>();
+    reference->Initialize(expected.data(),unsigned(expected.size()));candidate->Initialize(actual.data(),unsigned(actual.size()));
+    GSPrimitiveBatch point{};point.vertexCount=1u;auto& state=point.state;auto& c=state.context;
+    state.prim.type=GS_PRIM_POINT;state.prim.abe=true;state.colclamp=1u;
+    c.frame.fbp=56u;c.frame.fbw=1u;c.zbuf.psm=GS_PSM_Z32;c.scissor={0u,0u,0u,0u};
+    constexpr unsigned alphas[]={0,1,63,127,128,129,254,255};
+    constexpr unsigned masks[]={0,0x00ff00ffu,0xff000000u};
+    constexpr unsigned blends[]={0x44u,0x48u,0x64u,0x1bu,0x1du,0xffu};
+    constexpr uint32_t depths[]={0u,1234u,1235u,UINT32_MAX};
+    unsigned count=0;
+    for(unsigned atst=0;atst<8u;++atst)for(unsigned afail=0;afail<4u;++afail)
+    for(unsigned alpha:alphas)for(unsigned date=0;date<3u;++date)for(unsigned mask:masks)
+    for(unsigned fba=0;fba<2u;++fba)for(unsigned depth=0;depth<4u;++depth)for(auto z:depths){
+        c.test=1u|(uint64_t(atst)<<1u)|(127u<<4u)|(uint64_t(afail)<<12u)|(uint64_t(depth)<<17u);
+        if(date)c.test|=0x4000u|(uint64_t(date-1u)<<15u);
+        const unsigned pixelX=(count*17u)&511u,pixelY=(count*13u)%224u;
+        c.scissor={uint16_t(pixelX),uint16_t(pixelX),uint16_t(pixelY),uint16_t(pixelY)};
+        c.frame.fbmsk=mask;c.fba=fba;c.zbuf.zbp=count%11u ? 168u : 56u;c.zbuf.zmask=count%3u==0u;
+        c.alpha=blends[count%6u]|(uint64_t(71u)<<32u);state.pabe=count&1u;
+        auto& v=point.vertices[0];v.r=83u;v.g=197u;v.b=41u;v.a=uint8_t(alpha);v.z=z;v.x=float(pixelX);v.y=float(pixelY);
+        auto draw=point;draw.vertexCount=2u;draw.state.prim.type=GS_PRIM_SPRITE;
+        for(auto& vertex:draw.vertices)vertex=v;draw.vertices[1].x=float(pixelX+1u);draw.vertices[1].y=float(pixelY+1u);
+        for(unsigned shape=0;shape<2u;++shape){
+            for(auto* target:{reference.get(),candidate.get()}){
+                target->WriteVram(GS_PSM_CT32,56u*32u,1u,pixelX,pixelY,(count&1u) ? 0x9163c12du : 0x7163c12du);
+                target->WriteVram(GS_PSM_Z32,c.zbuf.zbp*32u,1u,pixelX,pixelY,1234u);
+            }
+            if(shape){draw.vertexCount=3u;draw.state.prim.type=GS_PRIM_TRIANGLE;
+                draw.vertices[1].x=float(pixelX+2u);draw.vertices[1].y=float(pixelY);draw.vertices[2].x=float(pixelX);draw.vertices[2].y=float(pixelY+2u);}
+            reference->Submit(point);candidate->Submit(draw);
+            for(auto base:{56u,c.zbuf.zbp})for(unsigned x=0;x<2u;++x)
+                if(reference->ReadVram(GS_PSM_CT32,base*32u,1u,pixelX+x,pixelY)!=candidate->ReadVram(GS_PSM_CT32,base*32u,1u,pixelX+x,pixelY))
+                    throw std::runtime_error("Tested pixel writer differs from scalar point: case="+std::to_string(count)+", shape="+std::to_string(shape));
+        }
+        ++count;
+        if((count%512u)==0u && actual!=expected)throw std::runtime_error("Tested pixel writer changed neighboring VRAM");
+    }
+    if(count!=73728u || actual!=expected)throw std::runtime_error("Tested pixel comparisons incomplete");
+}
+
 void check_pixel_blending() {
     std::vector<uint8_t> vram(4u*1024u*1024u);
     GSCpuBackend backend;backend.Initialize(vram.data(),uint32_t(vram.size()));
@@ -820,7 +864,7 @@ void check_sprite_pipeline() {
 }
 }
 void verify_interlaced_presentation() {
-    check_draw_history_sampling();check_prepared_palette();check_early_depth();check_prepared_pipeline();check_pixel_blending();check_triangle_pipeline();
+    check_tested_pixels();check_draw_history_sampling();check_prepared_palette();check_early_depth();check_prepared_pipeline();check_pixel_blending();check_triangle_pipeline();
     verify_raster_workers();check_parallel_sprites();
     check_texture_cache_scope();
     check_bilinear_rounding();

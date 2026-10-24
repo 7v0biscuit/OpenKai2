@@ -5,7 +5,7 @@ Complete matches, performance, and gameplay still need validation.
 
 ## Downloads
 
-Get the Windows development preview from
+Get the Windows development build from
 [Releases](https://github.com/7v0biscuit/OpenKai2/releases).
 
 - `OpenKai2.exe` is a self-contained portable launcher. It temporarily extracts
@@ -39,27 +39,17 @@ retain serial execution. Stable 60 game FPS remains unverified.
 
 ## Audio output
 
-Decoded SPU2 AutoDMA PCM is routed to the default Windows playback device at
-48 kHz in stereo. OpenKai2 uses the existing Windows audio system through
-miniaudio. Select your normal speakers or headphones as the Windows default
-output device. No separate OpenKai2 driver installation is required.
+Host audio playback is disabled while frame-rate work continues. The application
+opens no playback device and runs no audio mixing callback. Decoded-sound
+playback and PCM queue delivery are disabled as well. This applies to movies,
+menus, and fights.
 
-To test the host output independently of the game:
-
-```powershell
-& ".\OpenKai2.exe" --audio-test
-```
-
-This plays a quiet one-second tone and checks that the output callback consumes
-its frames. It writes `audio-test.log` beside `startup.log`, preserving the
-game's latest startup log. A successful callback test verifies the host stream;
-hearing the tone also checks the selected physical output. An unavailable
-playback endpoint produces an explicit diagnostic failure.
-
-Normal game logs include `[audio:output]` for stream readiness and
-`[audio:pcm]` for received frames, nonzero samples, queued frames, and dropped
-frames. Audio depends on the guest driver supplying PCM. Voice synthesis,
-hardware volume/effect accuracy, and complete retail audio remain unverified.
+Guest sound RPCs, DMA completion, and interrupts retain their timing so turning
+off host playback does not bypass game synchronization. The startup log reports
+`[audio:output] enabled=0`. `--audio-test` reports the disabled status without
+opening an output device. Host audio should remain disabled until sustained
+60 FPS has been established; there is no automatic or user-facing re-enable
+switch in this build.
 
 ## Build requirements
 

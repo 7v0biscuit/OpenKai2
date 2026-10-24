@@ -15,6 +15,7 @@
 #include "battle_command_checks.h"
 #include "battle_update_checks.h"
 #include "fight_state_checks.h"
+#include "attack_effect_checks.h"
 #include "animation_checks.h"
 #include "aura_checks.h"
 #include "fade_checks.h"
@@ -389,6 +390,7 @@ int run_runtime_checks() {
     std::cout << "Runtime draw history regression passed: sampled diagnostics preserve complete VRAM for sprites, triangles, and blending.\n";
     std::cout << "Runtime prepared palette regression passed: all indexed formats, CLUT formats, CSM/CSA, skipped loads, TEXA, reset, backend reuse, and serial/parallel VRAM.\n";
     std::cout << "Runtime early depth regression passed: 48 serial and parallel VRAM snapshots, hidden pixels, unsigned depth, feedback, stale pages, and deferred texture samples.\n";
+    std::cout << "Runtime tested pixel regression passed: 147456 sprite and triangle comparisons with scalar points, alpha outcomes, DATE, masks, FBA, depth, aliases, and VRAM guards.\n";
     std::cout << "Runtime prepared pixel regression passed: 64 complete VRAM and dependent-sample snapshots, depth writes, buffer aliases, alpha boundaries, and fallback states.\n";
     std::cout << "Runtime pixel blending regression passed: 12288 scalar equation comparisons, all selectors, alpha extremes, PABE, frame masks, and 16/24/32-bit destinations.\n";
     std::cout << "Runtime triangle pipeline regression passed: 48 complete VRAM snapshots in serial and parallel, filtered and indexed textures, depth, feedback, blending, and dependent samples.\n";
@@ -453,6 +455,8 @@ int run_runtime_checks() {
     verify_versus_animation(runtime,memory);
     verify_skeletal_transforms(runtime,memory);
     std::cout << "Runtime skeletal transform regression passed: 64 original quaternion transforms, worker start/restart, parent matrices, translation, and homogeneous coordinates.\n";
+    verify_attack_effects(runtime,memory);
+    std::cout << "Runtime attack effect regression passed: 16 registered methods, 114 original call-site cases, allocation failure, three resource types, node links, callbacks, and saved registers.\n";
     verify_fight_states(runtime,memory);
     std::cout << "Runtime fight rule regression passed: 20 registered mode methods, six original rule handlers, 896 call-site cases, timers, knockouts, ties, state commands, and saved registers.\n";
     verify_battle_draws(runtime,memory);

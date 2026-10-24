@@ -28,14 +28,15 @@ required at every game launch, and its files are verified before execution.
 Game files are not included in the downloads.
 
 See the [Windows guide](docs/windows.md) for requirements, keyboard controls,
-audio diagnostics, and log locations.
+audio status, and log locations.
 
 ## Current status
 
 **In development — complete gameplay is not yet supported.** The runtime
-reaches the title screen, menus, versus level selection, and fight intros.
-Fight progression still stops, frame rates are unstable, character poses need
-further validation, and audio playback needs further work.
+reaches the title screen, menus, versus level selection, and the fight scene.
+Attack effects and fight progression remain incomplete, frame rates are
+unstable, and character poses need further validation. Host audio playback is
+disabled while performance work continues.
 Stable 60 FPS and complete matches have not been verified.
 
 The [development status](docs/status.md) records the current failures and the

@@ -52,8 +52,11 @@ def main():
         help_text = run([str(executable), '--help'])
         if 'The original game ISO is required' not in help_text:
             raise RuntimeError('Installed executable did not print the expected help.')
+        audio_status = run([str(executable), '--audio-test'])
+        if 'Host audio is disabled in this build. No output device is opened.' not in audio_status:
+            raise RuntimeError('Installed application did not report disabled host audio.')
         self_test = run([str(executable), '--self-test'])
-        for marker in ('Runtime fight rule regression passed', 'Runtime draw history regression passed', 'Runtime skeletal transform regression passed', 'Runtime battle draw regression passed', 'Runtime battle update regression passed', 'Runtime prepared palette regression passed', 'Runtime early depth regression passed', 'Runtime aura update regression passed', 'Runtime battle command regression passed', 'Runtime prepared pixel regression passed', 'Runtime scene mode regression passed', 'Runtime buffered audio regression passed', 'Runtime battle asset regression passed', 'Runtime battle initialization regression passed',
+        for marker in ('Runtime attack effect regression passed', 'Runtime tested pixel regression passed', 'Runtime fight rule regression passed', 'Runtime draw history regression passed', 'Runtime skeletal transform regression passed', 'Runtime battle draw regression passed', 'Runtime battle update regression passed', 'Runtime prepared palette regression passed', 'Runtime early depth regression passed', 'Runtime aura update regression passed', 'Runtime battle command regression passed', 'Runtime prepared pixel regression passed', 'Runtime scene mode regression passed', 'Runtime buffered audio regression passed', 'Runtime battle asset regression passed', 'Runtime battle initialization regression passed',
                        'Runtime streamed audio regression passed', 'Runtime IOP import cache regression passed'):
             if marker not in self_test:
                 raise RuntimeError('Installed application is missing required battle/audio execution checks: '+marker)

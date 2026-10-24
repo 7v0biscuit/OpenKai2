@@ -57,6 +57,8 @@ function(openkai2_attach_generated_sources)
         "${project_root}/tools/native/patches/vu-context.patch"
         "${project_root}/tools/native/patches/draw-history-sampling.patch"
         "${project_root}/tools/native/patches/texture-cache-binding.patch"
+        "${project_root}/tools/native/patches/tested-pixel-writer.patch"
+        "${project_root}/tools/native/patches/host-audio-disabled.patch"
         "${project_root}/tools/native/patches/disc-layout.patch"
         "${project_root}/tools/native/patches/iop-startup.patch"
         "${project_root}/tools/native/patches/dma-receive.patch"
@@ -136,6 +138,9 @@ function(openkai2_attach_generated_sources)
     set(overlay_runtime_sources "")
     set(thread_overlay_count 0)
     foreach(source IN LISTS runtime_sources)
+        if(source MATCHES "(^|/)src/lib/ps2_audio\\.cpp$")
+            set(source "${project_root}/src/silent_audio_backend.cpp")
+        endif()
         if(source MATCHES "(^|/)src/lib/Kernel/EeScheduler\\.cpp$")
             set(source "${overlay_dir}/Kernel/EeScheduler.cpp")
         endif()
@@ -244,6 +249,10 @@ function(openkai2_attach_generated_sources)
     target_include_directories(openkai2_depth_bench PRIVATE "${project_root}/src")
     target_link_libraries(openkai2_depth_bench PRIVATE ps2_runtime)
     ps2x_stage_ffmpeg_runtime_dlls(openkai2_depth_bench)
+    add_executable(openkai2_tested_pixels_bench EXCLUDE_FROM_ALL "${project_root}/tools/benchmarks/tested_pixels.cpp")
+    target_include_directories(openkai2_tested_pixels_bench PRIVATE "${project_root}/src")
+    target_link_libraries(openkai2_tested_pixels_bench PRIVATE ps2_runtime)
+    ps2x_stage_ffmpeg_runtime_dlls(openkai2_tested_pixels_bench)
     add_executable(openkai2_texture_cache_bench EXCLUDE_FROM_ALL "${project_root}/tools/benchmarks/texture_cache.cpp")
     target_include_directories(openkai2_texture_cache_bench PRIVATE "${project_root}/src")
     target_link_libraries(openkai2_texture_cache_bench PRIVATE ps2_runtime)
@@ -274,7 +283,7 @@ function(openkai2_attach_generated_sources)
     target_sources(ps2EntryRunner PRIVATE ${generated_sources} "${project_root}/src/main.cpp"
         "${project_root}/src/runtime_checks.cpp" "${project_root}/src/stream_checks.cpp"
         "${project_root}/src/sound_transfer_checks.cpp" "${project_root}/src/asset_checks.cpp"
-        "${project_root}/src/draw_setup_checks.cpp" "${project_root}/src/battle_command_checks.cpp" "${project_root}/src/battle_update_checks.cpp" "${project_root}/src/fight_state_checks.cpp" "${project_root}/src/animation_checks.cpp" "${project_root}/src/aura_checks.cpp" "${project_root}/src/fade_checks.cpp" "${project_root}/src/movie_checks.cpp" "${project_root}/src/mpeg_checks.cpp"
+        "${project_root}/src/draw_setup_checks.cpp" "${project_root}/src/battle_command_checks.cpp" "${project_root}/src/battle_update_checks.cpp" "${project_root}/src/fight_state_checks.cpp" "${project_root}/src/attack_effect_checks.cpp" "${project_root}/src/animation_checks.cpp" "${project_root}/src/aura_checks.cpp" "${project_root}/src/fade_checks.cpp" "${project_root}/src/movie_checks.cpp" "${project_root}/src/mpeg_checks.cpp"
         "${project_root}/src/mpeg_decode_checks.cpp")
     # Keep the newly exposed IPU sync routine separate so adding its source
     # preserves the existing translation batches during incremental builds.
@@ -282,11 +291,11 @@ function(openkai2_attach_generated_sources)
         TARGET_DIRECTORY ps2EntryRunner PROPERTIES SKIP_UNITY_BUILD_INCLUSION TRUE)
     set_source_files_properties("${project_root}/src/main.cpp" "${project_root}/src/runtime_checks.cpp"
         "${project_root}/src/stream_checks.cpp" "${project_root}/src/sound_transfer_checks.cpp" "${project_root}/src/asset_checks.cpp"
-        "${project_root}/src/draw_setup_checks.cpp" "${project_root}/src/battle_command_checks.cpp" "${project_root}/src/battle_update_checks.cpp" "${project_root}/src/fight_state_checks.cpp" "${project_root}/src/animation_checks.cpp" "${project_root}/src/aura_checks.cpp" "${project_root}/src/fade_checks.cpp" "${project_root}/src/movie_checks.cpp" "${project_root}/src/mpeg_checks.cpp"
+        "${project_root}/src/draw_setup_checks.cpp" "${project_root}/src/battle_command_checks.cpp" "${project_root}/src/battle_update_checks.cpp" "${project_root}/src/fight_state_checks.cpp" "${project_root}/src/attack_effect_checks.cpp" "${project_root}/src/animation_checks.cpp" "${project_root}/src/aura_checks.cpp" "${project_root}/src/fade_checks.cpp" "${project_root}/src/movie_checks.cpp" "${project_root}/src/mpeg_checks.cpp"
         "${project_root}/src/mpeg_decode_checks.cpp"
         TARGET_DIRECTORY ps2EntryRunner PROPERTIES SKIP_UNITY_BUILD_INCLUSION TRUE)
     set_property(SOURCE "${project_root}/src/runtime_checks.cpp" "${project_root}/src/stream_checks.cpp" "${project_root}/src/asset_checks.cpp"
-        "${project_root}/src/draw_setup_checks.cpp" "${project_root}/src/battle_command_checks.cpp" "${project_root}/src/battle_update_checks.cpp" "${project_root}/src/fight_state_checks.cpp" "${project_root}/src/animation_checks.cpp" "${project_root}/src/aura_checks.cpp" "${project_root}/src/fade_checks.cpp" "${project_root}/src/movie_checks.cpp"
+        "${project_root}/src/draw_setup_checks.cpp" "${project_root}/src/battle_command_checks.cpp" "${project_root}/src/battle_update_checks.cpp" "${project_root}/src/fight_state_checks.cpp" "${project_root}/src/attack_effect_checks.cpp" "${project_root}/src/animation_checks.cpp" "${project_root}/src/aura_checks.cpp" "${project_root}/src/fade_checks.cpp" "${project_root}/src/movie_checks.cpp"
         TARGET_DIRECTORY ps2EntryRunner APPEND PROPERTY
         INCLUDE_DIRECTORIES "${CMAKE_BINARY_DIR}")
     target_include_directories(ps2EntryRunner BEFORE PRIVATE

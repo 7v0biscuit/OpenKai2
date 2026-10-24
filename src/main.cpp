@@ -75,7 +75,7 @@ void usage() {
     std::cout << "Usage: OpenKai2 <path-to-Budokai-2-USA.iso>\n"
               << "The original game ISO is required on every boot.\n"
               << "OpenKai2 --self-test checks compiled callback dispatch without booting the game.\n"
-              << "OpenKai2 --audio-test plays a quiet one-second tone through the output device.\n";
+              << "OpenKai2 --audio-test reports the disabled host audio status.\n";
 #ifdef _WIN32
     std::cout << "Double-click OpenKai2.exe to choose an ISO.\n";
 #endif

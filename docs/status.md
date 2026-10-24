@@ -216,6 +216,29 @@ Native checks execute the original call site across 896 cases. They cover all
 registers. This validates the translated rule dispatch; uninterrupted retail
 matches still require gameplay testing.
 
+## Attack-effect dispatch
+
+The reviewed translation includes the 19-slot attack-effect constructor table
+and the update callbacks those constructors install. Sixteen methods are
+registered and their complete instruction words are checked against the
+supported executable. Native regression checks exercise the original indirect
+call with successful and failed allocations and all three resource types,
+covering 114 constructor cases. Node links, installed callbacks, input packets,
+and saved registers are checked.
+
+The prepared CT32 pixel writer also handles alpha-test failure masks,
+destination-alpha tests, framebuffer masks, and FBA. CT32 and Z32 use inline swizzled address lookups. Other framebuffer formats
+and fog retain the general pixel pipeline. Guest clocks and texture sampling
+order are unchanged.
+
+The optional `openkai2_tested_pixels_bench` target covers 32 textured sprite
+and triangle cases with alpha-test outcomes, destination-alpha checks,
+framebuffer masks, FBA, and existing fast-path controls. Three-run Windows
+binary medians under Wine measured about 8–23% lower serial draw times for the
+newly prepared states and 2–28% lower times with four workers. All VRAM
+checksums matched the previous renderer and agreed across worker counts.
+These are synthetic draw costs, not retail game frame rates.
+
 ## Texture sampling throughput
 
 Sprite and triangle rasterization now passes each worker's texture cache
@@ -236,22 +259,15 @@ still needs further optimization to establish sustained 60 FPS.
 
 ## Audio
 
-SPU2 AutoDMA PCM reaches a 48 kHz stereo host stream through raylib's miniaudio
-backend. Ordinary compressed voice/sample DMA is excluded from the PCM path.
-A 2,048-frame prefill buffers delivery jitter. Short ramps soften startup,
-starvation, and stream replacement boundaries while retaining sample rate and
-channel order. After queue overflow, the callback discards old buffered latency.
-It does not repeat or time-stretch missing audio.
+Host playback is disabled during performance development. Startup opens no
+playback device, PCM submission is a no-op, and decoded-sound playback uses a
+null backend. No audio mixing callback or playback queue runs. The
+`--audio-test` command reports this state without opening a device.
 
-Interrupted fades now restart from the last emitted stereo sample. Repeated
-stops, replacements during a fade, and later stops after silence cannot restart
-an older, louder tail. These checks address boundary clicks; they do not restore
-missing source audio or complete SPU2 synthesis.
-
-Diagnostics report underruns, frames without queued input, producer drops, and
-consumer latency trimming. PCM output does not yet provide complete SPU2 voice
-synthesis, volume/effect behavior, or retail audio fidelity. Runtime slowdown
-can still cause audible gaps; buffering alone cannot restore real-time speed.
+Guest sound DMA, RPC responses, and interrupt timing remain enabled. Their
+component regressions still cover planar PCM, transfer ordering, queue and fade
+logic. Retaining these checks does not enable host playback. Complete SPU2
+synthesis and retail audio fidelity remain incomplete.
 
 ## Validation
 
@@ -259,7 +275,7 @@ The executable embeds its source revision in a contiguous log marker. Native
 builds refresh this stamp after a commit; portable and installer packaging
 reject binaries whose marker disagrees with the checkout or bundle manifest.
 
-The Python suite has 179 tests. Native checks include the original BCM/BSK
+The Python suite has 181 tests. Native checks include the original BCM/BSK
 asset dispatcher, all eleven battle initialization entries, fragmented and bulk
 IOP clocks, delayed wakeups, external RPC delivery, both SPU2 DMA cores, planar
 PCM order, partial blocks, queue boundaries, and concurrent delivery.
@@ -268,10 +284,11 @@ Renderer checks retain scalar blend comparisons, serial/parallel triangle and
 sprite snapshots, texture filtering, feedback, and depth behavior. Movie, DMA,
 scheduler, input, and persistent-save regressions remain enabled.
 
-The audio-device diagnostic delivered 48,000 stereo frames through a Linux
-callback using an ALSA null output. That validates callback delivery, not
-physical playback fidelity. Windows release checks cover the portable launcher,
-ZIP, installed application's full self-test, ISO rejection, and uninstall.
+Windows release checks cover the portable launcher, ZIP, installed application's
+full self-test, ISO rejection, and uninstall. Native checks also compare
+147,456 tested sprite and triangle writes with the unchanged scalar point
+pipeline, including all alpha comparisons and failure outcomes, destination
+alpha tests, framebuffer masks, FBA, depth, aliases, and neighboring VRAM.
 
 See [Windows setup and controls](windows.md), [building](building.md), and
 [release packaging](releases.md).
