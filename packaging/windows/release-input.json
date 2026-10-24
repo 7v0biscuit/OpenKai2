@@ -1,7 +1,7 @@
 {
-  "version": "0.1.7-fight-intro-audio-fades",
-  "title": "Fight intro, transforms and audio fades",
-  "bundle_sha256": "0a3cf3039687effbcd2a2aa6954600fa3c6981acce6196ac587d8524f04345d8",
-  "bundle_source_revision": "9d6810f86aa7e5fc18cc1c05651a53d815e66f2f",
-  "input_commit": "3034ad7f48cb7638409b66ecd6def70822e52620"
+  "version": "0.1.8-battle-rules-texture-throughput",
+  "title": "Battle rules and texture throughput",
+  "bundle_sha256": "0e2749b52e881b8a0df3f7030752ea54c25dc095bf77583b2d02022cc1a2db19",
+  "bundle_source_revision": "5f68b34ba3889713d944e84c0724b8351b663f33",
+  "input_commit": "6b9210ba50ca2025b8e24c4795e8d51ef540eabd"
 }
