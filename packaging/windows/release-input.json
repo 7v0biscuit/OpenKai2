@@ -1,7 +1,7 @@
 {
-  "version": "0.1.6-battle-state-updates",
-  "title": "Battle state updates",
-  "bundle_sha256": "011df4a1a5b6cf9e0ed41c80badb7d7ce762359b1a5cfebf1f58f44292315202",
-  "bundle_source_revision": "f34d8c5177fe2fe0267664ef34aadde48121b94d",
-  "input_commit": "e3872243aebb56ff93024bbf53804909a12e68ad"
+  "version": "0.1.7-fight-intro-audio-fades",
+  "title": "Fight intro, transforms and audio fades",
+  "bundle_sha256": "0a3cf3039687effbcd2a2aa6954600fa3c6981acce6196ac587d8524f04345d8",
+  "bundle_source_revision": "9d6810f86aa7e5fc18cc1c05651a53d815e66f2f",
+  "input_commit": "3034ad7f48cb7638409b66ecd6def70822e52620"
 }
