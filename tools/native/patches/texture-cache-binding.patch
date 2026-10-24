@@ -225,7 +225,7 @@
              sampled=true;
          }
          return rejected;
-@@ -1894,22 +1916,21 @@
+@@ -1894,21 +1916,20 @@
          const unsigned mxcsr=_mm_getcsr();
          workers.run(count,[&](unsigned index) {
              struct SamplerScope {
@@ -251,4 +251,3 @@
 +        bool sampled=false;rejected=drawRows(m_texturePageCache,minY,maxY,sampled);
      }
      if(earlyDepth)recordEarlyDepth(s_triangleDepth,"triangle",rejected);
- 
