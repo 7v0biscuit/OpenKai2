@@ -1,7 +1,7 @@
 {
-  "version": "0.1.9-attack-effects-pixel-throughput",
-  "title": "Attack effects and pixel throughput",
-  "bundle_sha256": "d348a80af020e0529208eda62dba7945453cf8d14cc8d3f1e08eca1788d052f0",
-  "bundle_source_revision": "b62dfd06b7c2210e7933c02088bb134321803e05",
-  "input_commit": "f11245f573e2c6082d34ee5045ec22fa1a183de6"
+  "version": "0.1.10-impact-effects-vector-throughput",
+  "title": "Impact effects and vector throughput",
+  "bundle_sha256": "cd2042234a7876f47d65be83b28c6ec3bd3a90398c3b153e0387b6e88f131d7d",
+  "bundle_source_revision": "8e096d7a67520591158f3e293e35ff8a3ef34007",
+  "input_commit": "faf1898eefb530c3351211a8e63408ab8cab0753"
 }
