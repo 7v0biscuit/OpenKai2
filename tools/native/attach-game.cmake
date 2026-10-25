@@ -277,7 +277,7 @@ function(openkai2_attach_generated_sources)
     endif()
     ps2x_stage_ffmpeg_runtime_dlls(openkai2_vector_tests)
     add_test(NAME vector_pipelines COMMAND openkai2_vector_tests)
-    add_library(openkai2_vector_checks STATIC "${project_root}/src/vector_checks.cpp" "${project_root}/src/vector_pipeline_checks.cpp" "${project_root}/src/vector_runtime_checks.cpp" "${project_root}/src/vector_hotpath_checks.cpp")
+    add_library(openkai2_vector_checks STATIC "${project_root}/src/vector_checks.cpp" "${project_root}/src/vector_pipeline_checks.cpp" "${project_root}/src/vector_transfer_checks.cpp" "${project_root}/src/vector_runtime_checks.cpp" "${project_root}/src/vector_hotpath_checks.cpp")
     target_include_directories(openkai2_vector_checks PUBLIC "${project_root}/src")
     target_link_libraries(openkai2_vector_checks PUBLIC ps2_runtime)
     add_executable(openkai2_vector_bench EXCLUDE_FROM_ALL "${project_root}/tools/benchmarks/vector_execution.cpp"

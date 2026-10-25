@@ -464,6 +464,8 @@ int run_runtime_checks() {
     verify_versus_animation(runtime,memory);
     verify_skeletal_transforms(runtime,memory);
     std::cout << "Runtime skeletal transform regression passed: 64 original quaternion transforms, worker start/restart, parent matrices, translation, and homogeneous coordinates.\n";
+    verify_vector_transfers();
+    std::cout << "Runtime vector transfer regression passed: 128 original packet, callback cycle, wrapped memory, pipeline write and resume snapshots.\n";
     verify_vector_products();
     std::cout << "Runtime vector product regression passed: 32 original multiply-add/subtract pipeline snapshots, signed zero, broadcast, Q/I and cross lanes.\n";
     verify_vector_arithmetic();

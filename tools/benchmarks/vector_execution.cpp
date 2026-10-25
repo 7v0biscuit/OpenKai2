@@ -4,6 +4,17 @@
 #include <iostream>
 #include <string>
 int main(int argc,char** argv) {
+    if(argc>1 && (std::string(argv[1])=="--transfer-reference" || std::string(argv[1])=="--transfer-bench")) {
+        const bool reference=std::string(argv[1])=="--transfer-reference";
+        const unsigned iterations=argc>2 ? unsigned(std::stoul(argv[2])) : 1000u;
+        constexpr unsigned budgets[]={1u,3u,17u,4096u};
+        for(unsigned seed=0;seed<32u;++seed)for(unsigned i=0;i<(reference ? 4u : 1u);++i){
+            const auto r=openkai2::vector_transfer_workload(seed,reference ? budgets[i] : 4096u,reference ? 1u : iterations);
+            std::cout<<"seed="<<seed<<" budget="<<(reference ? budgets[i] : 4096u)<<" ns_per_run="<<r.nsPerRun<<" cycles="<<r.cycles
+                <<" packets="<<r.packets<<" hash="<<std::hex<<r.hash<<std::dec<<'\n';
+        }
+        return 0;
+    }
     if(argc>1 && (std::string(argv[1])=="--pipeline-reference" || std::string(argv[1])=="--pipeline-bench")) {
         const bool reference=std::string(argv[1])=="--pipeline-reference";
         const unsigned iterations=argc>2 ? unsigned(std::stoul(argv[2])) : 1000u;

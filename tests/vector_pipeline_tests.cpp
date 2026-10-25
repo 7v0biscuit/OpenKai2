@@ -24,5 +24,8 @@ int main() {
     MiniTest::Case("Original product pipeline references",[](TestCase& tc){
         tc.Run("32 original multiply-add/subtract pipeline snapshots",[](TestCase&){openkai2::verify_vector_products();});
     });
+    MiniTest::Case("Original graphics transfer references",[](TestCase& tc){
+        tc.Run("128 original packet, callback cycle, memory and resume snapshots",[](TestCase&){openkai2::verify_vector_transfers();});
+    });
     return MiniTest::Run();
 }

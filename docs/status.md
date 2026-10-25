@@ -351,6 +351,27 @@ upload workloads. All 16 execution states and eight upload snapshots matched
 the previous runtime. These synthetic timings do not establish retail frame
 rates or sustained 60 FPS.
 
+## Vector transfers and lane scheduling
+
+Known PATH1 payloads are copied in bulk during vector waits and pipeline
+flushes, stopping before pending commits, instruction issues, tag parsing,
+and completion callbacks. The final qword follows the original cycle path.
+Register readiness uses fast full-lane updates and selected-lane iteration;
+write retirement compares complete 64-bit sequence numbers and preserves
+unselected or superseded lanes. Fully assigned write slots avoid redundant
+payload clearing.
+
+The 47-case vector suite includes 128 new snapshots from the unmodified
+interpreter, checking full packets, callback cycles, wrapped memory, chained
+tags, packets up to 64 KiB, pending stores, callback writes, and resume budgets.
+Existing arithmetic, scheduling, and real-runtime rendering checks remain.
+
+Three alternating Windows-binary medians under Wine showed about 80% lower
+cost for the 4 KiB transfer control, 16% for the shorter packet control, and
+6–10% for eight product-heavy workloads. Original state, cycle, memory, and
+packet hashes matched. These synthetic costs do not establish retail game
+frame rates or sustained 60 FPS.
+
 ## Actor command callbacks and vector product flags
 
 The actor-command continuation at `0x0014C978` selects callbacks through the
