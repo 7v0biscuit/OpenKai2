@@ -1,6 +1,18 @@
 --- a/runtime/gs/gs_cpu_backend.cpp
 +++ b/runtime/gs/gs_cpu_backend.cpp
-@@ -503,43 +503,17 @@
+@@ -492,6 +492,11 @@
+         uint8_t a;
+     };
+ 
++#if defined(_MSC_VER)
++    __forceinline
++#else
++    __attribute__((always_inline)) inline
++#endif
+     TextureCombineResult combineTexture(const GSTex0Reg &tex,
+                                         uint8_t vr,
+                                         uint8_t vg,
+@@ -503,43 +508,18 @@
                                          uint8_t ta)
      {
          const bool textureHasAlpha = tex.tcc != 0u;
@@ -41,6 +53,7 @@
 -        }
 -
 -        return out;
++        if(tex.tfx==1u)return {tr,tg,tb,textureHasAlpha ? ta : va};
 +        if(tex.tfx==0u || tex.tfx==2u || tex.tfx==3u) {
 +            const auto shade=_mm_cvtepu8_epi16(_mm_cvtsi32_si128(pack32(vr,vg,vb,va)));
 +            const auto texture=_mm_cvtepu8_epi16(_mm_cvtsi32_si128(pack32(tr,tg,tb,ta)));
@@ -55,12 +68,17 @@
      }
  
      uint32_t swizzleClutIndexCSM1(uint32_t index)
-@@ -1330,6 +1304,19 @@
+@@ -1330,6 +1310,24 @@
  }
  
  namespace {
 +// Keep common texture address and cache operations in the sampler so each
 +// tap avoids the general out-of-line format dispatcher. Other formats retain it.
++#if defined(_MSC_VER)
++__forceinline
++#else
++__attribute__((always_inline)) inline
++#endif
 +uint32_t readDrawTexture(GSMem::TexturePageCache& cache,const uint8_t* memory,
 +        uint32_t psm,uint32_t base,uint32_t width,int x,int y) {
 +    using namespace GSMem;
@@ -75,7 +93,7 @@
  // Bind the sampler cache directly to each draw partition. Windows workers
  // and scalar pixels avoid thread-local cache routing at every filter tap.
  template<class ReadTexture,class LookupClut>
-@@ -1551,7 +1538,7 @@
+@@ -1551,7 +1549,7 @@
      auto sampleTexture=[&](GSMem::TexturePageCache& cache,const GSDrawState& draw,float s,float t,float q,uint16_t u,uint16_t v) {
          return sampleDrawTexture(draw,s,t,q,u,v,preparedClut,
              [&](uint32_t psm,uint32_t base,uint32_t width,int x,int y) {
@@ -84,7 +102,7 @@
              },[&](uint8_t index) {
                  const auto& tex=draw.context.tex0;
                  return LookupCLUT(draw,index,tex.cpsm,tex.csm,tex.csa,tex.psm);
-@@ -1794,7 +1781,7 @@
+@@ -1794,7 +1792,7 @@
      auto sampleTexture=[&](GSMem::TexturePageCache& cache,const GSDrawState& draw,float s,float t,float q,uint16_t u,uint16_t v) {
          return sampleDrawTexture(draw,s,t,q,u,v,preparedClut,
              [&](uint32_t psm,uint32_t base,uint32_t width,int x,int y) {
@@ -93,7 +111,7 @@
              },[&](uint8_t index) {
                  const auto& tex=draw.context.tex0;
                  return LookupCLUT(draw,index,tex.cpsm,tex.csm,tex.csa,tex.psm);
-@@ -1846,28 +1833,23 @@
+@@ -1846,28 +1844,23 @@
      const PreparedPixelWriter writer(state,m_vram,m_readVramFuncs[ctx.zbuf.psm&63u],m_readVramFuncs[GS_PSM_CT32],
          m_writeVramFuncs[GS_PSM_CT32],m_writeVramFuncs[ctx.zbuf.psm&63u]);
  
@@ -138,7 +156,7 @@
  
                      return sampleTexture(cache,state,is,it,iq,iu,iv);
      };
-@@ -1923,12 +1905,12 @@
+@@ -1923,12 +1916,12 @@
                  }
  
                  uint8_t r, g, b, a;
