@@ -392,6 +392,21 @@ VRAM checksums matched the previous renderer with both one and four workers.
 These are synthetic draw timings, not retail game frame rates. The CPU renderer
 still needs further optimization to establish sustained 60 FPS.
 
+## Raster shading throughput
+
+Texture addressing and the CPU renderer compile together so common texture
+formats can inline swizzled addressing and sampler-cache resolution. Triangle
+color and texture coordinates use SIMD lanes with the original arithmetic
+order. Modulation and highlight texture functions operate on packed channels,
+retaining saturation, texture alpha selection, and draw ordering.
+
+A new regression compares 128 original material fixtures with one and four
+workers, including color gradients, all four texture functions, both alpha
+sources, fixed and perspective coordinates, filtering, and direct and indexed
+textures. Complete VRAM is compared after each shaded draw and a dependent
+sample, for 512 snapshots. Existing coverage, feedback, depth, and serial/parallel
+renderer references remain enabled.
+
 ## Audio
 
 Host playback is disabled during performance development. Startup opens no

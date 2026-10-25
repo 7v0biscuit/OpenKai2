@@ -394,6 +394,7 @@ int run_runtime_checks() {
     verify_vector_runtime();
     std::cout << "Runtime vector integration regression passed: consistent header layouts, independent VU0/VU1 state, and real VIF1 MSCAL/MSCNT PATH1 triangle rendering.\n";
     verify_interlaced_presentation();
+    std::cout << "Runtime raster shading regression passed: 128 material fixtures, 512 serial/parallel VRAM snapshots, texture functions, alpha sources, gradients, perspective, filtering and dependent cache samples.\n";
     std::cout << "Runtime draw history regression passed: sampled diagnostics preserve complete VRAM for sprites, triangles, and blending.\n";
     std::cout << "Runtime prepared palette regression passed: all indexed formats, CLUT formats, CSM/CSA, skipped loads, TEXA, reset, backend reuse, and serial/parallel VRAM.\n";
     std::cout << "Runtime early depth regression passed: 48 serial and parallel VRAM snapshots, hidden pixels, unsigned depth, feedback, stale pages, and deferred texture samples.\n";

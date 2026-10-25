@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "graphics_checks.h"
+#include "raster_shading_checks.h"
 #include "runtime/gs/gs_cpu_backend.h"
 #include "runtime/gs/gs_frontend.h"
 #include "guest_timing.h"
@@ -864,6 +865,7 @@ void check_sprite_pipeline() {
 }
 }
 void verify_interlaced_presentation() {
+    verify_raster_shading();
     check_tested_pixels();check_draw_history_sampling();check_prepared_palette();check_early_depth();check_prepared_pipeline();check_pixel_blending();check_triangle_pipeline();
     verify_raster_workers();check_parallel_sprites();
     check_texture_cache_scope();

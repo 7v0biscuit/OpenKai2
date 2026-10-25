@@ -10,6 +10,8 @@ import subprocess
 import tempfile
 
 EXPECTED = {
+    'ps2xRuntime/src/lib/gs/ps2_gs_memory.cpp':
+        '8d9b00070344942f662230d6afc1a4365be2a3fbef7263715fff120f36db34d3',
     'ps2xRuntime/src/lib/ps2_vif1_interpreter.cpp':
         '4090662ca7029c6563444e69ac184cf1396efdf672d179dd8e9d617fe856c4a5',
     'ps2xRuntime/include/ps2_runtime.h':
@@ -145,7 +147,7 @@ def main():
                       patches / 'asynchronous-presentation.patch', patches / 'input-observation.patch', patches / 'texture-pages.patch',
                       patches / 'empty-dma-completion.patch', patches / 'parallel-sprites.patch', patches / 'guest-progress.patch',
                       patches / 'interrupt-critical-sections.patch', patches / 'sprite-formats.patch',
-                      patches / 'pixel-blending.patch', patches / 'spu2-pcm-output.patch', patches / 'iop-import-cache.patch', patches / 'small-triangles.patch', patches / 'iop-execution.patch', patches / 'ct32-pixels.patch', patches / 'early-depth.patch', patches / 'prepared-clut.patch', patches / 'draw-clut-sampling.patch', patches / 'guest-timing.patch', patches / 'vu-context.patch', patches / 'draw-history-sampling.patch', patches / 'texture-cache-binding.patch', patches / 'tested-pixel-writer.patch', patches / 'host-audio-disabled.patch', patches / 'vector-throughput.patch', patches / 'vector-scheduling.patch', patches / 'work-timings.patch', patches / 'vector-arithmetic.patch', patches / 'vif-unpack.patch'):
+                      patches / 'pixel-blending.patch', patches / 'spu2-pcm-output.patch', patches / 'iop-import-cache.patch', patches / 'small-triangles.patch', patches / 'iop-execution.patch', patches / 'ct32-pixels.patch', patches / 'early-depth.patch', patches / 'prepared-clut.patch', patches / 'draw-clut-sampling.patch', patches / 'guest-timing.patch', patches / 'vu-context.patch', patches / 'draw-history-sampling.patch', patches / 'texture-cache-binding.patch', patches / 'tested-pixel-writer.patch', patches / 'host-audio-disabled.patch', patches / 'vector-throughput.patch', patches / 'vector-scheduling.patch', patches / 'work-timings.patch', patches / 'vector-arithmetic.patch', patches / 'vif-unpack.patch', patches / 'raster-shading.patch'):
             apply_overlay_patch(temporary, patch)
         for source in temporary.rglob('*'):
             if source.is_file():

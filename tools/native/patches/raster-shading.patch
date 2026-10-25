@@ -1,0 +1,158 @@
+--- a/runtime/gs/gs_cpu_backend.cpp
++++ b/runtime/gs/gs_cpu_backend.cpp
+@@ -503,43 +503,17 @@
+                                         uint8_t ta)
+     {
+         const bool textureHasAlpha = tex.tcc != 0u;
+-        TextureCombineResult out{tr, tg, tb, textureHasAlpha ? ta : va};
+-
+-        switch (tex.tfx)
+-        {
+-        case 0: // MODULATE
+-            out.r = clampU8((tr * vr) >> 7);
+-            out.g = clampU8((tg * vg) >> 7);
+-            out.b = clampU8((tb * vb) >> 7);
+-            out.a = textureHasAlpha ? clampU8((ta * va) >> 7) : va;
+-            break;
+-        case 1: // DECAL
+-            out.r = tr;
+-            out.g = tg;
+-            out.b = tb;
+-            out.a = textureHasAlpha ? ta : va;
+-            break;
+-        case 2: // HIGHLIGHT
+-            out.r = clampU8(((tr * vr) >> 7) + va);
+-            out.g = clampU8(((tg * vg) >> 7) + va);
+-            out.b = clampU8(((tb * vb) >> 7) + va);
+-            out.a = textureHasAlpha ? clampU8(ta + va) : va;
+-            break;
+-        case 3: // HIGHLIGHT2
+-            out.r = clampU8(((tr * vr) >> 7) + va);
+-            out.g = clampU8(((tg * vg) >> 7) + va);
+-            out.b = clampU8(((tb * vb) >> 7) + va);
+-            out.a = textureHasAlpha ? ta : va;
+-            break;
+-        default:
+-            out.r = tr;
+-            out.g = tg;
+-            out.b = tb;
+-            out.a = textureHasAlpha ? ta : va;
+-            break;
+-        }
+-
+-        return out;
++        if(tex.tfx==0u || tex.tfx==2u || tex.tfx==3u) {
++            const auto shade=_mm_cvtepu8_epi16(_mm_cvtsi32_si128(pack32(vr,vg,vb,va)));
++            const auto texture=_mm_cvtepu8_epi16(_mm_cvtsi32_si128(pack32(tr,tg,tb,ta)));
++            auto channels=_mm_srli_epi16(_mm_mullo_epi16(shade,texture),7);
++            if(tex.tfx!=0u)channels=_mm_add_epi16(channels,_mm_set1_epi16(va));
++            const auto packed=uint32_t(_mm_cvtsi128_si32(_mm_packus_epi16(channels,channels)));
++            const auto alpha=!textureHasAlpha ? va : tex.tfx==0u ? uint8_t(packed>>24u)
++                : tex.tfx==2u ? clampU8(int(ta)+int(va)) : ta;
++            return {uint8_t(packed),uint8_t(packed>>8u),uint8_t(packed>>16u),alpha};
++        }
++        return {tr,tg,tb,textureHasAlpha ? ta : va};
+     }
+ 
+     uint32_t swizzleClutIndexCSM1(uint32_t index)
+@@ -1330,6 +1304,19 @@
+ }
+ 
+ namespace {
++// Keep common texture address and cache operations in the sampler so each
++// tap avoids the general out-of-line format dispatcher. Other formats retain it.
++uint32_t readDrawTexture(GSMem::TexturePageCache& cache,const uint8_t* memory,
++        uint32_t psm,uint32_t base,uint32_t width,int x,int y) {
++    using namespace GSMem;
++    switch(psm & 63u) {
++    case GS_PSM_CT32: return PixelStorageTraits<C32>::Read(PageTableC32,memory,base,width,x,y,&cache);
++    case GS_PSM_CT16: return PixelStorageTraits<C16>::Read(PageTableC16,memory,base,width,x,y,&cache);
++    case GS_PSM_T8: return PixelStorageTraits<P8>::Read(PageTableP8,memory,base,width,x,y,&cache);
++    case GS_PSM_T4: return PixelStorageTraits<P4>::Read(PageTableP4,memory,base,width,x,y,&cache);
++    default: return ReadTexture(cache,memory,psm,base,width,x,y);
++    }
++}
+ // Bind the sampler cache directly to each draw partition. Windows workers
+ // and scalar pixels avoid thread-local cache routing at every filter tap.
+ template<class ReadTexture,class LookupClut>
+@@ -1551,7 +1538,7 @@
+     auto sampleTexture=[&](GSMem::TexturePageCache& cache,const GSDrawState& draw,float s,float t,float q,uint16_t u,uint16_t v) {
+         return sampleDrawTexture(draw,s,t,q,u,v,preparedClut,
+             [&](uint32_t psm,uint32_t base,uint32_t width,int x,int y) {
+-                return GSMem::ReadTexture(cache,m_vram,psm,base,width,x,y);
++                return readDrawTexture(cache,m_vram,psm,base,width,x,y);
+             },[&](uint8_t index) {
+                 const auto& tex=draw.context.tex0;
+                 return LookupCLUT(draw,index,tex.cpsm,tex.csm,tex.csa,tex.psm);
+@@ -1794,7 +1781,7 @@
+     auto sampleTexture=[&](GSMem::TexturePageCache& cache,const GSDrawState& draw,float s,float t,float q,uint16_t u,uint16_t v) {
+         return sampleDrawTexture(draw,s,t,q,u,v,preparedClut,
+             [&](uint32_t psm,uint32_t base,uint32_t width,int x,int y) {
+-                return GSMem::ReadTexture(cache,m_vram,psm,base,width,x,y);
++                return readDrawTexture(cache,m_vram,psm,base,width,x,y);
+             },[&](uint8_t index) {
+                 const auto& tex=draw.context.tex0;
+                 return LookupCLUT(draw,index,tex.cpsm,tex.csm,tex.csa,tex.psm);
+@@ -1846,28 +1833,23 @@
+     const PreparedPixelWriter writer(state,m_vram,m_readVramFuncs[ctx.zbuf.psm&63u],m_readVramFuncs[GS_PSM_CT32],
+         m_writeVramFuncs[GS_PSM_CT32],m_writeVramFuncs[ctx.zbuf.psm&63u]);
+ 
++    // Keep the original (a*w0 + b*w1) + c*w2 order in each lane.
++    const auto interpolate=[](__m128 a,__m128 b,__m128 c,float w0,float w1,float w2) {
++        return _mm_add_ps(_mm_add_ps(_mm_mul_ps(a,_mm_set1_ps(w0)),_mm_mul_ps(b,_mm_set1_ps(w1))),
++                          _mm_mul_ps(c,_mm_set1_ps(w2)));
++    };
++    const auto coordinates=[&](const GSVertex& v) {
++        return state.prim.fst ? _mm_setr_ps(float(v.u),float(v.v),0.0f,0.0f) : _mm_setr_ps(v.s,v.t,v.q,0.0f);
++    };
++    const auto uv0=coordinates(v0),uv1=coordinates(v1),uv2=coordinates(v2);
++    const bool shadeVertices=state.prim.iip && !(state.prim.tme && ctx.tex0.tfx==1u && ctx.tex0.tcc);
++    const auto vertexColor=[](const GSVertex& v){return _mm_setr_ps(float(v.r),float(v.g),float(v.b),float(v.a));};
++    const auto rgba0=vertexColor(v0),rgba1=vertexColor(v1),rgba2=vertexColor(v2);
+     auto sampleInterpolated=[&](GSMem::TexturePageCache& cache,float w0,float w1,float w2) {
+-                    float is, it, iq;
+-                    uint16_t iu, iv;
+-                    if (state.prim.fst)
+-                    {
+-                        iu = static_cast<uint16_t>(v0.u * w0 + v1.u * w1 + v2.u * w2);
+-                        iv = static_cast<uint16_t>(v0.v * w0 + v1.v * w1 + v2.v * w2);
+-                        is = 0.0f;
+-                        it = 0.0f;
+-                        iq = 1.0f;
+-                    }
+-                    else
+-                    {
+-                        // The GS DDA interpolates the homogeneous S, T and Q
+-                        // values. Texel coordinates are calculated from S/Q and
+-                        // T/Q only after interpolation.
+-                        is = v0.s * w0 + v1.s * w1 + v2.s * w2;
+-                        it = v0.t * w0 + v1.t * w1 + v2.t * w2;
+-                        iq = v0.q * w0 + v1.q * w1 + v2.q * w2;
+-                        iu = 0;
+-                        iv = 0;
+-                    }
++                    alignas(16) float uv[4];_mm_store_ps(uv,interpolate(uv0,uv1,uv2,w0,w1,w2));
++                    const bool fixed=state.prim.fst;
++                    const float is=fixed ? 0.0f : uv[0],it=fixed ? 0.0f : uv[1],iq=fixed ? 1.0f : uv[2];
++                    const uint16_t iu=fixed ? static_cast<uint16_t>(uv[0]) : 0u,iv=fixed ? static_cast<uint16_t>(uv[1]) : 0u;
+ 
+                     return sampleTexture(cache,state,is,it,iq,iu,iv);
+     };
+@@ -1923,12 +1905,12 @@
+                 }
+ 
+                 uint8_t r, g, b, a;
+-                if (state.prim.iip)
++                if (shadeVertices)
+                 {
+-                    r = clampU8(static_cast<int>(v0.r * w0 + v1.r * w1 + v2.r * w2));
+-                    g = clampU8(static_cast<int>(v0.g * w0 + v1.g * w1 + v2.g * w2));
+-                    b = clampU8(static_cast<int>(v0.b * w0 + v1.b * w1 + v2.b * w2));
+-                    a = clampU8(static_cast<int>(v0.a * w0 + v1.a * w1 + v2.a * w2));
++                    const auto channels=_mm_cvttps_epi32(interpolate(rgba0,rgba1,rgba2,w0,w1,w2));
++                    const auto words=_mm_packus_epi32(channels,channels);
++                    const auto color=uint32_t(_mm_cvtsi128_si32(_mm_packus_epi16(words,words)));
++                    r=uint8_t(color);g=uint8_t(color>>8u);b=uint8_t(color>>16u);a=uint8_t(color>>24u);
+                 }
+                 else
+                 {

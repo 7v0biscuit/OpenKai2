@@ -63,6 +63,7 @@ function(openkai2_attach_generated_sources)
         "${project_root}/tools/native/patches/vector-scheduling.patch"
         "${project_root}/tools/native/patches/vector-arithmetic.patch"
         "${project_root}/tools/native/patches/vif-unpack.patch"
+        "${project_root}/tools/native/patches/raster-shading.patch"
         "${project_root}/tools/native/patches/work-timings.patch"
         "${project_root}/tools/native/patches/disc-layout.patch"
         "${project_root}/tools/native/patches/iop-startup.patch"
@@ -143,6 +144,14 @@ function(openkai2_attach_generated_sources)
     set(overlay_runtime_sources "")
     set(thread_overlay_count 0)
     foreach(source IN LISTS runtime_sources)
+        if(source MATCHES "(^|/)src/lib/gs/ps2_gs_memory\\.cpp$")
+            continue()
+        endif()
+        if(source MATCHES "(^|/)src/lib/gs/gs_cpu_backend\\.cpp$")
+            set(source "${project_root}/tools/native/raster-unit.cpp")
+            set_property(SOURCE "${source}" TARGET_DIRECTORY ps2_runtime APPEND PROPERTY
+                INCLUDE_DIRECTORIES "${CMAKE_SOURCE_DIR}/ps2xRuntime/src/lib/gs")
+        endif()
         if(source MATCHES "(^|/)src/lib/vu/ps2_vu1_(upper|lower)\\.cpp$")
             continue()
         endif()
@@ -247,7 +256,7 @@ function(openkai2_attach_generated_sources)
     endif()
     ps2x_stage_ffmpeg_runtime_dlls(openkai2_startup_tests)
     add_test(NAME startup_diagnostics COMMAND openkai2_startup_tests)
-    add_library(openkai2_graphics_checks STATIC "${project_root}/src/graphics_checks.cpp")
+    add_library(openkai2_graphics_checks STATIC "${project_root}/src/graphics_checks.cpp" "${project_root}/src/raster_shading_checks.cpp")
     target_include_directories(openkai2_graphics_checks PUBLIC "${project_root}/src")
     target_include_directories(openkai2_graphics_checks BEFORE PRIVATE "${overlay_dir}/include")
     target_link_libraries(openkai2_graphics_checks PUBLIC ps2_runtime)
@@ -279,6 +288,9 @@ function(openkai2_attach_generated_sources)
         target_link_options(openkai2_vector_bench PRIVATE "-Wl,--stack,8388608")
     endif()
     ps2x_stage_ffmpeg_runtime_dlls(openkai2_vector_bench)
+    add_executable(openkai2_shading_bench EXCLUDE_FROM_ALL "${project_root}/tools/benchmarks/raster_shading.cpp")
+    target_link_libraries(openkai2_shading_bench PRIVATE openkai2_graphics_checks)
+    ps2x_stage_ffmpeg_runtime_dlls(openkai2_shading_bench)
     add_executable(openkai2_submission_bench EXCLUDE_FROM_ALL "${project_root}/tools/benchmarks/draw_submission.cpp")
     target_include_directories(openkai2_submission_bench PRIVATE "${project_root}/src")
     target_link_libraries(openkai2_submission_bench PRIVATE ps2_runtime)
