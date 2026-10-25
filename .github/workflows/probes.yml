@@ -82,4 +82,19 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes ninja-build pkg-config libavcodec-dev libavformat-dev libavutil-dev libswresample-dev libswscale-dev libgl1-mesa-dev libegl1-mesa-dev libgl1-mesa-dri libegl-mesa0 libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
       - name: Require GPU rendering and video-memory comparisons
-        run: python tools/native/test-gpu-linux.py --jobs 2
+        shell: python
+        run: |
+          import collections, subprocess, sys
+          tail = collections.deque(maxlen=160)
+          process = subprocess.Popen([sys.executable, 'tools/native/test-gpu-linux.py', '--jobs', '2'],
+                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+          for line in process.stdout:
+              print(line, end='', flush=True)
+              tail.append(line)
+          code = process.wait()
+          if code:
+              details = ''.join(tail)[-12000:]
+              for start in range(0, len(details), 3000):
+                  message = details[start:start+3000].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+                  print('::error title=GPU source build details::' + message, flush=True)
+          sys.exit(code)
