@@ -35,6 +35,33 @@ and parts of guest execution still run on the CPU.
 
 See [GPU rendering](graphics.md) for selection and diagnostics.
 
+## GPU submission and readbacks
+
+Texture source-page footprints are cached by storage format, base, buffer width,
+and coordinate bounds. The cache contains addresses, so texture data uploads
+and flushes retain their existing visibility rules. Page-aligned buffers use
+logical page ranges instead of repeated swizzle lookups. Unaligned bases retain
+the previous walk, including wrapped VRAM addresses.
+
+Pixel reads and updates, partial texture uploads, and palette loads read back
+only the dirty pages they consume. Dirty data in other GPU targets remains
+resident. Presentation, full snapshots, resets, software fallbacks, and local
+transfers retain complete synchronization.
+
+Another 8,320 address states compare page masks with the previous walk across
+all thirteen formats, aligned/unaligned and wrapped bases, varied widths, page
+boundaries, and empty rectangles. A 128-draw sequence changes texture format,
+base, buffer width, dimensions, and wrap state. Four targeted readback checks
+require one-page transfers while preserving other dirty targets, followed by a
+complete VRAM comparison. Existing GPU material, pipeline, and integration
+comparisons remain enabled.
+
+Three alternating Windows-binary runs under Wine with Mesa measured 42–48%
+lower costs in four small textured draw batches, including GPU completion.
+Complete VRAM matched the CPU renderer and all before/after output hashes
+matched. These synthetic submission costs are not estimates of hardware game
+FPS or sustained 60 FPS.
+
 ## Pause menu callbacks
 
 The pause menu's 21 descriptors contain six callback slots each. Nine distinct

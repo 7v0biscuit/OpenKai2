@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #pragma once
 #include <array>
+#include <bitset>
 #include <cstdint>
 #include <vector>
 namespace openkai2::gpu {
@@ -11,5 +12,6 @@ using Command=std::array<uint32_t,CommandWords>;
 // widths in bits, a sub-word shift, and its page lookup-table offset.
 const std::vector<uint32_t>& address_tables();
 uint32_t bit_address(unsigned psm,unsigned base,unsigned width,unsigned x,unsigned y);
+std::bitset<PageCount> rectangle_pages(unsigned psm,unsigned base,unsigned width,unsigned x,unsigned y,unsigned w,unsigned h);
 void verify_address_tables();
 }

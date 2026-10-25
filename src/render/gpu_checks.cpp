@@ -15,6 +15,24 @@
 #include <vector>
 namespace openkai2 {
 namespace {
+std::bitset<gpu::PageCount> referencePages(unsigned psm,unsigned base,unsigned width,unsigned x,unsigned y,unsigned w,unsigned h){
+    std::bitset<gpu::PageCount> result;if(!w || !h)return result;
+    if(uint64_t(w)*h>4u*1024u*1024u){result.set();return result;}
+    for(unsigned row=y;row<y+h;row=std::min(y+h,(row|7u)+1u))
+        for(unsigned col=x;col<x+w;col=std::min(x+w,(col|7u)+1u))result.set(gpu::bit_address(psm,base,width,col,row)/(gpu::PageBytes*8u));
+    return result;
+}
+void checkFootprints(){
+    constexpr unsigned formats[]={0u,1u,2u,10u,19u,20u,27u,36u,44u,48u,49u,50u,58u};
+    constexpr unsigned sizes[]={0u,1u,7u,8u,9u,31u,32u,63u,64u,65u,127u,128u,129u,255u,256u,513u};
+    unsigned cases=0u;
+    for(unsigned psm:formats)for(unsigned base:{0u,1u,31u,32u,33u,4096u,16352u,16383u})for(unsigned width:{0u,1u,2u,8u,32u})for(unsigned i=0;i<16u;++i){
+        unsigned x=(i*63u+7u)%2048u,y=(i*127u+31u)%2048u,w=sizes[i],h=sizes[(i*7u+3u)%16u];
+        if(gpu::rectangle_pages(psm,base,width,x,y,w,h)!=referencePages(psm,base,width,x,y,w,h))throw std::runtime_error("GPU page footprint differs from the previous addressing walk");++cases;
+    }
+    if(!gpu::rectangle_pages(0u,0u,1u,0u,0u,4096u,4096u).all())throw std::runtime_error("Large GPU page footprint lost conservative coverage");
+    std::cout<<"GPU page footprint references passed: "<<cases<<" states.\n";
+}
 struct Comparison {
     std::vector<uint8_t> expected,actual;
     std::unique_ptr<GSCpuBackend> cpu=std::make_unique<GSCpuBackend>();
@@ -171,10 +189,42 @@ void checkClears(){
         if((format==0u || format==1u || !(mode&2u)) && pair.gpu->stats().gpuDraws!=2u)throw std::runtime_error("Eligible framebuffer clear did not execute on GPU");
     }
 }
+void checkSourceChanges(){
+    Comparison pair;
+    constexpr unsigned formats[]={0u,1u,2u,10u,19u,20u,27u,36u,44u,48u,49u,50u,58u};
+    for(unsigned i=0;i<64u;++i){
+        auto p=material(i%128u,false);auto& s=p.state;auto& c=s.context;
+        c.tex0.psm=formats[i%13u];c.tex0.tbp0=10240u+(i%16u)*32u+((i&1u) ? 1u : 0u);c.tex0.tbw=1u+(i%3u);
+        s.textureWidth=(i&2u) ? 64u : 128u;s.textureHeight=(i&4u) ? 64u : 128u;
+        const unsigned wrap=(i/8u)%4u;c.clamp=wrap|(uint64_t(wrap)<<2u)|(uint64_t(3u)<<4u)|(uint64_t(31u)<<14u)|(uint64_t(7u)<<24u)|(uint64_t(63u)<<34u);
+        p.vertices[1].x=15.25f;p.vertices[2].y=17.5f;
+        pair.cpu->LoadClut(c.tex0,{});pair.gpu->LoadClut(c.tex0,{});pair.textureFlush();pair.draw(p);pair.draw(p);
+        if((i&7u)==7u)pair.compare("GPU source footprint state changes "+std::to_string(i));
+    }
+    if(pair.gpu->stats().gpuDraws!=128u)throw std::runtime_error("Source footprint changes fell back to CPU rendering");
+}
+void checkPartialReadbacks(){
+    Comparison pair;auto p=material(0u,false);p.state.prim.tme=false;p.state.prim.abe=false;p.state.prim.iip=false;
+    pair.draw(p);p.state.context.frame.fbp=112u;pair.draw(p);
+    auto before=pair.gpu->stats().readbacks;
+    const auto value=pair.gpu->ReadVram(0u,56u*32u,8u,4u,4u);
+    if(value!=pair.cpu->ReadVram(0u,56u*32u,8u,4u,4u) || pair.gpu->stats().readbacks-before!=gpu::PageBytes)throw std::runtime_error("Single-pixel GPU readback copied unrelated pages");
+    before=pair.gpu->stats().readbacks;pair.write(0u,112u*32u,8u,4u,4u,0x8037a95bu);
+    if(pair.gpu->stats().readbacks-before!=gpu::PageBytes)throw std::runtime_error("Partial framebuffer update copied unrelated pages");
+    GSTransferCommand t{};t.direction=0u;t.bitbltbuf.dbp=112u*32u;t.bitbltbuf.dbw=8u;t.bitbltbuf.dpsm=0u;t.trxpos.dsax=70u;t.trxpos.dsay=4u;t.trxreg.rrw=1u;t.trxreg.rrh=1u;
+    const uint32_t pixel=0x80231f7bu;before=pair.gpu->stats().readbacks;
+    pair.cpu->BeginTransfer(t);pair.gpu->BeginTransfer(t);pair.cpu->UploadImage(reinterpret_cast<const uint8_t*>(&pixel),4u);pair.gpu->UploadImage(reinterpret_cast<const uint8_t*>(&pixel),4u);
+    if(pair.gpu->stats().readbacks-before!=gpu::PageBytes)throw std::runtime_error("Partial image upload copied unrelated pages");
+    p.state.context.frame.fbp=500u;pair.draw(p);pair.textureFlush();
+    GSTex0Reg texture{};texture.psm=19u;texture.cpsm=0u;texture.cbp=16000u;texture.cld=1u;
+    before=pair.gpu->stats().readbacks;pair.cpu->LoadClut(texture,{});pair.gpu->LoadClut(texture,{});
+    if(pair.gpu->stats().readbacks-before!=gpu::PageBytes)throw std::runtime_error("Palette readback copied unrelated pages");
+    pair.compare("GPU partial readbacks preserve other dirty targets");
+}
 }
 int run_gpu_checks(bool required){
     try{
-        gpu::verify_address_tables();std::cout<<"GPU swizzle address references passed.\n";
+        gpu::verify_address_tables();checkFootprints();std::cout<<"GPU swizzle address references passed.\n";
         std::string error;
 #ifdef _WIN32
         try{set_renderer_preference("gpu");initialize_window_gpu();}catch(const std::exception& e){error=e.what();}
@@ -183,7 +233,7 @@ int run_gpu_checks(bool required){
         const bool initialized=gpu::initialize_headless(error);
 #endif
         if(!initialized){std::cout<<"GPU checks unavailable: "<<error<<'\n';return required ? 1 : 77;}
-        checkMaterials();checkIntegerPipeline();checkFormats();checkLines();checkCoherence();checkRebind();checkClears();
+        checkMaterials();checkIntegerPipeline();checkFormats();checkLines();checkCoherence();checkRebind();checkClears();checkSourceChanges();checkPartialReadbacks();
         const auto before=gpu_render_statistics().gpuDraws;verify_vector_runtime_gpu();
         if(gpu_render_statistics().gpuDraws-before!=8u)throw std::runtime_error("VIF/PATH1 integration did not execute eight GPU triangles");
         // A failed asynchronous submission must propagate to its caller and
@@ -194,8 +244,46 @@ int run_gpu_checks(bool required){
         try{device->invoke([](gpu::Api&){});}catch(const std::exception& e){propagated=std::string(e.what())=="GPU failure propagation fixture";}
         if(!propagated)throw std::runtime_error("GPU asynchronous failure did not propagate");
         gpu::shutdown_device();
-        std::cout<<"GPU renderer comparisons passed: 256 material states, 104 format states, 65536 integer pipeline draws, 576 point/line draws, writebacks, uploads, target transitions, feedback fallback, VRAM replacement, eight VIF/PATH1 GPU triangles and asynchronous failure propagation.\n";return 0;
+        std::cout<<"GPU renderer comparisons passed: 256 material states, 104 format states, 65536 integer pipeline draws, 576 point/line draws, 128 source-state draws, selective readbacks, writebacks, uploads, target transitions, feedback fallback, VRAM replacement, eight VIF/PATH1 GPU triangles and asynchronous failure propagation.\n";return 0;
     }catch(const std::exception& e){std::cerr<<"GPU regression failed: "<<e.what()<<'\n';gpu::shutdown_device();return 1;}
+}
+int benchmark_gpu_footprints(unsigned iterations){
+    try{
+        if(!iterations)throw std::runtime_error("Iteration count must be positive");
+        checkFootprints();
+        for(unsigned size:{8u,32u,128u,512u})for(unsigned psm:{0u,2u,19u,20u}){
+            const auto start=std::chrono::steady_clock::now();uint64_t hash=0u;
+            for(unsigned i=0;i<iterations;++i){auto pages=gpu::rectangle_pages(psm,10240u,8u,i%31u,i%17u,size,size);hash=hash*33u+pages.count();}
+            const auto ns=std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now()-start).count();
+            std::cout<<"size="<<size<<" psm="<<psm<<" ns_per_call="<<double(ns)/iterations<<" hash="<<std::hex<<hash<<std::dec<<'\n';
+        }return 0;
+    }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
+}
+int benchmark_gpu_submission(unsigned draws){
+    try{
+        if(!draws)throw std::runtime_error("Draw count must be positive");
+        std::string error;
+#ifdef _WIN32
+        set_renderer_preference("gpu");initialize_window_gpu();
+#else
+        if(!gpu::initialize_headless(error))throw std::runtime_error(error);
+#endif
+        for(unsigned mode:{0u,16u,64u,96u}){
+            Comparison pair;auto p=material(mode,false);
+            p.vertices[0].x=p.vertices[0].y=0.0f;p.vertices[1].x=1.5f;p.vertices[1].y=0.0f;p.vertices[2].x=0.0f;p.vertices[2].y=1.5f;
+            pair.cpu->LoadClut(p.state.context.tex0,{});pair.gpu->LoadClut(p.state.context.tex0,{});
+            pair.draw(p);pair.compare("GPU submission benchmark warmup");
+            const auto start=std::chrono::steady_clock::now();
+            for(unsigned i=0;i<draws;++i)pair.gpu->Submit(p);
+            pair.gpu->Sync(GSSyncReason::Finish);
+            const auto ns=std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now()-start).count();
+            for(unsigned i=0;i<draws;++i)pair.cpu->Submit(p);
+            pair.compare("GPU submission benchmark output");
+            uint64_t hash=14695981039346656037ull;for(auto byte:pair.expected)hash=(hash^byte)*1099511628211ull;
+            std::cout<<"mode="<<mode<<" ns_per_draw="<<double(ns)/draws<<" hash="<<std::hex<<hash<<std::dec<<'\n';
+        }
+        gpu::shutdown_device();return 0;
+    }catch(const std::exception& e){std::cerr<<e.what()<<'\n';gpu::shutdown_device();return 1;}
 }
 int benchmark_gpu_renderer(unsigned draws){
     try{

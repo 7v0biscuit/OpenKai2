@@ -43,7 +43,12 @@ The renderer supports direct and indexed textures, point and bilinear sampling,
 alpha/depth tests, and framebuffer masks. Buffer feedback, overlapping color
 and depth targets, scan masking, and other unsupported states use the CPU
 compatibility path. Presentation reads completed VRAM back for the existing
-display conversion. Guest execution and vector instruction processing still
+display conversion. Texture page footprints are reused while addressing state
+is unchanged. Aligned buffers use direct page ranges, and pixel updates,
+texture uploads, and palette loads read back only their affected pages. Other
+dirty GPU pages remain resident until a consumer needs them.
+
+Guest execution and vector instruction processing still
 consume CPU time.
 
 Complete matches and sustained 60 FPS remain unverified. The automated GPU
@@ -62,3 +67,6 @@ Developers can run the required headless comparisons with
 `python tools/native/test-gpu-linux.py --jobs 2` on Linux with Mesa/EGL and the
 native build dependencies installed. The optional `openkai2_gpu_bench` CMake
 target compares ordered batches with the CPU renderer and checks output hashes.
+Its `--footprints` mode measures CPU page preparation; `--submission` measures
+small textured draw batches, waits for GPU completion, and compares complete
+VRAM with the CPU reference. These synthetic timings are not game FPS.
