@@ -367,7 +367,7 @@ tags, packets up to 64 KiB, pending stores, callback writes, and resume budgets.
 Existing arithmetic, scheduling, and real-runtime rendering checks remain.
 
 Three alternating Windows-binary medians under Wine showed about 80% lower
-cost for the 4 KiB transfer control, 16% for the shorter packet control, and
+cost for the 4 KiB transfer control, 18% for the shorter packet control, and
 6–10% for eight product-heavy workloads. Original state, cycle, memory, and
 packet hashes matched. These synthetic costs do not establish retail game
 frame rates or sustained 60 FPS.
