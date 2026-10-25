@@ -111,8 +111,8 @@ int main(int argc, char* argv[]) {
     StartupLog log;
     bool interactive=false;
     try {
-        if(const auto value=std::getenv("OPENKAI2_FPS_LIMIT"))
-            openkai2::set_window_fps_limit(openkai2::parse_window_fps_limit(value));
+        const auto displayEnvironment=std::getenv("OPENKAI2_FPS_LIMIT");
+        std::string fpsLimit=displayEnvironment ? displayEnvironment : "240";
         std::filesystem::path image;
 #ifdef _WIN32
         // Preserve Unicode paths supplied by Explorer or the command line.
@@ -127,10 +127,11 @@ int main(int argc, char* argv[]) {
                 const auto value=i->substr(11u);openkai2::set_renderer_preference(std::string(value.begin(),value.end()));i=positional.erase(i);
             }else if(i->rfind(L"--fps-limit=",0u)==0u){
                 const auto value=i->substr(12u);
-                openkai2::set_window_fps_limit(openkai2::parse_window_fps_limit(std::string(value.begin(),value.end())));
+                fpsLimit=std::string(value.begin(),value.end());
                 i=positional.erase(i);
             }else ++i;
         }
+        openkai2::set_window_fps_limit(openkai2::parse_window_fps_limit(fpsLimit));
         count=int(positional.size())+1;
         const std::wstring argument=count==2 ? positional.front() : L"";
         if (count==2 && (argument==L"--help" || argument==L"-h")) { usage(); return 0; }
@@ -146,9 +147,10 @@ int main(int argc, char* argv[]) {
             const std::string argument=argv[i];
             if(argument.rfind("--renderer=",0u)==0u)openkai2::set_renderer_preference(argument.substr(11u));
             else if(argument.rfind("--fps-limit=",0u)==0u)
-                openkai2::set_window_fps_limit(openkai2::parse_window_fps_limit(argument.substr(12u)));
+                fpsLimit=argument.substr(12u);
             else positional.push_back(argument);
         }
+        openkai2::set_window_fps_limit(openkai2::parse_window_fps_limit(fpsLimit));
         if(positional.size()==1u && (positional[0]=="--help" || positional[0]=="-h")){usage();return 0;}
         if(positional.size()==1u && positional[0]=="--audio-test"){log.open("audio-test.log");return openkai2::test_host_audio();}
         if(positional.size()==1u && positional[0]=="--self-test")return openkai2::run_runtime_checks();
