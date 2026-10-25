@@ -1,0 +1,21 @@
+--- a/runtime/ps2_runtime.cpp
++++ b/runtime/ps2_runtime.cpp
+@@ -1990,11 +1990,13 @@
+     }
+ 
+     std::lock_guard<std::mutex> lock(m_asyncCallbackStackMutex);
+-    uint32_t top = m_asyncCallbackStackTop;
+-    if (top > PS2_RAM_SIZE)
+-    {
+-        top = PS2_RAM_SIZE;
+-    }
++    // The bootstrap EE thread starts at the top of RDRAM. Its stack must
++    // remain separate from asynchronous callbacks, whose zero return sentinel
++    // would otherwise overwrite live caller frames. Keep the top 64 KiB for
++    // that thread and allocate callbacks downward above the guest heap limit.
++    constexpr uint32_t bootstrapStackBytes = 0x10000u;
++    const uint32_t maximumTop = PS2_RAM_SIZE - bootstrapStackBytes;
++    uint32_t top = std::min(m_asyncCallbackStackTop, maximumTop);
+     top &= ~(kGuestHeapDefaultAlignment - 1u);
+ 
+     if (top <= allocSize)

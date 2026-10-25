@@ -1,0 +1,48 @@
+# Local environments and generated output
+.venv/
+.local/
+__pycache__/
+*.py[cod]
+/build*/
+/reports/
+CMakeCache.txt
+CMakeFiles/
+.ninja_*
+*.log
+
+# Game input, locally generated retail translation, and disc assets
+/game/
+/game-data/
+/MODULES/
+/USR/
+SLUS_*
+SCUS_*
+SLES_*
+SCES_*
+*.iso
+*.elf
+*.chd
+*.bin
+*.afs
+*.irx
+*.img
+*.cue
+*.zip
+*.rar
+*.7z
+
+# Compiled products
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.so.*
+*.dll
+*.exe
+*.pdb
+
+# Local configuration
+.env
+.env.*
+!.env.example

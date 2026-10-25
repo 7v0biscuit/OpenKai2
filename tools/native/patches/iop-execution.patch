@@ -1,0 +1,256 @@
+--- a/emulator/core/iop_cpu.h
++++ b/emulator/core/iop_cpu.h
+@@ -31,6 +31,7 @@
+         explicit IopCpuCore(IopMemory &memory) noexcept;
+ 
+         [[nodiscard]] bool executeInstruction(IopCpuState &cpu);
++        [[nodiscard]] bool executeFetchedInstruction(IopCpuState &cpu,uint32_t instruction);
+         void raiseException(IopCpuState &cpu, uint32_t code, uint32_t faultPc, bool delaySlot, std::optional<uint32_t> badAddress = std::nullopt) const;
+ 
+     private:
+--- a/emulator/core/iop_cpu.cpp
++++ b/emulator/core/iop_cpu.cpp
+@@ -54,8 +54,12 @@
+ 
+     bool IopCpuCore::executeInstruction(IopCpuState &cpu)
+     {
++        return executeFetchedInstruction(cpu,m_memory.read32(cpu.pc));
++    }
++
++    bool IopCpuCore::executeFetchedInstruction(IopCpuState &cpu,uint32_t instruction)
++    {
+         const uint32_t pc = cpu.pc;
+-        const uint32_t instruction = m_memory.read32(pc);
+         const bool wasDelaySlot = cpu.branchPending;
+         const uint32_t priorBranchTarget = cpu.branchTarget;
+ 
+--- a/emulator/core/iop_kernel.h
++++ b/emulator/core/iop_kernel.h
+@@ -62,6 +62,9 @@
+         void sleepCurrent(IopCpuState &cpu);
+         void delayCurrentUntil(uint64_t wakeCycle, IopCpuState &cpu);
+ 
++        [[nodiscard]] const IopCpuState* threadCpu(int id)const {
++            const auto it=m_threads.find(id);return it==m_threads.end() ? nullptr : &it->second.cpu;
++        }
+         [[nodiscard]] IopThread *beginNextReady(uint64_t currentCycle);
+         [[nodiscard]] uint64_t nextWakeCycle(uint64_t fallback) const;
+         void endTimeslice(IopThread &thread, uint32_t returnSentinel);
+--- a/emulator/core/iop_kernel.cpp
++++ b/emulator/core/iop_kernel.cpp
+@@ -724,15 +724,11 @@
+ 
+     IopThread *IopKernel::beginNextReady(uint64_t currentCycle)
+     {
++        IopThread *next = nullptr;
+         for (auto &[id, thread] : m_threads)
+         {
+             if (thread.state == IopThreadState::Delay && thread.wakeCycle <= currentCycle)
+                 thread.state = IopThreadState::Ready;
+-        }
+-
+-        IopThread *next = nullptr;
+-        for (auto &[id, thread] : m_threads)
+-        {
+             if (thread.state != IopThreadState::Ready)
+                 continue;
+             if (next == nullptr || thread.priority < next->priority ||
+--- a/emulator/iop_emulator.cpp
++++ b/emulator/iop_emulator.cpp
+@@ -23,6 +23,7 @@
+ #include <deque>
+ #include <exception>
+ #include <map>
++#include <limits>
+ #include <optional>
+ #include <span>
+ #include <sstream>
+@@ -135,18 +136,17 @@
+             moduleCursor = kModuleLoadBase;
+             totalCycles = 0;
+             totalInstructions = 0;
+-            eeCycleCarry = 0;
++            eeCycleCarry = 0;idleUntil=0;
+             activeCpu = nullptr;
+             lastError.clear();
+             servicingDmaInterrupts = false;
+             servicingGuestCallbacks = false;
+             callDepth = 0u;
+             pendingBindAttempts.clear();
+-            recentImports.clear();
++            recentImportCount=recentImportCursor=0;
+             schedulerErrors = 0;
+             threadEvents = 0;
+             lastThreadId = 0;
+-            lastThreadCpu = {};
+             secrMcCommandHandler = {};
+             secrMcDevIdHandler = {};
+             checkKelfPathCallback = {};
+@@ -400,7 +400,8 @@
+             if (checkInterrupt(cpu))
+                 return true;
+ 
+-            if (const auto import = imports.decode(cpu.pc))
++            const uint32_t instruction=memory.read32(cpu.pc);
++            if (const auto import = instruction==0x03e00008u ? imports.decode(cpu.pc) : std::nullopt)
+             {
+                 // The import thunk executes before the service body. Its jump
+                 // and ordinal delay slot retire the caller's pending load, so
+@@ -416,14 +417,10 @@
+                 const ImportDisposition disposition = dispatchImport(*import, cpu);
+                 if (!iequals(import->library, "stdio") && !iequals(import->library, "sysclib"))
+                 {
+-                    std::ostringstream out;
+-                    out << import->library << ':' << std::dec << import->ordinal
+-                        << " pc=0x" << std::hex << cpu.pc << " ra=0x" << cpu.gpr[31]
+-                        << " a0=0x" << argument << " a1=0x" << cpu.gpr[5]
+-                        << " a2=0x" << cpu.gpr[6] << " a3=0x" << cpu.gpr[7]
+-                        << " result=0x" << cpu.gpr[2];
+-                    if (recentImports.size() == 32u) recentImports.pop_front();
+-                    recentImports.push_back(out.str());
++                    recentImports[recentImportCursor]={*import,cpu.pc,cpu.gpr[31],argument,
++                        cpu.gpr[5],cpu.gpr[6],cpu.gpr[7],cpu.gpr[2]};
++                    recentImportCursor=(recentImportCursor+1u)%32u;
++                    recentImportCount=std::min(32u,recentImportCount+1u);
+                 }
+                 ++totalInstructions;
+                 ++totalCycles;
+@@ -434,7 +431,7 @@
+                 return !cpu.stopped;
+             }
+ 
+-            const bool running = cpuCore.executeInstruction(cpu);
++            const bool running = cpuCore.executeFetchedInstruction(cpu,instruction);
+             schedulePendingDma();
+             ++totalInstructions;
+             ++totalCycles;
+@@ -607,6 +604,11 @@
+             try
+             {
+                 const uint64_t target = totalCycles + cycles;
++                // No CPU, timer, DMA or callback can run before this deadline.
++                // Host operations that can wake an IOP thread invalidate it.
++                if(!stopWhenIdle && idleUntil>totalCycles && target<=idleUntil) {
++                    totalCycles=target;return;
++                }
+                 while (totalCycles < target)
+                 {
+                     servicePendingDmaInterrupts();
+@@ -616,19 +618,20 @@
+                     if (!next)
+                     {
+                         if (stopWhenIdle) return;
+-                        uint64_t nextWake = kernel.nextWakeCycle(target);
++                        uint64_t nextWake = kernel.nextWakeCycle(std::numeric_limits<uint64_t>::max());
+                         for (const auto &[irq, completionCycle] : pendingDmaInterrupts)
+                             nextWake = std::min(nextWake, completionCycle);
+                         if (!pendingGuestCallbacks.empty())
+                             nextWake = std::min(nextWake, pendingGuestCallbacks.begin()->first);
+                         nextWake = timrman.nextEventCycle(nextWake);
++                        idleUntil=nextWake;
+                         totalCycles = std::max(totalCycles + 1u, std::min(target, nextWake));
+                         continue;
+                     }
++                    idleUntil=0;
+                     const uint64_t before = totalCycles;
+                     runCpu(next->cpu, static_cast<uint32_t>(std::min<uint64_t>(kDefaultSlice, target - totalCycles)));
+                     lastThreadId = next->id;
+-                    lastThreadCpu = next->cpu;
+                     kernel.endTimeslice(*next, kThreadReturnSentinel);
+                     if (totalCycles == before)
+                         ++totalCycles;
+@@ -787,11 +790,16 @@
+         CpuState *activeCpu = nullptr;
+         std::string lastError;
+         std::map<uint32_t, uint32_t> pendingBindAttempts;
+-        std::deque<std::string> recentImports;
++        struct RecentImport {
++            IopImportCall call;
++            uint32_t pc,ra,a0,a1,a2,a3,result;
++        };
++        std::array<RecentImport,32> recentImports{};
++        uint32_t recentImportCount=0,recentImportCursor=0;
++        uint64_t idleUntil=0;
+         uint32_t schedulerErrors = 0;
+         uint32_t threadEvents = 0;
+         int lastThreadId = 0;
+-        CpuState lastThreadCpu{};
+         bool servicingDmaInterrupts = false;
+         bool servicingGuestCallbacks = false;
+         uint32_t callDepth = 0u;
+@@ -814,16 +822,19 @@
+ 
+     ModuleLoadResult IopEmulator::loadModule(std::string_view path, const void *arguments, uint32_t argumentSize)
+     {
++        m_impl->idleUntil=0;
+         return m_impl->loadModule(path, arguments, argumentSize);
+     }
+ 
+     ModuleLoadResult IopEmulator::loadModuleBuffer(uint32_t guestAddress, const void *arguments, uint32_t argumentSize)
+     {
++        m_impl->idleUntil=0;
+         return m_impl->loadModuleBuffer(guestAddress, arguments, argumentSize);
+     }
+ 
+     bool IopEmulator::stopModule(int32_t moduleId, int32_t *result)
+     {
++        m_impl->idleUntil=0;
+         return m_impl->stopModule(moduleId, result);
+     }
+ 
+@@ -841,6 +852,7 @@
+ 
+     RpcResult IopEmulator::handleRpc(const RpcRequest &request)
+     {
++        m_impl->idleUntil=0;
+         const auto result = m_impl->rpc.handleRpc(request, *m_impl);
+         return result.handled ? result : m_impl->discRpc.handle(request);
+     }
+@@ -869,7 +881,8 @@
+                 ++attempts;
+                 if (attempts == 1u || attempts == 64u || attempts == 4096u || attempts == 65536u)
+                 {
+-                    const auto &cpu = m_impl->lastThreadCpu;
++                    const auto* saved=m_impl->kernel.threadCpu(m_impl->lastThreadId);
++                    const IopCpuState empty{};const auto& cpu=saved ? *saved : empty;
+                     std::ostringstream out;
+                     out << "[IOP RPC] waiting sid=0x" << std::hex << sid
+                         << " attempt=" << std::dec << attempts
+@@ -888,8 +901,12 @@
+                         << " stat1=0x" << m_impl->memory.read16(0x1F900744u);
+                     out << '\n';
+                     m_impl->kernel.appendDebugState(out);
+-                    for (const auto &call : m_impl->recentImports)
+-                        out << "[IOP recent] " << call << '\n';
++                    for(uint32_t i=0;i<m_impl->recentImportCount;++i) {
++                        const auto& c=m_impl->recentImports[(m_impl->recentImportCursor+32u-m_impl->recentImportCount+i)%32u];
++                        out<<"[IOP recent] "<<c.call.library<<':'<<std::dec<<c.call.ordinal
++                            <<" pc=0x"<<std::hex<<c.pc<<" ra=0x"<<c.ra<<" a0=0x"<<c.a0
++                            <<" a1=0x"<<c.a1<<" a2=0x"<<c.a2<<" a3=0x"<<c.a3<<" result=0x"<<c.result<<'\n';
++                    }
+                     if (!m_impl->lastError.empty())
+                         out << "[IOP scheduler error] " << m_impl->lastError << '\n';
+                     m_impl->log(LogLevel::Info, out.str());
+@@ -906,6 +923,7 @@
+ 
+     void IopEmulator::onSifTransfer(const SifTransfer &transfer)
+     {
++        m_impl->idleUntil=0;
+         m_impl->rpc.onSifTransfer(transfer);
+     }
+ 
+@@ -927,12 +945,14 @@
+ 
+     bool IopEmulator::writeMemory(uint32_t address, const void *source, size_t size)
+     {
++        m_impl->idleUntil=0;
+         return isMemoryRange(address, size) &&
+                m_impl->memory.writeRam(address, source, size);
+     }
+ 
+     bool IopEmulator::zeroMemory(uint32_t address, size_t size)
+     {
++        m_impl->idleUntil=0;
+         return isMemoryRange(address, size) &&
+                m_impl->memory.zeroRam(address, size);
+     }

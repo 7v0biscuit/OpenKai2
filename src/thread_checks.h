@@ -1,0 +1,7 @@
+// SPDX-License-Identifier: GPL-3.0-only
+#pragma once
+namespace openkai2 {
+void verify_thread_bootstrap();
+void verify_thread_wakeup();
+void verify_thread_priority();
+}

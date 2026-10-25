@@ -1,0 +1,30 @@
+--- a/runtime/ps2_pad.cpp
++++ b/runtime/ps2_pad.cpp
+@@ -91,7 +91,7 @@
+         data[4] = static_cast<uint8_t>(128 + rx * 127);
+         data[5] = static_cast<uint8_t>(128 + ry * 127);
+     }
+-    else if (kGamepad == 0)
++    if (kGamepad == 0)
+     {
+         if (hostKeyDown(KEY_UP) || hostKeyDown(KEY_W))
+             clearBit(PAD_UP);
+@@ -135,11 +135,17 @@
+ void reset_host_input() {
+     for (auto& pad:hostPads) pad.reset();
+ }
++void publish_host_input(int port,const LatchedPadState::Packet& packet) {
++    if (port>=0 && port<2) hostPads[port].publish(packet);
++}
++HostPadStats host_input_stats(int port) {
++    return port>=0 && port<2 ? hostPads[port].stats() : HostPadStats{};
++}
+ void poll_host_input() {
+     for (int port=0;port<2;++port) {
+         auto value=LatchedPadState::neutral();
+         sampleHostPad(port,value.data(),value.size());
+-        hostPads[port].publish(value);
++        publish_host_input(port,value);
+     }
+ }
+ }

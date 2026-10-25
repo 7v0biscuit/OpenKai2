@@ -1,0 +1,52 @@
+--- a/runtime/vu/ps2_vu1_core.cpp
++++ b/runtime/vu/ps2_vu1_core.cpp
+@@ -7,6 +7,7 @@
+ 
+ #include <algorithm>
+ #include <bit>
++#include <smmintrin.h>
+ #include <cfenv>
+ #if defined(__GNUC__) && (defined(__i386__) || defined(__x86_64__))
+ #include <xmmintrin.h>
+@@ -231,12 +232,41 @@
+ void VU1Interpreter::normalizeFmacResult(float *result, uint8_t dest,
+                                          uint8_t laneFlags[4])
+ {
++    if (dest == 0u)
++    {
++        std::fill(laneFlags, laneFlags + 4u, uint8_t(0));
++        return;
++    }
++    // With finite operands in [2^-30, 2^31), every nonzero exact FMAC
++    // result is at least 2^-106 and below 2^63. Neither U nor O can occur.
++    // A nonzero rounded result has the exact sign; zero results still need
++    // the original calculation because product rounding can hide cancellation.
++    const auto boundedScalar = [](float value) {
++        uint32_t bits; std::memcpy(&bits, &value, sizeof(bits));
++        const uint32_t magnitude = bits & 0x7fffffffu;
++        return magnitude == 0u || (magnitude >= 0x30800000u && magnitude < 0x4f000000u);
++    };
++    const auto boundedVector = [](const float* values) {
++        const auto magnitude = _mm_and_si128(_mm_loadu_si128(reinterpret_cast<const __m128i*>(values)), _mm_set1_epi32(0x7fffffff));
++        const auto inside = _mm_and_si128(_mm_cmpgt_epi32(magnitude, _mm_set1_epi32(0x307fffff)),
++                                         _mm_cmpgt_epi32(_mm_set1_epi32(0x4f000000), magnitude));
++        return _mm_movemask_epi8(_mm_or_si128(inside, _mm_cmpeq_epi32(magnitude, _mm_setzero_si128()))) == 0xffff;
++    };
++    const bool bounded = boundedScalar(m_state.q) && boundedScalar(m_state.i)
++        && boundedVector(m_state.vf[FS(m_currentUpperInstruction)])
++        && boundedVector(m_state.vf[FT(m_currentUpperInstruction)]) && boundedVector(m_state.acc);
+     for (uint32_t component = 0; component < 4u; ++component)
+     {
+         laneFlags[component] = 0u;
+         if ((dest & laneForComponent(component)) == 0u)
+             continue;
+ 
++        uint32_t roundedBits; std::memcpy(&roundedBits, &result[component], sizeof(roundedBits));
++        if (bounded && (roundedBits & 0x7fffffffu) != 0u)
++        {
++            laneFlags[component] = static_cast<uint8_t>((roundedBits >> 30u) & 2u);
++            continue;
++        }
+         long double exactResult = 0.0L;
+         if (calculateFmacExactResult(component, exactResult))
+         {

@@ -1,0 +1,115 @@
+--- a/runtime/ps2_vif1_interpreter.cpp
++++ b/runtime/ps2_vif1_interpreter.cpp
+@@ -1,6 +1,8 @@
+ // Based on Blackline Interactive implementation
+ #include "runtime/ps2_memory.h"
+ #include <cstring>
++#include <algorithm>
++#include <smmintrin.h>
+ 
+ enum VIFCmd : uint8_t
+ {
+@@ -28,6 +30,86 @@
+ 
+ namespace
+ {
++    // The caller excludes source feedback, masks, add/fill modes and skips.
++    // Narrow loads copy only their source bytes, including the final vector.
++    template<unsigned Components, unsigned Bits, bool Unsigned>
++    void unpackContiguous(uint8_t* destination, const uint8_t* source, uint32_t address, uint32_t count)
++    {
++        if constexpr (Bits == 32u && Components == 4u)
++        {
++            const auto first = std::min(count, 1024u - address);
++            std::memcpy(destination + address * 16u, source, first * 16u);
++            if (first < count) std::memcpy(destination, source + first * 16u, (count - first) * 16u);
++        }
++        else for (uint32_t i = 0; i < count; ++i)
++        {
++            auto* output = destination + ((address + i) & 1023u) * 16u;
++            const auto* input = source + i * Components * (Bits / 8u);
++            if constexpr (Bits == 32u && Components != 1u)
++                std::memcpy(output, input, Components * 4u);
++            else
++            {
++                __m128i value;
++                if constexpr (Bits == 32u)
++                {
++                    int32_t raw; std::memcpy(&raw, input, 4u); value = _mm_set1_epi32(raw);
++                }
++                else
++                {
++                    __m128i packed;
++                    if constexpr (Components == 3u && Bits == 16u)
++                    {
++                        uint32_t low; uint16_t high;
++                        std::memcpy(&low, input, 4u); std::memcpy(&high, input + 4u, 2u);
++                        packed = _mm_cvtsi64_si128(static_cast<long long>(uint64_t(low) | (uint64_t(high) << 32u)));
++                    }
++                    else if constexpr (Components == 3u && Bits == 8u)
++                    {
++                        uint16_t low; std::memcpy(&low, input, 2u);
++                        packed = _mm_cvtsi32_si128(int32_t(uint32_t(low) | (uint32_t(input[2]) << 16u)));
++                    }
++                    else
++                    {
++                        long long raw = 0; std::memcpy(&raw, input, Components * (Bits / 8u));
++                        packed = _mm_cvtsi64_si128(raw);
++                    }
++                    if constexpr (Bits == 16u) value = Unsigned ? _mm_cvtepu16_epi32(packed) : _mm_cvtepi16_epi32(packed);
++                    else value = Unsigned ? _mm_cvtepu8_epi32(packed) : _mm_cvtepi8_epi32(packed);
++                    if constexpr (Components == 1u) value = _mm_shuffle_epi32(value, 0);
++                }
++                if constexpr (Components == 1u || Components == 4u) _mm_storeu_si128(reinterpret_cast<__m128i*>(output), value);
++                else
++                {
++                    _mm_storel_epi64(reinterpret_cast<__m128i*>(output), value);
++                    if constexpr (Components == 3u)
++                    {
++                        const int32_t third = _mm_extract_epi32(value, 2); std::memcpy(output + 8u, &third, 4u);
++                    }
++                }
++            }
++        }
++    }
++
++    template<bool Unsigned>
++    void unpackContiguousFormat(uint8_t* destination, const uint8_t* source, uint32_t address, uint32_t count, uint32_t format)
++    {
++        switch (format)
++        {
++        case 0u: unpackContiguous<1u, 32u, Unsigned>(destination, source, address, count); break;
++        case 1u: unpackContiguous<1u, 16u, Unsigned>(destination, source, address, count); break;
++        case 2u: unpackContiguous<1u, 8u, Unsigned>(destination, source, address, count); break;
++        case 4u: unpackContiguous<2u, 32u, Unsigned>(destination, source, address, count); break;
++        case 5u: unpackContiguous<2u, 16u, Unsigned>(destination, source, address, count); break;
++        case 6u: unpackContiguous<2u, 8u, Unsigned>(destination, source, address, count); break;
++        case 8u: unpackContiguous<3u, 32u, Unsigned>(destination, source, address, count); break;
++        case 9u: unpackContiguous<3u, 16u, Unsigned>(destination, source, address, count); break;
++        case 10u: unpackContiguous<3u, 8u, Unsigned>(destination, source, address, count); break;
++        case 12u: unpackContiguous<4u, 32u, Unsigned>(destination, source, address, count); break;
++        case 13u: unpackContiguous<4u, 16u, Unsigned>(destination, source, address, count); break;
++        case 14u: unpackContiguous<4u, 8u, Unsigned>(destination, source, address, count); break;
++        }
++    }
++
+     constexpr uint8_t kGifFmtImage = 2u;
+ 
+     uint32_t pendingGifImageQwc(const uint8_t *data, uint32_t sizeBytes)
+@@ -575,6 +657,16 @@
+             if (m_vu1Data && totalBytes > 0 && pos + totalBytes <= sizeBytes)
+             {
+                 const uint8_t *srcBase = data + pos;
++                const auto sourceAddress = reinterpret_cast<uintptr_t>(srcBase);
++                const auto dataAddress = reinterpret_cast<uintptr_t>(m_vu1Data);
++                const bool separate = sourceAddress + totalBytes <= dataAddress || dataAddress + PS2_VU1_DATA_SIZE <= sourceAddress;
++                if (!maskEnable && (vif1_regs.mode == 0u || vif1_regs.mode == 3u) && cl == wl && vl < 3u && separate)
++                {
++                    if (zeroExtend) unpackContiguousFormat<true>(m_vu1Data, srcBase, vuAddr, writeVectorCount, (vn << 2u) | vl);
++                    else unpackContiguousFormat<false>(m_vu1Data, srcBase, vuAddr, writeVectorCount, (vn << 2u) | vl);
++                    pos += totalBytes;
++                    continue;
++                }
+                 uint32_t srcIndex = 0u;
+                 for (uint32_t writeIndex = 0; writeIndex < writeVectorCount; ++writeIndex)
+                 {

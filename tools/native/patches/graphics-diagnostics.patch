@@ -1,0 +1,64 @@
+--- a/runtime/ps2_memory.cpp
++++ b/runtime/ps2_memory.cpp
+@@ -953,6 +953,7 @@
+ 
+     if (isGsPrivReg(address))
+     {
++        m_gsWriteCount.fetch_add(1, std::memory_order_relaxed);
+         uint32_t off = address & 7;
+         const uint32_t regOff = (address - PS2_GS_PRIV_REG_BASE) & ~0x7u;
+         if (regOff == kGsCsrRegOffset)
+@@ -1013,6 +1014,7 @@
+ 
+     if (isGsPrivReg(address))
+     {
++        m_gsWriteCount.fetch_add(1, std::memory_order_relaxed);
+         const uint32_t regOff = (address - PS2_GS_PRIV_REG_BASE) & ~0x7u;
+         if (regOff == kGsCsrRegOffset)
+         {
+--- a/runtime/ps2_runtime.cpp
++++ b/runtime/ps2_runtime.cpp
+@@ -665,6 +665,7 @@
+     }
+ 
+     m_gs.init(gsVram, static_cast<uint32_t>(PS2_GS_VRAM_SIZE), &m_memory.gs());
++    m_gs.setDebugHistoryPaused(false); // Retain a bounded ring for startup reports.
+     m_gifArbiter.setProcessPacketFn([this](const uint8_t *data, uint32_t size)
+                                     { m_gs.processGIFPacket(data, size); });
+     m_memory.setGifArbiter(&m_gifArbiter);
+@@ -2448,8 +2448,8 @@
+             }
+         });
+         const uint64_t elapsed = elapsedMs();
+-        if (startupDiagnostics.due(elapsed))
+-            startupDiagnostics.sample(elapsed, m_eeScheduler->snapshot(), startupActivity(), std::cout);
++        if (startupDiagnostics.due(elapsed) && startupDiagnostics.sample(elapsed, m_eeScheduler->snapshot(), startupActivity(), std::cout))
++            openkai2::report_startup_graphics(m_gs, elapsed, std::cout);
+         uint32_t presentWidth = FB_WIDTH;
+         uint32_t presentHeight = DEFAULT_DISPLAY_HEIGHT;
+         UploadFrame(frameTex, this, presentWidth, presentHeight);
+@@ -2493,6 +2493,7 @@
+ 
+     startupDiagnostics.report(windowClosed ? "window-close" : "execution-stopped",
+                               elapsedMs(), m_eeScheduler->snapshot(), startupActivity(), std::cout);
++    openkai2::report_startup_graphics(m_gs, elapsedMs(), std::cout);
+     if (m_debugUiInitialized && m_debugUiShutdownCallback)
+     {
+         m_debugUiShutdownCallback(*this, m_debugUiUserData);
+--- a/Kernel/Syscalls/Thread.cpp
++++ b/Kernel/Syscalls/Thread.cpp
+@@ -1,5 +1,6 @@
+ #include "Common.h"
+ #include "Thread.h"
++#include "startup_diagnostics.h"
+ #include "runtime/ee_scheduler.h"
+ 
+ namespace ps2_syscalls
+@@ -385,6 +386,7 @@
+ 
+     void SleepThread(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+     {
++        openkai2::sample_movie_wait(*runtime, rdram, PS2_RAM_SIZE, getRegU32(ctx, 31), std::cout);
+         EeScheduler &ee = scheduler(rdram, ctx, runtime);
+         ee.sleepCurrent();
+         setReturnS32(ctx, KE_OK);

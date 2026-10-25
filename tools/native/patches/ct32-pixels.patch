@@ -1,0 +1,123 @@
+--- a/runtime/gs/gs_cpu_backend.cpp
++++ b/runtime/gs/gs_cpu_backend.cpp
+@@ -115,6 +115,65 @@
+     {
+         return static_cast<u32>(r) | (g << 8) | (b << 16) | (a << 24);
+     }
++
++    // Prepare unmasked CT32 writes and blend selectors once per primitive.
++    // Return false for states that require the general test/format pipeline.
++    // Color precedes depth even when their VRAM addresses alias.
++    struct PreparedPixelWriter {
++        using Read=uint32_t(*)(uint8_t*,uint32_t,uint32_t,uint32_t,uint32_t);
++        using Write=void(*)(uint8_t*,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t);
++        uint8_t* vram;
++        Read readDepth,readFrame;
++        Write writeFrame,writeDepth;
++        uint32_t frameBase,depthBase,width,depthMethod;
++        bool enabled,identity,sourceOver,pabe,writesDepth;
++        uint8_t asel,bsel,csel,dsel,fix;
++        PreparedPixelWriter(const GSDrawState& state,uint8_t* memory,Read rd,Read rf,Write wf,Write wd)
++            :vram(memory),readDepth(rd),readFrame(rf),writeFrame(wf),writeDepth(wd) {
++            const auto& ctx=state.context;
++            frameBase=framePageBaseToBlock(ctx.frame.fbp);
++            depthBase=framePageBaseToBlock(ctx.zbuf.zbp);
++            width=std::max<uint32_t>(ctx.frame.fbw,1u);
++            depthMethod=(ctx.test>>17u)&3u;
++            enabled=memory && ctx.frame.psm==GS_PSM_CT32 && ctx.frame.fbmsk==0u
++                && (ctx.test&0x4001u)==0u && (ctx.fba&1u)==0u && !state.prim.fge;
++            identity=!state.prim.abe
++                || ((ctx.alpha&3u)==((ctx.alpha>>2u)&3u) && ((ctx.alpha>>6u)&3u)==0u);
++            sourceOver=(ctx.alpha&255u)==0x44u;
++            asel=ctx.alpha&3u;bsel=(ctx.alpha>>2u)&3u;
++            csel=(ctx.alpha>>4u)&3u;dsel=(ctx.alpha>>6u)&3u;fix=(ctx.alpha>>32u)&255u;
++            pabe=state.pabe;
++            writesDepth=!ctx.zbuf.zmask;
++        }
++        bool write(int x,int y,uint32_t z,uint8_t r,uint8_t g,uint8_t b,uint8_t a) const {
++            if(!enabled)return false;
++            if(depthMethod==0u)return true;
++            if(depthMethod>=2u && !(depthMethod==2u && z==UINT32_MAX)) {
++                const uint32_t oldDepth=readDepth(vram,depthBase,width,x,y);
++                if(depthMethod==2u ? z<oldDepth : z<=oldDepth)return true;
++            }
++            uint32_t pixel=pack32(r,g,b,a);
++            if(!(identity || (sourceOver && a==128u) || (pabe && a<128u))) {
++                const uint32_t old=readFrame(vram,frameBase,width,x,y);
++                const int factor=csel==0u ? a : csel==1u ? (old>>24u)&255u : fix;
++                const __m128i source=_mm_cvtepu8_epi32(_mm_cvtsi32_si128(pixel));
++                const __m128i destination=_mm_cvtepu8_epi32(_mm_cvtsi32_si128(old));
++                auto select=[&](uint8_t which) {
++                    return which==0u ? source : which==1u ? destination : _mm_setzero_si128();
++                };
++                __m128i color=select(dsel);
++                if(factor!=0 && asel!=bsel) {
++                    const auto delta=_mm_sub_epi32(select(asel),select(bsel));
++                    color=_mm_add_epi32(color,_mm_srai_epi32(_mm_mullo_epi32(delta,_mm_set1_epi32(factor)),7));
++                }
++                const auto words=_mm_packus_epi32(color,color);
++                pixel=(uint32_t(_mm_cvtsi128_si32(_mm_packus_epi16(words,words)))&0x00ffffffu)|(uint32_t(a)<<24u);
++            }
++            writeFrame(vram,frameBase,width,x,y,pixel);
++            if(writesDepth)writeDepth(vram,depthBase,width,x,y,z);
++            return true;
++        }
++    };
+ 
+     uint32_t applyTexa(const GSTexaReg &texa, uint8_t psm, uint32_t texel)
+     {
+@@ -1259,31 +1318,15 @@
+ 
+     uint8_t r = v1.r, g = v1.g, b = v1.b, a = v1.a;
+ 
+-    // Hoist the common opaque CT32 write state out of the pixel loop. A=B
+-    // with D=source also makes blending an identity. Other GS modes retain
+-    // the full pixel pipeline, including alpha tests, masks, and fog.
+-    const bool identityBlend = !state.prim.abe
+-        || ((ctx.alpha & 3u) == ((ctx.alpha >> 2u) & 3u) && ((ctx.alpha >> 6u) & 3u) == 0u);
+-    const bool simpleWrite = ctx.frame.psm == GS_PSM_CT32 && ctx.frame.fbmsk == 0u
+-        && (ctx.test & 0x4001u) == 0u && ctx.zbuf.zmask && (ctx.fba & 1u) == 0u
+-        && !state.prim.fge && identityBlend;
+     const uint32_t frameBase = GSInternal::framePageBaseToBlock(ctx.frame.fbp);
+     const uint32_t depthBase = GSInternal::framePageBaseToBlock(ctx.zbuf.zbp);
+     const uint32_t bufferWidth = std::max<uint32_t>(ctx.frame.fbw,1u);
+     const uint32_t depthMethod = (ctx.test >> 17u) & 3u;
+-    const auto writeFrame = m_writeVramFuncs[GS_PSM_CT32];
+-    const auto readDepth = m_readVramFuncs[ctx.zbuf.psm & 63u];
++    const PreparedPixelWriter writer(state,m_vram,m_readVramFuncs[ctx.zbuf.psm&63u],m_readVramFuncs[GS_PSM_CT32],
++        m_writeVramFuncs[GS_PSM_CT32],m_writeVramFuncs[ctx.zbuf.psm&63u]);
+     auto writeSpritePixel = [&](int x,int y,uint8_t cr,uint8_t cg,uint8_t cb,uint8_t ca) {
+-        if (!simpleWrite) {
++        if(!writer.write(x,y,z1,cr,cg,cb,ca))
+             WritePixel(state,x,y,z1,cr,cg,cb,ca,v1.fog);
+-            return;
+-        }
+-        if (depthMethod == 0u) return;
+-        if (depthMethod >= 2u && !(depthMethod==2u && z1==UINT32_MAX)) {
+-            const uint32_t oldDepth = readDepth(m_vram,depthBase,bufferWidth,x,y);
+-            if (depthMethod == 2u ? z1 < oldDepth : z1 <= oldDepth) return;
+-        }
+-        writeFrame(m_vram,frameBase,bufferWidth,x,y,pack32(cr,cg,cb,ca));
+     };
+ 
+     // Bound every page the sampler can read, including region clamp/repeat
+@@ -1491,6 +1534,8 @@
+     const float winding = (denom < 0.0f) ? -1.0f : 1.0f;
+     const float invAbsDenom = 1.0f / std::fabs(denom);
+     constexpr float kEdgeEpsilon = 1.0e-4f;
++    const PreparedPixelWriter writer(state,m_vram,m_readVramFuncs[ctx.zbuf.psm&63u],m_readVramFuncs[GS_PSM_CT32],
++        m_writeVramFuncs[GS_PSM_CT32],m_writeVramFuncs[ctx.zbuf.psm&63u]);
+ 
+     auto drawRows=[&](int first,int last,bool& sampled) {
+         for (int y = first; y <= last; ++y)
+@@ -1586,7 +1631,9 @@
+ 
+                 const uint8_t fog = state.prim.fge
+                     ? clampU8(static_cast<int>(v0.fog*w0+v1.fog*w1+v2.fog*w2)) : 0u;
+-                WritePixel(state, x, y, static_cast<u32>(z + 0.5), r, g, b, a, fog);
++                const auto pixelZ=static_cast<u32>(z+0.5);
++                if(!writer.write(x,y,pixelZ,r,g,b,a))
++                    WritePixel(state,x,y,pixelZ,r,g,b,a,fog);
+             }
+         }
+ 

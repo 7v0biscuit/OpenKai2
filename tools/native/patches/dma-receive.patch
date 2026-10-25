@@ -1,0 +1,62 @@
+--- a/Kernel/Stubs/DMA.cpp
++++ b/Kernel/Stubs/DMA.cpp
+@@ -167,7 +167,45 @@
+ 
+     void sceDmaRecvN(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+     {
+-        TODO_NAMED("sceDmaRecvN", rdram, ctx, runtime);
++        if (!runtime || !runtime->memory().getRDRAM())
++        {
++            setReturnS32(ctx, -1);
++            return;
++        }
++        const uint32_t channel = resolveDmaChannelBase(rdram, getRegU32(ctx, 4));
++        if (channel == 0u)
++        {
++            setReturnS32(ctx, -1);
++            return;
++        }
++        // Other receive devices need their own data producer. Do not report a
++        // transfer as complete when the runtime cannot provide its bytes.
++        if (channel != 0x1000D000u)
++            throw std::runtime_error("sceDmaRecvN: receive DMA is implemented only for scratchpad channel 8");
++
++        PS2Memory &mem = runtime->memory();
++        const uint32_t qwc = getRegU32(ctx, 6);
++        const uint32_t destination = toDmaPhys(getRegU32(ctx, 5)) & ~15u;
++        if (qwc > 0xFFFFu || destination > PS2_RAM_SIZE || qwc * 16u > PS2_RAM_SIZE - destination)
++        {
++            setReturnS32(ctx, -1);
++            return;
++        }
++        mem.processPendingTransfers();
++        const uint32_t chcr = mem.readIORegister(channel);
++        if ((chcr & 0x100u) != 0u)
++        {
++            setReturnS32(ctx, -1);
++            return;
++        }
++        // Match the original SDK's normal receive: leave SADR and unrelated
++        // CHCR flags intact, clear DIR/MOD, and start only after MADR/QWC.
++        mem.writeIORegister(channel + 0x10u, destination);
++        mem.writeIORegister(channel + 0x20u, qwc);
++        mem.writeIORegister(channel, (chcr & ~0xDu) | 0x100u);
++        for (const uint32_t cause : mem.consumeCompletedDmacCauses())
++            ps2_syscalls::dispatchDmacHandlersForCause(rdram, runtime, cause);
++        setReturnS32(ctx, 0);
+     }
+ 
+     void sceDmaReset(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+--- a/runtime/ps2_memory.cpp
++++ b/runtime/ps2_memory.cpp
+@@ -2361,6 +2361,10 @@
+         {
+             if ((address & 0xFF) == 0x00)
+             {
++                // Scratchpad transfers clear STR only when their bytes have
++                // actually been copied by tryProcessScratchpadDma.
++                if (address == 0x1000D000u || address == 0x1000D400u)
++                    return m_ioRegisters[address];
+                 uint32_t channelStatus = m_ioRegisters[address] & ~0x100u;
+                 m_ioRegisters[address] = channelStatus;
+                 return channelStatus;

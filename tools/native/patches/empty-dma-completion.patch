@@ -1,0 +1,67 @@
+--- a/runtime/ps2_memory.cpp
++++ b/runtime/ps2_memory.cpp
+@@ -1397,8 +1397,7 @@
+             {
+                 auto enqueueTransfer = [&](uint32_t srcAddr, uint32_t qwCount)
+                 {
+-                    if (qwCount == 0)
+-                        return;
++                    // A zero-length normal transfer still completes its channel.
+                     const bool scratch = isScratchpad(srcAddr);
+                     PendingTransfer pt;
+                     pt.fromScratchpad = scratch;
+@@ -1415,7 +1414,7 @@
+                 uint32_t chcr = value;
+                 uint32_t mode = (chcr >> 2) & 0x3;
+ 
+-                if (mode == 0 && qwc > 0)
++                if (mode == 0)
+                 {
+                     enqueueTransfer(madr, qwc);
+                 }
+@@ -1485,6 +1484,7 @@
+                     const bool transferTagData = isVifChannel && (chcr & 0x40u) != 0u;
+ 
+                     int tagsProcessed = 0;
++                    bool chainTerminated = false;
+                     uint32_t lastTagUpper = (chcr >> 16) & 0xFFFFu;
+ 
+                     while (tagsProcessed < kMaxChainTags)
+@@ -1600,7 +1600,10 @@
+                         if (irq && tieEnabled)
+                             endChain = true;
+                         if (endChain)
++                        {
++                            chainTerminated = true;
+                             break;
++                        }
+                     }
+ 
+                     m_ioRegisters[channelBase + 0x30] = tagAddr;
+@@ -1610,7 +1613,11 @@
+                     chcr = (chcr & 0x0000FFFFu) | (lastTagUpper << 16);
+                     m_ioRegisters[channelBase + 0x00] = chcr;
+ 
+-                    if (!chainBuf.empty())
++                    // END/REFE or a TIE-enabled IRQ can end a chain without
++                    // any payload. Retire it through the same deferred path so
++                    // the game's completion handlers can advance their queue.
++                    // An invalid or unterminated empty chain must stay pending.
++                    if (!chainBuf.empty() || chainTerminated)
+                     {
+                         PendingTransfer pt;
+                         pt.fromScratchpad = false;
+@@ -2443,9 +2450,10 @@
+         {
+             if ((address & 0xFF) == 0x00)
+             {
+-                // Scratchpad transfers clear STR only when their bytes have
+-                // actually been copied by tryProcessScratchpadDma.
+-                if (address == 0x1000B400u || address == 0x1000D000u || address == 0x1000D400u)
++                // Modeled channels retire STR when their transfer completes;
++                // polling must not fabricate completion for an invalid chain.
++                if (address == 0x10008000u || address == 0x10009000u || address == 0x1000A000u ||
++                    address == 0x1000B400u || address == 0x1000D000u || address == 0x1000D400u)
+                     return m_ioRegisters[address];
+                 uint32_t channelStatus = m_ioRegisters[address] & ~0x100u;
+                 m_ioRegisters[address] = channelStatus;

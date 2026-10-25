@@ -1,0 +1,128 @@
+--- a/runtime/gs/gs_cpu_backend.cpp
++++ b/runtime/gs/gs_cpu_backend.cpp
+@@ -23,6 +23,51 @@
+ namespace
+ {
+     thread_local GSMem::TexturePageCache* s_parallelTextureCache = nullptr;
++    // The GS latches palette entries separately from texture VRAM. Cache the
++    // resolved colors using the actual latched bytes and every lookup state
++    // field, so skipped CLD loads, TEXA changes, reset, and backend reuse retain
++    // their original behavior. Several slots avoid rebuilding alternating CLUTs.
++    thread_local const std::array<uint32_t,256>* s_preparedClut = nullptr;
++    struct ClutScope {
++        const std::array<uint32_t,256>* previous=s_preparedClut;
++        explicit ClutScope(const std::array<uint32_t,256>* colors) {s_preparedClut=colors;}
++        ~ClutScope(){s_preparedClut=previous;}
++    };
++    struct PreparedClutCache {
++        struct Entry {
++            uint64_t key=0;
++            bool valid=false;
++            std::array<uint16_t,512> latched{};
++            std::array<uint32_t,256> colors{};
++        };
++        std::array<Entry,4> entries{};
++        unsigned last=0,next=0;
++        uint64_t draws=0,hits=0,builds=0,scalar=0;
++        void report() {
++            ++draws;
++            if(draws>=1024u && draws<=4194304u && (draws&(draws-1u))==0u)
++                std::cerr << "[GS:palette] draws=" << draws << " hits=" << hits
++                          << " builds=" << builds << " scalar=" << scalar << '\n';
++        }
++        template<class Resolve>
++        const std::array<uint32_t,256>* prepare(uint64_t key,
++                const std::array<uint16_t,512>& latched,unsigned count,bool build,Resolve&& resolve) {
++            auto matches=[&](const Entry& entry){return entry.valid && entry.key==key
++                && std::memcmp(entry.latched.data(),latched.data(),sizeof(latched))==0;};
++            if(matches(entries[last])){++hits;report();return &entries[last].colors;}
++            for(unsigned i=0;i<entries.size();++i)if(i!=last && matches(entries[i])) {
++                last=i;++hits;report();return &entries[i].colors;
++            }
++            // Small primitives with a cold or rapidly changing palette retain
++            // scalar lookup; resolving 256 colors would cost more than sampling.
++            if(!build){++scalar;report();return nullptr;}
++            last=next;next=(next+1u)%unsigned(entries.size());auto& entry=entries[last];
++            entry.valid=true;entry.key=key;entry.latched=latched;
++            for(unsigned i=0;i<count;++i)entry.colors[i]=resolve(uint8_t(i));
++            if(count==16u)for(unsigned i=16u;i<256u;++i)entry.colors[i]=entry.colors[i&15u];
++            ++builds;report();return &entry.colors;
++        }
++    };
+     // Aggregate host work at geometric intervals. These measurements do not
+     // change guest clocks, frame selection, or GS transfer behavior.
+     struct GsTimingTotals {
+@@ -695,6 +740,25 @@
+     std::lock_guard<std::mutex> lock(m_mutex);
+     if (!m_vram || batch.vertexCount == 0u)
+         return;
++    ClutScope palette(nullptr);
++    const auto& state=batch.state;const auto& tex=state.context.tex0;
++    if(state.prim.tme && (isFourBitIndexedPsm(tex.psm) || isEightBitIndexedPsm(tex.psm))) {
++        static thread_local PreparedClutCache cache;
++        const uint64_t key=uint64_t(tex.psm)|(uint64_t(tex.cpsm)<<8u)
++            |(uint64_t(tex.csm)<<16u)|(uint64_t(tex.csa)<<24u)
++            |(uint64_t(state.texa.ta0)<<32u)|(uint64_t(state.texa.ta1)<<40u)
++            |(uint64_t(state.texa.aem)<<48u);
++        float minX=batch.vertices[0].x,maxX=minX,minY=batch.vertices[0].y,maxY=minY;
++        for(unsigned i=1u;i<std::min<unsigned>(batch.vertexCount,batch.vertices.size());++i){
++            minX=std::min(minX,batch.vertices[i].x);maxX=std::max(maxX,batch.vertices[i].x);
++            minY=std::min(minY,batch.vertices[i].y);maxY=std::max(maxY,batch.vertices[i].y);
++        }
++        const bool fourBit=isFourBitIndexedPsm(tex.psm);
++        const bool build=(maxX-minX)*(maxY-minY)>=(fourBit ? 512.0f : 1024.0f);
++        s_preparedClut=cache.prepare(key,m_clut,fourBit ? 16u : 256u,build,[&](uint8_t index){
++            return LookupCLUT(state,index,tex.cpsm,tex.csm,tex.csa,tex.psm);
++        });
++    }
+     if (batch.state.prim.type==GS_PRIM_SPRITE && batch.state.prim.tme && batch.vertexCount==2u) {
+         const auto pixels=uint64_t(std::min(4096.0f,std::abs(batch.vertices[1].x-batch.vertices[0].x)))
+             *uint64_t(std::min(4096.0f,std::abs(batch.vertices[1].y-batch.vertices[0].y)));
+@@ -1194,6 +1258,7 @@
+ {
+     const auto &ctx = state.context;
+     const auto &tex = ctx.tex0;
++    const auto* preparedClut=s_preparedClut;
+ 
+     const int texW = state.textureWidth;
+     const int texH = state.textureHeight;
+@@ -1242,6 +1307,7 @@
+         case GS_PSM_T4:
+         case GS_PSM_T4HL:
+         case GS_PSM_T4HH:
++            if(preparedClut)return (*preparedClut)[static_cast<u8>(out)];
+             return LookupCLUT(state, static_cast<u8>(out), tex.cpsm, tex.csm, tex.csa, tex.psm);
+         }
+ 
+@@ -1501,6 +1567,7 @@
+             std::array<uint64_t,4> rejectedRows{};
+             for (unsigned i=0;i<count;++i) caches[i]=m_texturePageCache;
+             const unsigned mxcsr = _mm_getcsr();
++            const auto* preparedClut=s_preparedClut;
+             workers.run(count,[&](unsigned index) {
+                 struct SamplerScope {
+                     GSMem::TexturePageCache* previous=s_parallelTextureCache;
+@@ -1510,6 +1577,7 @@
+                     }
+                     ~SamplerScope() { s_parallelTextureCache=previous;_mm_setcsr(previousMxcsr); }
+                 } sampler(caches[index],mxcsr);
++                ClutScope palette(preparedClut);
+                 const int height=drawY1-drawY0+1;
+                 rejectedRows[index]=drawRows(drawY0+height*int(index)/int(count),drawY0+height*int(index+1u)/int(count)-1);
+                 caches[index].EndReadOnly(m_vram);
+@@ -1719,6 +1787,7 @@
+         std::array<uint64_t,4> rejectedRows{};
+         for(unsigned i=0;i<count;++i)caches[i]=m_texturePageCache;
+         const unsigned mxcsr=_mm_getcsr();
++        const auto* preparedClut=s_preparedClut;
+         workers.run(count,[&](unsigned index) {
+             struct SamplerScope {
+                 GSMem::TexturePageCache* previous=s_parallelTextureCache;
+@@ -1728,6 +1797,7 @@
+                 }
+                 ~SamplerScope(){s_parallelTextureCache=previous;_mm_setcsr(previousMxcsr);}
+             } sampler(caches[index],mxcsr);
++            ClutScope palette(preparedClut);
+             const int height=maxY-minY+1;
+             bool localSampled=false;
+             rejectedRows[index]=drawRows(minY+height*int(index)/int(count),minY+height*int(index+1u)/int(count)-1,localSampled);

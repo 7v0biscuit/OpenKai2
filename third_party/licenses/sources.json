@@ -1,0 +1,21 @@
+{
+  "ffmpeg-lgpl.txt": "https://github.com/FFmpeg/FFmpeg/blob/b08d7969c550a804a59511c7b83f2dd8cc0499b8/COPYING.LGPLv2.1",
+  "ffmpeg-license.md": "https://github.com/FFmpeg/FFmpeg/blob/b08d7969c550a804a59511c7b83f2dd8cc0499b8/LICENSE.md",
+  "libjxl.txt": "https://github.com/libjxl/libjxl/blob/538c140df1e5390ce51b90a81058c53ca5af5aad/LICENSE",
+  "libjxl-patents.txt": "https://github.com/libjxl/libjxl/blob/538c140df1e5390ce51b90a81058c53ca5af5aad/PATENTS",
+  "libwebp.txt": "https://github.com/webmproject/libwebp/blob/4c85d860ea4ebddd47e4718880036268a80c1492/COPYING",
+  "libwebp-patents.txt": "https://github.com/webmproject/libwebp/blob/4c85d860ea4ebddd47e4718880036268a80c1492/PATENTS",
+  "libvpx.txt": "https://github.com/webmproject/libvpx/blob/6f0c446c7b88d384a1c09caf33ec132e7ee24aea/LICENSE",
+  "zlib.txt": "https://github.com/madler/zlib/blob/51b7f2abdade71cd9bb0e7a373ef2610ec6f9daf/LICENSE",
+  "brotli.txt": "https://github.com/google/brotli/blob/36533a866ed1ca4b75cf049f4521e4ec5fe24727/LICENSE",
+  "highway.txt": "https://github.com/google/highway/blob/457c891775a7397bdb0376bb1031e6e027af1c48/LICENSE",
+  "libvpx-patents.txt": "https://github.com/webmproject/libvpx/blob/6f0c446c7b88d384a1c09caf33ec132e7ee24aea/PATENTS",
+  "libwebp-authors.txt": "https://github.com/webmproject/libwebp/blob/4c85d860ea4ebddd47e4718880036268a80c1492/AUTHORS",
+  "ps2recomp.txt": "https://github.com/ran-j/PS2Recomp/blob/eb8688b2fd191129f103a39543002c005b33409c/LICENSE",
+  "raylib.txt": "https://github.com/raysan5/raylib/blob/c1ab645ca298a2801097931d1079b10ff7eb9df8/LICENSE",
+  "glfw.md": "https://github.com/raysan5/raylib/blob/c1ab645ca298a2801097931d1079b10ff7eb9df8/src/external/glfw/LICENSE.md",
+  "mingw-w64.txt": "https://packages.debian.org/trixie/mingw-w64-x86-64-dev",
+  "gcc-runtime.txt": "https://packages.debian.org/trixie/gcc-mingw-w64-base",
+  "ffmpeg-build-recipe": "https://github.com/System233/ffmpeg-msvc-prebuilt/tree/n7.1-241205",
+  "skcms.txt": "https://raw.githubusercontent.com/google/skia/main/modules/skcms/LICENSE"
+}

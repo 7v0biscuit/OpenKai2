@@ -1,0 +1,48 @@
+--- a/Kernel/EeScheduler.cpp
++++ b/Kernel/EeScheduler.cpp
+@@ -1,4 +1,5 @@
+ #include "runtime/ee_scheduler.h"
++#include "startup_diagnostics.h"
+ 
+ #include "ps2_log.h"
+ #include "ps2_runtime_macros.h"
+@@ -1541,6 +1542,7 @@
+     }
+     std::sort(next.eventFlags.begin(), next.eventFlags.end(), [](const auto &left, const auto &right)
+               { return left.id < right.id; });
++    openkai2::capture_guest_progress(next,m_rdram,PS2_RAM_SIZE);
+     {
+         std::lock_guard lock(m_snapshotMutex);
+         m_snapshot = std::move(next);
+--- a/runtime/ps2_runtime.cpp
++++ b/runtime/ps2_runtime.cpp
+@@ -2374,6 +2374,8 @@
+     Texture2D frameTex = LoadTextureFromImage(blank);
+     UnloadImage(blank);
+ 
++    openkai2::reset_guest_progress();
++    openkai2::GuestStallDiagnostics guestStallDiagnostics;
+     openkai2::FramePresenter presenter([this](uint64_t) { m_gs.latchHostPresentationFrame(); });
+     openkai2::reset_host_input();
+     openkai2::poll_host_input();
+@@ -2452,6 +2454,9 @@
+             }
+         });
+         const uint64_t elapsed = elapsedMs();
++        const auto hostProgress=openkai2::host_input_stats(0);
++        if (guestStallDiagnostics.sample(elapsed,hostProgress.reads,hostProgress.polls,std::cout))
++            startupDiagnostics.report("stalled-input",elapsed,m_eeScheduler->snapshot(),startupActivity(),std::cout);
+         if (startupDiagnostics.due(elapsed) && startupDiagnostics.sample(elapsed, m_eeScheduler->snapshot(), startupActivity(), std::cout))
+             openkai2::report_startup_graphics(m_gs, elapsed, std::cout);
+         uint32_t presentWidth = FB_WIDTH;
+@@ -2490,6 +2495,10 @@
+     }
+ 
+     requestStop();
++    const auto closingHost=openkai2::host_input_stats(0);
++    guestStallDiagnostics.sample(elapsedMs(),closingHost.reads,closingHost.polls,std::cout,true);
++    startupDiagnostics.report(windowClosed ? "window-close-requested" : "stop-requested",
++                              elapsedMs(),m_eeScheduler->snapshot(),startupActivity(),std::cout);
+     if (gameThread.joinable())
+     {
+         gameThread.join();
