@@ -2859,6 +2859,62 @@ ACTOR_COMMAND_WORDS = (
 )
 ACTOR_COMMAND_ENTRIES = tuple(sorted({entry for _, slots in ACTOR_COMMAND_TABLES for entry in slots}))
 
+# Actor timing methods selected through the first command bank, plus the two
+# update continuations installed by its wait commands.
+ACTOR_TIMING_TABLES = ((0x00375520, (0x001FC3A0,0x001FC390,0x001FC380,0x001FC340,0x001FC2C0,0x001FC250,0x001FC220,0x001FC210,0x001FC200,0x001FC1E0,0x00000000,0x00000000)),)
+ACTOR_TIMING_ENTRIES = tuple(sorted({x for _, row in ACTOR_TIMING_TABLES for x in row if x}
+    | {0x001FC270,0x001FC2E0}))
+ACTOR_TIMING_WORDS = (
+    (0x001FC1E0, (
+        0x8F8387C4,0x3C010001,0x24020001,0x00610821,0xC42042E8,0x03E00008,0xE4A00040,
+        0x00000000,
+    )),
+    (0x001FC200, (
+        0xACA00000,0x03E00008,0x24020001,0x00000000,
+    )),
+    (0x001FC210, (
+        0xACA00000,0x03E00008,0x24020001,0x00000000,
+    )),
+    (0x001FC220, (
+        0x8F8487C4,0x3C010001,0x3C033F00,0x24020001,0x44830000,0x00810821,0xC42142FC,
+        0x46010000,0x46000024,0x44030000,0x03E00008,0xACA30000,
+    )),
+    (0x001FC250, (
+        0x8F8387C4,0x3C010001,0x24020001,0x00610821,0x03E00008,0xAC2042FC,0x00000000,
+        0x00000000,
+    )),
+    (0x001FC270, (
+        0x8F8387C4,0xC4800024,0x3C010001,0x3C023F00,0x44820800,0x00610821,0xC42242FC,
+        0x46800020,0x46020840,0x46000834,0x45010005,0x00000000,0xAC800010,0x10000004,
+        0x24020001,0x00000000,0x24020003,0x00000000,0x03E00008,0x00000000,
+    )),
+    (0x001FC2C0, (
+        0x8CA5002C,0x3C030020,0x2463C270,0x24020003,0x8CA50000,0xAC850024,0x03E00008,
+        0xAC830010,
+    )),
+    (0x001FC2E0, (
+        0x8F8387C4,0x3C010001,0xC4800024,0x3C023F00,0xC482002C,0x44820800,0x00610821,
+        0xC42342FC,0x46800020,0x46021881,0x46020840,0x46000834,0x45010005,0x00000000,
+        0xAC800010,0x10000004,0x24020001,0x00000000,0x24020003,0x00000000,0x03E00008,
+        0x00000000,0x00000000,0x00000000,
+    )),
+    (0x001FC340, (
+        0x8CA5002C,0x3C030020,0x8F8687C4,0x3C010001,0x2463C2E0,0x24020003,0x8CA50000,
+        0x00C10821,0xAC850024,0xC42042FC,0xE480002C,0x03E00008,0xAC830010,0x00000000,
+        0x00000000,0x00000000,
+    )),
+    (0x001FC380, (
+        0x03E00008,0x24020001,0x00000000,0x00000000,
+    )),
+    (0x001FC390, (
+        0x03E00008,0x24020001,0x00000000,0x00000000,
+    )),
+    (0x001FC3A0, (
+        0x03E00008,0x24020001,0x00000000,0x00000000,
+    )),
+    (0x00375990, (0x00375520,0x00375550)),
+)
+
 # Pause-menu input at 0x001C2170 selects one of six callbacks from each
 # 40-byte descriptor. Keep all 21 rows, including the terminal empty row.
 PAUSE_MENU_TABLES = (
@@ -3075,7 +3131,7 @@ ENTRY_POINTS = tuple(dict.fromkeys((0x00167188,)
     + FILE_CALLBACK_ENTRIES + STREAM_CALLBACK_ENTRIES + MEMORY_STREAM_ENTRIES
     + tuple(address for _, address in TRANSLATED_SDK_ENTRIES)
     + ASSET_RELOCATION_ENTRIES + FADE_CALLBACK_ENTRIES + MOVIE_CALLBACK_ENTRIES
-    + MOVIE_PACKET_ENTRIES + MOVIE_TIMING_ENTRIES + DRAW_SETUP_ENTRIES + (VERSUS_ANIMATION_ENTRY,) + BATTLE_INIT_ENTRIES + BATTLE_ASSET_ENTRIES + SCENE_MODE_ENTRIES + BATTLE_COMMAND_ENTRIES + AURA_UPDATE_ENTRIES + BATTLE_UPDATE_ENTRIES + BATTLE_DRAW_ENTRIES + FIGHT_STATE_ENTRIES + ATTACK_EFFECT_ENTRIES + IMPACT_EFFECT_ENTRIES + ACTOR_COMMAND_ENTRIES + PAUSE_MENU_ENTRIES))
+    + MOVIE_PACKET_ENTRIES + MOVIE_TIMING_ENTRIES + DRAW_SETUP_ENTRIES + (VERSUS_ANIMATION_ENTRY,) + BATTLE_INIT_ENTRIES + BATTLE_ASSET_ENTRIES + SCENE_MODE_ENTRIES + BATTLE_COMMAND_ENTRIES + AURA_UPDATE_ENTRIES + BATTLE_UPDATE_ENTRIES + BATTLE_DRAW_ENTRIES + FIGHT_STATE_ENTRIES + ATTACK_EFFECT_ENTRIES + IMPACT_EFFECT_ENTRIES + ACTOR_COMMAND_ENTRIES + ACTOR_TIMING_ENTRIES + PAUSE_MENU_ENTRIES))
 
 
 def configure(text):
@@ -3137,7 +3193,7 @@ def verify_elf_metadata(data):
         raise ValueError('Startup dispatcher table roots differ from the reviewed metadata')
     for base, entries in (DISPATCH_TABLES + FILE_CALLBACK_TABLES + STREAM_CALLBACK_TABLES + MEMORY_STREAM_TABLES
                           + FADE_CALLBACK_TABLES + MOVIE_CALLBACK_TABLES + MOVIE_PACKET_TABLES
-                          + MOVIE_TIMING_TABLES + BATTLE_INIT_TABLES + SCENE_MODE_TABLES + BATTLE_COMMAND_TABLES + AURA_UPDATE_TABLES + BATTLE_UPDATE_TABLES + BATTLE_DRAW_TABLES + FIGHT_STATE_TABLES + ATTACK_EFFECT_TABLES + IMPACT_EFFECT_TABLES + ACTOR_COMMAND_TABLES + PAUSE_MENU_TABLES):
+                          + MOVIE_TIMING_TABLES + BATTLE_INIT_TABLES + SCENE_MODE_TABLES + BATTLE_COMMAND_TABLES + AURA_UPDATE_TABLES + BATTLE_UPDATE_TABLES + BATTLE_DRAW_TABLES + FIGHT_STATE_TABLES + ATTACK_EFFECT_TABLES + IMPACT_EFFECT_TABLES + ACTOR_COMMAND_TABLES + ACTOR_TIMING_TABLES + PAUSE_MENU_TABLES):
         if words(base, len(entries)) != entries:
             raise ValueError(f'Indirect methods differ from the reviewed table at 0x{base:08x}')
     if words(0x00387420, len(MOVIE_TIMING_RATES)) != MOVIE_TIMING_RATES:
@@ -3157,6 +3213,9 @@ def verify_elf_metadata(data):
     for address,expected in BATTLE_ASSET_WORDS:
         if words(address,len(expected)) != expected:
             raise ValueError(f'Battle asset relocation instructions differ at 0x{address:08x}')
+    for address,expected in ACTOR_TIMING_WORDS:
+        if words(address,len(expected)) != expected:
+            raise ValueError(f'Actor timing instructions differ at 0x{address:08x}')
     for address,expected in PAUSE_MENU_WORDS:
         if words(address,len(expected)) != expected:
             raise ValueError(f'Pause menu instructions differ at 0x{address:08x}')
@@ -3213,6 +3272,8 @@ def emit_check_header(path):
                           ('movie_timing_slots', MOVIE_TIMING_TABLES[0][1]),
                           ('movie_timing_rates', MOVIE_TIMING_RATES),
                           ('draw_setup_entries', DRAW_SETUP_ENTRIES),
+                          ('actor_timing_entries', ACTOR_TIMING_ENTRIES),
+                          ('actor_timing_slots', ACTOR_TIMING_TABLES[0][1]),
                           ('pause_menu_entries', PAUSE_MENU_ENTRIES),
                           ('pause_menu_slots', tuple(x for _, row in PAUSE_MENU_TABLES for x in row[4:])),
                           ('actor_command_entries', ACTOR_COMMAND_ENTRIES),

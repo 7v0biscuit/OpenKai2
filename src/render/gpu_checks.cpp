@@ -221,6 +221,47 @@ void checkPartialReadbacks(){
     if(pair.gpu->stats().readbacks-before!=gpu::PageBytes)throw std::runtime_error("Palette readback copied unrelated pages");
     pair.compare("GPU partial readbacks preserve other dirty targets");
 }
+void checkFlatDepth(){
+    for(uint32_t depth:{0x01000000u,0x0ffffff0u,0x7fffffffu,0xffff0000u,0xffffffffu})for(unsigned direction=0;direction<2u;++direction){
+        Comparison pair(false);auto p=material(0u,false);p.state.prim.tme=false;p.state.prim.abe=false;p.state.prim.iip=false;
+        auto& c=p.state.context;c.zbuf.zmask=false;c.test=0x30000u;
+        p.vertices[0].x=3.25f;p.vertices[0].y=4.5f;p.vertices[1].x=57.75f;p.vertices[1].y=7.125f;p.vertices[2].x=8.5f;p.vertices[2].y=61.25f;
+        for(auto& v:p.vertices)v.z=depth;if(direction)std::swap(p.vertices[1],p.vertices[2]);
+        pair.draw(p);pair.compare("Constant depth CPU/GPU agreement");unsigned covered=0u;
+        for(unsigned y=0;y<64u;++y)for(unsigned x=0;x<64u;++x)if(pair.cpu->ReadVram(0u,56u*32u,8u,x,y)){
+            const auto actual=pair.cpu->ReadVram(48u,168u*32u,8u,x,y);
+            if(actual!=depth)throw std::runtime_error("Flat triangle changed constant depth: expected "+std::to_string(depth)+", got "+std::to_string(actual));
+            if(pair.gpu->ReadVram(48u,168u*32u,8u,x,y)!=depth)throw std::runtime_error("Flat GPU triangle changed constant depth");++covered;
+        }
+        if(!covered || pair.gpu->stats().gpuDraws!=1u)throw std::runtime_error("Flat triangle fixture did not render on GPU");
+    }
+}
+void checkDepthPlanes(){
+    for(uint32_t base:{0x01000000u,0x0ffffff0u,0x7fffffffu,0xf0000000u})for(unsigned direction=0;direction<2u;++direction){
+        Comparison pair(false);auto p=material(0u,false);p.state.prim.tme=false;p.state.prim.abe=false;p.state.prim.iip=false;
+        auto& c=p.state.context;c.zbuf.zmask=false;c.test=0x30000u;
+        p.vertices[0].x=3.25f;p.vertices[0].y=4.5f;p.vertices[0].z=base;
+        p.vertices[1].x=57.75f;p.vertices[1].y=7.125f;p.vertices[1].z=double(base)+3824.0;
+        p.vertices[2].x=8.5f;p.vertices[2].y=61.25f;p.vertices[2].z=double(base)+7600.0;
+        for(auto& v:p.vertices){v.r=71u;v.g=97u;v.b=131u;v.a=128u;}
+        if(direction)std::swap(p.vertices[1],p.vertices[2]);
+        pair.draw(p);pair.compare("Large depth plane agreement");
+        auto back=p;std::swap(back.vertices[1],back.vertices[2]);back.state.context.test=0x70000u;
+        for(auto& v:back.vertices){v.z-=2.0;v.r=199u;v.g=17u;v.b=31u;}
+        pair.draw(back);pair.compare("Nearby depth plane occlusion");unsigned covered=0u;
+        for(unsigned y=0;y<64u;++y)for(unsigned x=0;x<64u;++x)if(pair.cpu->ReadVram(0u,56u*32u,8u,x,y)){
+            // Vertex depths lie on z=base+64*(x-3.25)+128*(y-4.5).
+            // At pixel centres its exact value is an integer, independent of
+            // barycentric evaluation or triangle winding.
+            const auto expected=uint32_t(int64_t(base)+int64_t(x)*64+int64_t(y)*128-688);
+            if(pair.cpu->ReadVram(48u,168u*32u,8u,x,y)!=expected || pair.gpu->ReadVram(48u,168u*32u,8u,x,y)!=expected)
+                throw std::runtime_error("Large depth plane differs from its exact integer equation");
+            if(pair.cpu->ReadVram(0u,56u*32u,8u,x,y)!=0x80836147u)throw std::runtime_error("A plane behind the character surface overwrote it");++covered;
+        }
+        if(!covered || pair.gpu->stats().gpuDraws!=2u)throw std::runtime_error("Depth plane fixture did not render on GPU");
+    }
+}
+
 }
 int run_gpu_checks(bool required){
     try{
@@ -233,7 +274,7 @@ int run_gpu_checks(bool required){
         const bool initialized=gpu::initialize_headless(error);
 #endif
         if(!initialized){std::cout<<"GPU checks unavailable: "<<error<<'\n';return required ? 1 : 77;}
-        checkMaterials();checkIntegerPipeline();checkFormats();checkLines();checkCoherence();checkRebind();checkClears();checkSourceChanges();checkPartialReadbacks();
+        checkFlatDepth();checkDepthPlanes();checkMaterials();checkIntegerPipeline();checkFormats();checkLines();checkCoherence();checkRebind();checkClears();checkSourceChanges();checkPartialReadbacks();
         const auto before=gpu_render_statistics().gpuDraws;verify_vector_runtime_gpu();
         if(gpu_render_statistics().gpuDraws-before!=8u)throw std::runtime_error("VIF/PATH1 integration did not execute eight GPU triangles");
         // A failed asynchronous submission must propagate to its caller and
@@ -244,7 +285,7 @@ int run_gpu_checks(bool required){
         try{device->invoke([](gpu::Api&){});}catch(const std::exception& e){propagated=std::string(e.what())=="GPU failure propagation fixture";}
         if(!propagated)throw std::runtime_error("GPU asynchronous failure did not propagate");
         gpu::shutdown_device();
-        std::cout<<"GPU renderer comparisons passed: 256 material states, 104 format states, 65536 integer pipeline draws, 576 point/line draws, 128 source-state draws, selective readbacks, writebacks, uploads, target transitions, feedback fallback, VRAM replacement, eight VIF/PATH1 GPU triangles and asynchronous failure propagation.\n";return 0;
+        std::cout<<"GPU renderer comparisons passed: 10 constant-depth and 8 overlapping depth-plane cases, 256 material states, 104 format states, 65536 integer pipeline draws, 576 point/line draws, 128 source-state draws, selective readbacks, writebacks, uploads, target transitions, feedback fallback, VRAM replacement, eight VIF/PATH1 GPU triangles and asynchronous failure propagation.\n";return 0;
     }catch(const std::exception& e){std::cerr<<"GPU regression failed: "<<e.what()<<'\n';gpu::shutdown_device();return 1;}
 }
 int benchmark_gpu_footprints(unsigned iterations){

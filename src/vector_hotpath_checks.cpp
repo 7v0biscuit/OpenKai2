@@ -59,6 +59,75 @@ HotpathResult product_workload(unsigned group,unsigned iterations) {
     const auto elapsed=std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now()-start).count();
     Hash hash;add_state(hash,vu->state());return {hash.value,uint64_t(iterations)*32u,double(elapsed)/(iterations*32.0)};
 }
+// Exercise selected FMAC operands while other registers retain large or
+// denormal bit patterns. Inactive lanes must not affect the selected result.
+HotpathResult operand_workload(unsigned group,unsigned iterations) {
+    if(group>=32u || !iterations)throw std::runtime_error("Invalid operand workload");
+    auto m=std::make_unique<PS2Memory>();if(!m->initialize())throw std::runtime_error("Operand memory initialization failed");
+    auto gs=std::make_unique<GS>();gs->init(m->getGSVRAM(),PS2_GS_VRAM_SIZE,&m->gs());auto vu=std::make_unique<VU1Interpreter>();
+    constexpr unsigned ops[]={0x28u,0x2au,0x29u,0x08u,0x21u,0x23u,0x2eu,0x18u};
+    constexpr unsigned masks[]={1u,3u,5u,10u,14u,8u,12u,6u};
+    const unsigned op=ops[group%8u],mask=(group&16u) ? masks[group%8u] : 15u;const bool special=(group&8u)!=0u;
+    const unsigned opcode=special ? 0x3cu|(op&3u)|((op&0x7cu)<<4u) : (3u<<6u)|op;
+    for(unsigned i=0;i<32u;++i){const unsigned hi=(mask<<21u)|(2u<<16u)|(1u<<11u)|opcode|(i==30u ? 0x40000000u : 0u);m->write64(PS2_VU1_CODE_BASE+i*8u,uint64_t(hi)<<32u);}
+    const bool usesAcc=op==0x29u || op==0x08u || op==0x21u || op==0x23u || (op==0x2eu && !special);
+    unsigned left=mask,right=mask;
+    if(op==0x2eu){left=((mask&8u)>>1u)|((mask&4u)>>1u)|((mask&2u)<<2u);right=((mask&8u)>>2u)|((mask&4u)<<1u)|((mask&2u)<<1u);}
+    if(op==0x08u || op==0x18u)right=8u;
+    if(op==0x21u || op==0x23u)right=0u;
+    auto& state=vu->state();
+    for(unsigned lane=0;lane<4u;++lane){
+        const unsigned bit=8u>>lane;
+        state.vf[1][lane]=(left&bit) ? float(lane+1u)*0.125f : from_bits((lane&1u) ? 1u : 0x7f7fffffu);
+        state.vf[2][lane]=(right&bit) ? float(lane+1u)*0.25f : from_bits((lane&1u) ? 0x80000001u : 0xff7fffffu);
+        state.acc[lane]=usesAcc && (mask&bit) ? float(lane+1u)*0.5f : from_bits(0x7f7fffffu);
+    }
+    state.q=op==0x21u ? -0.5f : from_bits(0x7f7fffffu);state.i=op==0x23u ? 1.25f : from_bits(1u);
+    const auto start=std::chrono::steady_clock::now();
+    for(unsigned i=0;i<iterations;++i)vu->execute(m->getVU1Code(),PS2_VU1_CODE_SIZE,m->getVU1Data(),PS2_VU1_DATA_SIZE,*gs,m.get(),0u,3u,7u,8192u);
+    const auto ns=std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now()-start).count();
+    Hash hash;add_state(hash,vu->state());return {hash.value,uint64_t(iterations)*32u,double(ns)/(iterations*32.0)};
+}
+void verify_vector_operands() {
+    // Full state and cycle snapshots from the pinned original interpreter.
+    constexpr uint64_t expected[]={
+        0xf2454ec8b810bba9ull,0xdc8ae1bce9f5df0bull,0x90da31b813f35fefull,0xf0a9df8f2cead159ull,
+        0x2859d5a02666d04eull,0x0ee296f15403ba28ull,0xc331e6ec7e013b0cull,0x81ed18ac9e5af53aull,
+        0x538c6d60681535d8ull,0x6d03ac0f3a784bfeull,0xd8f5d77db0f45f02ull,0xf9f92a53f02110ecull,
+        0x9ca4e9fb4c084547ull,0xae47a06d1289e365ull,0x7afe3e186a72b221ull,0x1d3a6b8e5547dff7ull,
+        0x9f705a2fab1f5380ull,0xfd82464bc60ecff6ull,0xa9f7688d7d7e0acaull,0x055a204ff23806c4ull,
+        0x01363511c441ba15ull,0xef937e9ffdc01bf7ull,0x02f0a505a201f043ull,0x80a0b37ebb021f65ull,
+        0x719934814bd47575ull,0x5bdec7757db998d7ull,0x670c80a712c8f023ull,0xe6c86a6d2f95be85ull,
+        0xf7b2d7fab45de764ull,0x15970cbe2afe72faull,0xea27d822f57587c6ull,0x259e53f6665a26c8ull,
+        0x74897b0ae83df1b9ull,0x62e6c49921bc539bull,0x8e00b9b9baa107dfull,0xe9b8b0f6cbff3ac9ull,
+        0x6debd01a22665a9eull,0x5474916b50034478ull,0x7f8e868be8e7f8bcull,0x3e49b84c0941b2eaull,
+        0x277911a5f7e5619full,0x850edcb29c9a027cull,0x10871fd2e7283b34ull,0x718ad601ad1ca056ull,
+        0x148a6984ccda43c0ull,0xe70cb43c71f305a1ull,0x5a17b5dfd0680138ull,0x1fff31907ae97b2aull,
+        0x2619d253b5cf97d7ull,0xbdcdd3093f008f97ull,0xd25d75230a7ab3f8ull,0xb164e8d21e6b87e0ull,
+        0x5a3ac33761ed410cull,0xdfe02d186a9c7b75ull,0xe7f4985f9c6ce9b7ull,0x33e926fd62f35674ull,
+        0x167899ded129f28eull,0xf8e9a495f72d9de8ull,0xad38f491212b1eccull,0x700bdceb491e177aull,
+        0x01582130e64386f4ull,0x1b249f5a554ad40aull,0x66800fe48ea91c36ull,0xa60e42520726f9b8ull,
+        0xf77e63dc739f77f7ull,0x09211a4e3a211615ull,0x5d0137871f561231ull,0x0149404a0df7df47ull,
+        0xf4ffd78e012f70e0ull,0x5311c3aa1c1eed56ull,0xff86e5ebd38e282aull,0x5cf578fb4c14c364ull,
+        0xb0393f27094bb2b9ull,0x9e9688b542ca149bull,0xc9b07dd5dbaec8dfull,0x25687512ed0cfbc9ull,
+        0x21a188558d07f2b6ull,0xc7a752d379b1b4c0ull,0xb44a2c6dd56fe074ull,0x3282675ab4d672d2ull,
+        0xcc0923b722c38df7ull,0xddabda28e9452c15ull,0x318bf761ce7a2831ull,0xd5d40024bd1bf547ull,
+        0x25b511e526feff2aull,0x07d0dd21b05e7394ull,0x1b2e038754a047e0ull,0xfff9031d84353cc6ull,
+        0x76a9b0cf87e47777ull,0x884c67414e661595ull,0xd3fd1746246894b1ull,0x78452009130a61c7ull,
+        0x9dede7f82504486dull,0x47b0841915f643ffull,0x1c968ef87d118fbbull,0x5ddb5d385cb7d58dull,
+        0xd5eaa193601cee3bull,0xeba50e9f2e37cad9ull,0x5f7167c7174223edull,0xdfb57e00fa75558bull,
+        0xd4df7db8b6abf0e8ull,0xf26e730190a8458eull,0xe795f94a983d2532ull,0x0275ba39cc03f95cull,
+        0xeb7d7fe2fb5edebcull,0x114ec76faab03218ull,0x364b8f4e7c146ec0ull,0xab7310d25cd094a5ull,
+        0x49dff538ea28e849ull,0xead165de41b0e4ddull,0x51dde4dfd74dbe7dull,0x7dd963f6bc551f7bull,
+        0xf6cbe1652164f55bull,0x0b37384f1444aaceull,0xa8344a38b644e26eull,0x44489697ef24d7d9ull,
+        0x26d543ab79ab1122ull,0x03c4843a24b4c699ull,0x164331bdd6a93570ull,0x6cfd28c3a5dd5dbdull,
+        0xd0e59c4a7217609dull,0x7ebfef056aa29aafull,0xd2a00c3e4fd796cbull,0x0dc148972417feddull,
+        0x63a95db836e6e755ull,0x4deef0ac68cc0ab7ull,0x614c17120d0ddf03ull,0xe313dc252da74ca5ull,
+    };
+    constexpr unsigned counts[]={1u,3u,7u,19u};
+    for(unsigned group=0;group<32u;++group)for(unsigned i=0;i<4u;++i)
+        if(operand_workload(group,counts[i]).hash!=expected[group*4u+i])throw std::runtime_error("Original selected-operand snapshot differs: "+std::to_string(group*4u+i));
+}
 void verify_vector_products() {
     // Original pipeline snapshots, including zeros, signed products and cross lanes.
     constexpr uint64_t expected[32]={

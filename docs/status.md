@@ -62,6 +62,33 @@ Complete VRAM matched the CPU renderer and all before/after output hashes
 matched. These synthetic submission costs are not estimates of hardware game
 FPS or sustained 60 FPS.
 
+## Vector operands and depth precision
+
+FMAC flag classification now checks only inputs read by the current instruction
+when the existing common path cannot prove all registers bounded. Destination
+masks, broadcast selectors, scalar Q/I forms, accumulator use, and cross-product
+lane permutations determine the selected inputs. Unused extreme values no
+longer force extended arithmetic. Arithmetic results, guest cycles, flags,
+exception handling, and cancellation behavior retain their original paths.
+Another 128 full-state references cover 32 programs with unused extreme and
+denormal register data, partial masks, scalar and broadcast forms, accumulator
+destinations, and cross products. The vector suite contains 48 cases.
+
+Three alternating Windows-binary runs under Wine measured about 32% lower
+median CPU cost in these targeted programs, ranging from 5% to 50% lower.
+Two clean control groups had median costs about 0.2% and 2.4% higher. Original
+state and cycle hashes matched in every case. These synthetic measurements
+do not establish retail frame rates.
+
+Triangle depth interpolation now uses depth differences from one vertex.
+Constant-depth triangles retain the exact original integer, including the full
+32-bit maximum. This prevents large common depths from acquiring spurious
+variations through float barycentric weights. Both the CPU and GPU paths are
+checked against ten exact constant-depth cases and eight independently defined
+depth planes with nearby overlapping surfaces and both windings. Existing
+material, sampler, feedback, and full-VRAM checks remain enabled. Character
+pose correctness and retail frame rates still require game validation.
+
 ## Pause menu callbacks
 
 The pause menu's 21 descriptors contain six callback slots each. Nine distinct
@@ -410,7 +437,7 @@ and both supported extended-precision and binary64 host arithmetic. The VIF
 regression compares 1,664 complete memory/register snapshots across all valid
 formats and fallback conditions. The production-runtime scene test uploads its
 eight triangles through VIF1 before MSCAL/MSCNT execution and pixel checks.
-The vector component suite contains 45 cases.
+The vector component suite contains 48 cases.
 
 Three-run Windows binary medians under Wine measured 27–29% lower costs in six
 arithmetic-heavy vector workloads and 90–97% lower costs in eight contiguous
@@ -428,7 +455,7 @@ write retirement compares complete 64-bit sequence numbers and preserves
 unselected or superseded lanes. Fully assigned write slots avoid redundant
 payload clearing.
 
-The 47-case vector suite includes 128 new snapshots from the unmodified
+The 48-case vector suite includes 128 new snapshots from the unmodified
 interpreter, checking full packets, callback cycles, wrapped memory, chained
 tags, packets up to 64 KiB, pending stores, callback writes, and resume budgets.
 Existing arithmetic, scheduling, and real-runtime rendering checks remain.
@@ -449,13 +476,21 @@ against the supported executable. Native fixtures cover 48 orientation callbacks
 and 120 original caller cases with argument, address-alias, saved-register,
 stream-position, and stack checks.
 
+The neighboring timing bank at `0x00375520` also has explicit dispatch entries:
+ten methods and two installed continuations. This includes `0x001FC1E0`, which
+copies the current frame delta and could otherwise leave the main guest thread
+waiting at an unresolved indirect call. Original table words, complete method
+instructions, and the bank catalog are verified. Native fixtures add 24 raw
+delta-copy cases, 120 timer boundary cases, and 30 original caller cases across
+three address aliases, bringing actor-command coverage to 342 cases.
+
 Vector product sticky flags use normalized operand signs, zero bits, and a
 proven exponent range. Boundary products retain extended-precision arithmetic
 and its underflow/overflow behavior. Bounded simple arithmetic can classify
 exact zero results directly; product-sum cancellation retains its original
 calculation. The 73,728 original arithmetic cases remain enabled, alongside
 32 new original product-program snapshots and the existing pipeline and real
-runtime rendering checks. The vector suite contains 46 cases.
+runtime rendering checks. The vector suite contains 48 cases.
 
 Three alternating Windows binary measurements under Wine showed 12–17% lower
 costs in eight multiply-add/subtract workloads, with matching original state,
@@ -536,7 +571,7 @@ The executable embeds its source revision in a contiguous log marker. Native
 builds refresh this stamp after a commit; portable and installer packaging
 reject binaries whose marker disagrees with the checkout or bundle manifest.
 
-The Python suite has 195 tests. Native checks include the original BCM/BSK
+The Python suite has 197 tests. Native checks include the original BCM/BSK
 asset dispatcher, all eleven battle initialization entries, fragmented and bulk
 IOP clocks, delayed wakeups, external RPC delivery, both SPU2 DMA cores, planar
 PCM order, partial blocks, queue boundaries, and concurrent delivery.

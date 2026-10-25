@@ -68,7 +68,7 @@ class TranslationEntries(unittest.TestCase):
     def test_reviewed_tables_have_complete_unique_coverage(self):
         self.assertEqual(len(ENTRIES.DISPATCH_TABLES), 7)
         self.assertTrue(all(len(row) == 14 for _, row in ENTRIES.DISPATCH_TABLES))
-        self.assertEqual(len(set(ENTRIES.ENTRY_POINTS)), 389)
+        self.assertEqual(len(set(ENTRIES.ENTRY_POINTS)), 401)
         self.assertEqual(len(ENTRIES.ZERO_RETURN_ENTRIES), 39)
         self.assertTrue(set(ENTRIES.ZERO_RETURN_ENTRIES) <= set(ENTRIES.ENTRY_POINTS))
         self.assertNotIn(0x00387110, ENTRIES.ENTRY_POINTS)
@@ -83,7 +83,7 @@ class TranslationEntries(unittest.TestCase):
             path = Path(temporary) / 'entries.h'
             ENTRIES.emit_check_header(path)
             content, changed = path.read_text(), path.stat().st_mtime_ns
-            self.assertIn('std::array<uint32_t, 389> entries', content)
+            self.assertIn('std::array<uint32_t, 401> entries', content)
             self.assertIn('std::array<uint32_t, 39> zero_return_entries', content)
             for address in ENTRIES.ENTRY_POINTS:
                 self.assertIn(f'0x{address:08x}u,', content)
@@ -224,6 +224,20 @@ class TranslationEntries(unittest.TestCase):
             data=self.make_elf_metadata();data[base-0x100000+128+16]^=1
             with self.subTest(base=base),self.assertRaisesRegex(ValueError,'Indirect methods differ'):
                 ENTRIES.verify_elf_metadata(data)
+
+    def test_actor_timing_bank_and_continuations_are_registered(self):
+        self.assertEqual(len(ENTRIES.ACTOR_TIMING_ENTRIES),12)
+        self.assertEqual(ENTRIES.ACTOR_TIMING_TABLES[0][1][-3:],(0x1fc1e0,0,0))
+        self.assertTrue(set(ENTRIES.ACTOR_TIMING_ENTRIES)<=set(ENTRIES.ENTRY_POINTS))
+
+    def test_actor_timing_metadata_rejects_changed_methods_and_catalog(self):
+        data=self.make_elf_metadata()
+        ENTRIES.verify_elf_metadata(data)
+        for address,words in ENTRIES.ACTOR_TIMING_WORDS+ENTRIES.ACTOR_TIMING_TABLES:
+            for offset in (0,len(words)-1):
+                changed=bytearray(data)
+                struct.pack_into('<I',changed,address-0x100000+128+offset*4,words[offset]^1)
+                with self.assertRaises(ValueError):ENTRIES.verify_elf_metadata(changed)
 
     def test_pause_menu_bank_and_continuations_are_registered(self):
         self.assertEqual(len(ENTRIES.PAUSE_MENU_TABLES),21)
@@ -460,7 +474,7 @@ class TranslationEntries(unittest.TestCase):
         for base, entries in (ENTRIES.DISPATCH_TABLES + ENTRIES.FILE_CALLBACK_TABLES
                               + ENTRIES.STREAM_CALLBACK_TABLES + ENTRIES.MEMORY_STREAM_TABLES + ENTRIES.FADE_CALLBACK_TABLES
                               + ENTRIES.MOVIE_CALLBACK_TABLES + ENTRIES.MOVIE_PACKET_TABLES
-                              + ENTRIES.MOVIE_TIMING_TABLES + ENTRIES.SCENE_MODE_TABLES + ENTRIES.BATTLE_COMMAND_TABLES + ENTRIES.AURA_UPDATE_TABLES + ENTRIES.BATTLE_UPDATE_TABLES + ENTRIES.BATTLE_DRAW_TABLES + ENTRIES.FIGHT_STATE_TABLES + ENTRIES.ATTACK_EFFECT_TABLES + ENTRIES.IMPACT_EFFECT_TABLES + ENTRIES.ACTOR_COMMAND_TABLES + ENTRIES.PAUSE_MENU_TABLES):
+                              + ENTRIES.MOVIE_TIMING_TABLES + ENTRIES.SCENE_MODE_TABLES + ENTRIES.BATTLE_COMMAND_TABLES + ENTRIES.AURA_UPDATE_TABLES + ENTRIES.BATTLE_UPDATE_TABLES + ENTRIES.BATTLE_DRAW_TABLES + ENTRIES.FIGHT_STATE_TABLES + ENTRIES.ATTACK_EFFECT_TABLES + ENTRIES.IMPACT_EFFECT_TABLES + ENTRIES.ACTOR_COMMAND_TABLES + ENTRIES.ACTOR_TIMING_TABLES + ENTRIES.PAUSE_MENU_TABLES):
             put(base, entries)
         put(0x00387420, ENTRIES.MOVIE_TIMING_RATES)
         for address in ENTRIES.ZERO_RETURN_ENTRIES:
@@ -473,6 +487,8 @@ class TranslationEntries(unittest.TestCase):
             put(base,slots)
         put(ENTRIES.BATTLE_ASSET_TABLE_BASE,ENTRIES.BATTLE_ASSET_TABLE_WORDS)
         for address,words in ENTRIES.BATTLE_ASSET_WORDS:
+            put(address,words)
+        for address,words in ENTRIES.ACTOR_TIMING_WORDS:
             put(address,words)
         for address,words in ENTRIES.PAUSE_MENU_WORDS:
             put(address,words)

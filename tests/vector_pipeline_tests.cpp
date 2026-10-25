@@ -27,5 +27,6 @@ int main() {
     MiniTest::Case("Original graphics transfer references",[](TestCase& tc){
         tc.Run("128 original packet, callback cycle, memory and resume snapshots",[](TestCase&){openkai2::verify_vector_transfers();});
     });
+    MiniTest::Case("Selected vector operand references",[](TestCase& tc){tc.Run("128 original state and cycle snapshots with unused operand data",[](TestCase&){openkai2::verify_vector_operands();});});
     return MiniTest::Run();
 }

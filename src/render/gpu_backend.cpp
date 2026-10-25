@@ -142,6 +142,7 @@ struct GpuRasterBackend::Impl {
         const bool line=s.prim.type==GS_PRIM_LINE || s.prim.type==GS_PRIM_LINESTRIP;
         const bool triangle=s.prim.type==GS_PRIM_TRIANGLE || s.prim.type==GS_PRIM_TRISTRIP || s.prim.type==GS_PRIM_TRIFAN;
         const bool textured=s.prim.tme && (sprite || triangle);
+        const bool flatDepth=triangle && batch.vertices[0].z==batch.vertices[1].z && batch.vertices[1].z==batch.vertices[2].z;
         if((!sprite && !point && !line && !triangle)
             || batch.vertexCount!=(point ? 1u : triangle ? 3u : 2u) || (c.frame.psm!=0u && c.frame.psm!=1u && c.frame.psm!=2u && c.frame.psm!=10u)
             || (c.zbuf.psm!=0u && c.zbuf.psm!=1u && c.zbuf.psm!=2u && c.zbuf.psm!=10u && c.zbuf.psm!=48u && c.zbuf.psm!=49u && c.zbuf.psm!=50u && c.zbuf.psm!=58u) || s.scanmsk!=0u)return false;
@@ -149,7 +150,7 @@ struct GpuRasterBackend::Impl {
         if(textured && indexed(t.psm) && t.cpsm!=0u && t.cpsm!=1u && t.cpsm!=2u && t.cpsm!=10u)return false;
         float minX=0,maxX=0,minY=0,maxY=0;const unsigned width=std::max<unsigned>(c.frame.fbw,1u);
         for(unsigned i=0;i<batch.vertexCount;++i){const auto& v=batch.vertices[i];
-            if(!std::isfinite(v.x) || !std::isfinite(v.y) || !std::isfinite(v.z) || !std::isfinite(v.s) || !std::isfinite(v.t) || !std::isfinite(v.q) || std::abs(v.x)>65536.0f || std::abs(v.y)>65536.0f || v.z<0.0 || v.z>(triangle ? 4294901760.0 : 4294967295.0))return false;
+            if(!std::isfinite(v.x) || !std::isfinite(v.y) || !std::isfinite(v.z) || !std::isfinite(v.s) || !std::isfinite(v.t) || !std::isfinite(v.q) || std::abs(v.x)>65536.0f || std::abs(v.y)>65536.0f || v.z<0.0 || v.z>(triangle && !flatDepth ? 4294901760.0 : 4294967295.0))return false;
             const float x=(point || line ? float(int(v.x)) : v.x)-(sprite ? float(c.xyoffset.ofx)/16.0f : float(c.xyoffset.ofx>>4u));
             const float y=(point || line ? float(int(v.y)) : v.y)-(sprite ? float(c.xyoffset.ofy)/16.0f : float(c.xyoffset.ofy>>4u));
             if(!i){minX=maxX=x;minY=maxY=y;}else{minX=std::min(minX,x);maxX=std::max(maxX,x);minY=std::min(minY,y);maxY=std::max(maxY,y);}
@@ -173,7 +174,7 @@ struct GpuRasterBackend::Impl {
         cmd[9]=uint32_t(c.test);cmd[10]=uint32_t(c.alpha);cmd[11]=uint32_t(c.alpha>>32u)&255u;cmd[12]=c.frame.fbmsk;cmd[13]=c.zbuf.psm;cmd[14]=c.zbuf.zmask;cmd[15]=uint32_t(c.fba)&1u;
         cmd[16]=t.psm;cmd[17]=t.tbp0;cmd[18]=t.tbw;cmd[19]=s.textureWidth;cmd[20]=s.textureHeight;cmd[21]=uint32_t(c.clamp);cmd[22]=uint32_t(c.clamp>>32u);cmd[23]=t.tfx;cmd[24]=t.tcc;
         cmd[25]=s.texa.ta0;cmd[26]=s.texa.ta1;cmd[27]=s.texa.aem;cmd[29]=uint32_t(s.fogR)|(uint32_t(s.fogG)<<8u)|(uint32_t(s.fogB)<<16u);
-        cmd[38]=c.frame.psm;
+        cmd[38]=c.frame.psm;cmd[39]=flatDepth;
         const auto frame=rectanglePages(c.frame.psm,cmd[6],width,x0,y0,unsigned(x1-x0+1),unsigned(y1-y0+1));
         const bool usesDepth=((c.test>>17u)&3u)>=2u || !c.zbuf.zmask;
         const auto depth=usesDepth ? rectanglePages(c.zbuf.psm,cmd[7],width,x0,y0,unsigned(x1-x0+1),unsigned(y1-y0+1)) : Pages{};

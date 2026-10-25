@@ -48,8 +48,12 @@ is unchanged. Aligned buffers use direct page ranges, and pixel updates,
 texture uploads, and palette loads read back only their affected pages. Other
 dirty GPU pages remain resident until a consumer needs them.
 
-Guest execution and vector instruction processing still
-consume CPU time.
+Triangle depth uses differences from one vertex, retaining exact integer depth
+for flat surfaces. Large common depths no longer inherit rounding errors from
+three separately weighted values. Constant-depth and overlapping-plane checks
+use independent expected depths on both rendering paths.
+
+Guest execution and vector instruction processing still consume CPU time.
 
 Complete matches and sustained 60 FPS remain unverified. The automated GPU
 comparisons passed with Mesa on Linux and Windows under Wine. Software OpenGL

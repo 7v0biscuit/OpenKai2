@@ -467,6 +467,8 @@ int run_runtime_checks() {
     std::cout << "Runtime skeletal transform regression passed: 64 original quaternion transforms, worker start/restart, parent matrices, translation, and homogeneous coordinates.\n";
     verify_vector_transfers();
     std::cout << "Runtime vector transfer regression passed: 128 original packet, callback cycle, wrapped memory, pipeline write and resume snapshots.\n";
+    verify_vector_operands();
+    std::cout << "Runtime vector operand regression passed: 128 original snapshots with broadcasts, Q/I, inactive lanes, accumulator use and cross products.\n";
     verify_vector_products();
     std::cout << "Runtime vector product regression passed: 32 original multiply-add/subtract pipeline snapshots, signed zero, broadcast, Q/I and cross lanes.\n";
     verify_vector_arithmetic();
@@ -481,7 +483,7 @@ int run_runtime_checks() {
     verify_pause_menu(runtime,memory);
     std::cout << "Runtime pause menu regression passed: 12 registered callbacks, 513 original open, timer and input-dispatch cases with aliases, priority, null slots and stack guards.\n";
     verify_actor_commands(runtime,memory);
-    std::cout << "Runtime actor command regression passed: 40 registered methods, 48 original orientation callbacks and 120 compiled caller cases with cached and uncached aliases.\n";
+    std::cout << "Runtime actor command regression passed: 52 registered methods and 342 orientation, timer and compiled caller cases with cached and uncached aliases.\n";
     std::cout << "Runtime impact effect regression passed: 34 lifecycle methods, 112 original factory cases, allocation failure, actor flags, resource binding and saved registers.\n";
     verify_attack_effects(runtime,memory);
     std::cout << "Runtime attack effect regression passed: 16 registered methods, 114 original call-site cases, allocation failure, three resource types, node links, callbacks, and saved registers.\n";

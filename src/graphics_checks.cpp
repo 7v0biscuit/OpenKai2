@@ -113,7 +113,7 @@ void check_prepared_palette() {
             throw std::runtime_error("Prepared palette changed latched colors or VRAM: "+std::to_string(i));
 }
 
-uint64_t early_depth_hash(unsigned variant,unsigned workers=1u) {
+uint64_t early_depth_hash(unsigned variant,unsigned workers=1u,bool smallDepthOracle=false) {
     const auto previous=set_raster_worker_limit(workers);
     struct Restore {unsigned previous;~Restore(){set_raster_worker_limit(previous);}} restore{previous};
     std::vector<uint8_t> vram(4u*1024u*1024u);
@@ -151,12 +151,13 @@ uint64_t early_depth_hash(unsigned variant,unsigned workers=1u) {
         uint32_t old=(x%3u)*1000u;
         if(mode==2u || y>192u)old=2000u;
         if(mode==4u)old=1000u;
-        if(mode==23u)old=x%3u==0u ? 0x80000000u : x%3u==1u ? 0x80000001u : 0xffffffffu;
+        if(mode==23u)old=smallDepthOracle ? (x%3u==0u ? 1000u : x%3u==1u ? 1001u : 2000u)
+            : x%3u==0u ? 0x80000000u : x%3u==1u ? 0x80000001u : 0xffffffffu;
         backend.WriteVram(c.zbuf.psm,c.zbuf.zbp*32u,8u,x,y,old);
     }
     for(unsigned y=0;y<128u;++y)for(unsigned x=0;x<128u;++x)
         backend.WriteVram(c.tex0.psm,c.tex0.tbp0,2u,x,y,0x80000000u|((x*11u+y*7u)&255u)|(((y*13u)&255u)<<8u)|(((x*17u)&255u)<<16u));
-    for(auto& v:batch.vertices){v.r=73u;v.g=127u;v.b=191u;v.a=128u;v.z=mode==23u ? 0x80000001u : 1000u;v.fog=113u;v.u=v.v=12u;v.q=1.0f;}
+    for(auto& v:batch.vertices){v.r=73u;v.g=127u;v.b=191u;v.a=128u;v.z=mode==23u ? (smallDepthOracle ? 1001u : 0x80000001u) : 1000u;v.fog=113u;v.u=v.v=12u;v.q=1.0f;}
     batch.vertices[1].x=512.0f;batch.vertices[1].y=224.0f;batch.vertices[1].u=512u*16u+12u;batch.vertices[1].v=224u*16u+12u;
     if(triangle){batch.vertices[1].y=8.75f;batch.vertices[1].v=12u;
         batch.vertices[2].x=12.5f;batch.vertices[2].y=223.25f;batch.vertices[2].v=224u*16u+12u;}
@@ -167,6 +168,16 @@ uint64_t early_depth_hash(unsigned variant,unsigned workers=1u) {
         for(auto& v:prime.vertices)v.u=v.v=8u;
         backend.Submit(prime);vram[c.tex0.tbp0*256u+17u]^=255u;}
     backend.Submit(batch);
+    if(smallDepthOracle){
+        // Preserve exactly the same pass/equal/fail comparisons using small
+        // integer depths that cannot suffer the large-Z interpolation error.
+        // Restore the original depth encoding before hashing complete VRAM.
+        for(unsigned y=0;y<224u;++y)for(unsigned x=0;x<512u;++x){
+            const auto z=backend.ReadVram(c.zbuf.psm,c.zbuf.zbp*32u,8u,x,y);
+            if(z!=1000u && z!=1001u && z!=2000u)throw std::runtime_error("Small-depth oracle generated an unexpected depth");
+            backend.WriteVram(c.zbuf.psm,c.zbuf.zbp*32u,8u,x,y,z==1000u ? 0x80000000u : z==1001u ? 0x80000001u : 0xffffffffu);
+        }
+    }
     uint64_t hash=14695981039346656037ull;
     auto snapshot=[&](){for(auto byte:vram)hash=(hash^byte)*1099511628211ull;};snapshot();
     auto dependent=batch;dependent.state.context.test=0x30000u;dependent.state.context.zbuf.zmask=true;
@@ -189,11 +200,15 @@ void check_early_depth() {
         0xff0ece65b004ea98ull,0x44f801973dd9ce72ull,0xde904564438be5a7ull,0x86d910cc21d8ad42ull,
         0x79a8db9c72a21f23ull,0x86d910cc21d8ad42ull,0xf1b620e2fa3be3cfull,0xf7fd22a5919a828cull,
         0xf32edf9cbf0c8c4full,0x2edee30b43b6fa57ull,0x1d23a74517eea351ull,0xa3588f2e7e81281cull,
-        0x8623c2fb67e0cab0ull,0xefdff0118d819321ull,0xd2e4618ada858d5eull,0x7fd6cb41fef8fbf0ull,
+        0x8623c2fb67e0cab0ull,0xefdff0118d819321ull,0xd2e4618ada858d5eull,
     };
-    for(unsigned i=0;i<48u;++i)for(auto workers:{1u,4u})
+    for(unsigned i=0;i<47u;++i)for(auto workers:{1u,4u})
         if(early_depth_hash(i,workers)!=expected[i])
             throw std::runtime_error("Early depth changed VRAM or final texture cache state: "+std::to_string(i));
+    // The previous case-47 snapshot encoded the constant-depth bug. Compare
+    // its large unsigned depth with an independent small-integer depth oracle.
+    for(auto workers:{1u,4u})if(early_depth_hash(47u,workers)!=early_depth_hash(47u,workers,true))
+        throw std::runtime_error("Large constant depth differs from the small-depth visibility oracle");
 }
 
 uint64_t prepared_pipeline_hash(unsigned variant) {
@@ -412,7 +427,7 @@ uint64_t triangle_pipeline_hash(unsigned variant,unsigned workers=4u,bool checkD
     batch.vertices[2].x=12.5f;batch.vertices[2].y=95.25f;
     for(unsigned i=0;i<3u;++i){auto& v=batch.vertices[i];v.u=i==1u ? 2044u : 8u;v.v=i==2u ? 1532u : 12u;
         v.r=uint8_t(71u+i*31u);v.g=uint8_t(113u+i*17u);v.b=uint8_t(191u-i*19u);
-        v.a=variant>=16u ? 128u : uint8_t(57u+i*31u);v.z=UINT32_MAX;v.q=1.0f+i*0.25f;
+        v.a=variant>=16u ? 128u : uint8_t(57u+i*31u);v.z=1000u;v.q=1.0f+i*0.25f;
         v.s=float(v.u)/2048.0f;v.t=float(v.v)/2048.0f;v.fog=uint8_t(101u+i*29u);}
     if(variant>=16u){batch.vertices[1].x=511.25f;batch.vertices[2].y=447.25f;
         batch.vertices[1].u=8188u;batch.vertices[2].v=7164u;}
@@ -442,20 +457,20 @@ uint64_t triangle_pipeline_hash(unsigned variant,unsigned workers=4u,bool checkD
 }
 
 void check_triangle_pipeline() {
-    // Complete VRAM snapshots from the previous serial renderer, before
-    // and after a dependent sample that observes the final cached page.
+    // Complete VRAM snapshots from the previous serial renderer at small
+    // fixed depths, before and after a dependent sample that observes the final cached page.
     constexpr uint64_t expected[]={
-        0x308cc64e246791c0ull,0x10af1f51b16627edull,0xa6a20f730ecfc768ull,0x8f60fefe665f3279ull,
-        0x423d60b0c126c258ull,0x8d944d8fb66232c7ull,0xe83493e64ffe80a8ull,0xcff8a167de28f8c1ull,
-        0xdf5885a6650d2520ull,0x8ec815c0df63180ull,0x92d12009d72a7062ull,0x1c578a8384731a57ull,
-        0xfb786d0aa9439231ull,0x3aaa479ad16f73f4ull,0x272543d57efefac6ull,0x3aaa479ad16f73f4ull,
+        0x308cc64e246791c0ull,0x10af1f51b16627edull,0x83816d7d02ecb748ull,0x8f60fefe665f3279ull,
+        0x423d60b0c126c258ull,0x8d944d8fb66232c7ull,0xe83493e64ffe80a8ull,0xc7fd8f68b458b628ull,
+        0xdf5885a6650d2520ull,0x08ec815c0df63180ull,0x92d12009d72a7062ull,0x1c578a8384731a57ull,
+        0x1584dff5d5731f69ull,0x3aaa479ad16f73f4ull,0x272543d57efefac6ull,0x3aaa479ad16f73f4ull,
         0xf6073cd714104d50ull,0x6767277e4ab292daull,0xf6073cd714104d50ull,0x6767277e4ab292daull,
         0xc717ded35a3145e8ull,0x34f20ad9d7b85c79ull,0xc717ded35a3145e8ull,0x34f20ad9d7b85c79ull,
         0x2b986bb5fb8a8286ull,0x437c4e67751534b3ull,0x2b986bb5fb8a8286ull,0x437c4e67751534b3ull,
         0xed43356a060fc6c6ull,0x777aef448388fa00ull,0xed43356a060fc6c6ull,0x777aef448388fa00ull,
-        0x6f98c09f3878619eull,0xa678336bc01f5409ull,0x40f5eb742d3e20feull,0xcaf098efc68ca3a6ull,
+        0x6f98c09f3878619eull,0xa678336bc01f5409ull,0x079c0e096f2abbdaull,0x1a17b13b6224ff60ull,
         0xc717ded35a3145e8ull,0x6784299ad581bbd1ull,0x86d4de36ef0b7a28ull,0xc0f097fdd8d04547ull,
-        0xd791386bcb280702ull,0xd89ced2b31eb2663ull,0xc6555c59637e92c6ull,0x3c14492bd64ff32eull,
+        0xd791386bcb280702ull,0x6b99eee2e8c15cccull,0xc6555c59637e92c6ull,0x3c14492bd64ff32eull,
         0x66a1eafb20a7fc86ull,0x742c5ec6d194c9d0ull,0x139cc95fec0321c4ull,0x84e4cfef53fb4d05ull,
     };
     for(unsigned i=0;i<48u;++i)for(auto workers:{1u,4u})

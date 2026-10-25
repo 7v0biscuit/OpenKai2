@@ -1,0 +1,46 @@
+--- a/runtime/vu/ps2_vu1_core.cpp
++++ b/runtime/vu/ps2_vu1_core.cpp
+@@ -270,15 +270,40 @@
+                                          _mm_cmpgt_epi32(_mm_set1_epi32(0x4f000000), magnitude));
+         return _mm_movemask_epi8(_mm_or_si128(inside, _mm_cmpeq_epi32(magnitude, _mm_setzero_si128()))) == 0xffff;
+     };
+-    const bool bounded = boundedScalar(m_state.q) && boundedScalar(m_state.i)
++    const auto op=uint8_t(m_currentUpperInstruction&63u);
++    const auto arithmetic=op<0x3cu ? op : uint8_t((m_currentUpperInstruction&3u)|((m_currentUpperInstruction>>4u)&0x7cu));
++    bool bounded = boundedScalar(m_state.q) && boundedScalar(m_state.i)
+         && boundedVector(m_state.vf[FS(m_currentUpperInstruction)])
+         && boundedVector(m_state.vf[FT(m_currentUpperInstruction)]) && boundedVector(m_state.acc);
++    if(!bounded){
++        // Only inputs read by this instruction can affect its arithmetic flags.
++        // Unselected lanes, Q/I and ACC may contain unrelated large values.
++        // Denormals are normalized to signed zero by the operand path.
++        const auto scalar=[](float v){uint32_t u;std::memcpy(&u,&v,4u);u&=0x7fffffffu;
++            return u<0x00800000u || (u>=0x30800000u && u<0x4f000000u);};
++        const auto lanes=[](const float* p,unsigned mask){
++            if(!mask)return true;
++            const auto magnitude=_mm_and_si128(_mm_loadu_si128(reinterpret_cast<const __m128i*>(p)),_mm_set1_epi32(0x7fffffff));
++            const auto inside=_mm_and_si128(_mm_cmpgt_epi32(magnitude,_mm_set1_epi32(0x307fffff)),_mm_cmpgt_epi32(_mm_set1_epi32(0x4f000000),magnitude));
++            const auto zero=_mm_cmpgt_epi32(_mm_set1_epi32(0x00800000),magnitude);
++            constexpr unsigned reverse[]={0u,8u,4u,12u,2u,10u,6u,14u,1u,9u,5u,13u,3u,11u,7u,15u};
++            return (unsigned(_mm_movemask_ps(_mm_castsi128_ps(_mm_or_si128(inside,zero))))&reverse[mask])==reverse[mask];
++        };
++        const bool accUsed=(arithmetic>=8u && arithmetic<=15u) || arithmetic==0x21u || arithmetic==0x23u
++            || arithmetic==0x25u || arithmetic==0x27u || arithmetic==0x29u || arithmetic==0x2du || (arithmetic==0x2eu && op<0x3cu);
++        unsigned left=dest,right=dest;bool valid=true;
++        if(arithmetic==0x2eu){left=((dest&8u)>>1u)|((dest&4u)>>1u)|((dest&2u)<<2u);right=((dest&8u)>>2u)|((dest&4u)<<1u)|((dest&2u)<<1u);}
++        else if(arithmetic<=15u || (arithmetic>=0x18u && arithmetic<=0x1bu))right=8u>>(arithmetic&3u);
++        else if(arithmetic==0x1cu || arithmetic==0x20u || arithmetic==0x21u || arithmetic==0x24u || arithmetic==0x25u){right=0u;valid=scalar(m_state.q);}
++        else if(arithmetic==0x1eu || arithmetic==0x22u || arithmetic==0x23u || arithmetic==0x26u || arithmetic==0x27u){right=0u;valid=scalar(m_state.i);}
++        else if(arithmetic!=0x28u && arithmetic!=0x29u && arithmetic!=0x2au && arithmetic!=0x2cu && arithmetic!=0x2du)valid=false;
++        bounded=valid && lanes(m_state.vf[FS(m_currentUpperInstruction)],left)
++            && lanes(m_state.vf[FT(m_currentUpperInstruction)],right) && (!accUsed || lanes(m_state.acc,arithmetic==0x2eu ? dest&14u : dest));
++    }
+     // For simple add/subtract/multiply, the bounded inputs also prove that
+     // a rounded zero is exactly zero. Product-sum cancellation retains the
+     // extended calculation, since rounding a product can hide a residual.
+     constexpr uint64_t simpleArithmetic=0x000015555f0000ffull;
+-    const auto op=uint8_t(m_currentUpperInstruction&63u);
+-    const auto arithmetic=op<0x3cu ? op : uint8_t((m_currentUpperInstruction&3u)|((m_currentUpperInstruction>>4u)&0x7cu));
+     const bool exactZero=arithmetic<64u && ((simpleArithmetic>>arithmetic)&1u)!=0u;
+     for (uint32_t component = 0; component < 4u; ++component)
+     {

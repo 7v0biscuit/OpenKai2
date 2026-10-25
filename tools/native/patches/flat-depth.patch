@@ -1,0 +1,35 @@
+--- a/runtime/gs/gs_cpu_backend.cpp
++++ b/runtime/gs/gs_cpu_backend.cpp
+@@ -1864,6 +1864,10 @@
+ 
+                     return sampleTexture(cache,state,is,it,iq,iu,iv);
+     };
++    // A flat primitive must retain one exact integer depth across its entire
++    // surface. Summing three float barycentrics can perturb a large common Z.
++    const bool flatDepth=v0.z==v1.z && v1.z==v2.z;
++    const u32 flatZ=flatDepth ? static_cast<u32>(std::min(v0.z+0.5,4294967295.0)) : 0u;
+     const bool earlyDepth=writer.enabled && stable && writer.depthMethod!=1u
+         && m_texturePageCache.MatchesVram(m_vram,source.begin,source.end)
+         && probeDepthRejection(minX,minY,maxX,maxY,[&](int x,int y) {
+@@ -1872,8 +1876,8 @@
+             const float w1=(((fy2-fy0)*(px-fx0)+(fx0-fx2)*(py-fy0))*winding)*invAbsDenom;
+             const float w2=1.0f-w0-w1;
+             if(w0 < -kEdgeEpsilon || w1 < -kEdgeEpsilon || w2 < -kEdgeEpsilon)return false;
+-            const double z=v0.z*w0+v1.z*w1+v2.z*w2;
+-            return writer.rejectsDepth(x,y,static_cast<u32>(z+0.5));
++            const double z=v0.z+(v1.z-v0.z)*double(w1)+(v2.z-v0.z)*double(w2);
++            return writer.rejectsDepth(x,y,flatDepth ? flatZ : static_cast<u32>(z+0.5));
+         });
+ 
+     auto drawRows=[&](GSMem::TexturePageCache& cache,int first,int last,bool& sampled) -> uint64_t {
+@@ -1908,8 +1912,8 @@
+                 const int x=firstX+int(lane);
+                 const float w0=weights0[lane],w1=weights1[lane],w2=weights2[lane];
+ 
+-                double z = v0.z * w0 + v1.z * w1 + v2.z * w2;
+-                const auto pixelZ=static_cast<u32>(z+0.5);
++                double z = v0.z+(v1.z-v0.z)*double(w1)+(v2.z-v0.z)*double(w2);
++                const auto pixelZ=flatDepth ? flatZ : static_cast<u32>(z+0.5);
+                 if(earlyDepth && writer.rejectsDepth(x,y,pixelZ)) {
+                     ++rejected;pendingSample=true;lastW0=w0;lastW1=w1;lastW2=w2;
+                     continue;

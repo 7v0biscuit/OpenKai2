@@ -122,10 +122,12 @@ bool shadePixel(uint c,ivec2 position,out uvec4 color,out uint z){
         precise float w2=1.0-w0-w1;
         if(w0 < -0.0001 || w1 < -0.0001 || w2 < -0.0001)return false;
         vec3 weights=vec3(w0,w1,w2);
-        precise double depth=packDouble2x32(uvec2(word(a,2u),word(a,3u)))*double(w0)
-            +packDouble2x32(uvec2(word(b,2u),word(b,3u)))*double(w1);
-        depth=depth+packDouble2x32(uvec2(word(d,2u),word(d,3u)))*double(w2);
-        z=uint(depth+0.5lf);
+        double z0=packDouble2x32(uvec2(word(a,2u),word(a,3u)));
+        double z1=packDouble2x32(uvec2(word(b,2u),word(b,3u)));
+        double z2=packDouble2x32(uvec2(word(d,2u),word(d,3u)));
+        precise double depth=z0+(z1-z0)*double(w1);
+        depth=depth+(z2-z0)*double(w2);
+        z=word(c,39u)!=0u ? uint(min(packDouble2x32(uvec2(word(a,2u),word(a,3u)))+0.5lf,4294967295.0lf)) : uint(depth+0.5lf);
         color=unpackColor(word(d,4u));
         if((flags&4u)!=0u){
             vec4 ca=vec4(unpackColor(word(a,4u))),cb=vec4(unpackColor(word(b,4u))),cd=vec4(unpackColor(word(d,4u)));

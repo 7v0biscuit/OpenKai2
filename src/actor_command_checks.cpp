@@ -11,6 +11,7 @@ namespace openkai2 {
 void verify_actor_commands(PS2Runtime& runtime,uint8_t* ram) {
     auto require=[](bool ok,const char* why){if(!ok)throw std::runtime_error(why);};
     for(auto at:translation::actor_command_entries)require(runtime.hasFunction(at),"Actor command entry is missing");
+    for(auto at:translation::actor_timing_entries)require(runtime.hasFunction(at),"Actor timing entry is missing");
     constexpr uint32_t context=0x650000u,state=0x660000u,descriptor=0x670000u,actor=0x680000u,control=0x690000u;
     constexpr uint32_t marker=0x29a00u,returned=0x29f00u,sp=0x1fffde0u;
     struct Restore {
@@ -77,6 +78,43 @@ void verify_actor_commands(PS2Runtime& runtime,uint8_t* ram) {
         for(unsigned i=0;i<16u;++i)require(ram[sp-0x100u+i]==0xa5u && ram[sp+i]==0xa5u,"Actor dispatcher changed stack guards");
         ++cases;
     }
-    require(cases==168u,"Actor command coverage incomplete");
+    const auto resetTiming=[&]{std::memset(ram+context,0,0x70000u);std::memset(ram+marker,0,64u);std::memset(ram+sp-0x100u,0xa5u,0x110u);};
+    const auto timingContext=[&](uint32_t pc,uint32_t alias){
+        R5900Context c{};c.pc=pc;c.r[4]=_mm_cvtsi64_si128(int64_t(int32_t(context|alias)));c.r[5]=_mm_cvtsi64_si128(int64_t(int32_t(state|alias)));
+        c.r[28]=_mm_cvtsi32_si128(0x3ac4f0u);c.r[29]=_mm_cvtsi32_si128(sp);c.r[31]=_mm_cvtsi32_si128(returned);return c;
+    };
+    const auto timingFrame=[&](const R5900Context& c){
+        require(getRegU32(&c,29)==sp && getRegU32(&c,31)==returned && getRegU32(&c,28)==0x3ac4f0u,"Actor timing callback lost its caller frame");
+        for(unsigned i=0;i<16u;++i)require(ram[sp-0x100u+i]==0xa5u && ram[sp+i]==0xa5u,"Actor timing callback changed stack guards");
+    };
+    for(uint32_t bits:{0u,0x80000000u,0x3c888889u,0x3f000000u,0x3f800000u,0x40000000u,0x7f7fffffu,0x7fc12345u})for(auto alias:{0u,0x80000000u,0xa0000000u}){
+        resetTiming();m.write32(0x3a4cb4u,control|alias);m.write32(control+0x142e8u,bits);m.write32(state+0x3cu,0x13572468u);m.write32(state+0x44u,0x24681357u);
+        auto c=timingContext(0x1fc1e0u,alias);run(c);timingFrame(c);
+        require(m.read32(state+0x40u)==bits && getRegU32(&c,2)==1u,"Actor delta-time callback changed its copy or return");
+        require(m.read32(state+0x3cu)==0x13572468u && m.read32(state+0x44u)==0x24681357u,"Actor delta-time callback changed neighboring fields");++cases;
+    }
+    for(unsigned relative=0;relative<2u;++relative)for(unsigned threshold:{0u,1u,2u,7u})for(float elapsed:{0.0f,0.25f,0.75f,3.0f,8.0f})for(auto alias:{0u,0x80000000u,0xa0000000u}){
+        resetTiming();m.write32(0x3a4cb4u,control|alias);m.write32(state+0x2cu,descriptor|alias);m.write32(descriptor,threshold);
+        const float origin=relative ? 2.0f : 0.0f;std::memcpy(ram+control+0x142fcu,&origin,4u);
+        auto c=timingContext(relative ? 0x1fc340u : 0x1fc2c0u,alias);run(c);timingFrame(c);
+        const uint32_t update=relative ? 0x1fc2e0u : 0x1fc270u;
+        require(m.read32(context+0x10u)==update && m.read32(context+0x24u)==threshold && getRegU32(&c,2)==3u,"Actor wait command installed wrong state or continuation");
+        float now=origin+elapsed;std::memcpy(ram+control+0x142fcu,&now,4u);c=timingContext(update,alias);run(c);timingFrame(c);
+        const bool waiting=elapsed+0.5f<float(threshold);
+        require(getRegU32(&c,2)==(waiting ? 3u : 1u) && m.read32(context+0x10u)==(waiting ? update : 0u),"Actor timer continuation changed its completion boundary");++cases;
+    }
+    for(auto at:translation::actor_timing_entries)restore.replace(at,[](uint8_t*,R5900Context* c,PS2Runtime* r){
+        auto& memory=r->memory();if(c->pc!=memory.read32(marker+4u) || getRegU32(c,4)!=memory.read32(marker+8u) || getRegU32(c,5)!=memory.read32(marker+12u))throw std::runtime_error("Actor timing dispatcher changed its callback arguments");
+        memory.write32(marker,memory.read32(marker)+1u);c->r[2]=_mm_setzero_si128();c->pc=getRegU32(c,31);
+    });
+    for(unsigned slot=0;slot<10u;++slot)for(auto alias:{0u,0x80000000u,0xa0000000u}){
+        resetTiming();m.write32(context,descriptor|alias);m.write32(descriptor+0x44u,control|alias);m.write32(control,0x375520u);
+        for(unsigned i=0;i<12u;++i)m.write32(0x375520u+i*4u,translation::actor_timing_slots[i]);m.write32(0x37fdd0u,0x14c9e0u);
+        m.write32(marker+4u,translation::actor_timing_slots[slot]);m.write32(marker+8u,context|alias);m.write32(marker+12u,state|alias);
+        auto c=timingContext(0x14c978u,alias);c.r[5]=_mm_cvtsi32_si128((slot<<8u)|7u);c.r[16]=_mm_cvtsi32_si128(state|alias);c.r[17]=_mm_cvtsi32_si128(context|alias);c.r[18]=_mm_cvtsi32_si128(context-0x30u);c.r[29]=_mm_cvtsi32_si128(sp-0x50u);
+        m.write128(sp-0x50u,_mm_setzero_si128());m.write128(sp-0x40u,_mm_setzero_si128());m.write128(sp-0x30u,_mm_setzero_si128());m.write64(sp-0x20u,returned);m.write32(sp-4u,0x6b0000u|alias);
+        run(c);timingFrame(c);require(m.read32(marker)==1u && m.read32(state+0x24u)==(0x6b0000u|alias),"Actor timing bank did not preserve its command stream");++cases;
+    }
+    require(cases==342u,"Actor command coverage incomplete");
 }
 }
