@@ -4,6 +4,7 @@
 import argparse
 import os
 from pathlib import Path
+import platform
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -40,12 +41,17 @@ def main():
     env['OPENKAI2_WORK_DIR'] = str(work)
     env['LIBGL_ALWAYS_SOFTWARE'] = '1'
     env['MESA_SHADER_CACHE_DIR'] = str(work / 'gpu-shader-cache')
+    compiler_options = []
+    if platform.machine().lower() in {'x86_64', 'amd64'}:
+        # The runtime uses SSE4.1 intrinsics, including in public inline helpers.
+        compiler_options.append('-DCMAKE_CXX_FLAGS=-msse4.1 -fno-strict-aliasing -fwrapv')
     run('cmake', '-S', upstream, '-B', build, '-G', 'Ninja',
         '-DCMAKE_BUILD_TYPE=RelWithDebInfo', '-DPS2X_BUILD_RUNTIME=ON',
         '-DPS2X_BUILD_RECOMP=OFF', '-DPS2X_BUILD_ANALYZER=OFF', '-DPS2X_BUILD_STUDIO=OFF',
         '-DPS2X_BUILD_TEST=OFF', '-DPS2X_ENABLE_DEBUG_UI=OFF',
         '-DPS2X_ENABLE_AGRESSIVE_LOGS=OFF', '-DOPENKAI2_RUNTIME_TESTS_ONLY=ON',
-        f'-DCMAKE_PROJECT_TOP_LEVEL_INCLUDES={ROOT / "tools/native/attach-game.cmake"}', env=env)
+        f'-DCMAKE_PROJECT_TOP_LEVEL_INCLUDES={ROOT / "tools/native/attach-game.cmake"}',
+        *compiler_options, env=env)
     run('cmake', '--build', build, '--target', 'openkai2_gpu_tests', '--parallel', args.jobs, env=env)
     run(build / 'openkai2_gpu_tests', '--required', env=env)
 
