@@ -4,6 +4,7 @@
 #include <chrono>
 #include <future>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace openkai2 {
