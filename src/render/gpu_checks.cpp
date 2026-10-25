@@ -1,0 +1,231 @@
+// SPDX-License-Identifier: GPL-3.0-only
+#include "gpu_checks.h"
+#include "gpu_backend.h"
+#include "gpu_device.h"
+#include "gpu_layout.h"
+#include "runtime_layout.h"
+#include "runtime/gs/gs_cpu_backend.h"
+#include <algorithm>
+#include <chrono>
+#include <cstring>
+#include <iostream>
+#include <memory>
+#include <stdexcept>
+#include <string>
+#include <vector>
+namespace openkai2 {
+namespace {
+struct Comparison {
+    std::vector<uint8_t> expected,actual;
+    std::unique_ptr<GSCpuBackend> cpu=std::make_unique<GSCpuBackend>();
+    std::unique_ptr<GpuRasterBackend> gpu=std::make_unique<GpuRasterBackend>();
+    explicit Comparison(bool pattern=true):expected(openkai2::gpu::VramBytes),actual(openkai2::gpu::VramBytes){
+        if(pattern)for(unsigned i=0;i<expected.size();++i)expected[i]=uint8_t(i*13u^(i>>9u));
+        actual=expected;cpu->Initialize(expected.data(),unsigned(expected.size()));gpu->Initialize(actual.data(),unsigned(actual.size()));
+    }
+    void write(unsigned psm,unsigned base,unsigned width,unsigned x,unsigned y,uint32_t value){cpu->WriteVram(psm,base,width,x,y,value);gpu->WriteVram(psm,base,width,x,y,value);}
+    void draw(const GSPrimitiveBatch& p){cpu->Submit(p);gpu->Submit(p);}
+    void textureFlush(){cpu->TextureFlush();gpu->TextureFlush();}
+    void compare(const std::string& label){
+        std::vector<uint8_t> snapshot;gpu->SnapshotVram(snapshot);
+        if(snapshot.size()!=expected.size())throw std::runtime_error(label+": invalid GPU snapshot size");
+        const auto mismatch=std::mismatch(expected.begin(),expected.end(),snapshot.begin());
+        if(mismatch.first!=expected.end())throw std::runtime_error(label+": VRAM differs at byte "+std::to_string(mismatch.first-expected.begin())+" (CPU="+std::to_string(*mismatch.first)+", GPU="+std::to_string(*mismatch.second)+")");
+    }
+};
+GSPrimitiveBatch material(unsigned mode,bool sprite){
+    GSPrimitiveBatch b{};b.vertexCount=sprite ? 2u : 3u;auto& s=b.state;auto& c=s.context;
+    s.prim.type=sprite ? GS_PRIM_SPRITE : GS_PRIM_TRIANGLE;s.prim.tme=s.prim.iip=s.prim.abe=true;
+    s.prim.fst=(mode&16u)==0u;s.linearFilter=mode&1u;s.colclamp=1u;
+    s.textureWidth=s.textureHeight=128u;s.texa.ta0=37u;s.texa.ta1=211u;
+    c.frame.fbp=56u;c.frame.fbw=8u;c.zbuf.zbp=168u;c.zbuf.psm=GS_PSM_Z32;c.zbuf.zmask=true;
+    c.scissor={0u,511u,0u,223u};c.test=0x30000u;c.alpha=0x44u;
+    constexpr uint8_t formats[]={GS_PSM_CT32,GS_PSM_CT16,GS_PSM_T8,GS_PSM_T4};
+    c.tex0.psm=formats[(mode/32u)%4u];c.tex0.tbp0=10240u;c.tex0.tbw=2u;
+    c.tex0.tfx=(mode/2u)%4u;c.tex0.tcc=(mode&8u)!=0u;
+    c.tex0.cbp=16000u;c.tex0.cpsm=GS_PSM_CT32;c.tex0.cld=1u;
+    for(unsigned i=0;i<3u;++i){auto& v=b.vertices[i];
+        v.r=uint8_t(i==0u ? 0u : i==1u ? 255u : 127u);v.g=uint8_t(i==0u ? 255u : i==1u ? 1u : 191u);
+        v.b=uint8_t(i==0u ? 73u : i==1u ? 254u : 0u);v.a=uint8_t(i==0u ? 0u : i==1u ? 255u : 128u);
+        v.z=1000u+i*117u;v.q=0.75f+float(i)*0.5f;v.u=i==1u ? 2044u : 8u;v.v=i==2u ? 2040u : 12u;
+        v.s=float(v.u)/2048.0f;v.t=float(v.v)/2048.0f;v.fog=uint8_t(i*101u);
+    }
+    b.vertices[0].x=0.25f;b.vertices[0].y=0.5f;b.vertices[1].x=255.25f;b.vertices[1].y=sprite ? 191.25f : 0.75f;b.vertices[2].x=0.5f;b.vertices[2].y=191.25f;
+    if(sprite){b.vertices[1].v=2040u;b.vertices[1].t=float(b.vertices[1].v)/2048.0f;}
+    return b;
+}
+void checkMaterials(){
+    for(unsigned type=0;type<2u;++type)for(unsigned mode=0;mode<128u;++mode){
+        Comparison pair;auto p=material(mode,type!=0u);auto& s=p.state;auto& c=s.context;
+        for(unsigned y=0;y<16u;++y)for(unsigned x=0;x<16u;++x)
+            pair.write(0u,16000u,1u,x,y,((x*17u)&255u)|(((y*17u)&255u)<<8u)|(((x^y)*17u)<<16u)|(((x+y)*13u&255u)<<24u));
+        pair.cpu->LoadClut(c.tex0,{});pair.gpu->LoadClut(c.tex0,{});
+        for(unsigned i=0;i<3u;++i)pair.draw(p);
+        pair.compare("GPU material "+std::to_string(type)+":"+std::to_string(mode));
+        for(auto& v:p.vertices)v.u=v.v=8u;s.prim.fst=true;s.prim.iip=false;s.linearFilter=false;
+        pair.write(c.tex0.psm,c.tex0.tbp0,c.tex0.tbw,0u,0u,0x80ff13a7u);pair.textureFlush();pair.draw(p);
+        pair.compare("GPU texture update "+std::to_string(type)+":"+std::to_string(mode));
+        const auto stats=pair.gpu->stats();if(stats.gpuDraws!=4u || !stats.batches)throw std::runtime_error("Material fixture did not execute on the GPU");
+    }
+}
+void checkIntegerPipeline(){
+    Comparison pair(false);constexpr unsigned cases=32768u;
+    for(unsigned i=0;i<cases;++i){const unsigned x=i%512u,y=i/512u;pair.write(0u,56u*32u,8u,x,y,0x8013579bu^(i*0x10201u));pair.write(GS_PSM_Z32,168u*32u,8u,x,y,1000u);}
+    for(unsigned i=0;i<cases;++i){
+        GSPrimitiveBatch p{};p.vertexCount=2u;auto& s=p.state;auto& c=s.context;s.prim.type=GS_PRIM_SPRITE;s.prim.abe=true;s.pabe=(i&1024u)!=0u;s.colclamp=1u;
+        c.frame.fbp=56u;c.frame.fbw=8u;c.zbuf.zbp=168u;c.zbuf.psm=GS_PSM_Z32;c.zbuf.zmask=(i&2048u)!=0u;c.scissor={0u,511u,0u,63u};
+        const unsigned method=(i/256u)%8u,fail=(i/2048u)%4u,depth=(i/8192u)%4u;
+        c.test=1u|(method<<1u)|(128u<<4u)|(fail<<12u)|(depth<<17u);
+        if(i&4096u)c.test|=1u<<14u;if(i&512u)c.test|=1u<<15u;
+        c.alpha=(i&255u)|(uint64_t((i*17u)&255u)<<32u);c.fba=(i&16384u)!=0u;c.frame.fbmsk=(i&8192u) ? 0x00ff00ffu : 0u;
+        const unsigned x=i%512u,y=i/512u;p.vertices[0].x=float(x);p.vertices[0].y=float(y);p.vertices[1].x=float(x+1u);p.vertices[1].y=float(y+1u);
+        auto& v=p.vertices[1];v.r=uint8_t(i*11u);v.g=uint8_t(i*37u);v.b=uint8_t(i*53u);constexpr uint8_t alpha[]={0u,127u,128u,255u};v.a=alpha[(i/64u)%4u];v.z=i%3u==0u ? 2000u : 1000u;pair.draw(p);
+    }
+    pair.compare("GPU integer alpha, depth and blend pipeline");if(pair.gpu->stats().gpuDraws!=cases)throw std::runtime_error("Integer pipeline fixture fell back to CPU rendering");
+}
+void checkFormats(){
+    constexpr unsigned textures[]={0u,1u,2u,10u,19u,20u,27u,36u,44u,48u,49u,50u,58u};
+    constexpr unsigned frames[]={0u,1u,2u,10u},depths[]={48u,49u,50u,58u};
+    for(unsigned mode=0;mode<104u;++mode){
+        Comparison pair;auto p=material(8u|(mode&1u),mode&1u);auto& s=p.state;auto& c=s.context;
+        c.frame.psm=frames[(mode/2u)%4u];c.zbuf.psm=depths[(mode/8u)%4u];c.zbuf.zmask=false;
+        c.tex0.psm=textures[mode/8u];c.tex0.cpsm=frames[(mode/4u)%4u];c.tex0.csa=(mode&16u) ? 17u : 0u;
+        c.tex0.csm=(mode&32u)!=0u;s.texa.aem=(mode&4u)!=0u;
+        const unsigned wrap=(mode/2u)%4u;
+        c.clamp=wrap|(uint64_t(wrap)<<2u)|(uint64_t(3u)<<4u)|(uint64_t(31u)<<14u)|(uint64_t(5u)<<24u)|(uint64_t(63u)<<34u);
+        s.prim.fst=false;s.prim.fge=(mode&2u)!=0u;s.fogR=23u;s.fogG=177u;s.fogB=89u;
+        pair.cpu->LoadClut(c.tex0,{});pair.gpu->LoadClut(c.tex0,{});
+        for(unsigned i=0;i<3u;++i)pair.draw(p);
+        pair.compare("GPU format and addressing state "+std::to_string(mode));
+        if(pair.gpu->stats().gpuDraws!=3u)throw std::runtime_error("Format fixture fell back to CPU rendering");
+    }
+    for(unsigned frame:frames)for(unsigned depth:depths){
+        Comparison pair;constexpr unsigned cases=1024u;
+        for(unsigned i=0;i<cases;++i){unsigned x=i%128u,y=i/128u;pair.write(frame,56u*32u,8u,x,y,0x80b3579bu^(i*0x10003u));pair.write(depth,168u*32u,8u,x,y,0xf0001234u);}
+        for(unsigned i=0;i<cases;++i){
+            auto p=material(0u,true);auto& s=p.state;auto& c=s.context;s.prim.tme=false;s.pabe=(i&1u)!=0u;
+            c.frame.psm=frame;c.zbuf.psm=depth;c.zbuf.zmask=(i&2u)!=0u;c.fba=(i&4u)!=0u;
+            c.frame.fbmsk=(i&8u) ? 0xf00f0ff0u : 0u;c.alpha=(i&255u)|(uint64_t(i&255u)<<32u);
+            c.test=1u|(((i/4u)%8u)<<1u)|(128u<<4u)|(((i/32u)%4u)<<12u)|(((i/128u)%4u)<<17u);
+            if(i&512u)c.test|=1u<<14u;if(i&256u)c.test|=1u<<15u;
+            unsigned x=i%128u,y=i/128u;p.vertices[0].x=float(x);p.vertices[0].y=float(y);p.vertices[1].x=float(x+1u);p.vertices[1].y=float(y+1u);
+            p.vertices[1].a=uint8_t(i*37u);p.vertices[1].z=(i&16u) ? 0xf0009876u : 0x1234u;
+            pair.draw(p);pair.draw(p); // Read the format-truncated destination on the next draw.
+        }
+        pair.compare("GPU target formats "+std::to_string(frame)+":"+std::to_string(depth));
+        if(pair.gpu->stats().gpuDraws!=cases*2u)throw std::runtime_error("Target format fixture fell back to CPU rendering");
+    }
+}
+void checkCoherence(){
+    Comparison pair(false);auto p=material(8u,false);p.state.prim.tme=false;p.state.prim.iip=false;p.state.prim.abe=false;p.state.context.zbuf.zmask=false;
+    pair.draw(p);pair.write(0u,56u*32u,8u,7u,11u,0x80112233u);pair.compare("GPU writeback before CPU framebuffer update");
+    p.state.context.frame.fbp=112u;p.state.context.tex0.tbp0=56u*32u;p.state.context.tex0.tbw=8u;p.state.prim.tme=true;p.state.prim.fst=true;
+    p.state.context.tex0.tfx=1u;p.state.context.tex0.tcc=true;p.state.textureWidth=p.state.textureHeight=128u;pair.textureFlush();pair.draw(p);pair.compare("GPU render-to-texture target transition");
+    auto feedback=p;feedback.state.context.tex0.tbp0=112u*32u;pair.textureFlush();pair.draw(feedback);pair.compare("GPU texture feedback software fallback");
+    if(!pair.gpu->stats().cpuDraws)throw std::runtime_error("Texture feedback did not use the compatibility fallback");
+    GSTransferCommand transfer{};transfer.direction=0u;transfer.bitbltbuf.dbp=112u*32u;transfer.bitbltbuf.dbw=8u;transfer.bitbltbuf.dpsm=0u;transfer.trxpos.dsax=3u;transfer.trxpos.dsay=5u;transfer.trxreg.rrw=3u;transfer.trxreg.rrh=2u;
+    const uint32_t data[]={0x80112233u,0x80445566u,0x80778899u,0x80aabbccu,0x80ddeeffu,0x8013579bu};
+    pair.cpu->BeginTransfer(transfer);pair.gpu->BeginTransfer(transfer);pair.cpu->UploadImage(reinterpret_cast<const uint8_t*>(data),sizeof(data));pair.gpu->UploadImage(reinterpret_cast<const uint8_t*>(data),sizeof(data));pair.compare("GPU partial host upload preserves neighboring pixels");
+    transfer.direction=2u;transfer.bitbltbuf.sbp=112u*32u;transfer.bitbltbuf.sbw=8u;transfer.bitbltbuf.spsm=0u;transfer.bitbltbuf.dbp=56u*32u;transfer.trxpos.ssax=3u;transfer.trxpos.ssay=5u;
+    pair.cpu->BeginTransfer(transfer);pair.gpu->BeginTransfer(transfer);pair.compare("GPU local-to-local transfer");
+}
+void checkLines(){
+    constexpr unsigned frames[]={0u,1u,2u,10u};
+    for(unsigned mode=0;mode<64u;++mode){
+        Comparison pair;auto p=material(0u,false);auto& s=p.state;auto& c=s.context;
+        s.prim.type=mode&1u ? GS_PRIM_LINE : GS_PRIM_LINESTRIP;p.vertexCount=2u;
+        s.prim.iip=(mode&2u)!=0u;s.prim.fge=(mode&4u)!=0u;c.frame.psm=frames[(mode/8u)%4u];
+        c.zbuf.psm=50u;c.zbuf.zmask=false;s.fogR=31u;s.fogG=79u;s.fogB=191u;
+        const unsigned dx=(mode/2u)%8u,dy=(mode/16u)%4u;
+        for(unsigned direction=0;direction<8u;++direction){
+            const float x=float(19u+direction*29u),y=float(17u+direction*19u);
+            p.vertices[0].x=x;p.vertices[0].y=y;
+            p.vertices[1].x=x+float(direction&1u ? -int(dx) : int(dx));
+            p.vertices[1].y=y+float(direction&2u ? -int(dy) : int(dy));
+            if(direction&4u)std::swap(p.vertices[0],p.vertices[1]);
+            pair.draw(p);
+        }
+        p.vertexCount=1u;s.prim.type=GS_PRIM_POINT;p.vertices[0].x=5.75f;p.vertices[0].y=6.25f;pair.draw(p);
+        pair.compare("GPU line directions and point "+std::to_string(mode));
+        if(pair.gpu->stats().gpuDraws!=9u)throw std::runtime_error("Line fixture fell back to CPU rendering");
+    }
+}
+void checkRebind(){
+    Comparison pair(false);auto p=material(0u,false);p.state.prim.tme=false;pair.draw(p);
+    // Release the previous host allocation while its draw remains queued.
+    // Rebinding must never read back through the released pointer.
+    {std::vector<uint8_t> replacement(gpu::VramBytes,0x53u);pair.actual.swap(replacement);}
+    std::fill(pair.expected.begin(),pair.expected.end(),0x53u);
+    pair.cpu->Initialize(pair.expected.data(),unsigned(pair.expected.size()));pair.gpu->Initialize(pair.actual.data(),unsigned(pair.actual.size()));
+    pair.draw(p);pair.compare("GPU host VRAM replacement");
+    if(pair.gpu->stats().gpuDraws!=2u)throw std::runtime_error("Rebound VRAM fixture did not execute on GPU");
+}
+void checkClears(){
+    constexpr unsigned formats[]={0u,1u,2u,10u};
+    for(unsigned format:formats)for(unsigned mode=0;mode<4u;++mode){
+        Comparison pair;auto p=material(0u,false);p.state.prim.tme=false;p.state.context.frame.psm=format;
+        pair.draw(p);auto c=p.state.context;c.fba=mode&1u;c.frame.fbmsk=mode&2u ? 0x0ff00ff0u : 0u;
+        c.scissor={3u,193u,5u,137u};
+        if(!pair.cpu->ClearFramebuffer(c,0x3713a75bu) || !pair.gpu->ClearFramebuffer(c,0x3713a75bu))throw std::runtime_error("Framebuffer clear unexpectedly rejected");
+        pair.compare("GPU framebuffer clear "+std::to_string(format)+":"+std::to_string(mode));
+        if((format==0u || format==1u || !(mode&2u)) && pair.gpu->stats().gpuDraws!=2u)throw std::runtime_error("Eligible framebuffer clear did not execute on GPU");
+    }
+}
+}
+int run_gpu_checks(bool required){
+    try{
+        gpu::verify_address_tables();std::cout<<"GPU swizzle address references passed.\n";
+        std::string error;
+#ifdef _WIN32
+        try{set_renderer_preference("gpu");initialize_window_gpu();}catch(const std::exception& e){error=e.what();}
+        const bool initialized=bool(gpu::current_device());
+#else
+        const bool initialized=gpu::initialize_headless(error);
+#endif
+        if(!initialized){std::cout<<"GPU checks unavailable: "<<error<<'\n';return required ? 1 : 77;}
+        checkMaterials();checkIntegerPipeline();checkFormats();checkLines();checkCoherence();checkRebind();checkClears();
+        const auto before=gpu_render_statistics().gpuDraws;verify_vector_runtime_gpu();
+        if(gpu_render_statistics().gpuDraws-before!=8u)throw std::runtime_error("VIF/PATH1 integration did not execute eight GPU triangles");
+        // A failed asynchronous submission must propagate to its caller and
+        // still allow context teardown, rather than leaving a waiting future.
+        auto device=gpu::current_device();device->post([](gpu::Api&){throw std::runtime_error("GPU failure propagation fixture");});
+        try{device->invoke([](gpu::Api&){});}catch(const std::exception&){}
+        bool propagated=false;
+        try{device->invoke([](gpu::Api&){});}catch(const std::exception& e){propagated=std::string(e.what())=="GPU failure propagation fixture";}
+        if(!propagated)throw std::runtime_error("GPU asynchronous failure did not propagate");
+        gpu::shutdown_device();
+        std::cout<<"GPU renderer comparisons passed: 256 material states, 104 format states, 65536 integer pipeline draws, 576 point/line draws, writebacks, uploads, target transitions, feedback fallback, VRAM replacement, eight VIF/PATH1 GPU triangles and asynchronous failure propagation.\n";return 0;
+    }catch(const std::exception& e){std::cerr<<"GPU regression failed: "<<e.what()<<'\n';gpu::shutdown_device();return 1;}
+}
+int benchmark_gpu_renderer(unsigned draws){
+    try{
+        if(!draws)throw std::runtime_error("Draw count must be positive");
+        std::string error;
+#ifdef _WIN32
+        set_renderer_preference("gpu");initialize_window_gpu();
+#else
+        if(!gpu::initialize_headless(error))throw std::runtime_error(error);
+#endif
+        std::cout<<"GPU benchmark device: "<<gpu::current_device()->description()<<'\n';
+        for(unsigned mode:{0u,1u,16u,64u,65u,96u})for(unsigned pass=0;pass<3u;++pass){
+            Comparison pair;auto batch=material(mode,false);auto& c=batch.state.context;
+            pair.cpu->LoadClut(c.tex0,{});pair.gpu->LoadClut(c.tex0,{});
+            pair.draw(batch);pair.compare("GPU benchmark warmup");
+            for(unsigned phase=0;phase<2u;++phase){
+                const bool useGpu=(phase^unsigned(pass&1u))!=0u;
+                auto* renderer=useGpu ? static_cast<GSRasterBackend*>(pair.gpu.get()) : static_cast<GSRasterBackend*>(pair.cpu.get());
+                const auto start=std::chrono::steady_clock::now();
+                for(unsigned i=0;i<draws;++i)renderer->Submit(batch);
+                renderer->Sync(GSSyncReason::Finish);
+                std::vector<uint8_t> snapshot;renderer->SnapshotVram(snapshot);
+                const auto nanoseconds=std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now()-start).count();
+                uint64_t hash=14695981039346656037ull;for(auto byte:snapshot)hash=(hash^byte)*1099511628211ull;
+                std::cout<<"mode="<<mode<<" pass="<<pass<<" backend="<<(useGpu ? "gpu" : "cpu")<<" ns_per_draw="<<double(nanoseconds)/draws<<" hash="<<std::hex<<hash<<std::dec<<'\n';
+            }
+            pair.compare("GPU benchmark rendered output");
+        }
+        gpu::shutdown_device();return 0;
+    }catch(const std::exception& e){std::cerr<<e.what()<<'\n';gpu::shutdown_device();return 1;}
+}
+
+}

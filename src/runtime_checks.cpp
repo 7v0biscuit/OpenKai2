@@ -19,6 +19,7 @@
 #include "attack_effect_checks.h"
 #include "impact_effect_checks.h"
 #include "actor_command_checks.h"
+#include "pause_menu_checks.h"
 #include "vector_checks.h"
 #include "vector_hotpath_checks.h"
 #include "animation_checks.h"
@@ -477,6 +478,8 @@ int run_runtime_checks() {
     verify_vector_execution();
     std::cout << "Runtime vector execution regression passed: 64 original register, flag, cycle, memory and packet references, cache invalidation, resume, wrapping, VU0/VU1, and 128 host floating-point control cases.\n";
     verify_impact_effects(runtime,memory);
+    verify_pause_menu(runtime,memory);
+    std::cout << "Runtime pause menu regression passed: 12 registered callbacks, 513 original open, timer and input-dispatch cases with aliases, priority, null slots and stack guards.\n";
     verify_actor_commands(runtime,memory);
     std::cout << "Runtime actor command regression passed: 40 registered methods, 48 original orientation callbacks and 120 compiled caller cases with cached and uncached aliases.\n";
     std::cout << "Runtime impact effect regression passed: 34 lifecycle methods, 112 original factory cases, allocation failure, actor flags, resource binding and saved registers.\n";

@@ -28,7 +28,8 @@ required at every game launch, and its files are verified before execution.
 Game files are not included in the downloads.
 
 See the [Windows guide](docs/windows.md) for requirements, keyboard controls,
-audio status, and log locations.
+audio status, and log locations. [GPU rendering](docs/graphics.md) is enabled
+automatically with an OpenGL 4.3 driver; a CPU compatibility path is available.
 
 ## Current status
 

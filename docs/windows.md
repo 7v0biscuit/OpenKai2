@@ -17,7 +17,7 @@ Get the Windows development build from
   preserves the disc cache, logs, and unrelated files in the installation folder.
 
 The downloads need Windows 10/11 x64, an SSE4.1-capable CPU, and your original
-USA ISO. Python and Visual Studio are needed only for building from source.
+USA ISO. GPU rendering requires an OpenGL 4.3 driver. Python and Visual Studio are needed only for building from source.
 Development downloads are unsigned. Verify their SHA-256 values against the
 release's `SHA256SUMS.txt`.
 
@@ -36,10 +36,11 @@ Cumulative `[runtime:work]` log records separate guest execution, DMA, and
 vector-unit work. `path1-submit` measures graphics submission inside vector
 execution. These are inclusive host timings, not a game-FPS counter; nested
 stages must not be added together.
-The renderer currently runs on the CPU; a supported GPU does not establish a
-particular game frame rate. Large eligible sprites and textured triangles use up to four CPU workers,
-including indexed textures and independent depth buffers. Dependent draws
-retain serial execution. Stable 60 game FPS remains unverified.
+OpenKai2 selects the OpenGL 4.3 compute renderer automatically when available.
+It rasterizes game primitives on the GPU, with a software compatibility path
+for unsupported or overlapping buffer states. Stable 60 game FPS remains
+unverified. See [GPU rendering](graphics.md) for renderer selection, requirements,
+and the scope of validation.
 
 ## Audio output
 

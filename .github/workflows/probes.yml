@@ -69,3 +69,17 @@ jobs:
                   message = message.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
                   print('::error title=' + title + '::' + message, flush=True)
           sys.exit(code)
+  linux-gpu:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Mesa and native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ninja-build pkg-config libavcodec-dev libavformat-dev libavutil-dev libswresample-dev libswscale-dev libgl1-mesa-dev libegl1-mesa-dev libgl1-mesa-dri libegl-mesa0 libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
+      - name: Require GPU rendering and video-memory comparisons
+        run: python tools/native/test-gpu-linux.py --jobs 2

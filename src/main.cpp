@@ -3,6 +3,8 @@
 #include "disc_image.h"
 #include "openkai2_build_revision.h"
 #include "runtime_checks.h"
+#include "render/gpu_backend.h"
+#include "render/gpu_checks.h"
 #include "runtime_layout.h"
 #include "ps2_runtime.h"
 #include <exception>
@@ -12,6 +14,7 @@
 #include <mutex>
 #include <stdexcept>
 #include <streambuf>
+#include <vector>
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -73,9 +76,10 @@ public:
 };
 
 void usage() {
-    std::cout << "Usage: OpenKai2 <path-to-Budokai-2-USA.iso>\n"
+    std::cout << "Usage: OpenKai2 [--renderer=auto|gpu|cpu] <path-to-Budokai-2-USA.iso>\n"
               << "The original game ISO is required on every boot.\n"
               << "OpenKai2 --self-test checks compiled callback dispatch without booting the game.\n"
+              << "OpenKai2 --gpu-self-test checks GPU rendering without a game ISO.\n"
               << "OpenKai2 --audio-test reports the disabled host audio status.\n";
 #ifdef _WIN32
     std::cout << "Double-click OpenKai2.exe to choose an ISO.\n";
@@ -110,24 +114,40 @@ int main(int argc, char* argv[]) {
         int count=0;
         auto arguments=CommandLineToArgvW(GetCommandLineW(),&count);
         if (!arguments) throw std::runtime_error("Cannot read command line");
-        const std::wstring argument=count==2 ? arguments[1] : L"";
+        std::vector<std::wstring> positional;
+        for(int i=1;i<count;++i)positional.emplace_back(arguments[i]);
         LocalFree(arguments);
+        for(auto i=positional.begin();i!=positional.end();){
+            if(i->rfind(L"--renderer=",0u)==0u){
+                const auto value=i->substr(11u);openkai2::set_renderer_preference(std::string(value.begin(),value.end()));i=positional.erase(i);
+            }else ++i;
+        }
+        count=int(positional.size())+1;
+        const std::wstring argument=count==2 ? positional.front() : L"";
         if (count==2 && (argument==L"--help" || argument==L"-h")) { usage(); return 0; }
         if (count==2 && argument==L"--audio-test") { log.open("audio-test.log");return openkai2::test_host_audio(); }
         if (count==2 && argument==L"--self-test") return openkai2::run_runtime_checks();
+        if (count==2 && argument==L"--gpu-self-test") {log.open("gpu-test.log");return openkai2::run_gpu_checks(true);}
         if (count>2) { usage(); return 2; }
         interactive=count==1;
         if (!interactive) image=argument;
 #else
-        if (argc==2 && (std::string(argv[1])=="--help" || std::string(argv[1])=="-h")) { usage(); return 0; }
-        if (argc==2 && std::string(argv[1])=="--audio-test") { log.open("audio-test.log");return openkai2::test_host_audio(); }
-        if (argc==2 && std::string(argv[1])=="--self-test") return openkai2::run_runtime_checks();
-        if (argc!=2) { usage(); return 2; }
-        image=argv[1];
+        std::vector<std::string> positional;
+        for(int i=1;i<argc;++i){
+            const std::string argument=argv[i];
+            if(argument.rfind("--renderer=",0u)==0u)openkai2::set_renderer_preference(argument.substr(11u));
+            else positional.push_back(argument);
+        }
+        if(positional.size()==1u && (positional[0]=="--help" || positional[0]=="-h")){usage();return 0;}
+        if(positional.size()==1u && positional[0]=="--audio-test"){log.open("audio-test.log");return openkai2::test_host_audio();}
+        if(positional.size()==1u && positional[0]=="--self-test")return openkai2::run_runtime_checks();
+        if(positional.size()==1u && positional[0]=="--gpu-self-test"){log.open("gpu-test.log");return openkai2::run_gpu_checks(true);}
+        if(positional.size()!=1u){usage();return 2;}
+        image=positional[0];
 #endif
         log.open();
         std::cout << "[build] source_revision=" OPENKAI2_SOURCE_REVISION
-                     " renderer=cpu presentation=async" << std::endl;
+                  << " renderer=" << openkai2::renderer_preference() << " presentation=async" << std::endl;
         openkai2::verify_runtime_layout(sizeof(VU1Interpreter),sizeof(PS2Runtime));
         std::cout << "[launcher] Startup log: " << log.path.string() << std::endl;
 #ifdef _WIN32

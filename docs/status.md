@@ -9,6 +9,46 @@ The original Budokai 2 USA ISO is required at every game launch. Automated
 checks cover bounded runtime behavior and Windows packaging; full retail
 compatibility requires separate validation.
 
+## GPU rendering
+
+The default renderer uses OpenGL 4.3 compute shaders for points, lines,
+triangles, and sprites. Ordered tile lists retain draw order and reuse pixel
+color and depth across a batch. Direct and indexed textures support point and
+bilinear sampling, fixed and perspective coordinates, wrapping, texture
+functions, fog, alpha/depth tests, blending, and framebuffer masks. Color and
+depth targets support 32-, 24-, and 16-bit layouts.
+
+The backend tracks CPU uploads and GPU writes by VRAM page. Reads, transfers,
+palette loads, target transitions, feedback, and presentation synchronize data
+before a consumer uses it. Unsupported states retain software rendering until
+the next presentation. Bounded submission queues limit work in flight. GPU
+submission failures propagate to the caller without abandoning a waiting job.
+
+GPU comparisons require real compute dispatch and compare complete VRAM with
+the software renderer: 256 material states, 104 format/addressing states,
+65,536 integer pipeline draws, and 576 point/line draws. Additional checks cover
+uploads, writebacks, render-to-texture transitions, feedback fallback, replacing
+the host VRAM allocation, eight real VIF/PATH1 triangles, and failure propagation.
+The Linux headless and Windows-under-Wine comparisons use Mesa; hardware game
+performance and stable 60 FPS have not been measured here. Display conversion
+and parts of guest execution still run on the CPU.
+
+See [GPU rendering](graphics.md) for selection and diagnostics.
+
+## Pause menu callbacks
+
+The pause menu's 21 descriptors contain six callback slots each. Nine distinct
+methods and three installed continuations have explicit native dispatch entries,
+including the previously missing open callback at `0x001C0BD0`. Original table
+words, full method instructions, and the input caller are verified against the
+supported executable.
+
+The native regression executes the original open callback and timer continuation
+in 72 cases, and the original input caller in 441 cases. It checks all descriptor
+rows, input priority, null callbacks, address aliases, dependency arguments,
+installed continuations, saved registers, and stack guards. These bounded checks
+do not establish complete retail pause-menu behavior.
+
 ## Battle asset loading
 
 Battle startup uses an eleven-stage initialization table. Its entries are
@@ -469,7 +509,7 @@ The executable embeds its source revision in a contiguous log marker. Native
 builds refresh this stamp after a commit; portable and installer packaging
 reject binaries whose marker disagrees with the checkout or bundle manifest.
 
-The Python suite has 193 tests. Native checks include the original BCM/BSK
+The Python suite has 195 tests. Native checks include the original BCM/BSK
 asset dispatcher, all eleven battle initialization entries, fragmented and bulk
 IOP clocks, delayed wakeups, external RPC delivery, both SPU2 DMA cores, planar
 PCM order, partial blocks, queue boundaries, and concurrent delivery.

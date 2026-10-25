@@ -1,0 +1,219 @@
+// SPDX-License-Identifier: GPL-3.0-only
+#version 430 core
+// One invocation owns one destination pixel. Tile command lists retain guest
+// draw order. Texture/target aliases are synchronized by the host backend.
+layout(local_size_x=8,local_size_y=8) in;
+layout(std430,binding=0) buffer Vram {uint memory[];};
+layout(std430,binding=1) readonly buffer Commands {uint commands[];};
+layout(std430,binding=2) readonly buffer Tiles {uint tiles[];};
+layout(std430,binding=3) readonly buffer References {uint references[];};
+layout(std430,binding=4) readonly buffer Palettes {uint palettes[];};
+layout(std430,binding=5) readonly buffer AddressTables {uint tables[];};
+uint word(uint c,uint index){return commands[c+index];}
+float number(uint c,uint index){return uintBitsToFloat(word(c,index));}
+uint vertex(uint c,uint index){return c+40u+index*16u;}
+uvec4 unpackColor(uint p){return uvec4(p,p>>8u,p>>16u,p>>24u)&uvec4(255u);}
+uint packColor(uvec4 p){return p.x|(p.y<<8u)|(p.z<<16u)|(p.w<<24u);}
+uint bitAddress(uint psm,uint base,uint width,ivec2 pos){
+    uint d=(psm&63u)*8u;uint pw=tables[d],ph=tables[d+1u];
+    uvec2 p=uvec2(pos);uint page=(p.y/ph)*((width*64u)/pw)+p.x/pw;
+    return (base*2048u+page*65536u+tables[tables[d+5u]+(p.y%ph)*pw+p.x%pw])&33554431u;
+}
+uint readPixel(uint psm,uint base,uint width,ivec2 pos){
+    uint bits=bitAddress(psm,base,width,pos),count=tables[(psm&63u)*8u+3u];
+    uint value=memory[bits>>5u]>>(bits&31u);
+    return count==32u ? value : value&((1u<<count)-1u);
+}
+uint convert16(uint value){
+    return ((value&31u)<<3u)|(((value>>5u)&31u)<<11u)|(((value>>10u)&31u)<<19u)|(((value>>15u)&1u)<<31u);
+}
+uint applyAlpha(uint c,uint psm,uint value){
+    if(psm==0u)return value;
+    uvec4 p=unpackColor(value);bool zero=(p.x|p.y|p.z)==0u;
+    if(psm==1u)p.w=word(c,27u)!=0u && zero ? 0u : word(c,25u);
+    else if(psm==2u || psm==10u)p.w=(p.w&128u)!=0u ? word(c,26u) : word(c,27u)!=0u && zero ? 0u : word(c,25u);
+    return packColor(p);
+}
+int wrapCoordinate(int p,int size,uint mode,uint low,uint high){
+    if(mode==0u)return int(uint(p)&uint(size-1));
+    if(mode==1u)return clamp(p,0,size-1);
+    if(mode==2u)return min(max(p,int(low)),int(high));
+    return int((uint(p)&low)|high);
+}
+uint samplePoint(uint c,ivec2 position){
+    uint clampLow=word(c,21u),clampHigh=word(c,22u);
+    position.x=wrapCoordinate(position.x,int(word(c,19u)),clampLow&3u,(clampLow>>4u)&1023u,(clampLow>>14u)&1023u);
+    uint vhigh=((clampLow>>24u)|(clampHigh<<8u))&1023u;
+    position.y=wrapCoordinate(position.y,int(word(c,20u)),(clampLow>>2u)&3u,vhigh,(clampHigh>>2u)&1023u);
+    uint psm=word(c,16u),p=readPixel(psm,word(c,17u),word(c,18u),position);
+    if(psm==19u || psm==20u || psm==27u || psm==36u || psm==44u)return palettes[word(c,28u)+(p&255u)];
+    if(psm==2u || psm==10u || psm==50u || psm==58u)p=convert16(p);
+    return applyAlpha(c,psm,p);
+}
+uint sampleTexture(uint c,vec2 uv){
+    if((word(c,1u)&32u)==0u)return samplePoint(c,ivec2(uv));
+    precise vec2 position=uv-vec2(0.5);
+    ivec2 low=ivec2(floor(position));precise vec2 f=position-vec2(low);
+    vec4 a=vec4(unpackColor(samplePoint(c,low)));
+    vec4 b=vec4(unpackColor(samplePoint(c,low+ivec2(1,0))));
+    vec4 d=vec4(unpackColor(samplePoint(c,low+ivec2(0,1))));
+    vec4 e=vec4(unpackColor(samplePoint(c,low+ivec2(1,1))));
+    precise vec4 top=a+(b-a)*f.x;
+    precise vec4 bottom=d+(e-d)*f.x;
+    precise vec4 color=top+(bottom-top)*f.y;
+    vec4 lower=floor(color);
+    uvec4 rounded=uvec4(lower)+uvec4(greaterThanEqual(color-lower,vec4(0.5)));
+    return packColor(min(rounded,uvec4(255u)));
+}
+uvec4 combineTexture(uint c,uvec4 shade,uvec4 texel){
+    uint mode=word(c,23u);bool alpha=word(c,24u)!=0u;
+    if(mode==1u)return uvec4(texel.xyz,alpha ? texel.w : shade.w);
+    uvec4 outColor=(shade*texel)>>7u;
+    if(mode==2u || mode==3u)outColor+=uvec4(shade.w);
+    outColor=min(outColor,uvec4(255u));
+    outColor.w=!alpha ? shade.w : mode==0u ? outColor.w : mode==2u ? min(texel.w+shade.w,255u) : texel.w;
+    return outColor;
+}
+float interpolateAttribute(float a,float b,float c,vec3 weights){
+    precise float first=a*weights.x+b*weights.y;
+    precise float result=first+c*weights.z;return result;
+}
+float qValue(float q){return abs(q)>1.0e-8 ? q : 1.0;}
+bool shadePixel(uint c,ivec2 position,out uvec4 color,out uint z){
+    uint flags=word(c,1u);uint a=vertex(c,0u),b=vertex(c,1u),d=vertex(c,2u);
+    vec2 uv=vec2(0.0);uint fog=0u;
+    if(word(c,0u)==0u){
+        color=unpackColor(word(a,4u));z=uint(packDouble2x32(uvec2(word(a,2u),word(a,3u))));fog=word(a,5u);
+    }else if(word(c,0u)==1u){
+        ivec2 start=ivec2(number(a,0u),number(a,1u)),finish=ivec2(number(b,0u),number(b,1u));
+        ivec2 delta=abs(finish-start),direction=ivec2(greaterThan(finish,start))*2-ivec2(1);
+        bool xMajor=delta.x>=delta.y;int steps=xMajor ? delta.x : delta.y;
+        int k=abs(xMajor ? position.x-start.x : position.y-start.y);
+        if(k>steps)return false;
+        int minor=steps==0 ? 0 : (k*(xMajor ? delta.y : delta.x)+steps/2)/steps;
+        ivec2 expected=start+direction*(xMajor ? ivec2(k,minor) : ivec2(minor,k));
+        if(position!=expected)return false;
+        precise float t=steps==0 ? 0.0 : float(k)/float(steps);
+        vec4 ca=vec4(unpackColor(word(a,4u))),cb=vec4(unpackColor(word(b,4u)));
+        precise vec4 channels=ca+(cb-ca)*t;
+        color=(flags&4u)!=0u ? uvec4(clamp(ivec4(channels),ivec4(0),ivec4(255))) : uvec4(cb);
+        double za=packDouble2x32(uvec2(word(a,2u),word(a,3u))),zb=packDouble2x32(uvec2(word(b,2u),word(b,3u)));
+        precise double depth=za+(zb-za)*double(t);z=uint(depth);
+        precise float fogValue=float(word(a,5u))+(float(word(b,5u))-float(word(a,5u)))*t;
+        fog=uint(clamp(int(fogValue),0,255));
+    }else if(word(c,0u)==6u){
+        color=unpackColor(word(b,4u));z=uint(packDouble2x32(uvec2(word(b,2u),word(b,3u))));fog=word(b,5u);
+        if((flags&1u)!=0u){
+            precise float tx=(float(position.x)-number(c,34u))/number(c,36u);
+            precise float ty=(float(position.y)-number(c,35u))/number(c,37u);
+            precise float u=number(c,30u)+(number(c,32u)-number(c,30u))*tx;
+            precise float v=number(c,31u)+(number(c,33u)-number(c,31u))*ty;
+            if((flags&2u)!=0u)uv=vec2(clamp(ivec2(vec2(u,v)*16.0+vec2(0.5)),ivec2(0),ivec2(65535)))/16.0;
+            else {precise vec2 normalized=vec2(u/float(word(c,19u)),v/float(word(c,20u)));uv=normalized*vec2(word(c,19u),word(c,20u));}
+        }
+    }else{
+        float x0=number(a,0u),y0=number(a,1u),x1=number(b,0u),y1=number(b,1u),x2=number(d,0u),y2=number(d,1u);
+        precise float denom=(y1-y2)*(x0-x2)+(x2-x1)*(y0-y2);
+        if(abs(denom)<0.001)return false;
+        float winding=denom<0.0 ? -1.0 : 1.0;precise float inverse=1.0/abs(denom);
+        precise vec2 p=vec2(position)+vec2(0.5);
+        precise float w0=(((y1-y2)*(p.x-x2)+(x2-x1)*(p.y-y2))*winding)*inverse;
+        precise float w1=(((y2-y0)*(p.x-x0)+(x0-x2)*(p.y-y0))*winding)*inverse;
+        precise float w2=1.0-w0-w1;
+        if(w0 < -0.0001 || w1 < -0.0001 || w2 < -0.0001)return false;
+        vec3 weights=vec3(w0,w1,w2);
+        precise double depth=packDouble2x32(uvec2(word(a,2u),word(a,3u)))*double(w0)
+            +packDouble2x32(uvec2(word(b,2u),word(b,3u)))*double(w1);
+        depth=depth+packDouble2x32(uvec2(word(d,2u),word(d,3u)))*double(w2);
+        z=uint(depth+0.5lf);
+        color=unpackColor(word(d,4u));
+        if((flags&4u)!=0u){
+            vec4 ca=vec4(unpackColor(word(a,4u))),cb=vec4(unpackColor(word(b,4u))),cd=vec4(unpackColor(word(d,4u)));
+            precise vec4 first=ca*w0+cb*w1;
+            precise vec4 channels=first+cd*w2;
+            color=uvec4(clamp(ivec4(channels),ivec4(0),ivec4(255)));
+        }
+        if((flags&1u)!=0u){
+            if((flags&2u)!=0u){
+                precise float u=interpolateAttribute(float(word(a,9u)),float(word(b,9u)),float(word(d,9u)),weights);
+                precise float v=interpolateAttribute(float(word(a,10u)),float(word(b,10u)),float(word(d,10u)),weights);
+                uv=vec2(uvec2(ivec2(u,v))&uvec2(65535u))/16.0;
+            }else{
+                precise float s=interpolateAttribute(number(a,6u),number(b,6u),number(d,6u),weights);
+                precise float t=interpolateAttribute(number(a,7u),number(b,7u),number(d,7u),weights);
+                precise float q=interpolateAttribute(number(a,8u),number(b,8u),number(d,8u),weights);
+                precise float inverseQ=1.0/qValue(q);
+                precise vec2 coordinates=vec2(s,t)*inverseQ;
+                uv=coordinates*vec2(word(c,19u),word(c,20u));
+            }
+        }
+        if((flags&16u)!=0u)fog=uint(clamp(int(interpolateAttribute(float(word(a,5u)),float(word(b,5u)),float(word(d,5u)),weights)),0,255));
+    }
+    if((flags&1u)!=0u)color=combineTexture(c,color,unpackColor(sampleTexture(c,uv)));
+    if((flags&16u)!=0u){uvec3 fogColor=unpackColor(word(c,29u)).xyz;color.xyz=((uvec3(fog)*color.xyz)>>8u)+((uvec3(255u-fog)*fogColor)>>8u);}
+    return true;
+}
+bool alphaPass(uint test,uint alpha){
+    if((test&1u)==0u)return true;
+    uint ref=(test>>4u)&255u,method=(test>>1u)&7u;
+    if(method==0u)return false;if(method==1u)return true;
+    if(method==2u)return alpha<ref;if(method==3u)return alpha<=ref;
+    if(method==4u)return alpha==ref;if(method==5u)return alpha>=ref;
+    if(method==6u)return alpha>ref;return alpha!=ref;
+}
+ivec3 selectColor(uint selector,ivec3 source,ivec3 destination){return selector==0u ? source : selector==1u ? destination : ivec3(0);}
+void storeTarget(uint address,uint shift,uint count,uint value){
+    if(count==16u){
+        // Adjacent pixels can own opposite halves of the same VRAM word.
+        // Atomic updates preserve the neighbouring invocation's halfword.
+        uint mask=65535u<<shift;atomicAnd(memory[address],~mask);atomicOr(memory[address],(value<<shift)&mask);
+    }else if(count==24u)memory[address]=(memory[address]&4278190080u)|(value&16777215u);
+    else memory[address]=value;
+}
+void main(){
+    uint bin=gl_WorkGroupID.x*4u;
+    ivec2 position=ivec2(tiles[bin],tiles[bin+1u])*8+ivec2(gl_LocalInvocationID.xy);
+    uint first=tiles[bin+2u],end=first+tiles[bin+3u];
+    uint initial=references[first]*96u;
+    uint framePsm=word(initial,38u),depthPsm=word(initial,13u);
+    uint frameBits=bitAddress(framePsm,word(initial,6u),word(initial,8u),position);
+    uint depthBits=bitAddress(depthPsm,word(initial,7u),word(initial,8u),position);
+    uint frameAddress=frameBits>>5u,depthAddress=depthBits>>5u;
+    uint frameCount=tables[framePsm*8u+3u],depthCount=tables[depthPsm*8u+3u];
+    uint depthMask=depthCount==32u ? 4294967295u : (1u<<depthCount)-1u;
+    uint frame=memory[frameAddress]>>(frameBits&31u),depth=(memory[depthAddress]>>(depthBits&31u))&depthMask;
+    if(frameCount==16u)frame&=65535u;
+    bool frameDirty=false,depthDirty=false;
+    for(uint i=first;i<end;++i){
+        uint c=references[i]*96u;
+        if(position.x<int(word(c,2u)) || position.y<int(word(c,3u)) || position.x>int(word(c,4u)) || position.y>int(word(c,5u)))continue;
+        uvec4 source;uint z;if(!shadePixel(c,position,source,z))continue;
+        uint test=word(c,9u),mask=7u;
+        if(!alphaPass(test,source.w)){uint failure=(test>>12u)&3u;mask=failure==0u ? 0u : failure==1u ? 3u : failure==2u ? 4u : framePsm==0u ? 1u : 3u;}
+        if(mask==0u)continue;
+        if((test&16384u)!=0u && framePsm!=1u && ((frame>>(frameCount==16u ? 15u : 31u))&1u)!=((test>>15u)&1u))continue;
+        uint method=(test>>17u)&3u;
+        if(method==0u || (method==2u && z<depth) || (method==3u && z<=depth))continue;
+        if((mask&3u)!=0u){
+            uint oldColor=frameCount==16u ? convert16(frame) : framePsm==1u ? (frame&16777215u)|2147483648u : frame;
+            uvec4 result=source;uint alpha=word(c,10u),flags=word(c,1u);
+            bool identity=(alpha&3u)==((alpha>>2u)&3u) && ((alpha>>6u)&3u)==0u;
+            if((flags&8u)!=0u && !identity && !((alpha&255u)==68u && source.w==128u) && !((flags&64u)!=0u && source.w<128u)){
+                ivec3 s=ivec3(source.xyz),d=ivec3(unpackColor(oldColor).xyz);
+                uint selector=(alpha>>4u)&3u;
+                int factor=int(selector==0u ? source.w : selector==1u ? oldColor>>24u : word(c,11u));
+                ivec3 delta=selectColor(alpha&3u,s,d)-selectColor((alpha>>2u)&3u,s,d);
+                result.xyz=uvec3(clamp(((delta*factor)>>7)+selectColor((alpha>>6u)&3u,s,d),ivec3(0),ivec3(255)));
+            }
+            uint pixel=packColor(result);
+            if(word(c,15u)!=0u && (mask&2u)!=0u && framePsm!=1u)pixel|=2147483648u;
+            uint writeMask=word(c,12u);pixel=(pixel&~writeMask)|(oldColor&writeMask);
+            if((mask&3u)==1u)pixel=(pixel&16777215u)|(oldColor&4278190080u);
+            if(frameCount==16u){uvec4 channels=unpackColor(pixel);frame=(channels.x>>3u)|((channels.y>>3u)<<5u)|((channels.z>>3u)<<10u)|((channels.w>>7u)<<15u);}
+            else frame=pixel;frameDirty=true;
+        }
+        if(word(c,14u)==0u && (mask&4u)!=0u){depth=z&depthMask;depthDirty=true;}
+    }
+    if(frameDirty)storeTarget(frameAddress,frameBits&31u,frameCount,frame);
+    if(depthDirty)storeTarget(depthAddress,depthBits&31u,depthCount,depth);
+}

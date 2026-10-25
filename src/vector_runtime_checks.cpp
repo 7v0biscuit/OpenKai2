@@ -41,7 +41,7 @@ uint32_t pixel(PS2Memory& memory,unsigned x,unsigned y) {
     uint32_t value;std::memcpy(&value,memory.getGSVRAM()+GSPSMCT32::addrPSMCT32(0u,1u,x,y),4u);return value;
 }
 }
-void verify_vector_runtime() {
+void verify_vector_runtime_impl(bool synchronize) {
     verify_runtime_layout(sizeof(VU1Interpreter),sizeof(PS2Runtime));
     auto runtime=std::make_unique<PS2Runtime>();auto& memory=runtime->memory();
     if(!memory.initialize() || !runtime->syncCoreSubsystems())throw std::runtime_error("Runtime VIF1 fixture initialization failed");
@@ -53,6 +53,7 @@ void verify_vector_runtime() {
         runtime->vu1().state().vi[1]=0;
         const uint32_t mscal=0x14000000u,mscnt=0x17000000u;
         memory.processVIF1Data(reinterpret_cast<const uint8_t*>(&mscal),4u);
+        if(synchronize)runtime->gs().latchHostPresentationFrame();
         if(runtime->vu1().state().vi[2]!=int(17u+variant) || runtime->vu1().state().pc!=24u
             || pixel(memory,12u,12u)!=color || pixel(memory,63u,63u)!=0u)
         {
@@ -70,9 +71,13 @@ void verify_vector_runtime() {
             throw std::runtime_error("Runtime VU0 execution changed the embedded VU1 state");
         const uint32_t second=color^0x00ffffffu;upload_triangle(memory,second);
         memory.processVIF1Data(reinterpret_cast<const uint8_t*>(&mscnt),4u);
+        if(synchronize)runtime->gs().latchHostPresentationFrame();
         if(runtime->vu1().state().vi[2]!=int(29u+variant) || runtime->vu1().state().pc!=48u
             || pixel(memory,12u,12u)!=second || pixel(memory,63u,63u)!=0u)
             throw std::runtime_error("Runtime VIF1 MSCNT did not resume PATH1 triangle rendering after VU0 execution");
     }
 }
+void verify_vector_runtime(){verify_vector_runtime_impl(false);}
+void verify_vector_runtime_gpu(){verify_vector_runtime_impl(true);}
+
 }
