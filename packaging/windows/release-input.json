@@ -1,7 +1,7 @@
 {
-  "version": "0.1.18",
-  "title": "v0.1.18",
-  "bundle_sha256": "c360ead025cda56d48cf066819d5df23ea79ce5dc44dafcad639842ae7194d30",
-  "bundle_source_revision": "b884bc0264185777d6f83b7c6a229c2c6794c790",
-  "input_commit": "c27a5b9deceb5873dabbbb002c6662eeaa871c67"
+  "version": "0.1.19",
+  "title": "v0.1.19",
+  "bundle_sha256": "e7d50c60b34272140e20c3a9572a5f3e9c952bdddb7c15429b1ab8b1fcfe3574",
+  "bundle_source_revision": "8b97057bc08e96af4b0f062281c1fa522e21597c",
+  "input_commit": "e2f1d08feb7242093c8834face5003e255704673"
 }
