@@ -1,0 +1,51 @@
+--- a/runtime/vu/ps2_vu1_core.cpp
++++ b/runtime/vu/ps2_vu1_core.cpp
+@@ -255,6 +255,13 @@
+     const bool bounded = boundedScalar(m_state.q) && boundedScalar(m_state.i)
+         && boundedVector(m_state.vf[FS(m_currentUpperInstruction)])
+         && boundedVector(m_state.vf[FT(m_currentUpperInstruction)]) && boundedVector(m_state.acc);
++    // For simple add/subtract/multiply, the bounded inputs also prove that
++    // a rounded zero is exactly zero. Product-sum cancellation retains the
++    // extended calculation, since rounding a product can hide a residual.
++    constexpr uint64_t simpleArithmetic=0x000015555f0000ffull;
++    const auto op=uint8_t(m_currentUpperInstruction&63u);
++    const auto arithmetic=op<0x3cu ? op : uint8_t((m_currentUpperInstruction&3u)|((m_currentUpperInstruction>>4u)&0x7cu));
++    const bool exactZero=arithmetic<64u && ((simpleArithmetic>>arithmetic)&1u)!=0u;
+     for (uint32_t component = 0; component < 4u; ++component)
+     {
+         laneFlags[component] = 0u;
+@@ -262,9 +269,10 @@
+             continue;
+ 
+         uint32_t roundedBits; std::memcpy(&roundedBits, &result[component], sizeof(roundedBits));
+-        if (bounded && (roundedBits & 0x7fffffffu) != 0u)
+-        {
+-            laneFlags[component] = static_cast<uint8_t>((roundedBits >> 30u) & 2u);
++        if (bounded && ((roundedBits & 0x7fffffffu) != 0u || exactZero))
++        {
++            laneFlags[component] = static_cast<uint8_t>(((roundedBits >> 30u) & 2u)
++                | ((roundedBits & 0x7fffffffu) == 0u ? 1u : 0u));
+             continue;
+         }
+         long double exactResult = 0.0L;
+@@ -541,6 +549,20 @@
+             right = normalizeOperand(m_state.vf[ft][component]);
+         }
+ 
++        uint32_t leftBits,rightBits;
++        std::memcpy(&leftBits,&left,4u);std::memcpy(&rightBits,&right,4u);
++        const auto leftMagnitude=leftBits&0x7fffffffu,rightMagnitude=rightBits&0x7fffffffu;
++        const auto exponentSum=((leftBits>>23u)&255u)+((rightBits>>23u)&255u);
++        // Operands were normalized above, so both are finite, with subnormals
++        // flushed to signed zero. A nonzero product with biased exponent sum
++        // [128,380] is normal and cannot overflow. Its exact S/Z flags follow
++        // directly from the operand bits; boundary products retain the original
++        // extended-precision path and its U/O flags.
++        if(leftMagnitude==0u || rightMagnitude==0u || (exponentSum>=128u && exponentSum<=380u)) {
++            extraSticky|=((leftBits^rightBits)>>30u)&2u;
++            if(leftMagnitude==0u || rightMagnitude==0u)extraSticky|=1u;
++            continue;
++        }
+         float product = left * right;
+         const long double exactProduct = static_cast<long double>(left) * static_cast<long double>(right);
+         const uint8_t productFlags = normalizeFmacExactResult(product, exactProduct);

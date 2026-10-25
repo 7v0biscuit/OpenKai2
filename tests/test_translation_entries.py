@@ -68,7 +68,7 @@ class TranslationEntries(unittest.TestCase):
     def test_reviewed_tables_have_complete_unique_coverage(self):
         self.assertEqual(len(ENTRIES.DISPATCH_TABLES), 7)
         self.assertTrue(all(len(row) == 14 for _, row in ENTRIES.DISPATCH_TABLES))
-        self.assertEqual(len(set(ENTRIES.ENTRY_POINTS)), 337)
+        self.assertEqual(len(set(ENTRIES.ENTRY_POINTS)), 377)
         self.assertEqual(len(ENTRIES.ZERO_RETURN_ENTRIES), 39)
         self.assertTrue(set(ENTRIES.ZERO_RETURN_ENTRIES) <= set(ENTRIES.ENTRY_POINTS))
         self.assertNotIn(0x00387110, ENTRIES.ENTRY_POINTS)
@@ -83,7 +83,7 @@ class TranslationEntries(unittest.TestCase):
             path = Path(temporary) / 'entries.h'
             ENTRIES.emit_check_header(path)
             content, changed = path.read_text(), path.stat().st_mtime_ns
-            self.assertIn('std::array<uint32_t, 337> entries', content)
+            self.assertIn('std::array<uint32_t, 377> entries', content)
             self.assertIn('std::array<uint32_t, 39> zero_return_entries', content)
             for address in ENTRIES.ENTRY_POINTS:
                 self.assertIn(f'0x{address:08x}u,', content)
@@ -213,6 +213,26 @@ class TranslationEntries(unittest.TestCase):
             with self.subTest(address=address), self.assertRaisesRegex(ValueError,f'missing guest entry 0x{address:08x}'):
                 self.verify_fixture('g_ps2RecompiledFunctionTable[1] = owner; // 0x167188',
                                     '// Address: 0x167188 - 0x1671a0', omitted=(address,))
+
+    def test_actor_command_bank_requires_every_callable_slot(self):
+        self.assertEqual(len(ENTRIES.ACTOR_COMMAND_TABLES[0][1]),40)
+        self.assertEqual(ENTRIES.ACTOR_COMMAND_TABLES[0][1][17],0x1fb010)
+        self.assertEqual(len(ENTRIES.ACTOR_COMMAND_ENTRIES),40)
+        for address in ENTRIES.ACTOR_COMMAND_ENTRIES:
+            with self.subTest(address=address),self.assertRaisesRegex(ValueError,f'missing guest entry 0x{address:08x}'):
+                self.verify_fixture('g_ps2RecompiledFunctionTable[1] = owner; // 0x167188',
+                                    '// Address: 0x167188 - 0x1671a0',omitted=(address,))
+
+    def test_actor_command_metadata_verifies_bank_methods_and_caller(self):
+        for address,words in ENTRIES.ACTOR_COMMAND_WORDS:
+            for index in {0,len(words)//2,len(words)-1}:
+                data=self.make_elf_metadata();data[address-0x100000+128+index*4]^=1
+                with self.subTest(address=address,index=index),self.assertRaisesRegex(ValueError,'Actor command instructions'):
+                    ENTRIES.verify_elf_metadata(data)
+        for index in range(40):
+            data=self.make_elf_metadata();data[0x375550-0x100000+128+index*4]^=1
+            with self.subTest(slot=index),self.assertRaisesRegex(ValueError,'Indirect methods differ'):
+                ENTRIES.verify_elf_metadata(data)
 
     def test_impact_effect_entries_are_required(self):
         self.assertEqual(tuple(len(v) for _,v in ENTRIES.IMPACT_EFFECT_TABLES),(8,8,8,8,4,4))
@@ -419,7 +439,7 @@ class TranslationEntries(unittest.TestCase):
         for base, entries in (ENTRIES.DISPATCH_TABLES + ENTRIES.FILE_CALLBACK_TABLES
                               + ENTRIES.STREAM_CALLBACK_TABLES + ENTRIES.MEMORY_STREAM_TABLES + ENTRIES.FADE_CALLBACK_TABLES
                               + ENTRIES.MOVIE_CALLBACK_TABLES + ENTRIES.MOVIE_PACKET_TABLES
-                              + ENTRIES.MOVIE_TIMING_TABLES + ENTRIES.SCENE_MODE_TABLES + ENTRIES.BATTLE_COMMAND_TABLES + ENTRIES.AURA_UPDATE_TABLES + ENTRIES.BATTLE_UPDATE_TABLES + ENTRIES.BATTLE_DRAW_TABLES + ENTRIES.FIGHT_STATE_TABLES + ENTRIES.ATTACK_EFFECT_TABLES + ENTRIES.IMPACT_EFFECT_TABLES):
+                              + ENTRIES.MOVIE_TIMING_TABLES + ENTRIES.SCENE_MODE_TABLES + ENTRIES.BATTLE_COMMAND_TABLES + ENTRIES.AURA_UPDATE_TABLES + ENTRIES.BATTLE_UPDATE_TABLES + ENTRIES.BATTLE_DRAW_TABLES + ENTRIES.FIGHT_STATE_TABLES + ENTRIES.ATTACK_EFFECT_TABLES + ENTRIES.IMPACT_EFFECT_TABLES + ENTRIES.ACTOR_COMMAND_TABLES):
             put(base, entries)
         put(0x00387420, ENTRIES.MOVIE_TIMING_RATES)
         for address in ENTRIES.ZERO_RETURN_ENTRIES:
@@ -432,6 +452,8 @@ class TranslationEntries(unittest.TestCase):
             put(base,slots)
         put(ENTRIES.BATTLE_ASSET_TABLE_BASE,ENTRIES.BATTLE_ASSET_TABLE_WORDS)
         for address,words in ENTRIES.BATTLE_ASSET_WORDS:
+            put(address,words)
+        for address,words in ENTRIES.ACTOR_COMMAND_WORDS:
             put(address,words)
         for address,words in ENTRIES.IMPACT_EFFECT_WORDS:
             put(address,words)

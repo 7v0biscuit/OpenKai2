@@ -21,5 +21,8 @@ int main() {
     MiniTest::Case("Original VIF unpack references",[](TestCase& tc){
         tc.Run("1664 original memory and register snapshots including overlap",[](TestCase&){openkai2::verify_vif_unpack();});
     });
+    MiniTest::Case("Original product pipeline references",[](TestCase& tc){
+        tc.Run("32 original multiply-add/subtract pipeline snapshots",[](TestCase&){openkai2::verify_vector_products();});
+    });
     return MiniTest::Run();
 }

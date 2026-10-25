@@ -41,6 +41,40 @@ void add_vif(Hash& h,PS2Memory& m){
     h.add(r.itops);h.add(r.base);h.add(r.ofst);h.add(r.tops);h.add(r.itop);h.add(r.top);h.add(r.row);h.add(r.col);
 }
 }
+HotpathResult product_workload(unsigned group,unsigned iterations) {
+    if(group>=8u || !iterations)throw std::runtime_error("Invalid vector product workload");
+    auto m=std::make_unique<PS2Memory>();if(!m->initialize())throw std::runtime_error("Product memory initialization failed");
+    auto gs=std::make_unique<GS>();gs->init(m->getGSVRAM(),PS2_GS_VRAM_SIZE,&m->gs());auto vu=std::make_unique<VU1Interpreter>();
+    constexpr uint32_t ops[]={0x29u,0x2du,0x08u,0x0eu,0x21u,0x23u,0x25u,0x2eu};
+    for(unsigned i=0;i<32u;++i){
+        const auto upper=(15u<<21u)|(2u<<16u)|(1u<<11u)|(3u<<6u)|ops[group]|(i==30u ? 0x40000000u : 0u);
+        m->write64(PS2_VU1_CODE_BASE+i*8u,uint64_t(upper)<<32u);
+    }
+    auto& state=vu->state();
+    for(unsigned lane=0;lane<4u;++lane){state.vf[1][lane]=(lane&1u ? -1.0f : 1.0f)*float(lane+1u)*0.125f;
+        state.vf[2][lane]=lane==2u ? -0.0f : float(lane+1u)*0.25f;state.acc[lane]=float(lane+1u)*0.5f;}
+    state.q=-0.5f;state.i=1.25f;
+    const auto start=std::chrono::steady_clock::now();
+    for(unsigned i=0;i<iterations;++i)vu->execute(m->getVU1Code(),PS2_VU1_CODE_SIZE,m->getVU1Data(),PS2_VU1_DATA_SIZE,*gs,m.get(),0u,3u,7u,8192u);
+    const auto elapsed=std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now()-start).count();
+    Hash hash;add_state(hash,vu->state());return {hash.value,uint64_t(iterations)*32u,double(elapsed)/(iterations*32.0)};
+}
+void verify_vector_products() {
+    // Original pipeline snapshots, including zeros, signed products and cross lanes.
+    constexpr uint64_t expected[32]={
+        0xd1b0f842b2da4957ull,0xe76b654e80f525f5ull,0x3b4b8287662a2211ull,0xd96ff96349661167ull,
+        0x516244d3ac2e8c4dull,0xff3c978ea4b9c65full,0xcbf33539fca2951bull,0x7147192d0e2fd2dull,
+        0xb4c73d45c393421bull,0xc669f3b78a14e039ull,0x3a364cdf731f394dull,0xbc863e665a1f0a2bull,
+        0x226e990531d3f754ull,0x3c3b172ea0db446aull,0x879687b8da398c96ull,0xc930957356840958ull,
+        0x867467feea7891d5ull,0x70b9faf31c5db537ull,0x7be7b424b16d0c83ull,0xfdaf7937d2067a25ull,
+        0xc4bc975c7169b72bull,0xd65f4dce37eb5549ull,0xc302276893a980fdull,0x475df43c7e75f11bull,
+        0xc6dc3eddc9526897ull,0xd87ef54f8fd406b5ull,0x2c5f1288750902d1ull,0xce9b3ffe5fde30a7ull,
+        0x84d0e351b092e954ull,0x9e9d617b1f9a366aull,0xe9f8d20558f87e96ull,0x2b92dfbfd542fb58ull,
+    };
+    constexpr unsigned counts[]={1u,3u,7u,19u};
+    for(unsigned group=0;group<8u;++group)for(unsigned i=0;i<4u;++i)
+        if(product_workload(group,counts[i]).hash!=expected[group*4u+i])throw std::runtime_error("Original product pipeline mismatch: "+std::to_string(group*4u+i));
+}
 HotpathResult arithmetic_workload(unsigned group,unsigned iterations){
     if(group>=8u || !iterations)throw std::runtime_error("Invalid arithmetic workload");
     struct Restore {std::fenv_t state;Restore(){std::fegetenv(&state);}~Restore(){std::fesetenv(&state);}} restore;

@@ -351,6 +351,29 @@ upload workloads. All 16 execution states and eight upload snapshots matched
 the previous runtime. These synthetic timings do not establish retail frame
 rates or sustained 60 FPS.
 
+## Actor command callbacks and vector product flags
+
+The actor-command continuation at `0x0014C978` selects callbacks through the
+bank at `0x00375550`. All forty entries now have verified native dispatch
+coverage, including `0x001FB010`, whose absence could stop the main guest
+thread. The original bank, method instructions, and indirect caller are checked
+against the supported executable. Native fixtures cover 48 orientation callbacks
+and 120 original caller cases with argument, address-alias, saved-register,
+stream-position, and stack checks.
+
+Vector product sticky flags use normalized operand signs, zero bits, and a
+proven exponent range. Boundary products retain extended-precision arithmetic
+and its underflow/overflow behavior. Bounded simple arithmetic can classify
+exact zero results directly; product-sum cancellation retains its original
+calculation. The 73,728 original arithmetic cases remain enabled, alongside
+32 new original product-program snapshots and the existing pipeline and real
+runtime rendering checks. The vector suite contains 46 cases.
+
+Three alternating Windows binary measurements under Wine showed 12–17% lower
+costs in eight multiply-add/subtract workloads, with matching original state,
+flag, and timing hashes. These synthetic costs do not establish game frame
+rates or sustained 60 FPS.
+
 ## Attack-effect dispatch
 
 The reviewed translation includes the 19-slot attack-effect constructor table
@@ -425,7 +448,7 @@ The executable embeds its source revision in a contiguous log marker. Native
 builds refresh this stamp after a commit; portable and installer packaging
 reject binaries whose marker disagrees with the checkout or bundle manifest.
 
-The Python suite has 191 tests. Native checks include the original BCM/BSK
+The Python suite has 193 tests. Native checks include the original BCM/BSK
 asset dispatcher, all eleven battle initialization entries, fragmented and bulk
 IOP clocks, delayed wakeups, external RPC delivery, both SPU2 DMA cores, planar
 PCM order, partial blocks, queue boundaries, and concurrent delivery.

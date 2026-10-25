@@ -15,6 +15,16 @@ int main(int argc,char** argv) {
         }
         return 0;
     }
+    if(argc>1 && (std::string(argv[1])=="--product-reference" || std::string(argv[1])=="--product-bench")) {
+        const bool reference=std::string(argv[1])=="--product-reference";
+        const unsigned iterations=argc>2 ? unsigned(std::stoul(argv[2])) : 10000u;
+        constexpr unsigned counts[]={1u,3u,7u,19u};
+        for(unsigned group=0;group<8u;++group)for(unsigned i=0;i<(reference ? 4u : 1u);++i){
+            const auto r=openkai2::product_workload(group,reference ? counts[i] : iterations);
+            std::cout<<"group="<<group<<" variant="<<i<<" ns_per_operation="<<r.nanosecondsPerOperation<<" operations="<<r.operations<<" hash="<<std::hex<<r.hash<<std::dec<<'\n';
+        }
+        return 0;
+    }
     if(argc>1 && (std::string(argv[1])=="--arithmetic-reference" || std::string(argv[1])=="--unpack-reference"
         || std::string(argv[1])=="--arithmetic-bench" || std::string(argv[1])=="--unpack-bench" || std::string(argv[1])=="--unpack-stream")) {
         const std::string option=argv[1];const bool arithmetic=option.find("arithmetic")!=std::string::npos;
