@@ -146,8 +146,8 @@ int main(int argc, char* argv[]) {
         image=positional[0];
 #endif
         log.open();
-        std::cout << "[build] source_revision=" OPENKAI2_SOURCE_REVISION
-                  << " renderer=" << openkai2::renderer_preference() << " presentation=async" << std::endl;
+        std::cout << "[build] source_revision=" OPENKAI2_SOURCE_REVISION " renderer="
+                  << openkai2::renderer_preference() << " presentation=async" << std::endl;
         openkai2::verify_runtime_layout(sizeof(VU1Interpreter),sizeof(PS2Runtime));
         std::cout << "[launcher] Startup log: " << log.path.string() << std::endl;
 #ifdef _WIN32
