@@ -67,8 +67,10 @@ function(openkai2_attach_generated_sources)
         "${project_root}/tools/native/patches/vector-product-flags.patch"
         "${project_root}/tools/native/patches/vector-transfers.patch"
         "${project_root}/tools/native/patches/vector-operands.patch"
+        "${project_root}/tools/native/patches/vector-flag-batches.patch"
         "${project_root}/tools/native/patches/gpu-rendering.patch"
         "${project_root}/tools/native/patches/flat-depth.patch"
+        "${project_root}/tools/native/patches/display-pacing.patch"
         "${project_root}/tools/native/patches/work-timings.patch"
         "${project_root}/tools/native/patches/disc-layout.patch"
         "${project_root}/tools/native/patches/iop-startup.patch"
@@ -217,7 +219,7 @@ function(openkai2_attach_generated_sources)
         "${project_root}/src/host_input_checks.cpp" "${project_root}/src/frame_presenter_checks.cpp"
         "${project_root}/src/pad_checks.cpp")
     add_executable(openkai2_presenter_tests "${project_root}/tests/frame_presenter_tests.cpp"
-        "${project_root}/src/frame_presenter.cpp" "${project_root}/src/frame_presenter_checks.cpp")
+        "${project_root}/src/frame_presenter.cpp" "${project_root}/src/frame_presenter_checks.cpp" "${project_root}/src/display_settings.cpp")
     target_include_directories(openkai2_presenter_tests PRIVATE "${project_root}/src")
     target_compile_features(openkai2_presenter_tests PRIVATE cxx_std_17)
     target_link_libraries(openkai2_presenter_tests PRIVATE Threads::Threads)
@@ -251,7 +253,7 @@ function(openkai2_attach_generated_sources)
     target_sources(ps2_runtime PRIVATE "${project_root}/src/startup_diagnostics.cpp"
         "${project_root}/src/guest_timing.cpp"
         "${project_root}/src/raster_workers.cpp"
-        "${project_root}/src/frame_presenter.cpp")
+        "${project_root}/src/frame_presenter.cpp" "${project_root}/src/display_settings.cpp")
     target_include_directories(ps2_runtime PRIVATE "${project_root}/src"
         "${CMAKE_SOURCE_DIR}/ps2xRuntime/src/lib")
     add_executable(openkai2_guest_timing_tests "${project_root}/tests/guest_timing_tests.cpp"

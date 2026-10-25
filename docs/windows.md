@@ -42,6 +42,33 @@ for unsupported or overlapping buffer states. Stable 60 game FPS remains
 unverified. See [GPU rendering](graphics.md) for renderer selection, requirements,
 and the scope of validation.
 
+## Display frame limit
+
+The host window defaults to a 240 FPS limit. For the extracted ZIP application:
+
+```powershell
+.\OpenKai2.exe --fps-limit=240 "D:\Games\Budokai 2 USA.iso"
+.\OpenKai2.exe --fps-limit=0 "D:\Games\Budokai 2 USA.iso"
+```
+
+A limit of `0` disables host frame pacing. Other accepted values are integers
+from 1 through 240. To set a limit for the self-contained portable launcher or
+installed application, set `OPENKAI2_FPS_LIMIT` before launching:
+
+```powershell
+$env:OPENKAI2_FPS_LIMIT = "240"
+.\OpenKai2.exe
+```
+
+The command-line setting overrides the environment variable. The startup log
+records the effective setting under `[display]`.
+
+Game simulation, guest clocks, and movie playback retain their original rates.
+The window displays the latest available image; repeated frames count as window
+updates, not newly generated game frames. This setting adds no interpolation
+and cannot overcome CPU-limited game-frame generation. Sustained 60 and 240
+game FPS remain unverified.
+
 ## Audio output
 
 Host audio playback is disabled while frame-rate work continues. The application

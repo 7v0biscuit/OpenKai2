@@ -62,6 +62,29 @@ Complete VRAM matched the CPU renderer and all before/after output hashes
 matched. These synthetic submission costs are not estimates of hardware game
 FPS or sustained 60 FPS.
 
+## Display pacing and vector flags
+
+The window defaults to a 240 FPS limit. `--fps-limit=0` removes host frame
+pacing; values from 1 through 240 choose a cap. `OPENKAI2_FPS_LIMIT` also applies
+to portable and installed launches, with command-line settings taking priority.
+Guest timing and simulation retain their original rates. Repeated window
+requests coalesce by guest field, avoiding duplicate conversions and extra
+guest execution. There is no frame interpolation; higher window update rates
+do not establish higher game FPS.
+
+Selected product lanes use a SIMD exponent/sign classification for sticky
+flags when every active lane is proven to avoid underflow and overflow.
+Boundary cases retain the original scalar calculation. MAC bit planes and
+STATUS use packed lane flags with the original destination mask and visibility
+timeline. The 73,728 original arithmetic cases, 128 selected-operand snapshots,
+32 product snapshots, and execution/scheduling references remain enabled.
+
+Three alternating Windows-binary measurements under Wine showed 7–17% lower
+costs in eight product programs and about 33% lower median cost across 32
+selected-operand programs. All original state and cycle hashes matched. The
+general control group had about 0.8% higher median cost. These synthetic costs
+do not establish game frame rates.
+
 ## Vector operands and depth precision
 
 FMAC flag classification now checks only inputs read by the current instruction
@@ -484,6 +507,13 @@ instructions, and the bank catalog are verified. Native fixtures add 24 raw
 delta-copy cases, 120 timer boundary cases, and 30 original caller cases across
 three address aliases, bringing actor-command coverage to 342 cases.
 
+The actor state bank at `0x003758C0` has thirteen registered methods, including
+the state query at `0x001F9290`. All 23 bank-catalog pointers and the complete
+method instructions are verified. Another 72 state-query cases cover actor
+selection, raw values, side inversion, and aliases; 39 cases run the original
+indirect caller. Total actor-command coverage is 453 cases. Complex transition
+dependencies are not covered by a complete retail match here.
+
 Vector product sticky flags use normalized operand signs, zero bits, and a
 proven exponent range. Boundary products retain extended-precision arithmetic
 and its underflow/overflow behavior. Bounded simple arithmetic can classify
@@ -571,7 +601,7 @@ The executable embeds its source revision in a contiguous log marker. Native
 builds refresh this stamp after a commit; portable and installer packaging
 reject binaries whose marker disagrees with the checkout or bundle manifest.
 
-The Python suite has 197 tests. Native checks include the original BCM/BSK
+The Python suite has 199 tests. Native checks include the original BCM/BSK
 asset dispatcher, all eleven battle initialization entries, fragmented and bulk
 IOP clocks, delayed wakeups, external RPC delivery, both SPU2 DMA cores, planar
 PCM order, partial blocks, queue boundaries, and concurrent delivery.

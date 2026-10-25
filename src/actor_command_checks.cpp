@@ -12,6 +12,7 @@ void verify_actor_commands(PS2Runtime& runtime,uint8_t* ram) {
     auto require=[](bool ok,const char* why){if(!ok)throw std::runtime_error(why);};
     for(auto at:translation::actor_command_entries)require(runtime.hasFunction(at),"Actor command entry is missing");
     for(auto at:translation::actor_timing_entries)require(runtime.hasFunction(at),"Actor timing entry is missing");
+    for(auto at:translation::actor_state_entries)require(runtime.hasFunction(at),"Actor state entry is missing");
     constexpr uint32_t context=0x650000u,state=0x660000u,descriptor=0x670000u,actor=0x680000u,control=0x690000u;
     constexpr uint32_t marker=0x29a00u,returned=0x29f00u,sp=0x1fffde0u;
     struct Restore {
@@ -115,6 +116,29 @@ void verify_actor_commands(PS2Runtime& runtime,uint8_t* ram) {
         m.write128(sp-0x50u,_mm_setzero_si128());m.write128(sp-0x40u,_mm_setzero_si128());m.write128(sp-0x30u,_mm_setzero_si128());m.write64(sp-0x20u,returned);m.write32(sp-4u,0x6b0000u|alias);
         run(c);timingFrame(c);require(m.read32(marker)==1u && m.read32(state+0x24u)==(0x6b0000u|alias),"Actor timing bank did not preserve its command stream");++cases;
     }
-    require(cases==342u,"Actor command coverage incomplete");
+    // Original command 0x001F9290 reads the selected actor's state and applies
+    // the game's optional side inversion. Preserve raw 32-bit subtraction.
+    for(unsigned invert=0;invert<2u;++invert)for(unsigned index=0;index<3u;++index)
+        for(uint32_t value:{0u,1u,2u,0xffffffffu})for(auto alias:{0u,0x80000000u,0xa0000000u}){
+        resetTiming();m.write32(0x3a4cb4u,control|alias);m.write32(state+0x2cu,descriptor|alias);m.write32(descriptor,index);
+        m.write32(control+0x19c54u+index*4u,actor|alias);ram[control+0x19c78u]=uint8_t(invert);m.write32(actor+0xf9cu,value);
+        m.write32(state-4u,0x13572468u);m.write32(state+4u,0x24681357u);
+        auto c=timingContext(0x1f9290u,alias);run(c);timingFrame(c);
+        require(m.read32(state)==(invert ? 1u-value : value) && getRegU32(&c,2)==1u,"Actor state query changed its value or inversion");
+        require(m.read32(state-4u)==0x13572468u && m.read32(state+4u)==0x24681357u,"Actor state query overwrote adjacent fields");++cases;
+    }
+    for(auto at:translation::actor_state_entries)restore.replace(at,[](uint8_t*,R5900Context* c,PS2Runtime* r){
+        auto& memory=r->memory();if(c->pc!=memory.read32(marker+4u) || getRegU32(c,4)!=memory.read32(marker+8u) || getRegU32(c,5)!=memory.read32(marker+12u))throw std::runtime_error("Actor state dispatcher changed its callback arguments");
+        memory.write32(marker,memory.read32(marker)+1u);c->r[2]=_mm_setzero_si128();c->pc=getRegU32(c,31);
+    });
+    for(unsigned slot=0;slot<13u;++slot)for(auto alias:{0u,0x80000000u,0xa0000000u}){
+        resetTiming();m.write32(context,descriptor|alias);m.write32(descriptor+0x44u,control|alias);m.write32(control,0x3758c0u);
+        for(unsigned i=0;i<16u;++i)m.write32(0x3758c0u+i*4u,translation::actor_state_slots[i]);m.write32(0x37fdd0u,0x14c9e0u);
+        m.write32(marker+4u,translation::actor_state_slots[slot]);m.write32(marker+8u,context|alias);m.write32(marker+12u,state|alias);
+        auto c=timingContext(0x14c978u,alias);c.r[5]=_mm_cvtsi32_si128((slot<<8u)|7u);c.r[16]=_mm_cvtsi32_si128(state|alias);c.r[17]=_mm_cvtsi32_si128(context|alias);c.r[18]=_mm_cvtsi32_si128(context-0x30u);c.r[29]=_mm_cvtsi32_si128(sp-0x50u);
+        m.write128(sp-0x50u,_mm_setzero_si128());m.write128(sp-0x40u,_mm_setzero_si128());m.write128(sp-0x30u,_mm_setzero_si128());m.write64(sp-0x20u,returned);m.write32(sp-4u,0x6b0000u|alias);
+        run(c);timingFrame(c);require(m.read32(marker)==1u && m.read32(state+0x24u)==(0x6b0000u|alias),"Actor state bank did not preserve its command stream");++cases;
+    }
+    require(cases==453u,"Actor command coverage incomplete");
 }
 }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "host_audio.h"
 #include "disc_image.h"
+#include "display_settings.h"
 #include "openkai2_build_revision.h"
 #include "runtime_checks.h"
 #include "render/gpu_backend.h"
@@ -8,6 +9,7 @@
 #include "runtime_layout.h"
 #include "ps2_runtime.h"
 #include <exception>
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <iterator>
@@ -76,7 +78,8 @@ public:
 };
 
 void usage() {
-    std::cout << "Usage: OpenKai2 [--renderer=auto|gpu|cpu] <path-to-Budokai-2-USA.iso>\n"
+    std::cout << "Usage: OpenKai2 [--renderer=auto|gpu|cpu] [--fps-limit=0..240] <path-to-Budokai-2-USA.iso>\n"
+              << "Host display limit defaults to 240; 0 is unlimited. Game timing stays at its original rate.\n"
               << "The original game ISO is required on every boot.\n"
               << "OpenKai2 --self-test checks compiled callback dispatch without booting the game.\n"
               << "OpenKai2 --gpu-self-test checks GPU rendering without a game ISO.\n"
@@ -108,6 +111,8 @@ int main(int argc, char* argv[]) {
     StartupLog log;
     bool interactive=false;
     try {
+        if(const auto value=std::getenv("OPENKAI2_FPS_LIMIT"))
+            openkai2::set_window_fps_limit(openkai2::parse_window_fps_limit(value));
         std::filesystem::path image;
 #ifdef _WIN32
         // Preserve Unicode paths supplied by Explorer or the command line.
@@ -120,6 +125,10 @@ int main(int argc, char* argv[]) {
         for(auto i=positional.begin();i!=positional.end();){
             if(i->rfind(L"--renderer=",0u)==0u){
                 const auto value=i->substr(11u);openkai2::set_renderer_preference(std::string(value.begin(),value.end()));i=positional.erase(i);
+            }else if(i->rfind(L"--fps-limit=",0u)==0u){
+                const auto value=i->substr(12u);
+                openkai2::set_window_fps_limit(openkai2::parse_window_fps_limit(std::string(value.begin(),value.end())));
+                i=positional.erase(i);
             }else ++i;
         }
         count=int(positional.size())+1;
@@ -136,6 +145,8 @@ int main(int argc, char* argv[]) {
         for(int i=1;i<argc;++i){
             const std::string argument=argv[i];
             if(argument.rfind("--renderer=",0u)==0u)openkai2::set_renderer_preference(argument.substr(11u));
+            else if(argument.rfind("--fps-limit=",0u)==0u)
+                openkai2::set_window_fps_limit(openkai2::parse_window_fps_limit(argument.substr(12u)));
             else positional.push_back(argument);
         }
         if(positional.size()==1u && (positional[0]=="--help" || positional[0]=="-h")){usage();return 0;}
@@ -148,6 +159,7 @@ int main(int argc, char* argv[]) {
         log.open();
         std::cout << "[build] source_revision=" OPENKAI2_SOURCE_REVISION " renderer="
                   << openkai2::renderer_preference() << " presentation=async" << std::endl;
+        std::cout << "[display] fps_limit=" << openkai2::window_fps_limit() << " game_timing=original\n";
         openkai2::verify_runtime_layout(sizeof(VU1Interpreter),sizeof(PS2Runtime));
         std::cout << "[launcher] Startup log: " << log.path.string() << std::endl;
 #ifdef _WIN32

@@ -483,7 +483,7 @@ int run_runtime_checks() {
     verify_pause_menu(runtime,memory);
     std::cout << "Runtime pause menu regression passed: 12 registered callbacks, 513 original open, timer and input-dispatch cases with aliases, priority, null slots and stack guards.\n";
     verify_actor_commands(runtime,memory);
-    std::cout << "Runtime actor command regression passed: 52 registered methods and 342 orientation, timer and compiled caller cases with cached and uncached aliases.\n";
+    std::cout << "Runtime actor command regression passed: 65 registered methods and 453 orientation, timer, state and compiled caller cases with cached and uncached aliases.\n";
     std::cout << "Runtime impact effect regression passed: 34 lifecycle methods, 112 original factory cases, allocation failure, actor flags, resource binding and saved registers.\n";
     verify_attack_effects(runtime,memory);
     std::cout << "Runtime attack effect regression passed: 16 registered methods, 114 original call-site cases, allocation failure, three resource types, node links, callbacks, and saved registers.\n";

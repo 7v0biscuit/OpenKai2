@@ -1,0 +1,19 @@
+--- a/runtime/ps2_runtime.cpp
++++ b/runtime/ps2_runtime.cpp
+@@ -5,6 +5,7 @@
+ #include "startup_diagnostics.h"
+ #include "host_input.h"
+ #include "frame_presenter.h"
++#include "display_settings.h"
+ #include "render/gpu_backend.h"
+ #include "ps2_log.h"
+ #include "ps2_stubs.h"
+@@ -738,7 +739,7 @@
+         m_audioBackend.setAudioReady(false);
+         openkai2::start_host_audio(this,false);
+ #endif
+-        SetTargetFPS(60);
++        SetTargetFPS(int(openkai2::window_fps_limit()));
+         if (m_debugUiInitCallback)
+         {
+             m_debugUiInitCallback(*this, m_debugUiUserData);
