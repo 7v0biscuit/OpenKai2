@@ -10,6 +10,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import traceback
 import uuid
 import zipfile
 
@@ -41,6 +42,8 @@ def main():
                 locked=False):
             nonlocal case_number
             case_number += 1
+            print(f'Update case {case_number}: portable={portable}, bad_hash={bad_hash}, '
+                  f'unsafe={unsafe}, bad_payload={bad_payload}, locked={locked}', flush=True)
             stage = base / str(case_number)
             target = stage / 'Application folder'
             target.mkdir(parents=True)
@@ -110,4 +113,13 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    try:
+        main()
+    except Exception:
+        detail = traceback.format_exc()
+        print(detail, flush=True)
+        for start in range(0, len(detail), 3000):
+            part = detail[start:start+3000].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+            print('::error title=Windows update worker::' + part, flush=True)
+        raise
