@@ -27,6 +27,9 @@ Section
     InitPluginsDir
     SetOutPath "$PLUGINSDIR\OpenKai2"
     File /r "${PAYLOAD_DIR}\*"
+    System::Call 'kernel32::SetEnvironmentVariableW(w "OPENKAI2_PORTABLE_PATH", w "$EXEPATH")'
+    System::Call 'kernel32::GetCurrentProcessId() i.r2'
+    System::Call 'kernel32::SetEnvironmentVariableW(w "OPENKAI2_PORTABLE_PID", w "$2")'
     ${GetParameters} $0
     ClearErrors
     ExecWait '"$PLUGINSDIR\OpenKai2\OpenKai2.exe" $0' $1

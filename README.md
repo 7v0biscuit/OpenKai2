@@ -12,6 +12,10 @@ Native PC recompilation of **Dragon Ball Z: Budokai 2**, built with
 · [Development status](docs/status.md)
 · [Report an issue](https://github.com/7v0biscuit/OpenKai2/issues/new/choose)
 
+The launcher includes automatic GitHub updates with stable and prerelease channels,
+verified downloads and recovery during file replacement. ISO preferences, saves
+and backups are preserved.
+
 ## Windows downloads
 
 Choose a package from the [current release](https://github.com/7v0biscuit/OpenKai2/releases).
@@ -23,7 +27,9 @@ Choose a package from the [current release](https://github.com/7v0biscuit/OpenKa
 | **OpenKai2-windows-x64.zip** | Extract the application and runtime DLLs into a folder. |
 | **SHA256SUMS.txt** | Verify the downloaded packages. |
 
-Launch OpenKai2 and select your original **Budokai 2 USA ISO**. The ISO is
+Open the desktop launcher, choose your original **Budokai 2 USA ISO**, and press **Play**.
+The verified path and graphics preferences are remembered. Save imports and ZIP
+backups are available from the Saves page. The ISO is
 required at every game launch, and its files are verified before execution.
 Game files are not included in the downloads.
 
@@ -67,6 +73,7 @@ Do not upload game files.
 | Directory | Contents |
 | --- | --- |
 | `src/` | Application, ISO verification, and runtime integration |
+| `src/launcher/` | Native Windows launcher, preferences, save imports, and backups |
 | `src/probes/` | EE instruction, interrupt, and guest-memory checks |
 | `tests/` | Python regression tests and synthetic fixtures |
 | `tools/native/` | Native builds, runtime overlays, and release packaging |

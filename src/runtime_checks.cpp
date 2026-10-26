@@ -20,6 +20,7 @@
 #include "impact_effect_checks.h"
 #include "actor_command_checks.h"
 #include "pause_menu_checks.h"
+#include "story_checks.h"
 #include "vector_checks.h"
 #include "vector/backend.h"
 #include "vector/backend_checks.h"
@@ -494,6 +495,8 @@ int run_runtime_checks() {
     }
     verify_impact_effects(runtime,memory);
     verify_pause_menu(runtime,memory);
+    verify_story_callbacks(runtime,memory);
+    std::cout << "Runtime story callback regression passed: complete callback bank, original completion method, aliases, dependencies and caller frames.\n";
     std::cout << "Runtime pause menu regression passed: 12 registered callbacks, 513 original open, timer and input-dispatch cases with aliases, priority, null slots and stack guards.\n";
     verify_actor_commands(runtime,memory);
     std::cout << "Runtime actor command regression passed: 65 registered methods and 453 orientation, timer, state and compiled caller cases with cached and uncached aliases.\n";

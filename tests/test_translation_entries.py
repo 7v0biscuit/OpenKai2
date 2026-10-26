@@ -46,6 +46,22 @@ class TranslationEntries(unittest.TestCase):
             (root / 'owner.cpp').write_text(source)
             ENTRIES.verify_generated(root)
 
+    def test_story_callbacks_are_registered_and_original_metadata_checked(self):
+        self.assertEqual(len(ENTRIES.STORY_CALLBACK_ENTRIES),86)
+        self.assertIn(0x295f40,ENTRIES.STORY_CALLBACK_ENTRIES)
+        for address in ENTRIES.STORY_CALLBACK_ENTRIES:
+            with self.subTest(address=address),self.assertRaisesRegex(ValueError,f'missing guest entry 0x{address:08x}'):
+                self.verify_fixture('g_ps2RecompiledFunctionTable[1] = owner; // 0x167188',
+                    '// Address: 0x167188 - 0x1671a0',omitted=(address,))
+        for address in (0x37a6c0,0x37a6e4,0x37a81c):
+            data=self.make_elf_metadata();data[address-0x100000+128]^=1
+            with self.subTest(address=address),self.assertRaisesRegex(ValueError,'Indirect methods differ'):
+                ENTRIES.verify_elf_metadata(data)
+        for index in range(16):
+            data=self.make_elf_metadata();data[0x295f40-0x100000+128+4*index]^=1
+            with self.subTest(instruction=index),self.assertRaisesRegex(ValueError,'Story callback instructions'):
+                ENTRIES.verify_elf_metadata(data)
+
     def test_missing_dispatch_entry_rejected(self):
         with self.assertRaisesRegex(ValueError, 'missing guest entry'):
             self.verify_fixture('', '// Address: 0x167110 - 0x1671a0')
@@ -68,7 +84,7 @@ class TranslationEntries(unittest.TestCase):
     def test_reviewed_tables_have_complete_unique_coverage(self):
         self.assertEqual(len(ENTRIES.DISPATCH_TABLES), 7)
         self.assertTrue(all(len(row) == 14 for _, row in ENTRIES.DISPATCH_TABLES))
-        self.assertEqual(len(set(ENTRIES.ENTRY_POINTS)), 414)
+        self.assertEqual(len(set(ENTRIES.ENTRY_POINTS)), 500)
         self.assertEqual(len(ENTRIES.ZERO_RETURN_ENTRIES), 39)
         self.assertTrue(set(ENTRIES.ZERO_RETURN_ENTRIES) <= set(ENTRIES.ENTRY_POINTS))
         self.assertNotIn(0x00387110, ENTRIES.ENTRY_POINTS)
@@ -83,7 +99,7 @@ class TranslationEntries(unittest.TestCase):
             path = Path(temporary) / 'entries.h'
             ENTRIES.emit_check_header(path)
             content, changed = path.read_text(), path.stat().st_mtime_ns
-            self.assertIn('std::array<uint32_t, 414> entries', content)
+            self.assertIn('std::array<uint32_t, 500> entries', content)
             self.assertIn('std::array<uint32_t, 39> zero_return_entries', content)
             for address in ENTRIES.ENTRY_POINTS:
                 self.assertIn(f'0x{address:08x}u,', content)
@@ -490,7 +506,7 @@ class TranslationEntries(unittest.TestCase):
         for base, entries in (ENTRIES.DISPATCH_TABLES + ENTRIES.FILE_CALLBACK_TABLES
                               + ENTRIES.STREAM_CALLBACK_TABLES + ENTRIES.MEMORY_STREAM_TABLES + ENTRIES.FADE_CALLBACK_TABLES
                               + ENTRIES.MOVIE_CALLBACK_TABLES + ENTRIES.MOVIE_PACKET_TABLES
-                              + ENTRIES.MOVIE_TIMING_TABLES + ENTRIES.SCENE_MODE_TABLES + ENTRIES.BATTLE_COMMAND_TABLES + ENTRIES.AURA_UPDATE_TABLES + ENTRIES.BATTLE_UPDATE_TABLES + ENTRIES.BATTLE_DRAW_TABLES + ENTRIES.FIGHT_STATE_TABLES + ENTRIES.ATTACK_EFFECT_TABLES + ENTRIES.IMPACT_EFFECT_TABLES + ENTRIES.ACTOR_COMMAND_TABLES + ENTRIES.ACTOR_TIMING_TABLES + ENTRIES.ACTOR_STATE_TABLES + ENTRIES.PAUSE_MENU_TABLES):
+                              + ENTRIES.MOVIE_TIMING_TABLES + ENTRIES.SCENE_MODE_TABLES + ENTRIES.BATTLE_COMMAND_TABLES + ENTRIES.AURA_UPDATE_TABLES + ENTRIES.BATTLE_UPDATE_TABLES + ENTRIES.BATTLE_DRAW_TABLES + ENTRIES.FIGHT_STATE_TABLES + ENTRIES.ATTACK_EFFECT_TABLES + ENTRIES.IMPACT_EFFECT_TABLES + ENTRIES.ACTOR_COMMAND_TABLES + ENTRIES.ACTOR_TIMING_TABLES + ENTRIES.ACTOR_STATE_TABLES + ENTRIES.PAUSE_MENU_TABLES + ENTRIES.STORY_CALLBACK_TABLES):
             put(base, entries)
         put(0x00387420, ENTRIES.MOVIE_TIMING_RATES)
         for address in ENTRIES.ZERO_RETURN_ENTRIES:
@@ -505,6 +521,8 @@ class TranslationEntries(unittest.TestCase):
         for address,words in ENTRIES.BATTLE_ASSET_WORDS:
             put(address,words)
         for address,words in ENTRIES.ACTOR_TIMING_WORDS+ENTRIES.ACTOR_STATE_WORDS:
+            put(address,words)
+        for address,words in ENTRIES.STORY_CALLBACK_WORDS:
             put(address,words)
         for address,words in ENTRIES.PAUSE_MENU_WORDS:
             put(address,words)

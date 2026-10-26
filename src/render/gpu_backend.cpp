@@ -38,7 +38,7 @@ std::bitset<PageCount> rectangle_pages(unsigned psm,unsigned base,unsigned width
 }
 namespace {
 using Pages=std::bitset<gpu::PageCount>;
-std::atomic<uint64_t> totalGpuDraws{},totalCpuDraws{},totalBatches{},totalTiles{},totalUploads{},totalReadbacks{};
+std::atomic<uint64_t> totalGpuDraws{},totalCpuDraws{},totalBatches{},totalTiles{},totalUploads{},totalReadbacks{},totalCulled{};
 bool indexed(unsigned psm){return psm==19u || psm==20u || psm==27u || psm==36u || psm==44u;}
 bool fourBit(unsigned psm){return psm==20u || psm==36u || psm==44u;}
 uint32_t bits(float value){uint32_t result;std::memcpy(&result,&value,4u);return result;}
@@ -157,6 +157,15 @@ struct GpuRasterBackend::Impl {
             const unsigned at=gpu::VertexWord+i*gpu::VertexWords;cmd[at]=bits(x);cmd[at+1u]=bits(y);std::memcpy(&cmd[at+2u],&v.z,8u);
             cmd[at+4u]=rgba(v);cmd[at+5u]=v.fog;cmd[at+6u]=bits(v.s);cmd[at+7u]=bits(v.t);cmd[at+8u]=bits(v.q);cmd[at+9u]=v.u;cmd[at+10u]=v.v;
         }
+        // Repeated strip vertices and axis-flat triangles have no covered
+        // samples. Reject them before page footprints and GPU tile binning.
+        if(triangle){
+            const auto same=[](const GSVertex& a,const GSVertex& b){return a.x==b.x && a.y==b.y;};
+            if(minX==maxX || minY==maxY || same(batch.vertices[0],batch.vertices[1]) ||
+               same(batch.vertices[0],batch.vertices[2]) || same(batch.vertices[1],batch.vertices[2])){
+                cmd[2u]=1u;cmd[4u]=0u;return true;
+            }
+        }
         if(c.scissor.x0>c.scissor.x1 || c.scissor.y0>c.scissor.y1)return false;
         int x0=std::max<int>(int(sprite ? std::ceil(minX) : std::floor(minX)),c.scissor.x0),y0=std::max<int>(int(sprite ? std::ceil(minY) : std::floor(minY)),c.scissor.y0);
         int x1=std::min<int>(int(std::ceil(maxX))-(sprite ? 1 : 0),c.scissor.x1),y1=std::min<int>(int(std::ceil(maxY))-(sprite ? 1 : 0),c.scissor.y1);
@@ -215,7 +224,7 @@ void GpuRasterBackend::Submit(const GSPrimitiveBatch& batch){
     if(m->cpuFrame || !m->encode(batch,command,writes,sources) || !m->ready()){
         m->materialize();m->cpu.Submit(batch);m->cpuDirty.set();m->cpuFrame=true;++m->statistics.cpuDraws;totalCpuDraws.fetch_add(1u,std::memory_order_relaxed);return;
     }
-    ++m->statistics.gpuDraws;totalGpuDraws.fetch_add(1u,std::memory_order_relaxed);if(command[2u]>command[4u])return;
+    ++m->statistics.gpuDraws;totalGpuDraws.fetch_add(1u,std::memory_order_relaxed);if(command[2u]>command[4u]){++m->statistics.culled;totalCulled.fetch_add(1u,std::memory_order_relaxed);return;}
     const std::array<uint32_t,5> target={command[6],command[7],command[8],command[13],command[38]};
     if(!m->commands.empty() && (m->target!=target || (sources&m->batchWrites).any() || (writes&m->batchSources).any()))m->submit();
     m->upload();m->target=target;
@@ -296,6 +305,6 @@ void GpuRasterBackend::WriteVram(uint32_t psm,uint32_t base,uint32_t width,uint3
 void GpuRasterBackend::SnapshotVram(std::vector<uint8_t>& out)const{std::lock_guard lock(m->mutex);m->materialize();m->cpu.SnapshotVram(out);}
 GSTransferSnapshot GpuRasterBackend::GetTransferSnapshot()const{std::lock_guard lock(m->mutex);return m->cpu.GetTransferSnapshot();}
 GpuRenderStats GpuRasterBackend::stats()const{std::lock_guard lock(m->mutex);return m->statistics;}
-GpuRenderStats gpu_render_statistics(){return {totalGpuDraws.load(std::memory_order_relaxed),totalCpuDraws.load(std::memory_order_relaxed),totalBatches.load(std::memory_order_relaxed),totalTiles.load(std::memory_order_relaxed),totalUploads.load(std::memory_order_relaxed),totalReadbacks.load(std::memory_order_relaxed)};}
+GpuRenderStats gpu_render_statistics(){return {totalGpuDraws.load(std::memory_order_relaxed),totalCpuDraws.load(std::memory_order_relaxed),totalBatches.load(std::memory_order_relaxed),totalTiles.load(std::memory_order_relaxed),totalUploads.load(std::memory_order_relaxed),totalReadbacks.load(std::memory_order_relaxed),totalCulled.load(std::memory_order_relaxed)};}
 std::unique_ptr<GSRasterBackend> make_raster_backend(){return std::make_unique<GpuRasterBackend>();}
 }

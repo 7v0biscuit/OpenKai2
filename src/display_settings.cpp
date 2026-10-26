@@ -5,7 +5,7 @@
 #include <stdexcept>
 
 namespace openkai2 {
-namespace { std::atomic<unsigned> limit{240u}; }
+namespace { std::atomic<unsigned> limit{60u}; }
 unsigned parse_window_fps_limit(std::string_view value) {
     if(value.empty())throw std::runtime_error("FPS limit cannot be empty");
     unsigned result=0;

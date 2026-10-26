@@ -171,7 +171,9 @@ def main():
         for path in sorted(root.rglob('*')):
             if path.is_file():
                 payload[path.relative_to(root).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
-        manifest = {'architecture': 'windows-x64',
+        version = re.search(r'application_version\[\] = "([^"]+)"',
+                            (ROOT / 'src/launcher/version.h').read_text()).group(1)
+        manifest = {'architecture': 'windows-x64', 'version': version,
                     'source_revision': source_revision,
                     'game_boot_verified': False,
                     'gameplay_verified': False, 'files_sha256': payload,

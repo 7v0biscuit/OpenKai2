@@ -46,6 +46,8 @@ jobs:
           assert hashlib.sha256(bundle.read_bytes()).hexdigest() == config['bundle_sha256']
       - name: Unit tests
         run: python -m unittest discover -s tests
+      - name: Test launcher update replacement and recovery
+        run: python tools/native/test-launcher-update.py
       - name: Install NSIS
         shell: pwsh
         run: |

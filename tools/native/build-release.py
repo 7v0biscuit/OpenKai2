@@ -106,6 +106,8 @@ def main():
     with tempfile.TemporaryDirectory(prefix='openkai2-release-') as temporary:
         temporary = Path(temporary)
         payload, manifest = extract_verified_bundle(args.bundle, temporary)
+        if manifest.get('version') != args.version:
+            raise ValueError('Bundle application version does not match the release version')
         delete_files = temporary / 'delete-files.nsh'
         delete_files.write_text(uninstall_commands(payload), encoding='utf-8')
         installed_kib = sum(path.stat().st_size for path in payload.rglob('*') if path.is_file()) // 1024 + 1

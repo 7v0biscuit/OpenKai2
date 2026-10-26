@@ -3,13 +3,34 @@
 OpenKai2 is in development. The runtime reaches level selection.
 Complete matches, performance, and gameplay still need validation.
 
+## Launcher updates
+
+The **Updates** page checks releases from `7v0biscuit/OpenKai2` on GitHub.
+Automatic updates are enabled by default with **Stable + prereleases**, so
+published development builds are included. Choose **Stable releases** to exclude
+prereleases, or turn automatic updates off and use **Check now** / **Install update**.
+Checks do not require a GitHub account or token. A connection failure leaves the
+existing application available.
+
+Downloads use HTTPS and the release's `SHA256SUMS.txt`. Extracted and installed
+copies also validate every ZIP payload against its release manifest. The local
+update worker waits for the launcher, game and save operations to finish, replaces
+application files with recovery copies, and restarts the launcher. The single-file
+portable edition replaces its outer executable after its wrapper exits. A
+replacement error restores files already replaced. Keep application files
+in a writable folder; Windows PowerShell 5.1 is required to apply updates.
+
+Settings, ISO preferences, saves, backups, and cached game files remain under
+`%LOCALAPPDATA%\OpenKai2`. Update reports are retained under its `updates`
+subfolder in `apply.log`. No game files are downloaded by the updater.
+
 ## Downloads
 
 Get the Windows development build from
 [Releases](https://github.com/7v0biscuit/OpenKai2/releases).
 
 - `OpenKai2.exe` is a self-contained portable launcher. It temporarily extracts
-  its runtime, opens the ISO picker, and removes the temporary files after exit.
+  its runtime, opens the desktop launcher, and removes temporary files after the launcher and game exit.
 - `OpenKai2-windows-x64.zip` can be extracted to a folder of your choice. Keep
   its DLLs beside the included application EXE.
 - `OpenKai2-Setup.exe` installs for the current Windows user and adds Start-menu
@@ -42,32 +63,72 @@ for unsupported or overlapping buffer states. Stable 60 game FPS remains
 unverified. See [GPU rendering](graphics.md) for renderer selection, requirements,
 and the scope of validation.
 
+## Desktop launcher
+
+Double-click any Windows package to open the launcher. **Choose ISO** opens the
+Windows file picker. Verification runs in the background; **Play** becomes
+available after the supported executable and every disc file have been checked.
+The verified ISO path is remembered for the next session. The ISO remains
+required, including when a verified cache already exists.
+
+The launcher uses native Windows controls, system typography, and an orange,
+navy, and gold palette.
+
+**Settings** saves the renderer, frame-rate limit, window resolution,
+windowed/borderless mode, aspect ratio, VSync, FXAA, texture filtering, and spatial upscaling.
+Texture filtering can retain the game's choice or force nearest/bilinear
+sampling. Display scaling supports nearest, bilinear, and bicubic sampling;
+FXAA runs before enlargement. Changes apply to the next game launch.
+The default 4:3 aspect restores the original television proportions; 16:9,
+stretch, and native-pixel modes are also available. These spatial filters do not
+create additional game frames. FSR and frame
+generation are not currently included.
+
+Preferences are stored in `%LOCALAPPDATA%\OpenKai2\settings.ini`. They are
+shared by the installed and portable packages. Cancelling ISO selection leaves
+the current selection unchanged. Verification errors appear in the launcher;
+launcher activity is recorded separately in `logs\launcher.log`.
+
+## Save import and backups
+
+The **Saves** page manages slot 1 for the verified ISO. Import an extracted
+memory-card folder, a single game-save folder containing `icon.sys`, a PSU
+save, or a ZIP backup created by OpenKai2. Raw `.ps2` memory-card images and
+compressed ZIPs must first be exported or extracted to a supported format.
+
+Imports merge save files and preserve other games' folders. Restoring a backup
+replaces the active card with that snapshot. Both operations validate the
+entire source and back up the current card before replacement. Damaged
+archives, unsafe paths, conflicting names, and links are rejected. Save tools
+are locked while a game is running.
+
+**Back up now** creates a ZIP snapshot. Automatic session backups are enabled
+by default and run before launch and after the game closes. Imports and
+restores always retain a recovery backup, regardless of this preference.
+Backups live under `%LOCALAPPDATA%\OpenKai2\backups\<ISO hash>`; use
+**Open backups** to copy or archive them elsewhere. Existing backups are not
+automatically deleted. Uninstalling preserves saves, backups, and preferences.
+
 ## Display frame limit
 
-The host window defaults to a 240 FPS limit. For the extracted ZIP application:
+The default limit is **60 FPS**. Choose another limit in Settings, including
+240 or unlimited, or use the direct game command:
 
 ```powershell
-.\OpenKai2.exe --fps-limit=240 "D:\Games\Budokai 2 USA.iso"
+.\OpenKai2.exe --fps-limit=60 "D:\Games\Budokai 2 USA.iso"
 .\OpenKai2.exe --fps-limit=0 "D:\Games\Budokai 2 USA.iso"
 ```
 
-A limit of `0` disables host frame pacing. Other accepted values are integers
-from 1 through 240. To set a limit for the self-contained portable launcher or
-installed application, set `OPENKAI2_FPS_LIMIT` before launching:
+A value of `0` removes the host display cap; integers from 1 through 240 select
+a limit. For direct game launches, command-line values override
+`OPENKAI2_FPS_LIMIT`, followed by saved preferences. The desktop launcher passes
+its saved selection explicitly. `[display]` records the effective setting.
 
-```powershell
-$env:OPENKAI2_FPS_LIMIT = "240"
-.\OpenKai2.exe
-```
-
-The command-line setting overrides the environment variable. The startup log
-records the effective setting under `[display]`.
-
-Game simulation, guest clocks, and movie playback retain their original rates.
-The window displays the latest available image; repeated frames count as window
-updates, not newly generated game frames. This setting adds no interpolation
-and cannot overcome CPU-limited game-frame generation. Sustained 60 and 240
-game FPS remain unverified.
+Original game timing is independent of the window's refresh cap. After a long
+host stall, pacing resumes from the current time instead of replaying a backlog
+of vertical blanks in a burst. Guest cycle deadlines and interrupt order are
+preserved. Repeated window updates are not new game frames; higher caps do not
+establish higher simulation FPS or resolve slow fights.
 
 ## Vector execution
 
@@ -131,10 +192,9 @@ using the startup diagnostic.
 & ".\.local\openkai2\budokai2-native\OpenKai2.exe" "D:\Games\Budokai 2 USA.iso"
 ```
 
-You can also double-click `OpenKai2.exe` and select the ISO in the file picker.
-Cancelling the picker exits normally. Errors from an interactive launch appear
-in a message box. Startup output is saved to
-`%LOCALAPPDATA%\OpenKai2\logs\startup.log`.
+Double-click `OpenKai2.exe` to use the desktop launcher. Choose and verify the
+ISO, then press **Play**. The launcher returns when the game closes. Game output
+is saved to `%LOCALAPPDATA%\OpenKai2\logs\startup.log`.
 
 The Windows builder also creates `OpenKai2-windows-x64.zip` in its working
 directory. Extract the whole archive before launching. It contains the executable,

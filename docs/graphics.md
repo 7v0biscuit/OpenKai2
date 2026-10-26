@@ -7,7 +7,7 @@ for compatibility and comparison.
 
 ## Select a renderer
 
-The default is `auto`: use GPU rendering when initialization succeeds, otherwise
+Choose the renderer on the launcher **Settings** page. The default is `auto`: use GPU rendering when initialization succeeds, otherwise
 use the CPU. From PowerShell, with the extracted ZIP version:
 
 ```powershell
@@ -21,12 +21,27 @@ self-contained launcher or installed shortcut, set `OPENKAI2_RENDERER` to `gpu`,
 `cpu`, or `auto` before launching. This environment setting also works with the
 extracted application. The game ISO is required in every renderer mode.
 
+## Display settings
+
+The launcher saves resolution, windowed/borderless display mode, VSync, FXAA,
+texture filtering and nearest/bilinear/bicubic presentation scaling. The default
+aspect ratio is 4:3; 16:9, stretch and native pixel aspect are also available.
+FXAA and scaling operate on the completed game image. Bicubic scaling is a
+spatial filter; FSR and frame generation are not included in this build.
+
+The default presentation cap is 60 FPS. Higher caps through 240 FPS and unlimited
+presentation do not change the original guest vertical blank cadence. When a
+host stall misses a field deadline, the pacing anchor is rebased instead of
+running overdue fields in a burst. More window refreshes do not imply more
+completed game frames.
+
 ## Checks and diagnostics
 
 The extracted application's GPU comparisons run without game files:
 
 ```powershell
 .\OpenKai2.exe --gpu-self-test
+.\OpenKai2.exe --display-self-test
 ```
 
 Results are written to `%LOCALAPPDATA%\OpenKai2\logs\gpu-test.log`. This
@@ -34,6 +49,9 @@ command requires GPU initialization and actual compute dispatch; it fails if
 GPU output differs from the software reference. Normal startup records the
 selected renderer and device. On shutdown, `[renderer:gpu]` reports GPU and
 software draw counts, submitted batches, tile counts, and upload/readback bytes.
+`culled_draws` counts repeated-vertex and axis-flat triangles omitted before
+GPU binning. Display checks compare all FXAA/scaler combinations using actual
+OpenGL output, including orientation, cropping and letterboxing.
 These are diagnostic counts, not a game FPS measurement.
 
 ## Compatibility and performance

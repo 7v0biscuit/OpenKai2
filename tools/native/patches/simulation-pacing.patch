@@ -1,0 +1,26 @@
+--- a/Kernel/EeScheduler.cpp
++++ b/Kernel/EeScheduler.cpp
+@@ -2,6 +2,7 @@
+ #include "work_timings.h"
+ #include "startup_diagnostics.h"
+ #include "guest_timing.h"
++#include "simulation_pacing.h"
+ 
+ #include "ps2_log.h"
+ #include "ps2_runtime_macros.h"
+@@ -1875,11 +1876,13 @@
+         {
+             if (scheduled.event.type == EeEventType::VBlankStart)
+             {
++                const auto hostAnchor = openkai2::field_pacing_anchor(
++                    scheduled.hostDeadline, std::chrono::steady_clock::now());
+                 scheduleEvent(scheduled.deadlineCycle + kVBlankDurationCycles,
+-                              scheduled.hostDeadline + kVBlankDuration,
++                              hostAnchor + kVBlankDuration,
+                               EeEvent{EeEventType::VBlankEnd, 0, m_vsyncTick + 1u});
+                 scheduleEvent(scheduled.deadlineCycle + kVBlankPeriodCycles,
+-                              scheduled.hostDeadline + kVBlankPeriod,
++                              hostAnchor + kVBlankPeriod,
+                               EeEvent{EeEventType::VBlankStart, 0, 0});
+             }
+             processEvent(scheduled.event);

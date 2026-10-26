@@ -5,7 +5,7 @@
 #include <string>
 namespace openkai2 {
 struct GpuRenderStats {
-    uint64_t gpuDraws=0,cpuDraws=0,batches=0,tiles=0,uploads=0,readbacks=0;
+    uint64_t gpuDraws=0,cpuDraws=0,batches=0,tiles=0,uploads=0,readbacks=0,culled=0;
 };
 class GpuRasterBackend final:public GSRasterBackend {
 public:

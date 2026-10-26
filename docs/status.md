@@ -9,6 +9,33 @@ The original Budokai 2 USA ISO is required at every game launch. Automated
 checks cover bounded runtime behavior and Windows packaging; full retail
 compatibility requires separate validation.
 
+## Desktop launcher and pacing
+
+The Windows launcher remembers a verified ISO path and provides Play, Saves,
+and Settings pages. Save imports support extracted folders, PSU files, and
+OpenKai2 ZIP snapshots. Imports/restores validate their source before replacing
+the card and retain a recovery backup. Windows game and save operations share
+a session lock. Renderer, display mode, FPS cap, VSync, FXAA, texture filtering,
+and nearest/bilinear/bicubic display scaling are persistent settings.
+
+The default presentation limit is 60 FPS. Late host vertical-blank deadlines
+are rebased after a stall to avoid bursts of catch-up animation. Guest cycle
+deadlines remain separate from host presentation. This does not establish
+stable fight performance.
+
+The Dragon World callback bank at `0x0037A6C0` now has explicit entries for all
+86 methods, including `0x00295F40`. Original bank boundaries and completion
+instructions are verified against the supported executable. The compiled
+completion callback is checked with direct/cached/uncached addresses, dependency
+results, caller frames and stack guards. Full story progression still requires
+retail validation.
+
+Display checks exercise all six FXAA/scaler combinations on a real OpenGL
+context, including content bounds, image orientation, letterboxing and native
+edge smoothing. Save checks cover Unicode settings, argument quoting, lossless
+PSU/ZIP import, recoverable replacement, damaged archives, traversal and links.
+FSR and frame generation are not currently implemented.
+
 ## Native VU1 execution
 
 VU1 microprograms use PCSX2's microVU x86-64 recompiler. The adapter preserves
@@ -116,7 +143,7 @@ validation.
 
 ## Display pacing and vector flags
 
-The window defaults to a 240 FPS limit. `--fps-limit=0` removes host frame
+The window defaults to a 60 FPS limit. `--fps-limit=0` removes host frame
 pacing; values from 1 through 240 choose a cap. `OPENKAI2_FPS_LIMIT` also applies
 to portable and installed launches, with command-line settings taking priority.
 Guest timing and simulation retain their original rates. Repeated window

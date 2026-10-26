@@ -11,6 +11,17 @@
 #include <set>
 #include <sstream>
 #include <stdexcept>
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+
+#include <bcrypt.h>
+#endif
 
 namespace openkai2 {
 namespace {
@@ -18,6 +29,15 @@ constexpr uint64_t sector_size = 2048;
 using Bytes = std::vector<uint8_t>;
 
 class Sha256 {
+#ifdef _WIN32
+    struct Provider {
+        BCRYPT_ALG_HANDLE handle=nullptr;
+        Provider(){if(BCryptOpenAlgorithmProvider(&handle,BCRYPT_SHA256_ALGORITHM,nullptr,0)<0)handle=nullptr;}
+        ~Provider(){if(handle)BCryptCloseAlgorithmProvider(handle,0);}
+    };
+    BCRYPT_HASH_HANDLE nativeHash_=nullptr;
+    Bytes nativeState_;
+#endif
     std::array<uint32_t, 8> state_{{0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
                                   0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19}};
     std::array<uint8_t, 64> block_{};
@@ -56,7 +76,36 @@ class Sha256 {
         state_[4]+=e; state_[5]+=f; state_[6]+=g; state_[7]+=h;
     }
 public:
+    Sha256(){
+#ifdef _WIN32
+        static Provider provider;
+        if(!provider.handle)return;
+        ULONG size=0,written=0;
+        if(BCryptGetProperty(provider.handle,BCRYPT_OBJECT_LENGTH,reinterpret_cast<PUCHAR>(&size),sizeof(size),&written,0)<0 || written!=sizeof(size) || size>1024u*1024u)
+            throw std::runtime_error("Cannot initialize Windows SHA-256");
+        nativeState_.resize(size);
+        if(BCryptCreateHash(provider.handle,&nativeHash_,nativeState_.data(),size,nullptr,0,0)<0)
+            throw std::runtime_error("Cannot create Windows SHA-256 state");
+#endif
+    }
+    Sha256(const Sha256&)=delete;
+    Sha256& operator=(const Sha256&)=delete;
+    ~Sha256(){
+#ifdef _WIN32
+        if(nativeHash_)BCryptDestroyHash(nativeHash_);
+#endif
+    }
     void update(const uint8_t* data, size_t size) {
+#ifdef _WIN32
+        if(nativeHash_){
+            while(size){const auto count=ULONG(std::min<size_t>(size,std::numeric_limits<ULONG>::max()));
+                if(BCryptHashData(nativeHash_,const_cast<PUCHAR>(data),count,0)<0)
+                    throw std::runtime_error("Windows SHA-256 update failed");
+                data+=count;size-=count;
+            }
+            return;
+        }
+#endif
         size_ += size;
         while (size) {
             const auto count = std::min(size, block_.size()-used_);
@@ -66,6 +115,16 @@ public:
         }
     }
     std::string finish() {
+#ifdef _WIN32
+        if(nativeHash_){
+            std::array<uint8_t,32> digest{};
+            if(BCryptFinishHash(nativeHash_,digest.data(),ULONG(digest.size()),0)<0)
+                throw std::runtime_error("Windows SHA-256 verification failed");
+            std::ostringstream out;out<<std::hex<<std::setfill('0');
+            for(auto value:digest)out<<std::setw(2)<<unsigned(value);
+            return out.str();
+        }
+#endif
         const uint64_t bits = size_ * 8;
         const uint8_t marker=0x80, zero=0;
         update(&marker,1);

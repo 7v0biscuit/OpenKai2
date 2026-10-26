@@ -72,6 +72,25 @@ GSPrimitiveBatch material(unsigned mode,bool sprite){
     if(sprite){b.vertices[1].v=2040u;b.vertices[1].t=float(b.vertices[1].v)/2048.0f;}
     return b;
 }
+void checkEmptyTriangles(){
+    Comparison pair;auto draw=material(0u,false);draw.state.prim.tme=false;draw.state.prim.abe=false;
+    draw.vertices[0].x=10.25f;draw.vertices[0].y=11.5f;
+    draw.vertices[1].x=71.75f;draw.vertices[1].y=61.25f;
+    draw.vertices[2].x=20.5f;draw.vertices[2].y=75.0f;
+    const auto original=draw;
+    for(unsigned mode=0;mode<5u;++mode){draw=original;
+        if(mode==0u)draw.vertices[1]=draw.vertices[0];
+        if(mode==1u)draw.vertices[2]=draw.vertices[0];
+        if(mode==2u)draw.vertices[2]=draw.vertices[1];
+        if(mode==3u)for(auto& v:draw.vertices)v.x=17.25f;
+        if(mode==4u)for(auto& v:draw.vertices)v.y=25.75f;
+        pair.draw(draw);pair.compare("Empty triangle "+std::to_string(mode));
+    }
+    const auto empty=pair.gpu->stats();
+    if(empty.culled!=5u || empty.batches!=0u || empty.tiles!=0u)throw std::runtime_error("Empty triangles reached GPU tile processing");
+    pair.draw(original);pair.compare("Visible triangle after empty strip vertices");
+    if(pair.gpu->stats().batches!=1u)throw std::runtime_error("Empty-strip culling lost a subsequent visible draw");
+}
 void checkMaterials(){
     for(unsigned type=0;type<2u;++type)for(unsigned mode=0;mode<128u;++mode){
         Comparison pair;auto p=material(mode,type!=0u);auto& s=p.state;auto& c=s.context;
@@ -274,7 +293,7 @@ int run_gpu_checks(bool required){
         const bool initialized=gpu::initialize_headless(error);
 #endif
         if(!initialized){std::cout<<"GPU checks unavailable: "<<error<<'\n';return required ? 1 : 77;}
-        checkFlatDepth();checkDepthPlanes();checkMaterials();checkIntegerPipeline();checkFormats();checkLines();checkCoherence();checkRebind();checkClears();checkSourceChanges();checkPartialReadbacks();
+        checkFlatDepth();checkDepthPlanes();checkEmptyTriangles();checkMaterials();checkIntegerPipeline();checkFormats();checkLines();checkCoherence();checkRebind();checkClears();checkSourceChanges();checkPartialReadbacks();
         const auto before=gpu_render_statistics().gpuDraws;verify_vector_runtime_gpu();
         if(gpu_render_statistics().gpuDraws-before!=8u)throw std::runtime_error("VIF/PATH1 integration did not execute eight GPU triangles");
         // A failed asynchronous submission must propagate to its caller and
