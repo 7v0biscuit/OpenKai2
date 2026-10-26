@@ -628,7 +628,7 @@ struct Window {
                 layout();
             }
         }
-        if (!closing && !busy() && !child && !externalGame) {
+        if (!closing && !picking && !busy() && !child && !externalGame) {
             if (staged && settings.autoUpdates) {
                 // The worker waits for this process (and a portable wrapper) to exit.
                 try { apply_update(*staged); }
@@ -671,7 +671,8 @@ struct Window {
         }
         std::vector<wchar_t> path(32768, 0);
         if (iso && !settings.iso.empty()) {
-            const auto saved = settings.iso.wstring();
+            auto native = settings.iso;
+            const auto saved = native.make_preferred().wstring();
             if (saved.size() < path.size())
                 std::copy(saved.begin(), saved.end(), path.begin());
         }
@@ -722,8 +723,10 @@ struct Window {
             dialog->SetFileTypeIndex(1);
         }
         if (iso && !settings.iso.empty()) {
+            auto nativeDirectory = settings.iso.parent_path();
+            nativeDirectory.make_preferred();
             IShellItem *directory = nullptr;
-            if (SUCCEEDED(SHCreateItemFromParsingName(settings.iso.parent_path().c_str(), nullptr,
+            if (SUCCEEDED(SHCreateItemFromParsingName(nativeDirectory.c_str(), nullptr,
                                                       IID_PPV_ARGS(&directory)))) {
                 dialog->SetFolder(directory);
                 directory->Release();
