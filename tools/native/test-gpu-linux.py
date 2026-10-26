@@ -52,8 +52,9 @@ def main():
         '-DPS2X_ENABLE_AGRESSIVE_LOGS=OFF', '-DOPENKAI2_RUNTIME_TESTS_ONLY=ON',
         f'-DCMAKE_PROJECT_TOP_LEVEL_INCLUDES={ROOT / "tools/native/attach-game.cmake"}',
         *compiler_options, env=env)
-    run('cmake', '--build', build, '--target', 'openkai2_gpu_tests', '--parallel', args.jobs, env=env)
+    run('cmake', '--build', build, '--target', 'openkai2_gpu_tests', 'openkai2_vector_backend_tests', '--parallel', args.jobs, env=env)
     run(build / 'openkai2_gpu_tests', '--required', env=env)
+    run(build / 'openkai2_vector_backend_tests', env=env)
 
 
 if __name__ == '__main__':

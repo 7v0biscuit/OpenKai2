@@ -21,6 +21,8 @@
 #include "actor_command_checks.h"
 #include "pause_menu_checks.h"
 #include "vector_checks.h"
+#include "vector/backend.h"
+#include "vector/backend_checks.h"
 #include "vector_hotpath_checks.h"
 #include "animation_checks.h"
 #include "aura_checks.h"
@@ -394,6 +396,7 @@ void verify_file_callbacks(PS2Runtime& runtime,uint8_t* memory) {
 int run_runtime_checks() {
     verify_runtime_layout(sizeof(VU1Interpreter),sizeof(PS2Runtime));
     verify_vector_runtime();
+    verify_vector_backend();
     std::cout << "Runtime vector integration regression passed: consistent header layouts, independent VU0/VU1 state, and real VIF1 MSCAL/MSCNT PATH1 triangle rendering.\n";
     verify_interlaced_presentation();
     std::cout << "Runtime GIF vertex regression passed: packed Q latching across tags and exact 32-bit XYZ2/XYZ3 depths on both parsers.\n";
@@ -466,26 +469,29 @@ int run_runtime_checks() {
     verify_versus_animation(runtime,memory);
     verify_skeletal_transforms(runtime,memory);
     std::cout << "Runtime skeletal transform regression passed: 64 original quaternion transforms, worker start/restart, parent matrices, translation, and homogeneous coordinates.\n";
-    verify_vector_transfers();
-    std::cout << "Runtime vector transfer regression passed: 128 original packet, callback cycle, wrapped memory, pipeline write and resume snapshots.\n";
-    verify_vector_zero_register();
-    std::cout << "Runtime constant vector register regression passed: 18 paired upper writes with lower stores, moves and divisions across both units, retaining arithmetic flags.\n";
-    verify_vector_matrices();
-    std::cout << "Runtime vector matrix regression passed: 64 original state/cycle/data snapshots and independent transformed positions across both units and resume modes.\n";
-    verify_vector_code_updates();
-    std::cout << "Runtime vector code update regression passed.\n";
-    verify_vector_operands();
-    std::cout << "Runtime vector operand regression passed: 128 original snapshots with broadcasts, Q/I, inactive lanes, accumulator use and cross products.\n";
-    verify_vector_products();
-    std::cout << "Runtime vector product regression passed: 32 original multiply-add/subtract pipeline snapshots, signed zero, broadcast, Q/I and cross lanes.\n";
-    verify_vector_arithmetic();
-    std::cout << "Runtime vector arithmetic regression passed: 73728 original register, flag and cycle cases, binary64/x87 precision, cancellation and destination masks.\n";
-    verify_vif_unpack();
-    std::cout << "Runtime VIF unpack regression passed: 1664 original memory/register snapshots, signed formats, wrapping, masks, row modes, fill/skip cycles, truncation and source overlap.\n";
-    verify_vector_pipeline_scheduling();
-    std::cout << "Runtime vector scheduling regression passed: 128 original register, flag, memory and cycle references across pipeline stalls, resume budgets, reset and PATH1 callbacks.\n";
-    verify_vector_execution();
-    std::cout << "Runtime vector execution regression passed: 64 original register, flag, cycle, memory and packet references, cache invalidation, resume, wrapping, VU0/VU1, and 128 host floating-point control cases.\n";
+    {
+        VectorReferenceScope originalVectorReferences;
+        verify_vector_transfers();
+        std::cout << "Runtime vector transfer regression passed: 128 original packet, callback cycle, wrapped memory, pipeline write and resume snapshots.\n";
+        verify_vector_zero_register();
+        std::cout << "Runtime constant vector register regression passed: 18 paired upper writes with lower stores, moves and divisions across both units, retaining arithmetic flags.\n";
+        verify_vector_matrices();
+        std::cout << "Runtime vector matrix regression passed: 64 original state/cycle/data snapshots and independent transformed positions across both units and resume modes.\n";
+        verify_vector_code_updates();
+        std::cout << "Runtime vector code update regression passed.\n";
+        verify_vector_operands();
+        std::cout << "Runtime vector operand regression passed: 128 original snapshots with broadcasts, Q/I, inactive lanes, accumulator use and cross products.\n";
+        verify_vector_products();
+        std::cout << "Runtime vector product regression passed: 32 original multiply-add/subtract pipeline snapshots, signed zero, broadcast, Q/I and cross lanes.\n";
+        verify_vector_arithmetic();
+        std::cout << "Runtime vector arithmetic regression passed: 73728 original register, flag and cycle cases, binary64/x87 precision, cancellation and destination masks.\n";
+        verify_vif_unpack();
+        std::cout << "Runtime VIF unpack regression passed: 1664 original memory/register snapshots, signed formats, wrapping, masks, row modes, fill/skip cycles, truncation and source overlap.\n";
+        verify_vector_pipeline_scheduling();
+        std::cout << "Runtime vector scheduling regression passed: 128 original register, flag, memory and cycle references across pipeline stalls, resume budgets, reset and PATH1 callbacks.\n";
+        verify_vector_execution();
+        std::cout << "Runtime vector execution regression passed: 64 original register, flag, cycle, memory and packet references, cache invalidation, resume, wrapping, VU0/VU1, and 128 host floating-point control cases.\n";
+    }
     verify_impact_effects(runtime,memory);
     verify_pause_menu(runtime,memory);
     std::cout << "Runtime pause menu regression passed: 12 registered callbacks, 513 original open, timer and input-dispatch cases with aliases, priority, null slots and stack guards.\n";

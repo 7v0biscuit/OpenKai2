@@ -48,11 +48,13 @@ function(openkai2_attach_generated_sources)
             "${project_root}/tools/native/translation-entries.py")
     endif()
     set(overlay_dir "${CMAKE_BINARY_DIR}/openkai2-overlays")
+    include("${project_root}/tools/native/vector-core.cmake")
     execute_process(COMMAND "${Python3_EXECUTABLE}"
         "${project_root}/tools/native/prepare-overlays.py"
         --upstream "${CMAKE_SOURCE_DIR}" --output "${overlay_dir}"
         COMMAND_ERROR_IS_FATAL ANY)
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+        "${project_root}/tools/native/patches/vector-native-backend.patch"
         "${project_root}/tools/native/patches/guest-timing.patch"
         "${project_root}/tools/native/patches/vu-context.patch"
         "${project_root}/tools/native/patches/draw-history-sampling.patch"
@@ -204,6 +206,8 @@ function(openkai2_attach_generated_sources)
         message(FATAL_ERROR "Expected exactly one patched EE thread implementation; found ${thread_overlay_count}")
     endif()
     set_property(TARGET ps2_runtime PROPERTY SOURCES "${overlay_runtime_sources}")
+    target_sources(ps2_runtime PRIVATE "${project_root}/src/vector/backend.cpp")
+    target_link_libraries(ps2_runtime PRIVATE openkai2_vector_core)
     target_sources(ps2_runtime PRIVATE "${project_root}/src/runtime_layout.cpp" "${project_root}/src/host_audio.cpp" "${project_root}/src/work_timings.cpp")
     file(READ "${project_root}/src/render/gs_compute.comp" openkai2_gpu_shader)
     configure_file("${project_root}/src/render/shader_source.h.in"
@@ -320,6 +324,19 @@ function(openkai2_attach_generated_sources)
     endif()
     ps2x_stage_ffmpeg_runtime_dlls(openkai2_vector_tests)
     add_test(NAME vector_pipelines COMMAND openkai2_vector_tests)
+    # These snapshots intentionally preserve the original interpreter's pipeline
+    # cycle accounting. The PCSX2 backend has separate ISA and geometry checks.
+    set_tests_properties(vector_pipelines PROPERTIES ENVIRONMENT "OPENKAI2_VECTOR_BACKEND=legacy")
+    add_library(openkai2_vector_backend_checks STATIC "${project_root}/src/vector/backend_checks.cpp")
+    target_compile_features(openkai2_vector_backend_checks PRIVATE cxx_std_20)
+    target_include_directories(openkai2_vector_backend_checks PRIVATE "${project_root}/src" "${overlay_dir}/include")
+    target_link_libraries(openkai2_vector_backend_checks PUBLIC openkai2_vector_core)
+    target_link_libraries(ps2EntryRunner PRIVATE openkai2_vector_backend_checks)
+    add_executable(openkai2_vector_backend_tests "${project_root}/tests/vector_backend_tests.cpp")
+    target_compile_features(openkai2_vector_backend_tests PRIVATE cxx_std_20)
+    target_include_directories(openkai2_vector_backend_tests PRIVATE "${project_root}/src" "${overlay_dir}/include")
+    target_link_libraries(openkai2_vector_backend_tests PRIVATE openkai2_vector_backend_checks)
+    add_test(NAME vector_native_backend COMMAND openkai2_vector_backend_tests)
     add_library(openkai2_vector_checks STATIC "${project_root}/src/vector_checks.cpp" "${project_root}/src/vector_pipeline_checks.cpp" "${project_root}/src/vector_transfer_checks.cpp" "${project_root}/src/vector_runtime_checks.cpp" "${project_root}/src/vector_hotpath_checks.cpp")
     target_include_directories(openkai2_vector_checks PUBLIC "${project_root}/src")
     target_link_libraries(openkai2_vector_checks PUBLIC ps2_runtime)

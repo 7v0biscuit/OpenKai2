@@ -38,6 +38,7 @@ reaches the title screen, menus, versus level selection, and the fight scene.
 Attack effects and fight progression remain incomplete, frame rates are
 unstable, and character poses need further validation. Host audio playback is
 disabled while performance work continues.
+VU1 microprograms use [PCSX2's microVU recompiler](docs/vector-runtime.md).
 Stable 60 FPS and complete matches have not been verified.
 
 The [development status](docs/status.md) records the current failures and the

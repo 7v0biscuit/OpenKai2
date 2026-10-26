@@ -69,6 +69,15 @@ updates, not newly generated game frames. This setting adds no interpolation
 and cannot overcome CPU-limited game-frame generation. Sustained 60 and 240
 game FPS remain unverified.
 
+## Vector execution
+
+VU1 microprograms use PCSX2's microVU native recompiler on x64. Startup records
+`[vector:engine] backend=pcsx2-microvu`. If executable memory is unavailable,
+the runtime selects its previous interpreter before vector execution starts.
+This changes CPU execution cost while retaining the original game clocks.
+Character distortion and stable 60 FPS remain under investigation.
+See [Vector execution](vector-runtime.md) for validation and developer settings.
+
 ## Audio output
 
 Host audio playback is disabled while frame-rate work continues. The application

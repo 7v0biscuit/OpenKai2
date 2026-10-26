@@ -8,6 +8,15 @@ eb8688b2fd191129f103a39543002c005b33409c, licensed under GNU GPL version 3.
 PS2Recomp and its dependencies are downloaded during setup. Their copyright
 notices and licenses remain applicable.
 
+The VU1 native recompiler and reference interpreter use PCSX2's microVU and
+vector core by the PCSX2 Dev Team, revision
+dcfd663c1903025864a865d3fcf508d0caab70c7 (v2.1.27):
+https://github.com/PCSX2/pcsx2
+These sources retain their LGPL-3.0-or-later notices and are included under
+third_party/pcsx2-vu/. Their fast_float headers use the MIT license. The
+application and integration code remain GPL-3.0-only. The bundled fmt 12.1.0
+formatting headers retain their MIT license.
+
 Portable Windows bundles include third-party notices in licenses/. The source
 locations for those notices and the pinned FFmpeg build recipe are recorded in
 third_party/licenses/sources.json.

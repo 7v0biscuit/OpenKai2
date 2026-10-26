@@ -1,0 +1,73 @@
+--- a/common/emitter/x86emitter.cpp
++++ b/common/emitter/x86emitter.cpp
+@@ -1224,20 +1224,30 @@
+ #ifdef _WIN32
+ 		xPUSH(rdi);
+ 		xPUSH(rsi);
+-		xSUB(rsp, 32); // Windows calling convention specifies additional space for the callee to spill registers
+-		m_offset += 48;
++		// Reserve the ABI shadow space plus XMM6-XMM15. OpenKai2 enters
++		// microVU from ordinary C++ callers, which retain these registers.
++		xSUB(rsp, 32 + 10 * 16);
++		m_offset += 48 + 10 * 16;
+ #endif
+ 
+ 		stackAlign(m_offset, true);
++#ifdef _WIN32
++		for (int reg = 6; reg < 16; ++reg)
++			xMOVAPS(ptr128[rsp + 32 + (reg - 6) * 16], xRegisterSSE(reg));
++#endif
+ 	}
+ 
+ 	xScopedStackFrame::~xScopedStackFrame()
+ 	{
++#ifdef _WIN32
++		for (int reg = 6; reg < 16; ++reg)
++			xMOVAPS(xRegisterSSE(reg), ptr128[rsp + 32 + (reg - 6) * 16]);
++#endif
+ 		stackAlign(m_offset, false);
+ 
+ 		// Restore the register context
+ #ifdef _WIN32
+-		xADD(rsp, 32);
++		xADD(rsp, 32 + 10 * 16);
+ 		xPOP(rsi);
+ 		xPOP(rdi);
+ #endif
+--- a/pcsx2/x86/microVU.cpp
++++ b/pcsx2/x86/microVU.cpp
+@@ -412,15 +412,6 @@
+ 	((mVUrecCallXG)microVU1.startFunctXG)();
+ }
+ 
+-bool SaveStateBase::vuJITFreeze()
+-{
+-	if (IsSaving())
+-		vu1Thread.WaitVU();
+-
+-	Freeze(microVU0.prog.lpState);
+-	Freeze(microVU1.prog.lpState);
+-	return IsOkay();
+-}
+ 
+ #if 0
+ 
+--- a/pcsx2/x86/microVU.h
++++ b/pcsx2/x86/microVU.h
+@@ -321,4 +321,4 @@
+ #include "microVU_Branch.inl"
+ #include "microVU_Compile.inl"
+ #include "microVU_Execute.inl"
+-#include "microVU_Macro.inl"
++// EE macro emission is provided by the static recompiler.
+--- a/pcsx2/x86/microVU_Misc.h
++++ b/pcsx2/x86/microVU_Misc.h
+@@ -316,7 +316,7 @@
+ // Note: You MUST disable doJumpCaching if you enable this option.
+ 
+ // Handling of D-Bit in Micro Programs
+-static constexpr bool doDBitHandling = false;
++static constexpr bool doDBitHandling = true;
+ // This flag shouldn't be enabled in released versions of games. Any games which
+ // need this method of pausing the VU should be using the T-Bit instead, however
+ // this could prove useful for VU debugging.

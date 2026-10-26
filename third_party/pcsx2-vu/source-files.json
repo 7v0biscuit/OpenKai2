@@ -1,0 +1,518 @@
+{
+  "repository": "https://github.com/PCSX2/pcsx2",
+  "revision": "dcfd663c1903025864a865d3fcf508d0caab70c7",
+  "version": "v2.1.27",
+  "files": [
+    {
+      "path": "upstream/3rdparty/fast_float/include/fast_float/ascii_number.h",
+      "upstream_path": "3rdparty/fast_float/include/fast_float/ascii_number.h",
+      "upstream_sha256": "86416ffc8adb8bbb6b2918e30d9cec4c9e1924d0d73977072c96acead7bcb794",
+      "sha256": "86416ffc8adb8bbb6b2918e30d9cec4c9e1924d0d73977072c96acead7bcb794"
+    },
+    {
+      "path": "upstream/3rdparty/fast_float/include/fast_float/bigint.h",
+      "upstream_path": "3rdparty/fast_float/include/fast_float/bigint.h",
+      "upstream_sha256": "77e1910b787106309f55a5018f7aecd21d7f1c2886264026a7e68e653ae893a5",
+      "sha256": "77e1910b787106309f55a5018f7aecd21d7f1c2886264026a7e68e653ae893a5"
+    },
+    {
+      "path": "upstream/3rdparty/fast_float/include/fast_float/constexpr_feature_detect.h",
+      "upstream_path": "3rdparty/fast_float/include/fast_float/constexpr_feature_detect.h",
+      "upstream_sha256": "fac6a56ee7dab2b1ba5b042df4a1474b88d61065ad5b10c507a3909ac83aa51c",
+      "sha256": "fac6a56ee7dab2b1ba5b042df4a1474b88d61065ad5b10c507a3909ac83aa51c"
+    },
+    {
+      "path": "upstream/3rdparty/fast_float/include/fast_float/decimal_to_binary.h",
+      "upstream_path": "3rdparty/fast_float/include/fast_float/decimal_to_binary.h",
+      "upstream_sha256": "0f4c3e7efb331c700acd7c6b98da5250bdc2f7bfe504a5eb9494020c32c1ccae",
+      "sha256": "0f4c3e7efb331c700acd7c6b98da5250bdc2f7bfe504a5eb9494020c32c1ccae"
+    },
+    {
+      "path": "upstream/3rdparty/fast_float/include/fast_float/digit_comparison.h",
+      "upstream_path": "3rdparty/fast_float/include/fast_float/digit_comparison.h",
+      "upstream_sha256": "9996ba99d375470b4aed2e6ecc5711abf448a2dcc0ede8c6f4c8d775ff68d889",
+      "sha256": "9996ba99d375470b4aed2e6ecc5711abf448a2dcc0ede8c6f4c8d775ff68d889"
+    },
+    {
+      "path": "upstream/3rdparty/fast_float/include/fast_float/fast_float.h",
+      "upstream_path": "3rdparty/fast_float/include/fast_float/fast_float.h",
+      "upstream_sha256": "d9cd700c2b585ef3fed0cb444a623fbfe62b681fb1817769e51304a58e44cf9b",
+      "sha256": "d9cd700c2b585ef3fed0cb444a623fbfe62b681fb1817769e51304a58e44cf9b"
+    },
+    {
+      "path": "upstream/3rdparty/fast_float/include/fast_float/fast_table.h",
+      "upstream_path": "3rdparty/fast_float/include/fast_float/fast_table.h",
+      "upstream_sha256": "4215cd9a6b48ef08bfda9abf80df8a89e73ae49fb61e6a8eb5cd1d0b5d17db1d",
+      "sha256": "4215cd9a6b48ef08bfda9abf80df8a89e73ae49fb61e6a8eb5cd1d0b5d17db1d"
+    },
+    {
+      "path": "upstream/3rdparty/fast_float/include/fast_float/float_common.h",
+      "upstream_path": "3rdparty/fast_float/include/fast_float/float_common.h",
+      "upstream_sha256": "a972a73b0178fbd80b192669f2e750068396178bbb632ea288b6fa60ae4aa5ad",
+      "sha256": "a972a73b0178fbd80b192669f2e750068396178bbb632ea288b6fa60ae4aa5ad"
+    },
+    {
+      "path": "upstream/3rdparty/fast_float/include/fast_float/parse_number.h",
+      "upstream_path": "3rdparty/fast_float/include/fast_float/parse_number.h",
+      "upstream_sha256": "ddf05c34884195c97c817099ae1d39e022ebd21ea346564b3ef42842b5fb1244",
+      "sha256": "ddf05c34884195c97c817099ae1d39e022ebd21ea346564b3ef42842b5fb1244"
+    },
+    {
+      "path": "upstream/common/AlignedMalloc.cpp",
+      "upstream_path": "common/AlignedMalloc.cpp",
+      "upstream_sha256": "def598ac9cb8210416967c7a19ffcbcac44c8726f98e35c1d7870a9e6a4fe9b5",
+      "sha256": "def598ac9cb8210416967c7a19ffcbcac44c8726f98e35c1d7870a9e6a4fe9b5"
+    },
+    {
+      "path": "upstream/common/AlignedMalloc.h",
+      "upstream_path": "common/AlignedMalloc.h",
+      "upstream_sha256": "488421cfee8118065c5f8134c7f83a380ec7e40059f250ea62cb1fd06b1cfcff",
+      "sha256": "488421cfee8118065c5f8134c7f83a380ec7e40059f250ea62cb1fd06b1cfcff"
+    },
+    {
+      "path": "upstream/common/Assertions.h",
+      "upstream_path": "common/Assertions.h",
+      "upstream_sha256": "54e4072aca115a83f7df6843b18b581cf8f8c165d641c8afa15e59384abe5ec3",
+      "sha256": "54e4072aca115a83f7df6843b18b581cf8f8c165d641c8afa15e59384abe5ec3"
+    },
+    {
+      "path": "upstream/common/FPControl.h",
+      "upstream_path": "common/FPControl.h",
+      "upstream_sha256": "fe20e3af86bdd2986f77168f0e81839047cc3d6c530f22afa3a156353cac01be",
+      "sha256": "fe20e3af86bdd2986f77168f0e81839047cc3d6c530f22afa3a156353cac01be"
+    },
+    {
+      "path": "upstream/common/FileSystem.h",
+      "upstream_path": "common/FileSystem.h",
+      "upstream_sha256": "509746ec8603b6c47a8c6bc539f1d8d341bcdf66903e7bc155e03db6bb6e8277",
+      "sha256": "509746ec8603b6c47a8c6bc539f1d8d341bcdf66903e7bc155e03db6bb6e8277"
+    },
+    {
+      "path": "upstream/common/Path.h",
+      "upstream_path": "common/Path.h",
+      "upstream_sha256": "1423441c571d3382dbd25e30265badae398057f29019e3bee6abddbc597487a6",
+      "sha256": "1423441c571d3382dbd25e30265badae398057f29019e3bee6abddbc597487a6"
+    },
+    {
+      "path": "upstream/common/Pcsx2Defs.h",
+      "upstream_path": "common/Pcsx2Defs.h",
+      "upstream_sha256": "ae753dd29ebb6f26155902f83face3c53a5e4551d693df9af3f376fdfbb48fe8",
+      "sha256": "ae753dd29ebb6f26155902f83face3c53a5e4551d693df9af3f376fdfbb48fe8"
+    },
+    {
+      "path": "upstream/common/Pcsx2Types.h",
+      "upstream_path": "common/Pcsx2Types.h",
+      "upstream_sha256": "b5a677a8183ee3effa8215c02c4c2f6742476556373b29212980642296b49154",
+      "sha256": "b5a677a8183ee3effa8215c02c4c2f6742476556373b29212980642296b49154"
+    },
+    {
+      "path": "upstream/common/Perf.h",
+      "upstream_path": "common/Perf.h",
+      "upstream_sha256": "e30f1776ef61a4bdda9bfb74256fac7c4de5821549235b7a688df582babcea30",
+      "sha256": "e30f1776ef61a4bdda9bfb74256fac7c4de5821549235b7a688df582babcea30"
+    },
+    {
+      "path": "upstream/common/StringUtil.h",
+      "upstream_path": "common/StringUtil.h",
+      "upstream_sha256": "e3f67aacd5e81a8e477b8e5f246e8413b1c918d9db57ad48cd09d392245143eb",
+      "sha256": "e3f67aacd5e81a8e477b8e5f246e8413b1c918d9db57ad48cd09d392245143eb"
+    },
+    {
+      "path": "upstream/common/VectorIntrin.h",
+      "upstream_path": "common/VectorIntrin.h",
+      "upstream_sha256": "aa4d1bf5a6ac2c6a2bdb3bd082afed9d5b8fe3ee738e3834683f4507d6d9b6b2",
+      "sha256": "aa4d1bf5a6ac2c6a2bdb3bd082afed9d5b8fe3ee738e3834683f4507d6d9b6b2"
+    },
+    {
+      "path": "upstream/common/emitter/avx.cpp",
+      "upstream_path": "common/emitter/avx.cpp",
+      "upstream_sha256": "fa27f80b34dc44a770266b37aab6fb63bbc7e3b3a144dde33e177dff1b5e9046",
+      "sha256": "fa27f80b34dc44a770266b37aab6fb63bbc7e3b3a144dde33e177dff1b5e9046"
+    },
+    {
+      "path": "upstream/common/emitter/bmi.cpp",
+      "upstream_path": "common/emitter/bmi.cpp",
+      "upstream_sha256": "a1653684c511dd2c1e292e1d5bf6acf02108f4bbf26c66fd966140ab392efa1d",
+      "sha256": "a1653684c511dd2c1e292e1d5bf6acf02108f4bbf26c66fd966140ab392efa1d"
+    },
+    {
+      "path": "upstream/common/emitter/fpu.cpp",
+      "upstream_path": "common/emitter/fpu.cpp",
+      "upstream_sha256": "5574c72ecd7db5286141f50bbc5714662c8194e38800ef5439e0c6be0c31adb5",
+      "sha256": "5574c72ecd7db5286141f50bbc5714662c8194e38800ef5439e0c6be0c31adb5"
+    },
+    {
+      "path": "upstream/common/emitter/groups.cpp",
+      "upstream_path": "common/emitter/groups.cpp",
+      "upstream_sha256": "9e06e4d8ea71687bb93979d0acab54240ff408b1cbef4410c1895cae225c3864",
+      "sha256": "9e06e4d8ea71687bb93979d0acab54240ff408b1cbef4410c1895cae225c3864"
+    },
+    {
+      "path": "upstream/common/emitter/implement/avx.h",
+      "upstream_path": "common/emitter/implement/avx.h",
+      "upstream_sha256": "9951d865ddd1c1fa6a967ff165a28b4baada68b4d551879ec06f3a2d44d81381",
+      "sha256": "9951d865ddd1c1fa6a967ff165a28b4baada68b4d551879ec06f3a2d44d81381"
+    },
+    {
+      "path": "upstream/common/emitter/implement/bmi.h",
+      "upstream_path": "common/emitter/implement/bmi.h",
+      "upstream_sha256": "cc64ae88158339444a643873f6d002a9ada8086bb61be8918d6c6a56dbb5fd38",
+      "sha256": "cc64ae88158339444a643873f6d002a9ada8086bb61be8918d6c6a56dbb5fd38"
+    },
+    {
+      "path": "upstream/common/emitter/implement/dwshift.h",
+      "upstream_path": "common/emitter/implement/dwshift.h",
+      "upstream_sha256": "145c4f7aa94450a219a06f12c62a955b21b21679786c802c8196b6f697cc717a",
+      "sha256": "145c4f7aa94450a219a06f12c62a955b21b21679786c802c8196b6f697cc717a"
+    },
+    {
+      "path": "upstream/common/emitter/implement/group1.h",
+      "upstream_path": "common/emitter/implement/group1.h",
+      "upstream_sha256": "85e24431906a6ffa96260de8a5c4799d1304fd151bfabebbcb7ef27634badee8",
+      "sha256": "85e24431906a6ffa96260de8a5c4799d1304fd151bfabebbcb7ef27634badee8"
+    },
+    {
+      "path": "upstream/common/emitter/implement/group2.h",
+      "upstream_path": "common/emitter/implement/group2.h",
+      "upstream_sha256": "072fdd488890d5cd942bbec3d1bea456112facd2ff0720dea069a9e1d2ed646a",
+      "sha256": "072fdd488890d5cd942bbec3d1bea456112facd2ff0720dea069a9e1d2ed646a"
+    },
+    {
+      "path": "upstream/common/emitter/implement/group3.h",
+      "upstream_path": "common/emitter/implement/group3.h",
+      "upstream_sha256": "3dd3b8e5a73d3e995af91f67739307d842c56c9df27d64ff089b2fde1723b60d",
+      "sha256": "3dd3b8e5a73d3e995af91f67739307d842c56c9df27d64ff089b2fde1723b60d"
+    },
+    {
+      "path": "upstream/common/emitter/implement/helpers.h",
+      "upstream_path": "common/emitter/implement/helpers.h",
+      "upstream_sha256": "18e405fbba65791dde257ea499f2aedc4155d514532367b2daecd51d1425a4a1",
+      "sha256": "18e405fbba65791dde257ea499f2aedc4155d514532367b2daecd51d1425a4a1"
+    },
+    {
+      "path": "upstream/common/emitter/implement/incdec.h",
+      "upstream_path": "common/emitter/implement/incdec.h",
+      "upstream_sha256": "0054735a30d857758e8d2c6a5de79bb147649e9ac1bdd912de42fb477f537279",
+      "sha256": "0054735a30d857758e8d2c6a5de79bb147649e9ac1bdd912de42fb477f537279"
+    },
+    {
+      "path": "upstream/common/emitter/implement/jmpcall.h",
+      "upstream_path": "common/emitter/implement/jmpcall.h",
+      "upstream_sha256": "6466b42a4e5b09ab9ee7571127e71338260a2debe8cf6a80f91c954ffb3548db",
+      "sha256": "6466b42a4e5b09ab9ee7571127e71338260a2debe8cf6a80f91c954ffb3548db"
+    },
+    {
+      "path": "upstream/common/emitter/implement/movs.h",
+      "upstream_path": "common/emitter/implement/movs.h",
+      "upstream_sha256": "9fc8664c03615357222ec5ca819f14a60a59dce84ed25eb2ee0c8f28bfaf5ea6",
+      "sha256": "9fc8664c03615357222ec5ca819f14a60a59dce84ed25eb2ee0c8f28bfaf5ea6"
+    },
+    {
+      "path": "upstream/common/emitter/implement/simd_arithmetic.h",
+      "upstream_path": "common/emitter/implement/simd_arithmetic.h",
+      "upstream_sha256": "af4e4f11fe200ba78668d339c430364d8010c8208adc79e64e28775c71f6a791",
+      "sha256": "af4e4f11fe200ba78668d339c430364d8010c8208adc79e64e28775c71f6a791"
+    },
+    {
+      "path": "upstream/common/emitter/implement/simd_comparisons.h",
+      "upstream_path": "common/emitter/implement/simd_comparisons.h",
+      "upstream_sha256": "669aeaad9189f761a6bad4bb11fe3c49b1b0482ef43241b07478f0a979a82c28",
+      "sha256": "669aeaad9189f761a6bad4bb11fe3c49b1b0482ef43241b07478f0a979a82c28"
+    },
+    {
+      "path": "upstream/common/emitter/implement/simd_helpers.h",
+      "upstream_path": "common/emitter/implement/simd_helpers.h",
+      "upstream_sha256": "2ff917462cab9535bcf2b77c14ca24c6a40e6e80dbdddb7f3b44af5c47b9fbc4",
+      "sha256": "2ff917462cab9535bcf2b77c14ca24c6a40e6e80dbdddb7f3b44af5c47b9fbc4"
+    },
+    {
+      "path": "upstream/common/emitter/implement/simd_moremovs.h",
+      "upstream_path": "common/emitter/implement/simd_moremovs.h",
+      "upstream_sha256": "84ca708a924036debdf0037108deb7ac53bf44a0461ff1fd96e9b57076909371",
+      "sha256": "84ca708a924036debdf0037108deb7ac53bf44a0461ff1fd96e9b57076909371"
+    },
+    {
+      "path": "upstream/common/emitter/implement/simd_shufflepack.h",
+      "upstream_path": "common/emitter/implement/simd_shufflepack.h",
+      "upstream_sha256": "5c06ea017a8ef41caeeabccca35b77a87a3480905c9e632bc85b36105bba54aa",
+      "sha256": "5c06ea017a8ef41caeeabccca35b77a87a3480905c9e632bc85b36105bba54aa"
+    },
+    {
+      "path": "upstream/common/emitter/implement/test.h",
+      "upstream_path": "common/emitter/implement/test.h",
+      "upstream_sha256": "47a46c54364c5aad71c0d279ceb81684317bd2013dfded22c4998dacdd199166",
+      "sha256": "47a46c54364c5aad71c0d279ceb81684317bd2013dfded22c4998dacdd199166"
+    },
+    {
+      "path": "upstream/common/emitter/instructions.h",
+      "upstream_path": "common/emitter/instructions.h",
+      "upstream_sha256": "dd17d7d97340aa1521e1e32b02fa41b6628cc0826959516cc9a2b92b346b8ddb",
+      "sha256": "dd17d7d97340aa1521e1e32b02fa41b6628cc0826959516cc9a2b92b346b8ddb"
+    },
+    {
+      "path": "upstream/common/emitter/internal.h",
+      "upstream_path": "common/emitter/internal.h",
+      "upstream_sha256": "6766cb9733313b057452fb1164313c69a600961789b21864e4787a0e449fe1b2",
+      "sha256": "6766cb9733313b057452fb1164313c69a600961789b21864e4787a0e449fe1b2"
+    },
+    {
+      "path": "upstream/common/emitter/jmp.cpp",
+      "upstream_path": "common/emitter/jmp.cpp",
+      "upstream_sha256": "1ea17c3ac0df829faa39e3516a01fc74f5f739bb1ad586fad50ff2fdd425006b",
+      "sha256": "1ea17c3ac0df829faa39e3516a01fc74f5f739bb1ad586fad50ff2fdd425006b"
+    },
+    {
+      "path": "upstream/common/emitter/legacy.cpp",
+      "upstream_path": "common/emitter/legacy.cpp",
+      "upstream_sha256": "c4e35e446dcef050b84b69cb47916ab90446d8191c10c29b8d58950c27833ca0",
+      "sha256": "c4e35e446dcef050b84b69cb47916ab90446d8191c10c29b8d58950c27833ca0"
+    },
+    {
+      "path": "upstream/common/emitter/legacy_instructions.h",
+      "upstream_path": "common/emitter/legacy_instructions.h",
+      "upstream_sha256": "efed0e2c61cae05ae65c4e256891df8eb6ca65e605c4bbeefa47e67ec70089ea",
+      "sha256": "efed0e2c61cae05ae65c4e256891df8eb6ca65e605c4bbeefa47e67ec70089ea"
+    },
+    {
+      "path": "upstream/common/emitter/legacy_internal.h",
+      "upstream_path": "common/emitter/legacy_internal.h",
+      "upstream_sha256": "776eb70fd86582ac58e8372c2bb77905b5d2f114bde91a0845fb12471bf35b05",
+      "sha256": "776eb70fd86582ac58e8372c2bb77905b5d2f114bde91a0845fb12471bf35b05"
+    },
+    {
+      "path": "upstream/common/emitter/legacy_sse.cpp",
+      "upstream_path": "common/emitter/legacy_sse.cpp",
+      "upstream_sha256": "c9c5172a4cfd5aa1e4d3ca56be68317d606e0e0bb6c08cdb3ee4ebeab3cd532a",
+      "sha256": "c9c5172a4cfd5aa1e4d3ca56be68317d606e0e0bb6c08cdb3ee4ebeab3cd532a"
+    },
+    {
+      "path": "upstream/common/emitter/legacy_types.h",
+      "upstream_path": "common/emitter/legacy_types.h",
+      "upstream_sha256": "8a0c2f8c67f0e315059faadc3b5d11be14c2d928bf8456e6037c5a0a88f3892e",
+      "sha256": "8a0c2f8c67f0e315059faadc3b5d11be14c2d928bf8456e6037c5a0a88f3892e"
+    },
+    {
+      "path": "upstream/common/emitter/movs.cpp",
+      "upstream_path": "common/emitter/movs.cpp",
+      "upstream_sha256": "514800a50e0386424206f1b160247fc13d67758bc1b2091ec24ec470338c52ba",
+      "sha256": "514800a50e0386424206f1b160247fc13d67758bc1b2091ec24ec470338c52ba"
+    },
+    {
+      "path": "upstream/common/emitter/simd.cpp",
+      "upstream_path": "common/emitter/simd.cpp",
+      "upstream_sha256": "b36be27e87c888c37da6ff4b8e8e93591bc6a94420c58fe36bf52549a8c51409",
+      "sha256": "b36be27e87c888c37da6ff4b8e8e93591bc6a94420c58fe36bf52549a8c51409"
+    },
+    {
+      "path": "upstream/common/emitter/x86emitter.cpp",
+      "upstream_path": "common/emitter/x86emitter.cpp",
+      "upstream_sha256": "483f682903163fce0aa201866488c91bb7a7baeb694741fc54a6e1182c9f1f9a",
+      "sha256": "95d73c961c02c79f81f7f6f56435bc1d1168f12014a67754ce779899dac28760"
+    },
+    {
+      "path": "upstream/common/emitter/x86emitter.h",
+      "upstream_path": "common/emitter/x86emitter.h",
+      "upstream_sha256": "2b1694d73e7da2eb2be303cce6b40f9ae5bcac064379e3007004a7aeea840c52",
+      "sha256": "2b1694d73e7da2eb2be303cce6b40f9ae5bcac064379e3007004a7aeea840c52"
+    },
+    {
+      "path": "upstream/common/emitter/x86types.h",
+      "upstream_path": "common/emitter/x86types.h",
+      "upstream_sha256": "27e3167292684aa5138781b71d439a38f30d84f1a94b53a672563fb1a724dc97",
+      "sha256": "27e3167292684aa5138781b71d439a38f30d84f1a94b53a672563fb1a724dc97"
+    },
+    {
+      "path": "upstream/pcsx2/VU.h",
+      "upstream_path": "pcsx2/VU.h",
+      "upstream_sha256": "29f06e6cd265e80dd2a8ce92c49c2fd70ac86dcbbc4869dd318d983c96c92070",
+      "sha256": "29f06e6cd265e80dd2a8ce92c49c2fd70ac86dcbbc4869dd318d983c96c92070"
+    },
+    {
+      "path": "upstream/pcsx2/VU0microInterp.cpp",
+      "upstream_path": "pcsx2/VU0microInterp.cpp",
+      "upstream_sha256": "76e60bbf0617d971dbcd1189d6a7d6ae31817ae73977f5e6f7e5658cbb1dac1d",
+      "sha256": "76e60bbf0617d971dbcd1189d6a7d6ae31817ae73977f5e6f7e5658cbb1dac1d"
+    },
+    {
+      "path": "upstream/pcsx2/VU1microInterp.cpp",
+      "upstream_path": "pcsx2/VU1microInterp.cpp",
+      "upstream_sha256": "f63d5a4c1061f3f7de5a28475a4b75667b8d14606e1350262d111a8f3387f843",
+      "sha256": "f63d5a4c1061f3f7de5a28475a4b75667b8d14606e1350262d111a8f3387f843"
+    },
+    {
+      "path": "upstream/pcsx2/VUflags.cpp",
+      "upstream_path": "pcsx2/VUflags.cpp",
+      "upstream_sha256": "b07d7af92465f9eed95fa7deecafc89eec4595415292b41534726a7846bf69b0",
+      "sha256": "b07d7af92465f9eed95fa7deecafc89eec4595415292b41534726a7846bf69b0"
+    },
+    {
+      "path": "upstream/pcsx2/VUflags.h",
+      "upstream_path": "pcsx2/VUflags.h",
+      "upstream_sha256": "f3e1483ab61dda3d56a07acb3915317190442f201037dd419d78464c0ba85767",
+      "sha256": "f3e1483ab61dda3d56a07acb3915317190442f201037dd419d78464c0ba85767"
+    },
+    {
+      "path": "upstream/pcsx2/VUmicro.h",
+      "upstream_path": "pcsx2/VUmicro.h",
+      "upstream_sha256": "ceea7b613da9d8c44e580856927cafa0641f42553c4669042954668280f477f2",
+      "sha256": "ceea7b613da9d8c44e580856927cafa0641f42553c4669042954668280f477f2"
+    },
+    {
+      "path": "upstream/pcsx2/VUops.cpp",
+      "upstream_path": "pcsx2/VUops.cpp",
+      "upstream_sha256": "ca27d45d515c7a2c1b3424f1d614b5189fd8ddc5d0b11419db46bf41354afd29",
+      "sha256": "ca27d45d515c7a2c1b3424f1d614b5189fd8ddc5d0b11419db46bf41354afd29"
+    },
+    {
+      "path": "upstream/pcsx2/VUops.h",
+      "upstream_path": "pcsx2/VUops.h",
+      "upstream_sha256": "935701d957ea1f662994c4845dd30042abb1423a3e3a11bbd1681cb792ae56b9",
+      "sha256": "935701d957ea1f662994c4845dd30042abb1423a3e3a11bbd1681cb792ae56b9"
+    },
+    {
+      "path": "upstream/pcsx2/x86/microVU.cpp",
+      "upstream_path": "pcsx2/x86/microVU.cpp",
+      "upstream_sha256": "9795bc8d6da3ea2488dab30da92f22ff0e99b047303fb20a31beb5373ad61c97",
+      "sha256": "bfbe749bb8ab2739d38d4e3e1e9e6be1490eef3f3f5318ca55a174a0b0976efe"
+    },
+    {
+      "path": "upstream/pcsx2/x86/microVU.h",
+      "upstream_path": "pcsx2/x86/microVU.h",
+      "upstream_sha256": "21acea97a9979526c01d2eee9289bd64ad3578745d09691a23e66e117287ef17",
+      "sha256": "be43f0620fd564975ce156db5012fa869a5f672d44ae0c3fc28911e3ee9eb748"
+    },
+    {
+      "path": "upstream/pcsx2/x86/microVU_Alloc.inl",
+      "upstream_path": "pcsx2/x86/microVU_Alloc.inl",
+      "upstream_sha256": "5464ef63068c0148150edefad27049ef2c9f841614d82033766cc75e03571f66",
+      "sha256": "5464ef63068c0148150edefad27049ef2c9f841614d82033766cc75e03571f66"
+    },
+    {
+      "path": "upstream/pcsx2/x86/microVU_Analyze.inl",
+      "upstream_path": "pcsx2/x86/microVU_Analyze.inl",
+      "upstream_sha256": "a0bd72207940300fdc727a7a869c8104600d646bb60cd450842ccaadd300f058",
+      "sha256": "a0bd72207940300fdc727a7a869c8104600d646bb60cd450842ccaadd300f058"
+    },
+    {
+      "path": "upstream/pcsx2/x86/microVU_Branch.inl",
+      "upstream_path": "pcsx2/x86/microVU_Branch.inl",
+      "upstream_sha256": "633b02c15ca3ae3c1fd769ee38d32f800954891ab1fb309237403417857a722c",
+      "sha256": "633b02c15ca3ae3c1fd769ee38d32f800954891ab1fb309237403417857a722c"
+    },
+    {
+      "path": "upstream/pcsx2/x86/microVU_Clamp.inl",
+      "upstream_path": "pcsx2/x86/microVU_Clamp.inl",
+      "upstream_sha256": "81c41aedd2bbce6f741f574a251a0544346bf90e6c580a85fd0850df1936c44d",
+      "sha256": "81c41aedd2bbce6f741f574a251a0544346bf90e6c580a85fd0850df1936c44d"
+    },
+    {
+      "path": "upstream/pcsx2/x86/microVU_Compile.inl",
+      "upstream_path": "pcsx2/x86/microVU_Compile.inl",
+      "upstream_sha256": "0e2d58169ecdae78c9e21ceaba948ffb2ad1580382399c89a780272ed2d983f9",
+      "sha256": "0e2d58169ecdae78c9e21ceaba948ffb2ad1580382399c89a780272ed2d983f9"
+    },
+    {
+      "path": "upstream/pcsx2/x86/microVU_Execute.inl",
+      "upstream_path": "pcsx2/x86/microVU_Execute.inl",
+      "upstream_sha256": "000615ef8904b906c1337c77720a3a262c69cb6e0c7c7791e6828e5ee8d90f1e",
+      "sha256": "000615ef8904b906c1337c77720a3a262c69cb6e0c7c7791e6828e5ee8d90f1e"
+    },
+    {
+      "path": "upstream/pcsx2/x86/microVU_Flags.inl",
+      "upstream_path": "pcsx2/x86/microVU_Flags.inl",
+      "upstream_sha256": "002eb263fcb89875496fc65bb3112a6f5825fb4513e5eb2c4797aa0a1b79ee24",
+      "sha256": "002eb263fcb89875496fc65bb3112a6f5825fb4513e5eb2c4797aa0a1b79ee24"
+    },
+    {
+      "path": "upstream/pcsx2/x86/microVU_IR.h",
+      "upstream_path": "pcsx2/x86/microVU_IR.h",
+      "upstream_sha256": "0829a1a1bb4bec68dcc4c47685629e3d2c9653d3c66f106f74ba607395649836",
+      "sha256": "0829a1a1bb4bec68dcc4c47685629e3d2c9653d3c66f106f74ba607395649836"
+    },
+    {
+      "path": "upstream/pcsx2/x86/microVU_Log.inl",
+      "upstream_path": "pcsx2/x86/microVU_Log.inl",
+      "upstream_sha256": "109d0da1e3603078e25da6eea567ed513b393adf160c9a9a2cd6cab6f89b20a3",
+      "sha256": "109d0da1e3603078e25da6eea567ed513b393adf160c9a9a2cd6cab6f89b20a3"
+    },
+    {
+      "path": "upstream/pcsx2/x86/microVU_Lower.inl",
+      "upstream_path": "pcsx2/x86/microVU_Lower.inl",
+      "upstream_sha256": "052883d0f007ce5909be4e201e262a04d3c7b78a65875b9237551e2c44e9e5d9",
+      "sha256": "052883d0f007ce5909be4e201e262a04d3c7b78a65875b9237551e2c44e9e5d9"
+    },
+    {
+      "path": "upstream/pcsx2/x86/microVU_Misc.h",
+      "upstream_path": "pcsx2/x86/microVU_Misc.h",
+      "upstream_sha256": "90d66ed7d1ed5a692256cc6aa1b5ba03bceeb692f96e3f0e3ff95023ab3913a7",
+      "sha256": "3f45276b8967faed57e994ec8571f23870c11dbcae72b0fae0a4c65a62a6cefe"
+    },
+    {
+      "path": "upstream/pcsx2/x86/microVU_Misc.inl",
+      "upstream_path": "pcsx2/x86/microVU_Misc.inl",
+      "upstream_sha256": "cabc6f1dfc29a374f15843518c1f58bbc21aed4b89a9c985dae10cb424633ebe",
+      "sha256": "cabc6f1dfc29a374f15843518c1f58bbc21aed4b89a9c985dae10cb424633ebe"
+    },
+    {
+      "path": "upstream/pcsx2/x86/microVU_Profiler.h",
+      "upstream_path": "pcsx2/x86/microVU_Profiler.h",
+      "upstream_sha256": "b21afa3c749c738aada09e57410d6156578ad89338ddf8bdc623d1006d09a4b7",
+      "sha256": "b21afa3c749c738aada09e57410d6156578ad89338ddf8bdc623d1006d09a4b7"
+    },
+    {
+      "path": "upstream/pcsx2/x86/microVU_Tables.inl",
+      "upstream_path": "pcsx2/x86/microVU_Tables.inl",
+      "upstream_sha256": "1aae8de91bbe46307b52aeccc96abca7cce575d299fe2629b57a31545f057b06",
+      "sha256": "1aae8de91bbe46307b52aeccc96abca7cce575d299fe2629b57a31545f057b06"
+    },
+    {
+      "path": "upstream/pcsx2/x86/microVU_Upper.inl",
+      "upstream_path": "pcsx2/x86/microVU_Upper.inl",
+      "upstream_sha256": "beff1b3997e4af289b6974a0219972162abde9f42a3b73bd35ac40ea6b9531b9",
+      "sha256": "beff1b3997e4af289b6974a0219972162abde9f42a3b73bd35ac40ea6b9531b9"
+    },
+    {
+      "path": "COPYING.GPLv3",
+      "upstream_path": "COPYING.GPLv3",
+      "upstream_sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903",
+      "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903"
+    },
+    {
+      "path": "COPYING.LGPLv3",
+      "upstream_path": "COPYING.LGPLv3",
+      "upstream_sha256": "da7eabb7bafdf7d3ae5e9f223aa5bdc1eece45ac569dc21b3b037520b4464768",
+      "sha256": "da7eabb7bafdf7d3ae5e9f223aa5bdc1eece45ac569dc21b3b037520b4464768"
+    },
+    {
+      "path": "upstream/3rdparty/fast_float/LICENSE-MIT",
+      "upstream_path": "3rdparty/fast_float/LICENSE-MIT",
+      "upstream_sha256": "e562f3f974ced7e69dd1db77b820b36bcf8f30377f1aa105723fba449c53c4e6",
+      "sha256": "e562f3f974ced7e69dd1db77b820b36bcf8f30377f1aa105723fba449c53c4e6"
+    },
+    {
+      "path": "upstream/3rdparty/fast_float/AUTHORS",
+      "upstream_path": "3rdparty/fast_float/AUTHORS",
+      "upstream_sha256": "ed249424bce4e318fa190dd6d8becf60cfc37287132ad3f89e16e0f28d878dcf",
+      "sha256": "ed249424bce4e318fa190dd6d8becf60cfc37287132ad3f89e16e0f28d878dcf"
+    },
+    {
+      "path": "upstream/3rdparty/fast_float/CONTRIBUTORS",
+      "upstream_path": "3rdparty/fast_float/CONTRIBUTORS",
+      "upstream_sha256": "99ae182aa1e9b0d5e3078c7b529f9fd9df1f7daf05bec18fafa59646672006a0",
+      "sha256": "99ae182aa1e9b0d5e3078c7b529f9fd9df1f7daf05bec18fafa59646672006a0"
+    }
+  ],
+  "additional_dependency": {
+    "repository": "https://github.com/fmtlib/fmt",
+    "revision": "407c905e45ad75fc29bf0f9bb7c5c2fd3475976f",
+    "version": "12.1.0",
+    "license": "MIT",
+    "files": {
+      "upstream/fmt/LICENSE": "07580f2a3b35709ce703d523f447b242f6dfec7582a8c0df102c7fa2849375f8",
+      "upstream/fmt/include/fmt/base.h": "73ba80ca15c02d6826a611d1651ca6f1495ec127815e257a5d6552d6f6ad313e",
+      "upstream/fmt/include/fmt/format-inl.h": "e7baf108b84e89b29915bb35733540f8f4262cd8f4b41c15754eed4d2f185f61",
+      "upstream/fmt/include/fmt/format.h": "b4c65350362bf40e76a8e6b450587d912c7081b6eafeafaf3d7bcf53153e17fc",
+      "upstream/fmt/include/fmt/core.h": "b2b6692145b11c7c2774db106078c97575a47d18e80c7783c68566475325ebb4"
+    }
+  }
+}

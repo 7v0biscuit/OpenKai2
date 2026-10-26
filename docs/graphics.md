@@ -70,9 +70,9 @@ timings do not predict hardware game performance. Host audio remains disabled.
 
 PCSX2's [v2.1.27 graphics source](https://github.com/PCSX2/pcsx2/tree/v2.1.27/pcsx2/GS)
 was reviewed for buffer hazards and texture-cache invalidation behavior.
-OpenKai2 implements its own compute backend in `src/render/`; no PCSX2 runtime
-or binaries are included. Existing dependency attribution is recorded in
-[NOTICE](../NOTICE).
+OpenKai2 implements the compute backend in `src/render/`. VU1 execution uses
+[PCSX2's microVU recompiler](vector-runtime.md). Dependency attribution is
+recorded in [NOTICE](../NOTICE).
 
 Developers can run the required headless comparisons with
 `python tools/native/test-gpu-linux.py --jobs 2` on Linux with Mesa/EGL and the

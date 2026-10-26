@@ -1,0 +1,44 @@
+--- a/runtime/vu/ps2_vu1_core.cpp
++++ b/runtime/vu/ps2_vu1_core.cpp
+@@ -1,5 +1,6 @@
+ #include "runtime/ps2_vu1.h"
+ #include "work_timings.h"
++#include "vector/backend.h"
+ #include "runtime/gs/ps2_gif_arbiter.h"
+ #include "runtime/gs/gs_frontend.h"
+ #include "runtime/ps2_memory.h"
+@@ -147,6 +148,8 @@
+ 
+ void VU1Interpreter::reset()
+ {
++    if (m_unit == Unit::VU1)
++        openkai2::reset_vector_backend(&m_state);
+     std::memset(&m_state, 0, sizeof(m_state));
+     m_state.vf[0][3] = 1.0f;
+     m_state.q = 1.0f;
+@@ -1812,6 +1815,12 @@
+     m_state.vf[0][1] = 0.0f;
+     m_state.vf[0][2] = 0.0f;
+     m_state.vf[0][3] = 1.0f;
++    if (m_unit == Unit::VU1 && openkai2::run_vector_backend(m_state, vuCode, codeSize,
++            vuData, dataSize, gs, memory, maxCycles, true))
++    {
++        m_cycle = m_state.cycles;
++        return;
++    }
+     run(vuCode, codeSize, vuData, dataSize, gs, memory, maxCycles);
+ }
+ 
+@@ -1824,6 +1833,12 @@
+     m_state.itop = itop;
+     m_state.stoppedByD = false;
+     m_state.stoppedByT = false;
++    if (m_unit == Unit::VU1 && openkai2::run_vector_backend(m_state, vuCode, codeSize,
++            vuData, dataSize, gs, memory, maxCycles, false))
++    {
++        m_cycle = m_state.cycles;
++        return;
++    }
+     run(vuCode, codeSize, vuData, dataSize, gs, memory, maxCycles);
+ }
+ 

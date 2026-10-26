@@ -9,6 +9,24 @@ The original Budokai 2 USA ISO is required at every game launch. Automated
 checks cover bounded runtime behavior and Windows packaging; full retail
 compatibility requires separate validation.
 
+## Native VU1 execution
+
+VU1 microprograms use PCSX2's microVU x86-64 recompiler. The adapter preserves
+registers, code-upload invalidation, continuation state, PATH1 packet ordering,
+and caller floating-point control. Native executable-memory allocation failure
+retains the previous interpreter before game vector execution starts. The EE
+executor and original guest clocks remain unchanged.
+
+A local comparison of 512 captured dispatches produced identical vector
+registers, stored data, and graphics packets with PCSX2's interpreter and
+microVU. Independent tests cover flags, matrix products, branches, continuations,
+scalar waits, D/T halts, cycle wraparound, code updates, and callback errors.
+The original interpreter snapshots remain in the legacy reference checks.
+The native backend reached character selection, where hair distortion remained
+visible. Stable game frame rates and complete matches remain unverified.
+
+See [Vector execution](vector-runtime.md) for architecture and diagnostics.
+
 ## GPU rendering
 
 The default renderer uses OpenGL 4.3 compute shaders for points, lines,

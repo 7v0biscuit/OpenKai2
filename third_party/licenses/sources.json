@@ -17,5 +17,9 @@
   "mingw-w64.txt": "https://packages.debian.org/trixie/mingw-w64-x86-64-dev",
   "gcc-runtime.txt": "https://packages.debian.org/trixie/gcc-mingw-w64-base",
   "ffmpeg-build-recipe": "https://github.com/System233/ffmpeg-msvc-prebuilt/tree/n7.1-241205",
-  "skcms.txt": "https://raw.githubusercontent.com/google/skia/main/modules/skcms/LICENSE"
+  "skcms.txt": "https://raw.githubusercontent.com/google/skia/main/modules/skcms/LICENSE",
+  "pcsx2-lgpl.txt": "https://github.com/PCSX2/pcsx2/blob/dcfd663c1903025864a865d3fcf508d0caab70c7/COPYING.LGPLv3",
+  "pcsx2-gpl.txt": "https://github.com/PCSX2/pcsx2/blob/dcfd663c1903025864a865d3fcf508d0caab70c7/COPYING.GPLv3",
+  "fast-float.txt": "https://github.com/PCSX2/pcsx2/blob/dcfd663c1903025864a865d3fcf508d0caab70c7/3rdparty/fast_float/LICENSE-MIT",
+  "fmt.txt": "https://github.com/fmtlib/fmt/blob/407c905e45ad75fc29bf0f9bb7c5c2fd3475976f/LICENSE"
 }
