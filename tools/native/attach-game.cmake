@@ -68,9 +68,12 @@ function(openkai2_attach_generated_sources)
         "${project_root}/tools/native/patches/vector-transfers.patch"
         "${project_root}/tools/native/patches/vector-operands.patch"
         "${project_root}/tools/native/patches/vector-flag-batches.patch"
+        "${project_root}/tools/native/patches/vector-fetch-validation.patch"
         "${project_root}/tools/native/patches/gpu-rendering.patch"
         "${project_root}/tools/native/patches/flat-depth.patch"
         "${project_root}/tools/native/patches/display-pacing.patch"
+        "${project_root}/tools/native/patches/gif-vertex-state.patch"
+        "${project_root}/tools/native/patches/vector-code-diagnostics.patch"
         "${project_root}/tools/native/patches/work-timings.patch"
         "${project_root}/tools/native/patches/disc-layout.patch"
         "${project_root}/tools/native/patches/iop-startup.patch"
@@ -273,7 +276,7 @@ function(openkai2_attach_generated_sources)
     endif()
     ps2x_stage_ffmpeg_runtime_dlls(openkai2_startup_tests)
     add_test(NAME startup_diagnostics COMMAND openkai2_startup_tests)
-    add_library(openkai2_graphics_checks STATIC "${project_root}/src/graphics_checks.cpp" "${project_root}/src/raster_shading_checks.cpp")
+    add_library(openkai2_graphics_checks STATIC "${project_root}/src/gif_vertex_checks.cpp" "${project_root}/src/graphics_checks.cpp" "${project_root}/src/raster_shading_checks.cpp")
     target_include_directories(openkai2_graphics_checks PUBLIC "${project_root}/src")
     target_include_directories(openkai2_graphics_checks BEFORE PRIVATE "${overlay_dir}/include")
     target_link_libraries(openkai2_graphics_checks PUBLIC ps2_runtime)

@@ -3,6 +3,8 @@
 #include <cstdint>
 namespace openkai2 {
 struct HotpathResult {std::uint64_t hash,operations;double nanosecondsPerOperation;};
+HotpathResult code_update_workload(unsigned group,unsigned iterations);
+void verify_vector_code_updates();
 HotpathResult operand_workload(unsigned group,unsigned iterations);
 HotpathResult product_workload(unsigned group,unsigned iterations);
 void verify_vector_products();

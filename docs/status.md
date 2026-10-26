@@ -62,6 +62,22 @@ Complete VRAM matched the CPU renderer and all before/after output hashes
 matched. These synthetic submission costs are not estimates of hardware game
 FPS or sustained 60 FPS.
 
+## Vector code uploads and packed vertices
+
+Decoded vector instructions are validated against the fetched 64-bit pair.
+Repeated microcode uploads no longer scan every decoded entry before resuming
+a short program. Identity changes still initialize the cache, and code edits
+from callbacks and between resume slices remain visible. Another 64 original
+state, cycle and data snapshots cover unchanged uploads, executed and unused
+edits, both vector units, and resume slices. Shutdown records both units' code
+generation counters to help assess upload activity.
+
+Packed GIF texture perspective values now latch on RGBA writes and survive tag
+boundaries. Packed XYZ2/XYZ3 vertices retain exact 32-bit depths. Independent
+checks cover both packet parsers, register ordering and reset. These corrections
+address packet interpretation; character pose correctness still requires retail
+validation.
+
 ## Display pacing and vector flags
 
 The window defaults to a 240 FPS limit. `--fps-limit=0` removes host frame
@@ -95,7 +111,7 @@ longer force extended arithmetic. Arithmetic results, guest cycles, flags,
 exception handling, and cancellation behavior retain their original paths.
 Another 128 full-state references cover 32 programs with unused extreme and
 denormal register data, partial masks, scalar and broadcast forms, accumulator
-destinations, and cross products. The vector suite contains 48 cases.
+destinations, and cross products. The vector suite contains 49 cases.
 
 Three alternating Windows-binary runs under Wine measured about 32% lower
 median CPU cost in these targeted programs, ranging from 5% to 50% lower.
@@ -460,7 +476,7 @@ and both supported extended-precision and binary64 host arithmetic. The VIF
 regression compares 1,664 complete memory/register snapshots across all valid
 formats and fallback conditions. The production-runtime scene test uploads its
 eight triangles through VIF1 before MSCAL/MSCNT execution and pixel checks.
-The vector component suite contains 48 cases.
+The vector component suite contains 49 cases.
 
 Three-run Windows binary medians under Wine measured 27–29% lower costs in six
 arithmetic-heavy vector workloads and 90–97% lower costs in eight contiguous
@@ -478,7 +494,7 @@ write retirement compares complete 64-bit sequence numbers and preserves
 unselected or superseded lanes. Fully assigned write slots avoid redundant
 payload clearing.
 
-The 48-case vector suite includes 128 new snapshots from the unmodified
+The vector suite includes 128 new snapshots from the unmodified
 interpreter, checking full packets, callback cycles, wrapped memory, chained
 tags, packets up to 64 KiB, pending stores, callback writes, and resume budgets.
 Existing arithmetic, scheduling, and real-runtime rendering checks remain.
@@ -520,7 +536,7 @@ and its underflow/overflow behavior. Bounded simple arithmetic can classify
 exact zero results directly; product-sum cancellation retains its original
 calculation. The 73,728 original arithmetic cases remain enabled, alongside
 32 new original product-program snapshots and the existing pipeline and real
-runtime rendering checks. The vector suite contains 48 cases.
+runtime rendering checks. The vector suite contains 49 cases.
 
 Three alternating Windows binary measurements under Wine showed 12–17% lower
 costs in eight multiply-add/subtract workloads, with matching original state,

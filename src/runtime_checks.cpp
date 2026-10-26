@@ -396,6 +396,7 @@ int run_runtime_checks() {
     verify_vector_runtime();
     std::cout << "Runtime vector integration regression passed: consistent header layouts, independent VU0/VU1 state, and real VIF1 MSCAL/MSCNT PATH1 triangle rendering.\n";
     verify_interlaced_presentation();
+    std::cout << "Runtime GIF vertex regression passed: packed Q latching across tags and exact 32-bit XYZ2/XYZ3 depths on both parsers.\n";
     std::cout << "Runtime raster shading regression passed: 128 material fixtures, 512 serial/parallel VRAM snapshots, texture functions, alpha sources, gradients, perspective, filtering and dependent cache samples.\n";
     std::cout << "Runtime draw history regression passed: sampled diagnostics preserve complete VRAM for sprites, triangles, and blending.\n";
     std::cout << "Runtime prepared palette regression passed: all indexed formats, CLUT formats, CSM/CSA, skipped loads, TEXA, reset, backend reuse, and serial/parallel VRAM.\n";
@@ -467,6 +468,8 @@ int run_runtime_checks() {
     std::cout << "Runtime skeletal transform regression passed: 64 original quaternion transforms, worker start/restart, parent matrices, translation, and homogeneous coordinates.\n";
     verify_vector_transfers();
     std::cout << "Runtime vector transfer regression passed: 128 original packet, callback cycle, wrapped memory, pipeline write and resume snapshots.\n";
+    verify_vector_code_updates();
+    std::cout << "Runtime vector code update regression passed.\n";
     verify_vector_operands();
     std::cout << "Runtime vector operand regression passed: 128 original snapshots with broadcasts, Q/I, inactive lanes, accumulator use and cross products.\n";
     verify_vector_products();

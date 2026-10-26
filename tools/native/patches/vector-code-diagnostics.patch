@@ -1,0 +1,11 @@
+--- a/runtime/ps2_runtime.cpp
++++ b/runtime/ps2_runtime.cpp
+@@ -2411,6 +2411,8 @@
+         }
+         openkai2::flush_guest_timings();
+         openkai2::flush_runtime_work();
++        std::cerr << "[vu:code] vu0_generation=" << m_memory.getVU0CodeGeneration()
++                  << " vu1_generation=" << m_memory.getVU1CodeGeneration() << '\n';
+         openkai2::enable_guest_timings(false);
+         gameThreadFinished.store(true, std::memory_order_release); });
+ 

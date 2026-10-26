@@ -41,6 +41,61 @@ void add_vif(Hash& h,PS2Memory& m){
     h.add(r.itops);h.add(r.base);h.add(r.ofst);h.add(r.tops);h.add(r.itop);h.add(r.top);h.add(r.row);h.add(r.col);
 }
 }
+// Short programs with repeated MPG-style writes. Include unchanged uploads,
+// executed and unused edits, both units, and edits between resume slices.
+HotpathResult code_update_workload(unsigned group,unsigned iterations) {
+    if(group>=16u || !iterations)throw std::runtime_error("Invalid vector code update workload");
+    auto m=std::make_unique<PS2Memory>();if(!m->initialize())throw std::runtime_error("Code update memory initialization failed");
+    auto gs=std::make_unique<GS>();gs->init(m->getGSVRAM(),PS2_GS_VRAM_SIZE,&m->gs());
+    const bool vu0=(group&8u)!=0u,sliced=(group&4u)!=0u;const unsigned mode=group&3u;
+    auto vu=std::make_unique<VU1Interpreter>(vu0 ? VU1Interpreter::Unit::VU0 : VU1Interpreter::Unit::VU1);
+    const unsigned base=vu0 ? PS2_VU0_CODE_BASE : PS2_VU1_CODE_BASE;
+    const unsigned codeSize=vu0 ? PS2_VU0_CODE_SIZE : PS2_VU1_CODE_SIZE,dataSize=vu0 ? PS2_VU0_DATA_SIZE : PS2_VU1_DATA_SIZE;
+    auto* code=vu0 ? m->getVU0Code() : m->getVU1Code();auto* data=vu0 ? m->getVU0Data() : m->getVU1Data();
+    const uint32_t upper=0x80000000u|(15u<<21u)|(1u<<11u)|(3u<<6u)|0x22u; // ADDi + LOI
+    for(unsigned i=0;i<32u;++i)m->write64(base+i*8u,uint64_t((i==17u ? (upper&~(31u<<6u))|(4u<<6u) : upper)|(i==30u ? 0x40000000u : 0u))<<32u|0x3f000000u);
+    for(unsigned lane=0;lane<4u;++lane)vu->state().vf[1][lane]=float(lane+1u)*.125f;
+    auto edit=[&](unsigned iteration){
+        if(!mode)return;
+        const unsigned pc=mode==3u ? codeSize-8u : 16u*8u;
+        const uint32_t immediate=mode==1u ? 0x3f000000u : 0x3e800000u|((iteration&15u)<<18u);
+        m->write64(base+pc,(uint64_t(upper)<<32u)|immediate);
+    };
+    const auto start=std::chrono::steady_clock::now();
+    for(unsigned i=0;i<iterations;++i){
+        if(!sliced)edit(i);
+        vu->execute(code,codeSize,data,dataSize,*gs,m.get(),0u,3u,7u,sliced ? 3u : 4096u);
+        if(sliced){edit(i);vu->resume(code,codeSize,data,dataSize,*gs,m.get(),3u,7u,4096u);}
+    }
+    const auto elapsed=std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now()-start).count();
+    Hash hash;add_state(hash,vu->state());hash.bytes(data,dataSize);
+    return {hash.value,uint64_t(iterations)*32u,double(elapsed)/(iterations*32.0)};
+}
+void verify_vector_code_updates() {
+    // Complete state, cycle and data snapshots from the pinned interpreter.
+    constexpr uint64_t expected[]={
+        0x10fea05cb9dc63feull,0x36b80a4e3fd34dd8ull,0x2e4e35374dfc021cull,0xe0509ece8f105b8aull,
+        0x10fea05cb9dc63feull,0x36b80a4e3fd34dd8ull,0x2e4e35374dfc021cull,0xe0509ece8f105b8aull,
+        0xbcbedbef4d80259full,0xb5a0b91cfa836fc1ull,0x120ad62b2ea9b15dull,0xfb085bdf15f2fa73ull,
+        0x10fea05cb9dc63feull,0x36b80a4e3fd34dd8ull,0x2e4e35374dfc021cull,0xe0509ece8f105b8aull,
+        0x10fea05cb9dc63feull,0x36b80a4e3fd34dd8ull,0x2e4e35374dfc021cull,0xe0509ece8f105b8aull,
+        0x10fea05cb9dc63feull,0x36b80a4e3fd34dd8ull,0x2e4e35374dfc021cull,0xe0509ece8f105b8aull,
+        0xbcbedbef4d80259full,0xb5a0b91cfa836fc1ull,0x120ad62b2ea9b15dull,0xfb085bdf15f2fa73ull,
+        0x10fea05cb9dc63feull,0x36b80a4e3fd34dd8ull,0x2e4e35374dfc021cull,0xe0509ece8f105b8aull,
+        0xaefd98dbc13de3feull,0x432caeb094f14dd8ull,0x6a969e2ceb27021cull,0x6f6934524688db8aull,
+        0xaefd98dbc13de3feull,0x432caeb094f14dd8ull,0x6a969e2ceb27021cull,0x6f6934524688db8aull,
+        0x7e474be30c78e59full,0x9f8703aa2982afc1ull,0x89f007a6e333f15dull,0x4d5f870b598cba73ull,
+        0xaefd98dbc13de3feull,0x432caeb094f14dd8ull,0x6a969e2ceb27021cull,0x6f6934524688db8aull,
+        0xaefd98dbc13de3feull,0x432caeb094f14dd8ull,0x6a969e2ceb27021cull,0x6f6934524688db8aull,
+        0xaefd98dbc13de3feull,0x432caeb094f14dd8ull,0x6a969e2ceb27021cull,0x6f6934524688db8aull,
+        0x7e474be30c78e59full,0x9f8703aa2982afc1ull,0x89f007a6e333f15dull,0x4d5f870b598cba73ull,
+        0xaefd98dbc13de3feull,0x432caeb094f14dd8ull,0x6a969e2ceb27021cull,0x6f6934524688db8aull,
+    };
+    constexpr unsigned counts[]={1u,3u,7u,19u};
+    for(unsigned group=0;group<16u;++group)for(unsigned i=0;i<4u;++i)
+        if(code_update_workload(group,counts[i]).hash!=expected[group*4u+i])
+            throw std::runtime_error("Original vector code update reference mismatch: "+std::to_string(group));
+}
 HotpathResult product_workload(unsigned group,unsigned iterations) {
     if(group>=8u || !iterations)throw std::runtime_error("Invalid vector product workload");
     auto m=std::make_unique<PS2Memory>();if(!m->initialize())throw std::runtime_error("Product memory initialization failed");

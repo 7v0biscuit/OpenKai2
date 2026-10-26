@@ -53,6 +53,13 @@ for flat surfaces. Large common depths no longer inherit rounding errors from
 three separately weighted values. Constant-depth and overlapping-plane checks
 use independent expected depths on both rendering paths.
 
+Packed GIF packets keep temporary STQ.Q separate from the latched RGBAQ.Q
+attached to vertices. Only packed RGBA copies the temporary Q; a new tag resets
+the temporary without changing the vertex value. Direct and REGLIST RGBAQ
+writes retain their explicit Q. Packed XYZ2 and XYZ3 depths retain all 32 bits
+before interpolation. Independent packet checks exercise both packet parsers,
+register ordering, chained tags, reset, and depths beyond float32 precision.
+
 Guest execution and vector instruction processing still consume CPU time.
 
 Complete matches and sustained 60 FPS remain unverified. The automated GPU

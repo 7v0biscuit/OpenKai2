@@ -2,9 +2,11 @@
 #include "graphics_checks.h"
 #include <exception>
 #include <iostream>
-int main() {
+#include <string>
+int main(int argc,char** argv) {
     try {
-        openkai2::verify_interlaced_presentation();
+        if(argc>1 && std::string(argv[1])=="--gif-only")openkai2::verify_gif_vertices();
+        else openkai2::verify_interlaced_presentation();
         std::cout<<"Runtime interlaced presentation regression passed.\n";
         return 0;
     } catch (const std::exception& error) {

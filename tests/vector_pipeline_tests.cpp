@@ -28,5 +28,6 @@ int main() {
         tc.Run("128 original packet, callback cycle, memory and resume snapshots",[](TestCase&){openkai2::verify_vector_transfers();});
     });
     MiniTest::Case("Selected vector operand references",[](TestCase& tc){tc.Run("128 original state and cycle snapshots with unused operand data",[](TestCase&){openkai2::verify_vector_operands();});});
+    MiniTest::Case("Vector code upload references",[](TestCase& tc){tc.Run("64 original code edit and resume snapshots across both units",[](TestCase&){openkai2::verify_vector_code_updates();});});
     return MiniTest::Run();
 }
