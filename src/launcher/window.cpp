@@ -82,12 +82,12 @@ void fill(HDC dc, RECT r, COLORREF color) {
 }
 void line(HDC dc, int x, int y, int w, COLORREF color) { fill(dc, {x, y, x + w, y + 1}, color); }
 struct Fonts {
-    HFONT body{}, small{}, heading{}, brand{};
+    HFONT body{}, caption{}, heading{}, brand{};
     void clear() {
-        for (auto f : {body, small, heading, brand})
+        for (auto f : {body, caption, heading, brand})
             if (f)
                 DeleteObject(f);
-        body = small = heading = brand = nullptr;
+        body = caption = heading = brand = nullptr;
     }
     void make(unsigned dpi) {
         clear();
@@ -97,7 +97,7 @@ struct Fonts {
                                CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
         };
         body = font(15, FW_NORMAL);
-        small = font(12, FW_NORMAL);
+        caption = font(12, FW_NORMAL);
         heading = font(32, FW_SEMIBOLD);
         brand = font(16, FW_SEMIBOLD);
     }
@@ -313,7 +313,7 @@ struct Window {
         fill(memory, {0, 0, p(192), rect.bottom}, panel);
         fill(memory, {p(24), p(48), p(28), p(76)}, orange);
         text(memory, L"OPENKAI2", 40, 50, 144, 28, fonts.brand);
-        text(memory, L"DESKTOP", 40, 82, 132, 22, fonts.small, muted);
+        text(memory, L"DESKTOP", 40, 82, 132, 22, fonts.caption, muted);
         text(memory,
              page == 0   ? L"Play"
              : page == 1 ? L"Saves"
@@ -328,7 +328,7 @@ struct Window {
         if (page == 0) {
             fill(memory, {p(224), p(152), p(w - 24), p(400)}, panel);
             fill(memory, {p(224), p(152), p(228), p(400)}, orange);
-            text(memory, L"DRAGON BALL Z", 248, 178, 520, 24, fonts.small, gold);
+            text(memory, L"DRAGON BALL Z", 248, 178, 520, 24, fonts.caption, gold);
             text(memory, L"Budokai 2", 248, 212, 600, 48, fonts.heading);
             text(memory,
                  candidateIso.empty() ? L"No ISO selected" : candidateIso.filename().wstring(), 248,
@@ -338,16 +338,16 @@ struct Window {
                                : busy() ? L"WORKING"
                                : disc   ? L"VERIFIED"
                                         : L"SELECT ISO";
-            text(memory, state, w - 184, 178, 136, 24, fonts.small, disc ? gold : muted,
+            text(memory, state, w - 184, 178, 136, 24, fonts.caption, disc ? gold : muted,
                  DT_RIGHT | DT_SINGLELINE);
             text(memory, L"Your ISO is verified before every launch.", 224, 420, content, 28,
-                 fonts.small, muted);
+                 fonts.caption, muted);
         } else if (page == 1) {
             fill(memory, {p(224), p(152), p(w - 24), p(220)}, panel);
             text(memory, disc ? L"Memory card · Slot 1" : L"Verify an ISO to manage its saves", 244,
                  174, content - 16, 30, fonts.body);
             text(memory, L"Import a PSU save, an extracted save folder, or an OpenKai2 ZIP backup.",
-                 224, 300, content + 16, 28, fonts.small, muted);
+                 224, 300, content + 16, 28, fonts.caption, muted);
             if (backups.empty())
                 text(memory, L"No backups yet. Create one before your next session.", 244, 404,
                      content - 16, 40, fonts.body, muted);
@@ -365,22 +365,22 @@ struct Window {
                                        L"Aspect ratio"};
             for (int i = 0; i < 10; ++i)
                 text(memory, labels[i], i % 2 ? 224 + col + 24 : 224, 160 + (i / 2) * 76, col, 24,
-                     fonts.small, muted);
+                     fonts.caption, muted);
             text(memory, L"Changes apply next launch. Game speed stays at its original rate.", 224,
-                 566, content + 16, 28, fonts.small, muted);
+                 566, content + 16, 28, fonts.caption, muted);
         } else {
             const int col = (content - 24) / 2;
-            text(memory, L"Release channel", 224, 160, col, 24, fonts.small, muted);
-            text(memory, L"Automatic updates", 224 + col + 24, 160, col, 24, fonts.small, muted);
+            text(memory, L"Release channel", 224, 160, col, 24, fonts.caption, muted);
+            text(memory, L"Automatic updates", 224 + col + 24, 160, col, 24, fonts.caption, muted);
             text(memory, L"Installed version  " + wide(application_version), 224, 264, content, 30,
                  fonts.body, gold);
             text(memory, updateStatus, 224, 310, content, 64, fonts.body, ink,
                  DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
             text(memory, L"Downloads are checked against the release SHA-256 checksums. Updates apply"
                          L" after the game and save backups finish, then restart the launcher.",
-                 224, 486, content, 64, fonts.small, muted, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
+                 224, 486, content, 64, fonts.caption, muted, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
             text(memory, L"ISO preferences, saves and backups stay in your data folder.",
-                 224, 558, content, 28, fonts.small, muted);
+                 224, 558, content, 28, fonts.caption, muted);
         }
         const int footer = std::max(608, MulDiv(rect.bottom, 96, int(dpi)) - 52);
         line(memory, p(224), p(footer - 12), p(content + 16), border);
@@ -390,7 +390,7 @@ struct Window {
             if (!progress->text.empty())
                 message = progress->text;
         }
-        text(memory, message, 224, footer, content + 16, 36, fonts.small, error ? red : muted,
+        text(memory, message, 224, footer, content + 16, 36, fonts.caption, error ? red : muted,
              DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
         BitBlt(dc, 0, 0, rect.right, rect.bottom, memory, 0, 0, SRCCOPY);
         SelectObject(memory, old);
