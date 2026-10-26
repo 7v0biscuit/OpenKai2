@@ -653,6 +653,43 @@ struct Window {
         if (busy())
             InvalidateRect(hwnd, nullptr, FALSE);
     }
+    std::filesystem::path chooseFallback(bool folder, bool iso) {
+        if (folder) {
+            BROWSEINFOW options{};
+            options.hwndOwner = hwnd;
+            options.lpszTitle = L"Select an extracted save folder";
+            options.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
+            auto item = SHBrowseForFolderW(&options);
+            if (!item)
+                return {};
+            wchar_t path[MAX_PATH]{};
+            const bool valid = SHGetPathFromIDListW(item, path) != FALSE;
+            CoTaskMemFree(item);
+            if (!valid)
+                throw std::runtime_error("The selection is not a filesystem path");
+            return path;
+        }
+        std::vector<wchar_t> path(32768, 0);
+        if (iso && !settings.iso.empty()) {
+            const auto saved = settings.iso.wstring();
+            if (saved.size() < path.size())
+                std::copy(saved.begin(), saved.end(), path.begin());
+        }
+        OPENFILENAMEW options{};
+        options.lStructSize = sizeof(options);
+        options.hwndOwner = hwnd;
+        options.lpstrFile = path.data();
+        options.nMaxFile = DWORD(path.size());
+        options.lpstrFilter = iso ? L"Game ISO (*.iso)\0*.iso\0All files\0*.*\0\0"
+                                  : L"PSU saves and OpenKai2 backups\0*.psu;*.zip\0All files\0*.*\0\0";
+        options.lpstrTitle = iso ? L"Select Budokai 2 USA ISO" : L"Import a save or backup";
+        options.Flags = OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+        if (GetOpenFileNameW(&options))
+            return path.data();
+        if (CommDlgExtendedError())
+            throw std::runtime_error("Windows file selection failed");
+        return {};
+    }
     std::filesystem::path choose(bool folder, bool iso = false) {
         picking = true;
         struct Reset {
@@ -662,7 +699,7 @@ struct Window {
         IFileOpenDialog *dialog = nullptr;
         if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER,
                                     IID_PPV_ARGS(&dialog))))
-            throw std::runtime_error("Cannot open Windows file selection");
+            return chooseFallback(folder, iso);
         struct Release {
             IFileOpenDialog *dialog;
             ~Release() { dialog->Release(); }

@@ -30,7 +30,19 @@ jobs:
         run: python -m unittest discover -s tests -v
       - name: Test Windows launcher updates
         if: runner.os == 'Windows'
-        run: python tools/native/test-launcher-update.py
+        shell: python
+        run: |
+          import subprocess, sys
+          result = subprocess.run([sys.executable, 'tools/native/test-launcher-update.py'],
+                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                  text=True, encoding='utf-8', errors='replace')
+          print(result.stdout, flush=True)
+          if result.returncode:
+              message = result.stdout[-12000:]
+              for start in range(0, len(message), 3000):
+                  part = message[start:start+3000].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+                  print('::error title=Launcher update recovery::' + part, flush=True)
+          sys.exit(result.returncode)
       - name: Build and run native component comparisons
         run: python tools/probes/run.py --skip-retail
       - name: Build ISO verification tests
