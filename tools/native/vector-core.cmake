@@ -18,6 +18,14 @@ target_include_directories(openkai2_vector_core PRIVATE "${pcsx2_adapter}/shims"
     "${pcsx2_adapter}" "${pcsx2_root}" "${pcsx2_root}/pcsx2"
     "${pcsx2_root}/fmt/include" "${pcsx2_root}/3rdparty/fast_float/include" "${overlay_dir}/include"
     "${project_root}/src")
+if(MSVC)
+    # MSVC exposes SSE4.1 intrinsics without a matching /arch setting and does
+    # not define this feature macro. Keep the documented SSE4.1 baseline.
+    target_compile_definitions(openkai2_vector_core PRIVATE __SSE4_1__=1)
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+        target_compile_options(openkai2_vector_core PRIVATE /clang:-msse4.1)
+    endif()
+endif()
 if(MINGW)
     target_compile_options(openkai2_vector_core PRIVATE -include "${pcsx2_adapter}/mingw-crt.h")
 endif()
