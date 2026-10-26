@@ -43,12 +43,12 @@ function(openkai2_attach_generated_sources)
     endif()
     target_link_libraries(ps2EntryRunner PRIVATE openkai2_launcher_model)
     set_source_files_properties("${project_root}/src/launcher/window.cpp" TARGET_DIRECTORY ps2EntryRunner
-        PROPERTIES SKIP_UNITY_BUILD_INCLUSION TRUE)
+        PROPERTIES SKIP_UNITY_BUILD_INCLUSION TRUE SKIP_PRECOMPILE_HEADERS TRUE)
     if(WIN32)
         target_sources(ps2EntryRunner PRIVATE "${project_root}/src/launcher/window.cpp"
             "${project_root}/src/launcher/update_windows.cpp")
         set_source_files_properties("${project_root}/src/launcher/update_windows.cpp" TARGET_DIRECTORY ps2EntryRunner
-            PROPERTIES SKIP_UNITY_BUILD_INCLUSION TRUE)
+            PROPERTIES SKIP_UNITY_BUILD_INCLUSION TRUE SKIP_PRECOMPILE_HEADERS TRUE)
         target_link_libraries(ps2EntryRunner PRIVATE comdlg32 shell32 ole32 uuid gdi32 winhttp)
         if(MSVC)
             set_property(SOURCE "${project_root}/src/launcher/window.cpp" TARGET_DIRECTORY ps2EntryRunner
