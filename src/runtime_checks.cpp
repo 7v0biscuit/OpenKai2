@@ -468,6 +468,10 @@ int run_runtime_checks() {
     std::cout << "Runtime skeletal transform regression passed: 64 original quaternion transforms, worker start/restart, parent matrices, translation, and homogeneous coordinates.\n";
     verify_vector_transfers();
     std::cout << "Runtime vector transfer regression passed: 128 original packet, callback cycle, wrapped memory, pipeline write and resume snapshots.\n";
+    verify_vector_zero_register();
+    std::cout << "Runtime constant vector register regression passed: 18 paired upper writes with lower stores, moves and divisions across both units, retaining arithmetic flags.\n";
+    verify_vector_matrices();
+    std::cout << "Runtime vector matrix regression passed: 64 original state/cycle/data snapshots and independent transformed positions across both units and resume modes.\n";
     verify_vector_code_updates();
     std::cout << "Runtime vector code update regression passed.\n";
     verify_vector_operands();

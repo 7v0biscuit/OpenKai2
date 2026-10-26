@@ -88,6 +88,30 @@ VectorWorkResult vector_workload(unsigned mode,unsigned iterations) {
     add(capture);add(packets);for(unsigned i=0;i<dataSize;++i)hash=(hash^data[i])*1099511628211ull;
     return {hash,state.cycles,packets,elapsed/double(iterations)};
 }
+// VF00 is read-only during a dual-issued pair, including the lower half.
+// Checking only its value after execute() misses transient upper writes.
+void verify_vector_zero_register() {
+    for(bool vu0:{false,true})for(unsigned operation=0;operation<3u;++operation)for(unsigned lower=0;lower<3u;++lower){
+        auto m=std::make_unique<PS2Memory>();if(!m->initialize())throw std::runtime_error("Zero register memory initialization failed");
+        auto gs=std::make_unique<GS>();gs->init(m->getGSVRAM(),PS2_GS_VRAM_SIZE,&m->gs());
+        auto vu=std::make_unique<VU1Interpreter>(vu0 ? VU1Interpreter::Unit::VU0 : VU1Interpreter::Unit::VU1);
+        auto* code=vu0 ? m->getVU0Code() : m->getVU1Code();auto* data=vu0 ? m->getVU0Data() : m->getVU1Data();
+        const unsigned codeSize=vu0 ? PS2_VU0_CODE_SIZE : PS2_VU1_CODE_SIZE,dataSize=vu0 ? PS2_VU0_DATA_SIZE : PS2_VU1_DATA_SIZE;
+        const uint32_t upperWord=operation==0u ? upper(0x28u,0u,1u,2u) : operation==1u ? upper(0x2bu,0u,1u,2u)
+            : (15u<<21u)|(1u<<11u)|0x13cu; // ITOF0 -> VF00
+        const uint32_t lowerWord=lower==0u ? 0x02000000u|(15u<<21u) : lower==1u ? 0x8000033cu|(15u<<21u)|(4u<<16u) : 0x806303bcu; // SQ/MOVE/DIV from VF00
+        const uint64_t pair=lowerWord|(uint64_t(upperWord|0x40000000u)<<32u),delay=uint64_t(nop)<<32u;
+        std::memcpy(code,&pair,8u);std::memcpy(code+8u,&delay,8u);
+        constexpr float a[]={-2,0,3,4},b[]={1,0,-3,-8},constant[]={0,0,0,1};
+        std::memcpy(vu->state().vf[1],a,16u);std::memcpy(vu->state().vf[2],b,16u);vu->state().vf[3][0]=2.0f;std::memset(data,0xa5,32u);
+        vu->execute(code,codeSize,data,dataSize,*gs,m.get(),0u,0u,0u,64u);
+        const auto* actual=lower==0u ? data : reinterpret_cast<const uint8_t*>(vu->state().vf[4]);
+        if((lower==2u && vu->state().q!=0.5f) || (lower!=2u && std::memcmp(actual,constant,16u)!=0))throw std::runtime_error("Upper VF00 write leaked into the paired lower read");
+        if(std::memcmp(vu->state().vf[0],constant,16u)!=0)throw std::runtime_error("VF00 constant changed");
+        if(operation==0u && (vu->state().mac!=0x96u || vu->state().status!=0xc3u))throw std::runtime_error("Discarding a VF00 destination also discarded FMAC flags");
+        for(unsigned i=16u;i<32u;++i)if(data[i]!=0xa5u)throw std::runtime_error("VF00 fixture changed its destination guard");
+    }
+}
 void verify_vector_rounding() {
 #if defined(_M_X64) || defined(_M_IX86) || defined(__i386__) || defined(__x86_64__)
     struct Restore {std::fenv_t saved;Restore(){std::fegetenv(&saved);}~Restore(){std::fesetenv(&saved);}} restore;

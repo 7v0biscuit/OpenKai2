@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cfenv>
+#include <cmath>
 #include <cstring>
 #include <memory>
 #include <limits>
@@ -40,6 +41,67 @@ void add_vif(Hash& h,PS2Memory& m){
     h.add(r.stat);h.add(r.fbrst);h.add(r.err);h.add(r.mark);h.add(r.cycle);h.add(r.mode);h.add(r.num);h.add(r.mask);h.add(r.code);
     h.add(r.itops);h.add(r.base);h.add(r.ofst);h.add(r.tops);h.add(r.itop);h.add(r.top);h.add(r.row);h.add(r.col);
 }
+}
+// Sixty-four affine vertex transforms using the four-column FMAC sequence.
+// Expected positions come from a separate double-precision matrix product.
+HotpathResult matrix_workload(unsigned group,unsigned iterations) {
+    if(group>=16u || !iterations)throw std::runtime_error("Invalid matrix workload");
+    auto m=std::make_unique<PS2Memory>();if(!m->initialize())throw std::runtime_error("Matrix memory initialization failed");
+    auto gs=std::make_unique<GS>();gs->init(m->getGSVRAM(),PS2_GS_VRAM_SIZE,&m->gs());
+    const bool vu0=(group&4u)!=0u,sliced=(group&8u)!=0u;const unsigned profile=group&3u;
+    auto vu=std::make_unique<VU1Interpreter>(vu0 ? VU1Interpreter::Unit::VU0 : VU1Interpreter::Unit::VU1);
+    auto* code=vu0 ? m->getVU0Code() : m->getVU1Code();auto* data=vu0 ? m->getVU0Data() : m->getVU1Data();
+    const unsigned codeSize=vu0 ? PS2_VU0_CODE_SIZE : PS2_VU1_CODE_SIZE,dataSize=vu0 ? PS2_VU0_DATA_SIZE : PS2_VU1_DATA_SIZE;
+    constexpr float matrices[][4][4]={
+        {{.5f,-.25f,.75f,0},{.125f,.5f,-.25f,0},{-.5f,.25f,.125f,0},{2,-3,4,1}},
+        {{1,0,0,0},{0,1,0,0},{0,0,1,0},{0,0,0,1}},
+        {{0,2,0,0},{-3,0,0,0},{0,0,4,0},{5,-3,9,1}},
+        {{.25f,-.5f,.125f,0},{-.25f,.5f,-.125f,0},{.5f,-.25f,.75f,0},{-1,2,-3,1}}};
+    std::memcpy(vu->state().vf[1],matrices[profile],sizeof(matrices[profile]));
+    for(unsigned v=0;v<64u;++v){const float input[]={float(int(v%11u)-5)*.125f,float(int(v%7u)-3)*.25f,float(int(v%5u)-2)*.5f,1};std::memcpy(data+v*16u,input,16u);}
+    auto special=[](unsigned opcode,unsigned fs,unsigned ft){return (15u<<21u)|(ft<<16u)|(fs<<11u)|0x3cu|(opcode&3u)|((opcode&0x7cu)<<4u);};
+    for(unsigned v=0;v<64u;++v){
+        const uint32_t hi[]={0x2ffu,special(0x18u,1u,5u),special(0x09u,2u,5u),special(0x0au,3u,5u),(15u<<21u)|(5u<<16u)|(4u<<11u)|(6u<<6u)|0x0bu,0x2ffu};
+        for(unsigned i=0;i<6u;++i){const uint32_t lo=i==0u ? (15u<<21u)|(5u<<16u)|v : i==5u ? 0x02000000u|(15u<<21u)|(6u<<11u)|(128u+v) : 0u;
+            const uint64_t pair=uint64_t(hi[i]|(v==63u && i==4u ? 0x40000000u : 0u))<<32u|lo;std::memcpy(code+(v*6u+i)*8u,&pair,8u);}
+    }
+    const auto start=std::chrono::steady_clock::now();
+    for(unsigned i=0;i<iterations;++i){
+        vu->execute(code,codeSize,data,dataSize,*gs,m.get(),0u,0u,0u,sliced ? 17u : 8192u);
+        if(sliced){unsigned guard=0;while(vu->state().pc<64u*6u*8u && ++guard<256u)vu->resume(code,codeSize,data,dataSize,*gs,m.get(),0u,0u,17u);
+            if(guard==256u)throw std::runtime_error("Matrix resume did not finish");}
+    }
+    const auto elapsed=std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now()-start).count();
+    for(unsigned v=0;v<64u;++v){float input[4],output[4];std::memcpy(input,data+v*16u,16u);std::memcpy(output,data+(128u+v)*16u,16u);
+        for(unsigned row=0;row<4u;++row){double expected=0;for(unsigned c=0;c<4u;++c)expected+=double(matrices[profile][c][row])*input[c];
+            if(!std::isfinite(output[row]) || std::abs(double(output[row])-expected)>0.00002*(1+std::abs(expected)))throw std::runtime_error("Vector matrix output differs from independent vertex transform");}}
+    Hash hash;add_state(hash,vu->state());hash.bytes(data,dataSize);return {hash.value,uint64_t(iterations)*64u,double(elapsed)/(iterations*64.0)};
+}
+void verify_vector_matrices() {
+    // State/cycle/data snapshots from the pinned original interpreter. Every
+    // workload also checks its output against an independent matrix product.
+    constexpr uint64_t expected[]={
+        0x6a0a21437a656e1bull,0x261ad8af848e7841ull,0x6c9f3e069c62ba15ull,0x168838f9ea8f5f71ull,
+        0xd0f9c3f1f5e58e7ull,0x8732811a1e5a93cdull,0xb240dbd046e38bb1ull,0x8e74380cab88ee5dull,
+        0x2473757580d1d7beull,0x376a38e4752e5528ull,0x9311a1e4f7e692a4ull,0x8ef45b9b34a05318ull,
+        0x3c0b0f3b42b7014cull,0x1b0cba8cc7c2b072ull,0xd5a38f99008dd79eull,0x27777b7367186a62ull,
+        0x6badbfb74fc12e1bull,0x40c6db96552db841ull,0xc050e2036fe2fa15ull,0x9848a70c04ca9f71ull,
+        0xd79a8289126118e7ull,0xfa31c8c410d3cdull,0xc771d5ecb3eecbb1ull,0x726f416082532e5dull,
+        0xe0f66304fd6357beull,0x1b04853755d05528ull,0xc79fdeaec72b92a4ull,0x1c9b81e389ce5318ull,
+        0x90bda694177e014cull,0xc0865462ac0d3072ull,0x726679cca337579eull,0x3857e104b2eeea62ull,
+        0x6a0a21437a656e1bull,0x261ad8af848e7841ull,0x6c9f3e069c62ba15ull,0x168838f9ea8f5f71ull,
+        0xd0f9c3f1f5e58e7ull,0x8732811a1e5a93cdull,0xb240dbd046e38bb1ull,0x8e74380cab88ee5dull,
+        0x2473757580d1d7beull,0x376a38e4752e5528ull,0x9311a1e4f7e692a4ull,0x8ef45b9b34a05318ull,
+        0x3c0b0f3b42b7014cull,0x1b0cba8cc7c2b072ull,0xd5a38f99008dd79eull,0x27777b7367186a62ull,
+        0x6badbfb74fc12e1bull,0x40c6db96552db841ull,0xc050e2036fe2fa15ull,0x9848a70c04ca9f71ull,
+        0xd79a8289126118e7ull,0xfa31c8c410d3cdull,0xc771d5ecb3eecbb1ull,0x726f416082532e5dull,
+        0xe0f66304fd6357beull,0x1b04853755d05528ull,0xc79fdeaec72b92a4ull,0x1c9b81e389ce5318ull,
+        0x90bda694177e014cull,0xc0865462ac0d3072ull,0x726679cca337579eull,0x3857e104b2eeea62ull,
+    };
+    constexpr unsigned counts[]={1u,3u,7u,19u};
+    for(unsigned group=0;group<16u;++group)for(unsigned i=0;i<4u;++i)
+        if(matrix_workload(group,counts[i]).hash!=expected[group*4u+i])
+            throw std::runtime_error("Original vector matrix reference mismatch: "+std::to_string(group));
 }
 // Short programs with repeated MPG-style writes. Include unchanged uploads,
 // executed and unused edits, both units, and edits between resume slices.

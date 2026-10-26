@@ -29,5 +29,7 @@ int main() {
     });
     MiniTest::Case("Selected vector operand references",[](TestCase& tc){tc.Run("128 original state and cycle snapshots with unused operand data",[](TestCase&){openkai2::verify_vector_operands();});});
     MiniTest::Case("Vector code upload references",[](TestCase& tc){tc.Run("64 original code edit and resume snapshots across both units",[](TestCase&){openkai2::verify_vector_code_updates();});});
+    MiniTest::Case("Constant vector register dual issue",[](TestCase& tc){tc.Run("Upper writes cannot affect paired stores, moves or divisions in either unit",[](TestCase&){openkai2::verify_vector_zero_register();});});
+    MiniTest::Case("Affine vector matrix transforms",[](TestCase& tc){tc.Run("64 original snapshots and independent positions across both units and resume modes",[](TestCase&){openkai2::verify_vector_matrices();});});
     return MiniTest::Run();
 }

@@ -1,0 +1,11 @@
+--- a/runtime/vu/ps2_vu1_core.cpp
++++ b/runtime/vu/ps2_vu1_core.cpp
+@@ -233,6 +233,8 @@
+ 
+ void VU1Interpreter::applyDest(float *dst, const float *result, uint8_t dest)
+ {
++    if (dst == m_state.vf[0])
++        return;
+     if (dest & 0x8u)
+         dst[0] = result[0];
+     if (dest & 0x4u)

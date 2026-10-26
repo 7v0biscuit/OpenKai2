@@ -10,6 +10,8 @@ import subprocess
 import tempfile
 
 EXPECTED = {
+    'ps2xRuntime/src/lib/vu/ps2_vu1_upper.cpp':
+        'd68f2d39cb354d49df418625457fbd3fff10067af6ca2aba6255c993959f9724',
     'ps2xRuntime/src/lib/gs/ps2_gs_memory.cpp':
         '8d9b00070344942f662230d6afc1a4365be2a3fbef7263715fff120f36db34d3',
     'ps2xRuntime/src/lib/ps2_vif1_interpreter.cpp':
@@ -125,6 +127,7 @@ def main():
         shutil.copy2(args.upstream / 'ps2xRuntime/src/lib/ps2_pad.cpp', temporary / 'runtime/ps2_pad.cpp')
         (temporary / 'runtime/vu').mkdir()
         shutil.copy2(args.upstream / 'ps2xRuntime/src/lib/vu/ps2_vu1_core.cpp', temporary / 'runtime/vu/ps2_vu1_core.cpp')
+        shutil.copy2(args.upstream / 'ps2xRuntime/src/lib/vu/ps2_vu1_upper.cpp', temporary / 'runtime/vu/ps2_vu1_upper.cpp')
         (temporary / 'runtime/gs').mkdir()
         shutil.copy2(args.upstream / 'ps2xRuntime/src/lib/gs/gs_cpu_backend.cpp', temporary / 'runtime/gs/gs_cpu_backend.cpp')
         shutil.copy2(args.upstream / 'ps2xRuntime/src/lib/gs/gs_frontend.cpp', temporary / 'runtime/gs/gs_frontend.cpp')
@@ -147,7 +150,7 @@ def main():
                       patches / 'asynchronous-presentation.patch', patches / 'input-observation.patch', patches / 'texture-pages.patch',
                       patches / 'empty-dma-completion.patch', patches / 'parallel-sprites.patch', patches / 'guest-progress.patch',
                       patches / 'interrupt-critical-sections.patch', patches / 'sprite-formats.patch',
-                      patches / 'pixel-blending.patch', patches / 'spu2-pcm-output.patch', patches / 'iop-import-cache.patch', patches / 'small-triangles.patch', patches / 'iop-execution.patch', patches / 'ct32-pixels.patch', patches / 'early-depth.patch', patches / 'prepared-clut.patch', patches / 'draw-clut-sampling.patch', patches / 'guest-timing.patch', patches / 'vu-context.patch', patches / 'draw-history-sampling.patch', patches / 'texture-cache-binding.patch', patches / 'tested-pixel-writer.patch', patches / 'host-audio-disabled.patch', patches / 'vector-throughput.patch', patches / 'vector-scheduling.patch', patches / 'work-timings.patch', patches / 'vector-arithmetic.patch', patches / 'vif-unpack.patch', patches / 'raster-shading.patch', patches / 'vector-product-flags.patch', patches / 'vector-transfers.patch', patches / 'vector-operands.patch', patches / 'vector-flag-batches.patch', patches / 'vector-fetch-validation.patch', patches / 'gpu-rendering.patch', patches / 'flat-depth.patch', patches / 'display-pacing.patch', patches / 'gif-vertex-state.patch', patches / 'vector-code-diagnostics.patch'):
+                      patches / 'pixel-blending.patch', patches / 'spu2-pcm-output.patch', patches / 'iop-import-cache.patch', patches / 'small-triangles.patch', patches / 'iop-execution.patch', patches / 'ct32-pixels.patch', patches / 'early-depth.patch', patches / 'prepared-clut.patch', patches / 'draw-clut-sampling.patch', patches / 'guest-timing.patch', patches / 'vu-context.patch', patches / 'draw-history-sampling.patch', patches / 'texture-cache-binding.patch', patches / 'tested-pixel-writer.patch', patches / 'host-audio-disabled.patch', patches / 'vector-throughput.patch', patches / 'vector-scheduling.patch', patches / 'work-timings.patch', patches / 'vector-arithmetic.patch', patches / 'vif-unpack.patch', patches / 'raster-shading.patch', patches / 'vector-product-flags.patch', patches / 'vector-transfers.patch', patches / 'vector-operands.patch', patches / 'vector-flag-batches.patch', patches / 'vector-fetch-validation.patch', patches / 'vector-constant-register.patch', patches / 'vector-fmac-kernel.patch', patches / 'gpu-rendering.patch', patches / 'flat-depth.patch', patches / 'display-pacing.patch', patches / 'gif-vertex-state.patch', patches / 'vector-code-diagnostics.patch'):
             apply_overlay_patch(temporary, patch)
         for source in temporary.rglob('*'):
             if source.is_file():

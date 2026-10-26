@@ -69,6 +69,8 @@ function(openkai2_attach_generated_sources)
         "${project_root}/tools/native/patches/vector-operands.patch"
         "${project_root}/tools/native/patches/vector-flag-batches.patch"
         "${project_root}/tools/native/patches/vector-fetch-validation.patch"
+        "${project_root}/tools/native/patches/vector-constant-register.patch"
+        "${project_root}/tools/native/patches/vector-fmac-kernel.patch"
         "${project_root}/tools/native/patches/gpu-rendering.patch"
         "${project_root}/tools/native/patches/flat-depth.patch"
         "${project_root}/tools/native/patches/display-pacing.patch"

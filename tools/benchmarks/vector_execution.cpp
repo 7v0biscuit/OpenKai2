@@ -4,6 +4,12 @@
 #include <iostream>
 #include <string>
 int main(int argc,char** argv) {
+    if(argc>1 && (std::string(argv[1])=="--matrix-reference" || std::string(argv[1])=="--matrix-bench")) {
+        const bool reference=std::string(argv[1])=="--matrix-reference";constexpr unsigned counts[]={1u,3u,7u,19u};
+        const unsigned iterations=argc>2 ? unsigned(std::stoul(argv[2])) : 1000u;
+        for(unsigned group=0;group<16u;++group)for(unsigned i=0;i<(reference ? 4u : 1u);++i){const auto r=openkai2::matrix_workload(group,reference ? counts[i] : iterations);
+            std::cout<<"group="<<group<<" variant="<<i<<" ns_per_operation="<<r.nanosecondsPerOperation<<" operations="<<r.operations<<" hash="<<std::hex<<r.hash<<std::dec<<'\n';}return 0;
+    }
     if(argc>1 && (std::string(argv[1])=="--code-reference" || std::string(argv[1])=="--code-bench")) {
         const bool reference=std::string(argv[1])=="--code-reference";
         constexpr unsigned counts[]={1u,3u,7u,19u};

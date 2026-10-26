@@ -1,0 +1,95 @@
+--- a/runtime/vu/ps2_vu1_upper.cpp
++++ b/runtime/vu/ps2_vu1_upper.cpp
+@@ -1,6 +1,8 @@
+ #include "runtime/ps2_vu1.h"
+ #include "ps2_vu1_detail.h"
+ 
++#include <smmintrin.h>
++#include <array>
+ #include <cmath>
+ #include <cstring>
+ #include <limits>
+@@ -16,6 +18,37 @@
+             return std::numeric_limits<int32_t>::min();
+         return static_cast<int32_t>(scaled);
+     }
++}
++
++namespace {
++constexpr auto fmacModes() {
++    std::array<uint8_t,64> modes{};
++    for(unsigned bc=0;bc<4u;++bc){
++        modes[bc]=uint8_t(((bc+3u)<<3u)|1u);modes[4u+bc]=uint8_t(((bc+3u)<<3u)|2u);
++        modes[8u+bc]=uint8_t(((bc+3u)<<3u)|4u);modes[12u+bc]=uint8_t(((bc+3u)<<3u)|5u);
++        modes[24u+bc]=uint8_t(((bc+3u)<<3u)|3u);
++    }
++    modes[0x1c]=(1u<<3u)|3u;modes[0x1e]=(2u<<3u)|3u;
++    modes[0x20]=(1u<<3u)|1u;modes[0x21]=(1u<<3u)|4u;
++    modes[0x22]=(2u<<3u)|1u;modes[0x23]=(2u<<3u)|4u;
++    modes[0x24]=(1u<<3u)|2u;modes[0x25]=(1u<<3u)|5u;
++    modes[0x26]=(2u<<3u)|2u;modes[0x27]=(2u<<3u)|5u;
++    modes[0x28]=1u;modes[0x29]=4u;modes[0x2a]=3u;modes[0x2c]=2u;modes[0x2d]=5u;
++    return modes;
++}
++constexpr auto fmacModeTable=fmacModes();
++constexpr unsigned fmacLaneBits[]={0u,8u,4u,12u,2u,10u,6u,14u,1u,9u,5u,13u,3u,11u,7u,15u};
++bool prepareFmacOperand(__m128 source,unsigned active,__m128& value,unsigned& zero) {
++    const auto bits=_mm_castps_si128(source),sign=_mm_and_si128(bits,_mm_set1_epi32(int32_t(0x80000000u)));
++    const auto magnitude=_mm_and_si128(bits,_mm_set1_epi32(0x7fffffff));
++    const auto tiny=_mm_cmpgt_epi32(_mm_set1_epi32(0x00800000),magnitude);
++    const auto inside=_mm_and_si128(_mm_cmpgt_epi32(magnitude,_mm_set1_epi32(0x307fffff)),_mm_cmpgt_epi32(_mm_set1_epi32(0x4f000000),magnitude));
++    if((unsigned(_mm_movemask_ps(_mm_castsi128_ps(_mm_or_si128(tiny,inside))))&active)!=active)return false;
++    zero=unsigned(_mm_movemask_ps(_mm_castsi128_ps(tiny)));
++    const auto exceptional=_mm_cmpeq_epi32(_mm_and_si128(bits,_mm_set1_epi32(0x7f800000)),_mm_set1_epi32(0x7f800000));
++    const auto finite=_mm_blendv_epi8(bits,_mm_or_si128(sign,_mm_set1_epi32(0x7f7fffff)),exceptional);
++    value=_mm_castsi128_ps(_mm_blendv_epi8(finite,sign,tiny));return true;
++}
+ }
+ 
+ // ============================================================================
+@@ -30,6 +63,45 @@
+     uint8_t fd = FD(instr);
+     uint8_t op = instr & 0x3F;
+ 
++    const bool accumulatorTarget=op>=0x3cu;
++    const auto arithmetic=accumulatorTarget ? uint8_t((instr&3u)|((instr>>4u)&0x7cu)) : op;
++    if(accumulatorTarget && (arithmetic==0x2fu || arithmetic==0x30u))return;
++    const auto mode=arithmetic<fmacModeTable.size() ? fmacModeTable[arithmetic] : 0u;
++    if(mode!=0u && dest==0u)return;
++    if(mode!=0u) {
++        const unsigned active=fmacLaneBits[dest],kind=mode&7u,source=mode>>3u;
++        __m128 left,right,accumulator=_mm_setzero_ps();unsigned leftZero,rightZero,accZero=15u;
++        const auto rawRight=source>=3u ? _mm_set1_ps(m_state.vf[ft][source-3u]) : source==1u ? _mm_set1_ps(m_state.q)
++            : source==2u ? _mm_set1_ps(m_state.i) : _mm_loadu_ps(m_state.vf[ft]);
++        if(prepareFmacOperand(_mm_loadu_ps(m_state.vf[fs]),active,left,leftZero)
++            && prepareFmacOperand(rawRight,active,right,rightZero)
++            && (kind<4u || prepareFmacOperand(_mm_loadu_ps(m_state.acc),active,accumulator,accZero))) {
++            __m128 result;
++            switch(kind){
++            case 1u:result=_mm_add_ps(left,right);break;
++            case 2u:result=_mm_sub_ps(left,right);break;
++            case 3u:result=_mm_mul_ps(left,right);break;
++            case 4u:result=_mm_add_ps(accumulator,_mm_mul_ps(left,right));break;
++            default:result=_mm_sub_ps(accumulator,_mm_mul_ps(left,right));break;
++            }
++            const auto bits=_mm_castps_si128(result);
++            const auto zeros=_mm_cmpeq_epi32(_mm_and_si128(bits,_mm_set1_epi32(0x7fffffff)),_mm_setzero_si128());
++            const unsigned resultZero=unsigned(_mm_movemask_ps(_mm_castsi128_ps(zeros)))&active;
++            // A rounded zero from nonzero product/ACC cancellation needs the
++            // original extended calculation. Zero terms are exact in bounds.
++            if(kind<4u || (resultZero&~(leftZero|rightZero|accZero))==0u){
++                const auto flags=_mm_or_si128(_mm_and_si128(_mm_srli_epi32(bits,30),_mm_set1_epi32(2)),_mm_and_si128(zeros,_mm_set1_epi32(1)));
++                const uint32_t packed=uint32_t(_mm_cvtsi128_si32(_mm_shuffle_epi8(flags,_mm_set_epi32(-1,-1,-1,0x0c080400))));
++                uint8_t laneFlags[4];std::memcpy(laneFlags,&packed,4u);
++                const unsigned sticky=kind<4u ? 0u : ((unsigned(_mm_movemask_ps(_mm_xor_ps(left,right)))&active) ? 2u : 0u)
++                    | (((leftZero|rightZero)&active) ? 1u : 0u);
++                updateFmacFlags(laneFlags,dest,sticky);
++                alignas(16) float values[4];_mm_store_ps(values,result);
++                if(accumulatorTarget)applyDestAcc(values,dest);else applyDest(m_state.vf[fd],values,dest);
++                return;
++            }
++        }
++    }
+     float *vd = m_state.vf[fd];
+     float normalizedVs[4];
+     float normalizedVt[4];

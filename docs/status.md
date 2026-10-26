@@ -62,6 +62,24 @@ Complete VRAM matched the CPU renderer and all before/after output hashes
 matched. These synthetic submission costs are not estimates of hardware game
 FPS or sustained 60 FPS.
 
+## Vector arithmetic and constant registers
+
+Common bounded FMAC instructions combine operand validation, SIMD arithmetic,
+and flag production. Multiply and add retain separate rounding. Inactive
+lanes retain their normalization rules, and uncertain cancellation or boundary
+values use the original extended calculation. NOPs avoid arithmetic setup.
+The existing exhaustive arithmetic, operand, pipeline and callback checks
+remain enabled.
+
+VF00 stays read-only throughout a dual-issued instruction pair. Discarded
+upper destinations still produce arithmetic flags, and the lower instruction
+reads the constant `(0, 0, 0, 1)`. Eighteen cases cover stores, moves and divisions
+paired with arithmetic, maximum and integer-conversion writes on both units.
+Another 64 original matrix snapshots cover dense, identity, rotated and
+cancelling transforms, both units and resume modes. Every case also checks
+vertex positions against an independent matrix product. The vector component
+suite contains 51 cases.
+
 ## Vector code uploads and packed vertices
 
 Decoded vector instructions are validated against the fetched 64-bit pair.
@@ -111,7 +129,7 @@ longer force extended arithmetic. Arithmetic results, guest cycles, flags,
 exception handling, and cancellation behavior retain their original paths.
 Another 128 full-state references cover 32 programs with unused extreme and
 denormal register data, partial masks, scalar and broadcast forms, accumulator
-destinations, and cross products. The vector suite contains 49 cases.
+destinations, and cross products. The vector suite contains 51 cases.
 
 Three alternating Windows-binary runs under Wine measured about 32% lower
 median CPU cost in these targeted programs, ranging from 5% to 50% lower.
@@ -476,7 +494,7 @@ and both supported extended-precision and binary64 host arithmetic. The VIF
 regression compares 1,664 complete memory/register snapshots across all valid
 formats and fallback conditions. The production-runtime scene test uploads its
 eight triangles through VIF1 before MSCAL/MSCNT execution and pixel checks.
-The vector component suite contains 49 cases.
+The vector component suite contains 51 cases.
 
 Three-run Windows binary medians under Wine measured 27–29% lower costs in six
 arithmetic-heavy vector workloads and 90–97% lower costs in eight contiguous
@@ -536,7 +554,7 @@ and its underflow/overflow behavior. Bounded simple arithmetic can classify
 exact zero results directly; product-sum cancellation retains its original
 calculation. The 73,728 original arithmetic cases remain enabled, alongside
 32 new original product-program snapshots and the existing pipeline and real
-runtime rendering checks. The vector suite contains 49 cases.
+runtime rendering checks. The vector suite contains 51 cases.
 
 Three alternating Windows binary measurements under Wine showed 12–17% lower
 costs in eight multiply-add/subtract workloads, with matching original state,
