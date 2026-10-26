@@ -22,6 +22,7 @@ if(MSVC)
     # MSVC exposes SSE4.1 intrinsics without a matching /arch setting and does
     # not define this feature macro. Keep the documented SSE4.1 baseline.
     target_compile_definitions(openkai2_vector_core PRIVATE __SSE4_1__=1)
+    target_compile_options(openkai2_vector_core PRIVATE /utf-8)
     if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
         target_compile_options(openkai2_vector_core PRIVATE /clang:-msse4.1)
     endif()
