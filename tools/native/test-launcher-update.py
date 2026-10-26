@@ -73,12 +73,15 @@ def main():
             assert ready, ctypes.get_last_error()
             lock = (target / 'OpenKai2.exe').open('rb') if locked else None
             try:
+                environment = os.environ.copy()
+                # Reproduce a PowerShell 7 parent without relying on runner defaults.
+                environment['PSModulePath'] = str(stage / 'unrelated modules')
                 process = subprocess.Popen([str(powershell), '-NoProfile', '-NonInteractive',
                     '-ExecutionPolicy', 'Bypass', '-File', str(script), '-ParentId', '1073741823',
                     '-ReadyEvent', name, '-Package', str(source), '-Expected', digest,
                     '-Target', str(target / 'OpenKai2.exe' if portable else target),
                     '-Version', '0.1.26', '-Portable', str(int(portable)), '-NoRestart'],
-                    stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=environment)
                 signaled = kernel.WaitForSingleObject(ready, 30000) == 0
                 out, err = process.communicate(timeout=60)
                 assert signaled, ('Update worker did not become ready', out, err)

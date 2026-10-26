@@ -21,6 +21,12 @@ $rollback = $null
 $changed = [Collections.Generic.List[object]]::new()
 $locks = [Collections.Generic.List[Threading.Mutex]]::new()
 try {
+    # A PowerShell 7 parent can supply a PSModulePath that hides the Windows
+    # PowerShell script functions. Load the inbox modules from this host's path.
+    foreach ($module in @('Microsoft.PowerShell.Utility', 'Microsoft.PowerShell.Management')) {
+        $manifestPath = [IO.Path]::Combine($PSHOME, 'Modules', $module, ($module + '.psd1'))
+        Import-Module -Name $manifestPath -Force -ErrorAction Stop
+    }
     $parentProcess = Get-Process -Id $ParentId -ErrorAction SilentlyContinue
     $wrapperProcess = if ($WrapperId -gt 0) { Get-Process -Id $WrapperId -ErrorAction SilentlyContinue }
     $ready = [Threading.EventWaitHandle]::OpenExisting($ReadyEvent)
