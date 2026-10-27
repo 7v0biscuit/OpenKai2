@@ -10,6 +10,7 @@
 namespace openkai2 {
 void verify_actor_commands(PS2Runtime& runtime,uint8_t* ram) {
     auto require=[](bool ok,const char* why){if(!ok)throw std::runtime_error(why);};
+    for(auto at:translation::script_command_entries)require(runtime.hasFunction(at),"Script command entry is missing");
     for(auto at:translation::actor_command_entries)require(runtime.hasFunction(at),"Actor command entry is missing");
     for(auto at:translation::actor_timing_entries)require(runtime.hasFunction(at),"Actor timing entry is missing");
     for(auto at:translation::actor_state_entries)require(runtime.hasFunction(at),"Actor state entry is missing");
@@ -25,6 +26,20 @@ void verify_actor_commands(PS2Runtime& runtime,uint8_t* ram) {
         const auto fn=runtime.lookupFunction(c.pc);require(fn!=nullptr,"Actor command reached an untranslated continuation");
         try{fn(ram,&c,&runtime);}catch(const EeDispatcherTransfer&){}
     }require(c.pc==returned,"Actor command did not return");};
+    for(auto alias:{0u,0x80000000u,0xa0000000u})for(unsigned value:{0u,1u,3u,127u,128u,255u}){
+        std::memset(ram+context,0xa5,0x100u);std::memset(ram+state,0x5a,0x100u);
+        m.write8(0x3a4b78u,uint8_t(value));
+        R5900Context c{};c.pc=0x27ffc0u;c.r[4]=_mm_cvtsi32_si128(context|alias);c.r[5]=_mm_cvtsi32_si128(state|alias);
+        c.r[28]=_mm_cvtsi32_si128(0x3ac4f0u|alias);c.r[29]=_mm_cvtsi32_si128(sp|alias);c.r[31]=_mm_cvtsi32_si128(returned);
+        run(c);
+        require(m.read32(state)==(value==3 ? 0x12u : 0x10u) && getRegU32(&c,2)==1u,"Pod status command changed guest result");
+        require(m.read32(state+4u)==0x5a5a5a5au && m.read32(context)==0xa5a5a5a5u,"Pod command changed neighboring state");
+        m.write32(state+0x2cu,descriptor|alias);m.write32(descriptor,2u);m.write32(0x3a4cb4u,control|alias);
+        m.write32(control+0x19c54u+8u,actor|alias);m.write8(actor+0xa07u,uint8_t(value));
+        c.pc=0x1fad00u;run(c);
+        require(m.read32(state)==uint32_t(int32_t(int8_t(value))) && getRegU32(&c,2)==1u,"Actor-state command lost signed state byte");
+        require(getRegU32(&c,29)==(sp|alias) && getRegU32(&c,31)==returned,"Script command lost its caller frame");
+    }
     restore.replace(0x1b6520u,[](uint8_t*,R5900Context* c,PS2Runtime* r){
         auto& memory=r->memory();uint32_t a,b;std::memcpy(&a,&c->f[12],4u);std::memcpy(&b,&c->f[13],4u);
         if(a!=memory.read32(marker+4u) || b!=memory.read32(marker+8u) || getRegU32(c,4)!=0u)

@@ -37,8 +37,10 @@ void upload_triangle(PS2Memory& memory,uint32_t color) {
     std::memcpy(packet.data(),&command,4u);triangle_packet(packet.data()+4u,color);
     memory.processVIF1Data(packet.data(),unsigned(packet.size()));
 }
-uint32_t pixel(PS2Memory& memory,unsigned x,unsigned y) {
-    uint32_t value;std::memcpy(&value,memory.getGSVRAM()+GSPSMCT32::addrPSMCT32(0u,1u,x,y),4u);return value;
+uint32_t pixel(PS2Runtime& runtime,unsigned x,unsigned y) {
+    // No CRT is configured in this fixture. Request the actual offscreen pixel
+    // through GS so deferred GPU contents are synchronized for this consumer.
+    return runtime.gs().ReadVram(GS_PSM_CT32,0u,1u,x,y);
 }
 }
 void verify_vector_runtime_impl(bool synchronize) {
@@ -55,11 +57,11 @@ void verify_vector_runtime_impl(bool synchronize) {
         memory.processVIF1Data(reinterpret_cast<const uint8_t*>(&mscal),4u);
         if(synchronize)runtime->gs().latchHostPresentationFrame();
         if(runtime->vu1().state().vi[2]!=int(17u+variant) || runtime->vu1().state().pc!=24u
-            || pixel(memory,12u,12u)!=color || pixel(memory,63u,63u)!=0u)
+            || pixel(*runtime,12u,12u)!=color || pixel(*runtime,63u,63u)!=0u)
         {
             std::ostringstream error;error<<"Runtime VIF1 MSCAL did not render its PATH1 triangle: vi2="<<runtime->vu1().state().vi[2]
-                <<" pc="<<std::hex<<runtime->vu1().state().pc<<" pixel="<<pixel(memory,12u,12u)<<" expected="<<color
-                <<" guard="<<pixel(memory,63u,63u)<<" cycles="<<runtime->vu1().state().cycles;
+                <<" pc="<<std::hex<<runtime->vu1().state().pc<<" pixel="<<pixel(*runtime,12u,12u)<<" expected="<<color
+                <<" guard="<<pixel(*runtime,63u,63u)<<" cycles="<<runtime->vu1().state().cycles;
             throw std::runtime_error(error.str());
         }
         std::array<uint8_t,sizeof(VU1State)> saved{};
@@ -73,7 +75,7 @@ void verify_vector_runtime_impl(bool synchronize) {
         memory.processVIF1Data(reinterpret_cast<const uint8_t*>(&mscnt),4u);
         if(synchronize)runtime->gs().latchHostPresentationFrame();
         if(runtime->vu1().state().vi[2]!=int(29u+variant) || runtime->vu1().state().pc!=48u
-            || pixel(memory,12u,12u)!=second || pixel(memory,63u,63u)!=0u)
+            || pixel(*runtime,12u,12u)!=second || pixel(*runtime,63u,63u)!=0u)
             throw std::runtime_error("Runtime VIF1 MSCNT did not resume PATH1 triangle rendering after VU0 execution");
     }
 }

@@ -44,6 +44,13 @@ host stall misses a field deadline, the pacing anchor is rebased instead of
 running overdue fields in a burst. More window refreshes do not imply more
 completed game frames.
 
+Filtered output is reused while the completed game frame is unchanged. FXAA,
+bicubic and FSR passes run again after a new completed frame, crop, filter or
+output-size change. Nearest and bilinear presentation without FXAA retain the
+direct path. The guest clock and input polling remain independent of this cache.
+On shutdown, `[display:filters]` reports processed and reused filtered images;
+these counts are separate from completed game frames and window refreshes.
+
 ## Checks and diagnostics
 
 The extracted application's GPU comparisons run without game files:
@@ -59,8 +66,9 @@ GPU output differs from the software reference. Normal startup records the
 selected renderer and device. On shutdown, `[renderer:gpu]` reports GPU and
 software draw counts, submitted batches, tile counts, and upload/readback bytes.
 `culled_draws` counts repeated-vertex and axis-flat triangles omitted before
-GPU binning. Display checks compare all FXAA/scaler combinations using actual
-OpenGL output, including orientation, cropping and letterboxing.
+GPU binning. Display checks compare all FXAA/scaler combinations using actual OpenGL
+output, including orientation, cropping, letterboxing, unchanged-frame reuse
+and cache invalidation after new frames or resizing.
 These are diagnostic counts, not a game FPS measurement.
 
 ## Compatibility and performance
@@ -69,8 +77,11 @@ The renderer supports direct and indexed textures, point and bilinear sampling,
 32-, 24-, and 16-bit color/depth targets, texture functions, fog, blending,
 alpha/depth tests, and framebuffer masks. Buffer feedback, overlapping color
 and depth targets, scan masking, and other unsupported states use the CPU
-compatibility path. Presentation reads completed VRAM back for the existing
-display conversion. Texture page footprints are reused while addressing state
+compatibility path. Presentation reads only the color pages required by the enabled display
+circuits, their origins and any candidate presentation sources. Depth and
+unrelated targets remain resident until an explicit CPU consumer needs them.
+A controlled color/depth/offscreen fixture reads 16 KiB for presentation,
+compared with 256 KiB before this change. Game FPS still requires measurement. Texture page footprints are reused while addressing state
 is unchanged. Aligned buffers use direct page ranges, and pixel updates,
 texture uploads, and palette loads read back only their affected pages. Other
 dirty GPU pages remain resident until a consumer needs them.
@@ -103,7 +114,8 @@ recorded in [NOTICE](../NOTICE).
 
 Developers can run the required headless comparisons with
 `python tools/native/test-gpu-linux.py --jobs 2` on Linux with Mesa/EGL and the
-native build dependencies installed. The optional `openkai2_gpu_bench` CMake
+native build dependencies installed. The display-filter checks also require
+Xvfb and xauth on Linux. The optional `openkai2_gpu_bench` CMake
 target compares ordered batches with the CPU renderer and checks output hashes.
 Its `--footprints` mode measures CPU page preparation; `--submission` measures
 small textured draw batches, waits for GPU completion, and compares complete

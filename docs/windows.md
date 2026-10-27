@@ -1,7 +1,7 @@
 # Windows build and startup
 
-OpenKai2 is in development. The runtime reaches level selection.
-Complete matches, performance, and gameplay still need validation.
+OpenKai2 is in development. The runtime reaches menus, versus fights and opening
+story sequences. Progression, performance and complete matches need validation.
 
 ## Launcher preferences
 

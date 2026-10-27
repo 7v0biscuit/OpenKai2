@@ -46,6 +46,37 @@ uint32_t rgba(const GSVertex& v){return uint32_t(v.r)|(uint32_t(v.g)<<8u)|(uint3
 Pages rectanglePages(unsigned psm,unsigned base,unsigned width,unsigned x,unsigned y,unsigned w,unsigned h){
     return gpu::rectangle_pages(psm,base,width,x,y,w,h);
 }
+// Presentation consumes color surfaces only. Retain depth and unrelated render
+// targets on the GPU until a CPU consumer explicitly requests their pages.
+Pages presentationPages(const GSPresentationRequest& request){
+    Pages pages;
+    const bool halfHeight=(request.smode2&3u)==3u;
+    const auto add=[&](const GSFrameReg& frame,unsigned x,unsigned y,unsigned w,unsigned h,bool blocks){
+        if(!gpu::address_tables()[(frame.psm&63u)*8u]){pages.set();return;}
+        pages|=rectanglePages(frame.psm,blocks ? frame.fbp : frame.fbp*32u,
+                             frame.fbw ? frame.fbw : 10u,x,y,w,h);
+    };
+    for(unsigned circuit=0;circuit<2u;++circuit){
+        if(!(request.pmode&(1ull<<circuit)))continue;
+        const uint64_t buffer=circuit ? request.dispfb2 : request.dispfb1;
+        const uint64_t display=circuit ? request.display2 : request.display1;
+        GSFrameReg frame{};frame.fbp=buffer&511u;frame.fbw=(buffer>>9u)&63u;frame.psm=(buffer>>15u)&31u;
+        unsigned dw=(display>>32u)&4095u,dh=(display>>44u)&2047u,magnification=(display>>23u)&15u;
+        if(!frame.fbw && !dw && !dh && !magnification)continue;
+        unsigned w=(dw+1u)/(magnification+1u),h=dh+1u;
+        if(w<64u || h<64u){w=640u;h=448u;}
+        w=std::min(w,640u);h=std::min(h,512u);
+        add(frame,(buffer>>32u)&2047u,(buffer>>43u)&2047u,w,halfHeight ? (h+1u)/2u : h,false);
+        if(!halfHeight){
+            if(request.hasPreferredSource && request.preferredDestFbp==frame.fbp)
+                add(request.preferredSource,0u,0u,w,h,true);
+            // The CPU presenter may inspect either context when display zero
+            // is black. Include both candidates before running that selection.
+            if(!frame.fbp)for(const auto& candidate:request.contextFrames)add(candidate,0u,0u,w,h,false);
+        }
+    }
+    return pages;
+}
 uint32_t color16(uint32_t p){return ((p&31u)<<3u)|(((p>>5u)&31u)<<11u)|(((p>>10u)&31u)<<19u)|(((p>>15u)&1u)<<31u);}
 uint32_t textureAlpha(const GSTexaReg& t,unsigned psm,uint32_t p){
     const bool zero=(p&0xffffffu)==0u;unsigned a=p>>24u;
@@ -283,8 +314,8 @@ void GpuRasterBackend::UploadImage(const uint8_t* data,uint32_t bytes){
 }
 void GpuRasterBackend::Flush(){std::lock_guard lock(m->mutex);m->submit();}
 void GpuRasterBackend::TextureFlush(){std::lock_guard lock(m->mutex);m->submit();m->cpu.TextureFlush();}
-void GpuRasterBackend::Sync(GSSyncReason reason){std::lock_guard lock(m->mutex);if(reason==GSSyncReason::Presentation || reason==GSSyncReason::DebugReadback || reason==GSSyncReason::LocalToHost || reason==GSSyncReason::Reset)m->materialize();else {m->submit();if(m->device && m->resources)m->device->invoke([](gpu::Api& gl){gl.Finish();});}m->cpu.Sync(reason);}
-PresentationFrame GpuRasterBackend::Present(const GSPresentationRequest& request){std::lock_guard lock(m->mutex);m->materialize();auto frame=m->cpu.Present(request);m->cpuFrame=false;return frame;}
+void GpuRasterBackend::Sync(GSSyncReason reason){std::lock_guard lock(m->mutex);if(reason==GSSyncReason::Presentation)m->submit();else if(reason==GSSyncReason::DebugReadback || reason==GSSyncReason::LocalToHost || reason==GSSyncReason::Reset)m->materialize();else {m->submit();if(m->device && m->resources)m->device->invoke([](gpu::Api& gl){gl.Finish();});}m->cpu.Sync(reason);}
+PresentationFrame GpuRasterBackend::Present(const GSPresentationRequest& request){std::lock_guard lock(m->mutex);m->materialize(presentationPages(request));auto frame=m->cpu.Present(request);m->cpuFrame=false;return frame;}
 bool GpuRasterBackend::ClearFramebuffer(const GSContext& c,uint32_t rgba){
     std::lock_guard lock(m->mutex);
     if(!m->cpuFrame && c.frame.fbw && (c.frame.psm==0u || c.frame.psm==1u || ((c.frame.psm==2u || c.frame.psm==10u) && !c.frame.fbmsk))){

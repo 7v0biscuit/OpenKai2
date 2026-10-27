@@ -33,9 +33,9 @@
 
 namespace openkai2::launcher {
 namespace {
-constexpr COLORREF background = RGB(17, 22, 29), panel = RGB(23, 30, 39), raised = RGB(32, 41, 53);
-constexpr COLORREF border = RGB(47, 58, 72), ink = RGB(238, 241, 245), muted = RGB(157, 169, 184);
-constexpr COLORREF orange = RGB(236, 150, 60), gold = RGB(236, 184, 110), red = RGB(255, 139, 125);
+constexpr COLORREF background = RGB(14, 20, 31), panel = RGB(23, 31, 45), raised = RGB(34, 46, 65);
+constexpr COLORREF border = RGB(52, 67, 88), ink = RGB(242, 245, 250), muted = RGB(161, 174, 195);
+constexpr COLORREF orange = RGB(244, 151, 56), gold = RGB(248, 196, 94), red = RGB(255, 139, 125);
 enum Id {
     PlayTab = 101,
     SavesTab,
@@ -66,7 +66,7 @@ enum Id {
     CheckUpdates,
     InstallUpdate,
     ReleasePage,
-    ResetGraphics = 170
+    ResetGraphics = 170, OpenGraphics, OpenSaveManager
 };
 std::wstring wide(const std::string &s) {
     if (s.empty())
@@ -97,9 +97,9 @@ struct Fonts {
                                DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                                CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
         };
-        body = font(14, FW_NORMAL);
+        body = font(15, FW_NORMAL);
         caption = font(12, FW_NORMAL);
-        heading = font(25, FW_SEMIBOLD);
+        heading = font(28, FW_SEMIBOLD);
         brand = font(16, FW_SEMIBOLD);
     }
     ~Fonts() { clear(); }
@@ -233,6 +233,8 @@ struct Window {
                                                           {InstallUpdate, L"Install update"},
                                                           {ReleasePage, L"View releases"},
                                                           {ResetGraphics, L"Reset graphics"},
+                                                          {OpenGraphics,L"Graphics settings"},
+                                                          {OpenSaveManager,L"Manage saves"},
                                                           {ChooseIso, L"Choose ISO…"},
                                                           {VerifyIso, L"Verify again"},
                                                           {Play, L"Play"},
@@ -310,14 +312,16 @@ struct Window {
         auto position = [&](int id, int x, int y, int width, int height) {
             place(id, x, y, width, height); order.push_back(id);
         };
-        place(PlayTab, 16, 116, 152, 40);
-        place(SavesTab, 16, 164, 152, 40);
-        place(SettingsTab, 16, 212, 152, 40);
-        place(UpdatesTab, 16, 260, 152, 40);
+        place(PlayTab, 12, 132, 160, 56);
+        place(SavesTab, 12, 192, 160, 56);
+        place(SettingsTab, 12, 252, 160, 56);
+        place(UpdatesTab, 12, 312, 160, 56);
         if (page == 0) {
-            position(ChooseIso, 236, 292, 136, 36);
-            position(VerifyIso, 384, 292, 136, 36);
-            position(Play, w - 176, 410, 152, 44);
+            position(OpenGraphics,w-240,176,192,36);
+            position(OpenSaveManager,w-240,222,192,36);
+            position(ChooseIso, w - 340, 350, 144, 36);
+            position(VerifyIso, w - 184, 350, 136, 36);
+            position(Play, w - 200, 526, 176, 48);
         } else if (page == 1) {
             position(AutoBackup, w - 192, 146, 168, 36);
             position(ImportFolder, 216, 218, 148, 36);
@@ -372,43 +376,61 @@ struct Window {
         fill(memory, {0, 0, p(184), rect.bottom}, panel);
         fill(memory, {p(183), 0, p(184), rect.bottom}, border);
         fill(memory, {p(16), p(32), p(19), p(50)}, orange);
-        text(memory, L"OpenKai2", 28, 30, 144, 26, fonts.brand);
+        fill(memory, {p(16), p(95), p(168), p(96)}, border);
+        text(memory, L"OpenKai2", 28, 30, 144, 30, fonts.brand);
+        text(memory, L"GAME LIBRARY", 24, 108, 144, 18, fonts.caption, muted);
         text(memory, L"Budokai 2", 28, 60, 144, 20, fonts.caption, muted);
         text(memory, child || externalGame ? L"Game running" : disc ? L"ISO verified" : L"No ISO selected", 24,
              h - 80, 144, 20, fonts.caption, child ? orange : muted);
         text(memory, wide(application_version), 24, h - 52, 144, 20, fonts.caption, muted);
         const wchar_t *titles[] = {L"Play", L"Saves", L"Settings", L"Updates"};
-        const wchar_t *subtitles[] = {L"Your game, launch options and disc verification.",
-            L"Import saves and keep recoverable copies of your memory card.",
+        const wchar_t *subtitles[] = {L"Select your disc and start the game.",
+            L"Import saves, create backups, or restore a previous copy.",
             L"Saved automatically. Changes apply the next time you start the game.",
-            L"Keep OpenKai2 current through GitHub releases."};
+            L"Check for releases and choose your update channel."};
         text(memory, titles[page], 216, 28, content, 36, fonts.heading);
         text(memory, subtitles[page], 216, 76, content, 24, fonts.caption, muted);
+        const bool attention=error || (page==3 && updateError);
+        const wchar_t* state=attention ? L"ATTENTION" : child || externalGame ? L"IN GAME" : busy() ? L"WORKING" : disc ? L"READY" : L"SELECT ISO";
+        box(memory,{p(w-160),p(32),p(w-24),p(62)},raised);
+        text(memory,state,w-152,36,120,22,fonts.caption,attention ? red : disc ? gold : muted,DT_CENTER|DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX);
         line(memory, p(216), p(112), p(content), border);
         if (page == 0) {
-            box(memory, {p(216), p(140), p(w - 24), p(352)}, panel);
-            text(memory, L"Budokai 2", 236, 160, content - 200, 36, fonts.heading);
-            text(memory, L"USA · Original disc image", 236, 204, content - 200, 20,
-                 fonts.caption, muted);
-            const auto state = child ? L"Playing" : busy() ? L"Checking…" : disc ? L"Verified" : L"Select ISO";
-            text(memory, state, w - 172, 168, 124, 24, fonts.body, disc ? gold : muted,
-                 DT_RIGHT | DT_SINGLELINE | DT_NOPREFIX);
-            text(memory, candidateIso.empty() ? L"No ISO selected" : candidateIso.filename().wstring(),
-                 236, 236, content - 40, 24, fonts.body, ink, DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
-            text(memory, candidateIso.empty() ? L"Choose your Budokai 2 USA ISO to continue." : candidateIso.wstring(),
-                 236, 264, content - 40, 20, fonts.caption, muted, DT_SINGLELINE | DT_PATH_ELLIPSIS | DT_NOPREFIX);
-            text(memory, L"Launch settings", 216, 386, content, 20, fonts.brand);
-            const auto mode = settings.windowMode ? L"Borderless fullscreen" : L"Windowed";
-            const auto limit = settings.fps ? std::to_wstring(settings.fps) + L" FPS limit" : L"Uncapped presentation";
-            const auto resolution = settings.windowMode ? L"Desktop resolution" :
-                std::to_wstring(settings.width) + L" × " + std::to_wstring(settings.height);
-            text(memory, std::wstring(mode) + L" · " + resolution, 216, 420, content - 176, 24, fonts.body);
-            text(memory, limit + L" · " + (settings.renderer == "cpu" ? L"Software renderer" :
-                 settings.renderer == "gpu" ? L"GPU renderer" : L"Automatic renderer"),
-                 216, 452, content - 176, 24, fonts.caption, muted);
-            text(memory, L"The ISO must be present. Its files are checked before every game launch.",
-                 216, 506, content, 44, fonts.caption, muted, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
+            const RECT hero{p(216),p(140),p(w-24),p(296)};
+            for(int y=hero.top;y<hero.bottom;++y){
+                const int t=(y-hero.top)*255/std::max(1L,hero.bottom-hero.top);
+                fill(memory,{hero.left,y,hero.right,y+1},RGB(31-t*9/255,48-t*17/255,75-t*29/255));
+            }
+            fill(memory,{p(216),p(140),p(220),p(296)},orange);
+            text(memory,L"DRAGON BALL Z",240,160,content-48,22,fonts.caption,gold);
+            text(memory,L"Budokai 2",238,187,content-240,42,fonts.heading);
+            text(memory,L"USA edition  /  SLUS-20779",240,244,content-48,24,fonts.body,muted);
+            box(memory,{p(216),p(316),p(w-24),p(408)},panel);
+            text(memory,L"GAME DISC",236,328,content-368,18,fonts.caption,muted);
+            text(memory,candidateIso.empty() ? L"Choose your ISO to get started" : candidateIso.filename().wstring(),
+                 236,350,content-368,24,fonts.body,ink,DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+            text(memory,candidateIso.empty() ? L"The selected path is remembered automatically." : candidateIso.wstring(),
+                 236,386,content-40,16,fonts.caption,muted,DT_SINGLELINE|DT_PATH_ELLIPSIS|DT_NOPREFIX);
+            const int card=(content-24)/3;
+            const wchar_t* captions[]={L"RENDERING",L"DISPLAY",L"FRAME PACING"};
+            const std::wstring values[]={settings.renderer=="cpu" ? L"Software" : settings.renderer=="gpu" ? L"OpenGL GPU" : L"Automatic",
+                settings.windowMode ? L"Borderless" : std::to_wstring(settings.width)+L" × "+std::to_wstring(settings.height),
+                settings.fps ? std::to_wstring(settings.fps)+L" FPS limit" : L"Unlimited"};
+            const wchar_t* scaling[]={L"Nearest scaling",L"Bilinear scaling",L"Bicubic scaling",L"AMD FSR 1 spatial"};
+            const std::wstring details[]={std::wstring(scaling[settings.upscaler])+(settings.antialiasing ? L" / FXAA" : L""),
+                settings.aspect==0 ? L"4:3 aspect ratio" : settings.aspect==1 ? L"16:9 aspect ratio" : L"Custom aspect ratio",
+                settings.vsync ? L"VSync on · Original game timing" : L"VSync off · Original game timing"};
+            for(int i=0;i<3;++i){const int x=216+i*(card+12);
+                box(memory,{p(x),p(428),p(x+card),p(504)},panel);
+                text(memory,captions[i],x+14,438,card-28,16,fonts.caption,muted);
+                text(memory,values[i],x+14,458,card-28,22,fonts.brand);
+                text(memory,details[i],x+14,484,card-28,16,fonts.caption,muted,DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+            }
+            text(memory,disc ? L"Launch game" : L"Select and verify your disc to enable Play.",216,526,content-208,24,fonts.brand);
+            text(memory,L"Game files are verified before every launch.",216,555,content-208,22,fonts.caption,muted);
         } else if (page == 1) {
+            box(memory,{p(204),p(132),p(w-12),p(202)},panel);
+            box(memory,{p(204),p(288),p(w-12),p(524)},panel);
             text(memory, L"Automatic session backups", 216, 146, content - 200, 24, fonts.brand);
             text(memory, L"Keep a copy before and after each game session.", 216, 176, content - 200, 20,
                  fonts.caption, muted);
@@ -420,6 +442,8 @@ struct Window {
             text(memory, L"Imports: PSU, extracted save folders and OpenKai2 ZIP backups.",
                  216, 264, content, 20, fonts.caption, muted);
         } else if (page == 2) {
+            box(memory,{p(204),p(142),p(w-12),p(352)},panel);
+            box(memory,{p(204),p(390),p(w-12),p(530)},panel);
             text(memory, L"Display", 216, 120, content, 24, fonts.brand);
             const wchar_t *labels[] = {L"Display mode", L"Window resolution", L"Aspect ratio", L"Presentation limit", L"VSync"};
             for (int i = 0; i < 5; ++i)
@@ -430,9 +454,11 @@ struct Window {
             const wchar_t *renderLabels[] = {L"Renderer", L"Anti-aliasing", L"Texture filtering", L"Image scaling"};
             for (int i = 0; i < 4; ++i)
                 text(memory, renderLabels[i], i % 2 ? right : 216, 394 + (i / 2) * 68, col, 20, fonts.caption, muted);
-            text(memory, L"FSR 1 sharpens spatial upscaling. Frame generation is unavailable.", 376, 558,
+            text(memory, L"FSR 1 uses GPU upscaling and sharpening. Requires OpenGL 4.3.", 376, 558,
                  content - 160, 32, fonts.caption, muted, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
         } else {
+            box(memory,{p(204),p(132),p(w-12),p(218)},panel);
+            box(memory,{p(204),p(232),p(w-12),p(404)},panel);
             text(memory, L"Release channel", 216, 146, col, 20, fonts.caption, muted);
             text(memory, L"Automatic updates", right, 146, col, 20, fonts.caption, muted);
             text(memory, L"Installed version  " + wide(application_version), 216, 244, content, 24, fonts.brand);
@@ -476,7 +502,7 @@ struct Window {
                 color = primary ? gold : raised;
             const bool hover = hotButton == id && enabled;
             if (hover && !(item.itemState & ODS_SELECTED)) color = primary ? gold : raised;
-            box(dc, r, color, primary && enabled ? color : chosen || hover ? border : panel);
+            box(dc, r, color, primary && enabled ? color : chosen || hover || !navigation ? border : panel);
             if (chosen)
                 fill(dc, {r.left, r.top, r.left + p(3), r.bottom}, orange);
             wchar_t label[100]{};
@@ -487,9 +513,14 @@ struct Window {
             RECT textRect = r;
             textRect.left += p(navigation ? 16 : 12);
             textRect.right -= p(12);
-            DrawTextW(dc, label, -1, &textRect,
-                      DT_SINGLELINE | DT_VCENTER | (navigation ? DT_LEFT : DT_CENTER) |
-                          DT_NOPREFIX);
+            if(navigation){
+                textRect.top+=p(8);textRect.bottom=textRect.top+p(23);
+                DrawTextW(dc,label,-1,&textRect,DT_SINGLELINE|DT_LEFT|DT_NOPREFIX);
+                SelectObject(dc,fonts.caption);SetTextColor(dc,chosen ? gold : muted);
+                const wchar_t* descriptions[]={L"ISO & launch",L"Imports & recovery",L"Display & rendering",L"Release channels"};
+                textRect.top+=p(23);textRect.bottom=textRect.top+p(18);
+                DrawTextW(dc,descriptions[id-PlayTab],-1,&textRect,DT_SINGLELINE|DT_LEFT|DT_NOPREFIX);
+            }else DrawTextW(dc,label,-1,&textRect,DT_SINGLELINE|DT_VCENTER|DT_CENTER|DT_NOPREFIX);
             SelectObject(dc, old);
             if (item.itemState & ODS_FOCUS) {
                 RECT focus = r;
@@ -830,6 +861,8 @@ struct Window {
         lastInput = std::chrono::steady_clock::now();
         if (picking)
             return;
+        if(id==OpenGraphics || id==OpenSaveManager)
+            id=id==OpenGraphics ? SettingsTab : SavesTab;
         if (id >= PlayTab && id <= UpdatesTab) {
             page = id - PlayTab;
             for (int tab = PlayTab; tab <= UpdatesTab; ++tab)

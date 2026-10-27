@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <string>
 #include <cmath>
+#include <cstring>
 #include <iostream>
 #include <stdexcept>
 #include <vector>
@@ -121,7 +122,35 @@ void dimensions(Shader s, Texture2D texture, Rectangle content) {
     SetShaderValue(s, GetShaderLocation(s, "contentMax"), maximum, SHADER_UNIFORM_VEC2);
 }
 } // namespace
-void PresentationFilter::draw(Texture2D frame, Rectangle source, Rectangle destination) {
+void PresentationFilter::drawCached(Rectangle destination) {
+    DrawTexturePro(output_.texture,{0,0,float(output_.texture.width),-float(output_.texture.height)},
+                   destination,{0,0},0,WHITE);
+}
+void PresentationFilter::draw(Texture2D frame, Rectangle source, Rectangle destination, uint64_t generation) {
+    const auto& settings=graphics_settings();
+    if(!generation || (!settings.antialiasing && settings.upscaler<2u) ||
+       destination.width<=0 || destination.height<=0){
+        cacheValid_=false;drawImage(frame,source,destination,false);return;
+    }
+    const auto bits=[](float value){uint32_t result;std::memcpy(&result,&value,sizeof(result));return uint64_t(result);};
+    const int w=std::max(1,int(std::round(destination.width))),h=std::max(1,int(std::round(destination.height)));
+    const std::array<uint64_t,12> key={generation,frame.id,uint64_t(frame.width),uint64_t(frame.height),
+        bits(source.x),bits(source.y),bits(source.width),bits(source.height),uint64_t(w),uint64_t(h),
+        settings.antialiasing,settings.upscaler};
+    if(cacheValid_ && key==cacheKey_){++reused_;drawCached(destination);return;}
+    cacheValid_=false;
+    if(output_.texture.width!=w || output_.texture.height!=h){
+        if(output_.id)UnloadRenderTexture(output_);
+        output_=LoadRenderTexture(w,h);
+        if(!IsRenderTextureValid(output_))throw std::runtime_error("Cannot allocate filtered frame cache");
+        SetTextureFilter(output_.texture,TEXTURE_FILTER_POINT);
+    }
+    // Prepare the source passes before binding output_: raylib texture modes
+    // are not nested, so every intermediate pass must finish independently.
+    drawImage(frame,source,{0,0,float(w),float(h)},true);
+    cacheKey_=key;cacheValid_=true;++processed_;drawCached(destination);
+}
+void PresentationFilter::drawImage(Texture2D frame, Rectangle source, Rectangle destination, bool cacheOutput) {
     const auto &s = graphics_settings();
     if (s.antialiasing) {
         if (!edge_.id)
@@ -147,7 +176,7 @@ void PresentationFilter::draw(Texture2D frame, Rectangle source, Rectangle desti
     }
     if (s.upscaler == 3 && destination.width >= source.width &&
         destination.height >= std::abs(source.height)) {
-        drawFsr(frame, source, destination);
+        drawFsr(frame, source, destination, cacheOutput);
         return;
     }
     // EASU is an upscaler; use bicubic for a smaller output window.
@@ -155,22 +184,21 @@ void PresentationFilter::draw(Texture2D frame, Rectangle source, Rectangle desti
     SetTextureFilter(frame, s.upscaler == 1 ? TEXTURE_FILTER_BILINEAR : TEXTURE_FILTER_POINT);
     const bool clampLinear = s.upscaler == 1 && (source.width < float(frame.width) ||
                                                  std::abs(source.height) < float(frame.height));
+    Shader selected{};
     if (cubic) {
-        if (!cubic_.id)
-            cubic_ = shader(cubicSource);
-        dimensions(cubic_, frame, source);
-        BeginShaderMode(cubic_);
+        if (!cubic_.id)cubic_ = shader(cubicSource);
+        dimensions(cubic_,frame,source);selected=cubic_;
     } else if (clampLinear) {
-        if (!linear_.id)
-            linear_ = shader(linearSource);
-        dimensions(linear_, frame, source);
-        BeginShaderMode(linear_);
+        if (!linear_.id)linear_ = shader(linearSource);
+        dimensions(linear_,frame,source);selected=linear_;
     }
-    DrawTexturePro(frame, source, destination, {0, 0}, 0, WHITE);
-    if (cubic || clampLinear)
-        EndShaderMode();
+    if(cacheOutput){BeginTextureMode(output_);ClearBackground(BLACK);}
+    if(selected.id)BeginShaderMode(selected);
+    DrawTexturePro(frame,source,destination,{0,0},0,WHITE);
+    if(selected.id)EndShaderMode();
+    if(cacheOutput)EndTextureMode();
 }
-void PresentationFilter::drawFsr(Texture2D frame, Rectangle source, Rectangle destination) {
+void PresentationFilter::drawFsr(Texture2D frame, Rectangle source, Rectangle destination, bool cacheOutput) {
     const bool initializing=!easu_.id;
     if(initializing)easu_=fsrShader(false);
     if(!rcas_.id)rcas_=fsrShader(true);
@@ -199,11 +227,17 @@ void PresentationFilter::drawFsr(Texture2D frame, Rectangle source, Rectangle de
     // EASU writes logical top-down rows into increasing texture Y. Unlike the
     // FXAA render target it therefore needs no Y inversion for presentation.
     SetShaderValue(rcas_,GetShaderLocation(rcas_,"sourceSize"),output,SHADER_UNIFORM_VEC2);
+    if(cacheOutput){BeginTextureMode(output_);ClearBackground(BLACK);}
     BeginShaderMode(rcas_);
     DrawTexturePro(fsrTarget_.texture,{0,0,float(w),float(h)},destination,{0,0},0,WHITE);
     EndShaderMode();
+    if(cacheOutput)EndTextureMode();
 }
 void PresentationFilter::close() {
+    if(processed_ || reused_)
+        std::cout<<"[display:filters] processed="<<processed_<<" reused="<<reused_<<std::endl;
+    processed_=reused_=0;cacheValid_=false;
+    if(output_.id){UnloadRenderTexture(output_);output_={};}
     if(fsrTarget_.id){UnloadRenderTexture(fsrTarget_);fsrTarget_={};}
     if(easu_.id){UnloadShader(easu_);easu_={};}
     if(rcas_.id){UnloadShader(rcas_);rcas_={};}
@@ -244,14 +278,15 @@ int test_presentation_filters() {
                 pixels[y * 32 + x] = x > y ? WHITE : BLACK;
         source = LoadTextureFromImage(image);
         UnloadImage(image);
-        auto draw = [&](unsigned aa, unsigned scaler) {
+        Rectangle activeSource{0,0,16,16},outputRect{16,8,48,48};
+        auto draw = [&](unsigned aa, unsigned scaler, uint64_t generation = 0) {
             auto settings = saved;
             settings.antialiasing = aa;
             settings.upscaler = scaler;
             set_graphics_settings(settings);
             BeginDrawing();
             ClearBackground(BLACK);
-            filter.draw(source, {0, 0, 16, 16}, {16, 8, 48, 48});
+            filter.draw(source, activeSource, outputRect, generation);
             rlDrawRenderBatchActive();
             Image frame = LoadImageFromScreen();
             auto *colors = LoadImageColors(frame);
@@ -284,6 +319,33 @@ int test_presentation_filters() {
         for (size_t i = 0; i < fsr.size(); ++i)
             if (std::abs(int(fsr[i].r) - int(bilinear[i].r)) > 8) ++changed;
         require(changed > 16, "FSR did not produce edge-adaptive output distinct from bilinear");
+        const auto equivalent=[](const std::vector<Color>& a,const std::vector<Color>& b){
+            if(a.size()!=b.size())return false;
+            for(size_t i=0;i<a.size();++i)
+                if(std::abs(int(a[i].r)-int(b[i].r))>1 || std::abs(int(a[i].g)-int(b[i].g))>1 ||
+                   std::abs(int(a[i].b)-int(b[i].b))>1 || a[i].a!=b[i].a)return false;
+            return true;
+        };
+        for(unsigned aa=0;aa<2;++aa)for(unsigned scaler=0;scaler<4;++scaler){
+            if(!aa && scaler<2)continue;
+            const auto expected=draw(aa,scaler),first=draw(aa,scaler,100),repeat=draw(aa,scaler,100);
+            require(equivalent(first,expected) && equivalent(repeat,expected),"Cached filtering changed image orientation or colors");
+            std::vector<Color> edited(32u*32u,MAGENTA);
+            for(unsigned y=0;y<16;++y)for(unsigned x=0;x<16;++x)edited[y*32u+x]=GREEN;
+            UpdateTexture(source,edited.data());
+            require(equivalent(draw(aa,scaler,100),expected),"Unchanged completion sequence repeated expensive filters");
+            const auto advanced=draw(aa,scaler,101),green=draw(aa,scaler);
+            require(equivalent(advanced,green) && !equivalent(advanced,expected),"Completed frame did not invalidate filtered output");
+            for(unsigned y=0;y<16;++y)for(unsigned x=0;x<16;++x)edited[y*32u+x]=x>y ? WHITE : BLACK;
+            UpdateTexture(source,edited.data());
+        }
+        draw(1,3,102);outputRect={8,8,64,40};
+        const auto resized=draw(1,3,102),resizedReference=draw(1,3);
+        require(equivalent(resized,resizedReference),"Resizing reused an output with old dimensions");
+        draw(1,3,102);activeSource={0,0,8,8};
+        const auto cropped=draw(1,3,102),croppedReference=draw(1,3);
+        require(equivalent(cropped,croppedReference),"Active source changes reused an old filtered crop");
+        activeSource={0,0,16,16};outputRect={16,8,48,48};
         // At 1:1 scale, intermediate edge values must come from FXAA rather
         // than bilinear enlargement of the black/white input.
         auto edgeCount = [&](unsigned aa) {
@@ -315,7 +377,7 @@ int test_presentation_filters() {
         CloseWindow();
         set_graphics_settings(saved);
         std::cout << "Display filter comparisons passed: all eight AA/scaler combinations (including FSR 1 EASU/RCAS), content "
-                     "bounds, orientation, letterboxing and native-size edge smoothing.\n";
+                     "bounds, orientation, letterboxing, native-size edge smoothing and completion-aware filter reuse.\n";
         return 0;
     } catch (...) {
         filter.close();

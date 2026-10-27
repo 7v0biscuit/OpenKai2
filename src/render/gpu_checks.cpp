@@ -72,6 +72,50 @@ GSPrimitiveBatch material(unsigned mode,bool sprite){
     if(sprite){b.vertices[1].v=2040u;b.vertices[1].t=float(b.vertices[1].v)/2048.0f;}
     return b;
 }
+void checkPresentationReadbacks(){
+    for(unsigned variant=0;variant<19u;++variant){
+        Comparison pair(false);auto draw=material(0u,true);
+        draw.state.prim.tme=draw.state.prim.abe=false;
+        auto& context=draw.state.context;context.scissor={0u,127u,0u,127u};context.zbuf.zmask=false;
+        if(variant&1u)context.frame.psm=GS_PSM_CT16;
+        draw.vertices[0].x=draw.vertices[0].y=0;
+        draw.vertices[1].x=draw.vertices[1].y=128;
+        draw.vertices[1].r=71;draw.vertices[1].g=97;draw.vertices[1].b=131;
+        pair.draw(draw);
+        auto other=draw;other.state.context.frame.fbp=112;other.state.context.zbuf.zbp=224;
+        other.vertices[1].r=193;pair.draw(other);
+        GSPresentationRequest request{};request.pmode=1;
+        request.dispfb1=uint64_t(56)|(uint64_t(8)<<9)|(uint64_t(context.frame.psm)<<15);
+        request.display1=(uint64_t(63)<<32)|(uint64_t(63)<<44);
+        if(variant&2u)request.dispfb1|=(uint64_t(32)<<32)|(uint64_t(16)<<43);
+        if(variant&4u)request.smode2=3;
+        if(variant>=8u && variant<12u){request.pmode=3;request.dispfb2=112u|(uint64_t(8)<<9)|(uint64_t(context.frame.psm)<<15);request.display2=request.display1;}
+        if(variant>=12u && variant<16u){request.smode2=0;request.hasPreferredSource=true;request.preferredDestFbp=56;
+            request.preferredSource=other.state.context.frame;request.preferredSource.fbp*=32u;}
+        if(variant==16u || variant==17u){request.smode2=0;request.dispfb1&=~511ull;
+            request.contextFrames[0]=variant==16u ? context.frame : other.state.context.frame;
+            request.contextFrames[1]=variant==16u ? other.state.context.frame : context.frame;}
+        if(variant==18u){request.smode2=0;request.display1=0;}
+        const auto before=pair.gpu->stats().readbacks;
+        pair.gpu->Sync(GSSyncReason::Presentation);
+        if(pair.gpu->stats().readbacks!=before)throw std::runtime_error("Presentation sync read unrelated GPU pages: "+std::to_string(pair.gpu->stats().readbacks-before));
+        const auto actual=pair.gpu->Present(request),expected=pair.cpu->Present(request);
+        if(actual.width!=expected.width || actual.height!=expected.height || actual.pixels!=expected.pixels)
+            throw std::runtime_error("Selective presentation changed color, origin, field reconstruction or CRT merge");
+        const auto copied=pair.gpu->stats().readbacks-before;
+        if(!copied || copied>=64u*gpu::PageBytes)throw std::runtime_error("Presentation copied unrelated targets or depth");
+        if(!variant){
+            if(copied!=2u*gpu::PageBytes)throw std::runtime_error("Color presentation copied more than its two physical pages");
+            std::cout<<"GPU presentation fixture: copied "<<copied<<" bytes; retained depth and offscreen targets.\n";
+        }
+        // The explicit 640x448 default-size case spans the depth page as
+        // color; every other fixture leaves it outside the presented surfaces.
+        const auto depth=pair.gpu->ReadVram(GS_PSM_Z32,168u*32u,8u,4u,4u);
+        if(depth!=pair.cpu->ReadVram(GS_PSM_Z32,168u*32u,8u,4u,4u) || pair.gpu->stats().readbacks-before!=copied+(variant==18u ? 0u : gpu::PageBytes))
+            throw std::runtime_error("Presentation lost a deferred depth page: "+std::to_string(variant));
+        pair.compare("Selective presentation retains offscreen GPU contents");
+    }
+}
 void checkEmptyTriangles(){
     Comparison pair;auto draw=material(0u,false);draw.state.prim.tme=false;draw.state.prim.abe=false;
     draw.vertices[0].x=10.25f;draw.vertices[0].y=11.5f;
@@ -293,7 +337,7 @@ int run_gpu_checks(bool required){
         const bool initialized=gpu::initialize_headless(error);
 #endif
         if(!initialized){std::cout<<"GPU checks unavailable: "<<error<<'\n';return required ? 1 : 77;}
-        checkFlatDepth();checkDepthPlanes();checkEmptyTriangles();checkMaterials();checkIntegerPipeline();checkFormats();checkLines();checkCoherence();checkRebind();checkClears();checkSourceChanges();checkPartialReadbacks();
+        checkFlatDepth();checkDepthPlanes();checkPresentationReadbacks();checkEmptyTriangles();checkMaterials();checkIntegerPipeline();checkFormats();checkLines();checkCoherence();checkRebind();checkClears();checkSourceChanges();checkPartialReadbacks();
         const auto before=gpu_render_statistics().gpuDraws;verify_vector_runtime_gpu();
         if(gpu_render_statistics().gpuDraws-before!=8u)throw std::runtime_error("VIF/PATH1 integration did not execute eight GPU triangles");
         // A failed asynchronous submission must propagate to its caller and
@@ -304,7 +348,7 @@ int run_gpu_checks(bool required){
         try{device->invoke([](gpu::Api&){});}catch(const std::exception& e){propagated=std::string(e.what())=="GPU failure propagation fixture";}
         if(!propagated)throw std::runtime_error("GPU asynchronous failure did not propagate");
         gpu::shutdown_device();
-        std::cout<<"GPU renderer comparisons passed: 10 constant-depth and 8 overlapping depth-plane cases, 256 material states, 104 format states, 65536 integer pipeline draws, 576 point/line draws, 128 source-state draws, selective readbacks, writebacks, uploads, target transitions, feedback fallback, VRAM replacement, eight VIF/PATH1 GPU triangles and asynchronous failure propagation.\n";return 0;
+        std::cout<<"GPU renderer comparisons passed: 10 constant-depth and 8 overlapping depth-plane cases, 256 material states, 104 format states, 65536 integer pipeline draws, 576 point/line draws, 128 source-state draws, 19 presentation readback cases, selective readbacks, writebacks, uploads, target transitions, feedback fallback, VRAM replacement, eight VIF/PATH1 GPU triangles and asynchronous failure propagation.\n";return 0;
     }catch(const std::exception& e){std::cerr<<"GPU regression failed: "<<e.what()<<'\n';gpu::shutdown_device();return 1;}
 }
 int benchmark_gpu_footprints(unsigned iterations){

@@ -32,6 +32,13 @@
  
      openkai2::reset_guest_progress();
      openkai2::GuestStallDiagnostics guestStallDiagnostics;
+@@ -2479,4 +2487,5 @@
+         uint32_t presentWidth = FB_WIDTH;
+         uint32_t presentHeight = DEFAULT_DISPLAY_HEIGHT;
+-        UploadFrame(frameTex, this, presentWidth, presentHeight, presenter.completed());
++        const uint64_t completedFrame=presenter.completed();
++        UploadFrame(frameTex, this, presentWidth, presentHeight, completedFrame);
+ 
 @@ -2483,16 +2491,15 @@
          const float srcHeight = static_cast<float>(std::max<uint32_t>(1u, presentHeight));
          const float screenWidth = static_cast<float>(GetScreenWidth());
@@ -50,7 +57,7 @@
 +            openkai2::graphics_settings().aspect);
 +        const Rectangle srcRect{0.0f,0.0f,srcWidth,srcHeight};
 +        const Rectangle dstRect{display.x,display.y,display.width,display.height};
-+        try { presentation.draw(frameTex,srcRect,dstRect); }
++        try { presentation.draw(frameTex,srcRect,dstRect,completedFrame); }
 +        catch (...) {
 +            presentationError=std::current_exception();
 +            EndDrawing();requestStop();break;

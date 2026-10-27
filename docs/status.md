@@ -9,6 +9,21 @@ The original Budokai 2 USA ISO is required at every game launch. Automated
 checks cover bounded runtime behavior and Windows packaging; full retail
 compatibility requires separate validation.
 
+## Animation scripts and rendering
+
+Scene script coverage includes 485 commands in complete static banks, plus the
+original bank roots. The pod-status command at `0x0027FFC0` and actor-state
+command at `0x001FAD00` execute their original instructions and return through
+the guest calling convention. Their status writes, signed byte conversion and
+caller state are checked with cached and uncached address aliases.
+
+Presentation retains offscreen color and depth on the GPU and materializes the
+pages needed by display conversion. Reference checks cover both CRTs, display
+origins, 16-bit and 32-bit color, interlaced reconstruction, preferred sources,
+black-frame candidates and deferred depth reads. Filtered frames are cached
+between completed game frames, including invalidation on resize and crop changes.
+These optimizations do not establish stable game FPS or complete story gameplay.
+
 ## Desktop launcher and pacing
 
 Native Windows dropdowns allocate usable popup space and retain focus during
