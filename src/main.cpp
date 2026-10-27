@@ -170,6 +170,11 @@ int main(int argc, char* argv[]) {
         std::cout << "[build] source_revision=" OPENKAI2_SOURCE_REVISION " renderer="
                   << openkai2::renderer_preference() << " presentation=async" << std::endl;
         std::cout << "[display] fps_limit=" << openkai2::window_fps_limit() << " game_timing=original\n";
+        std::cout << "[display:settings] size=" << display.width << 'x' << display.height
+                  << " mode=" << (display.borderless ? "borderless" : "windowed")
+                  << " vsync=" << display.vsync << " aspect=" << display.aspect
+                  << " antialiasing=" << display.antialiasing << " texture_filter=" << display.textureFilter
+                  << " upscaler=" << display.upscaler << std::endl;
         openkai2::verify_runtime_layout(sizeof(VU1Interpreter),sizeof(PS2Runtime));
         std::cout << "[launcher] Startup log: " << log.path.string() << std::endl;
 

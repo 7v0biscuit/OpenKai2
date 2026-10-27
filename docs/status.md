@@ -11,6 +11,13 @@ compatibility requires separate validation.
 
 ## Desktop launcher and pacing
 
+Native Windows dropdowns allocate usable popup space and retain focus during
+selection. Preferences persist across launcher restarts, with graphics-only
+reset. Background update checks no longer lock out ISO selection or graphics
+preferences. Native interaction checks cover mouse and keyboard selection,
+popup bounds, persistence, reset and layout at the minimum window size.
+
+
 The Windows launcher remembers a verified ISO path and provides Play, Saves,
 and Settings pages. Save imports support extracted folders, PSU files, and
 OpenKai2 ZIP snapshots. Imports/restores validate their source before replacing
@@ -34,7 +41,10 @@ Display checks exercise all six FXAA/scaler combinations on a real OpenGL
 context, including content bounds, image orientation, letterboxing and native
 edge smoothing. Save checks cover Unicode settings, argument quoting, lossless
 PSU/ZIP import, recoverable replacement, damaged archives, traversal and links.
-FSR and frame generation are not currently implemented.
+AMD FSR 1 spatial upscaling uses EASU followed by RCAS sharpening. FSR 3/4
+temporal reconstruction and frame generation are not implemented: the current
+presentation path lacks depth, motion vectors and a supported temporal backend.
+FSR 1 changes presentation quality; it does not establish higher game FPS.
 
 ## Native VU1 execution
 

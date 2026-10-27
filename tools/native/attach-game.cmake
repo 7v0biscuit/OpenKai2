@@ -42,20 +42,10 @@ function(openkai2_attach_generated_sources)
         target_compile_options(openkai2_launcher_model PRIVATE /utf-8)
     endif()
     target_link_libraries(ps2EntryRunner PRIVATE openkai2_launcher_model)
-    set_source_files_properties("${project_root}/src/launcher/window.cpp" TARGET_DIRECTORY ps2EntryRunner
-        PROPERTIES SKIP_UNITY_BUILD_INCLUSION TRUE SKIP_PRECOMPILE_HEADERS TRUE)
+    include("${project_root}/tools/native/launcher-ui.cmake")
+    openkai2_add_launcher_ui("${project_root}" TRUE)
     if(WIN32)
-        target_sources(ps2EntryRunner PRIVATE "${project_root}/src/launcher/window.cpp"
-            "${project_root}/src/launcher/update_windows.cpp")
-        set_source_files_properties("${project_root}/src/launcher/update_windows.cpp" TARGET_DIRECTORY ps2EntryRunner
-            PROPERTIES SKIP_UNITY_BUILD_INCLUSION TRUE SKIP_PRECOMPILE_HEADERS TRUE)
-        target_link_libraries(ps2EntryRunner PRIVATE comdlg32 shell32 ole32 uuid gdi32 winhttp)
-        if(MSVC)
-            set_property(SOURCE "${project_root}/src/launcher/window.cpp" TARGET_DIRECTORY ps2EntryRunner
-                APPEND PROPERTY COMPILE_OPTIONS /utf-8)
-            set_property(SOURCE "${project_root}/src/launcher/update_windows.cpp" TARGET_DIRECTORY ps2EntryRunner
-                APPEND PROPERTY COMPILE_OPTIONS /utf-8)
-        endif()
+        target_link_libraries(ps2EntryRunner PRIVATE openkai2_launcher_ui)
     endif()
     add_executable(openkai2_launcher_tests "${project_root}/tests/launcher_model_tests.cpp")
     target_link_libraries(openkai2_launcher_tests PRIVATE openkai2_launcher_model)
@@ -248,12 +238,39 @@ function(openkai2_attach_generated_sources)
     configure_file("${project_root}/src/render/shader_source.h.in"
         "${CMAKE_CURRENT_BINARY_DIR}/openkai2_gpu_shader.h" @ONLY)
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${project_root}/src/render/gs_compute.comp")
+    # Keep individual literals below MSVC's string-literal limit. The original
+    # AMD headers remain byte-for-byte intact in the source tree.
+    set(openkai2_fsr_parts "")
+    foreach(header ffx_a.h ffx_fsr1.h)
+        set(path "${project_root}/third_party/fidelityfx-fsr/${header}")
+        file(READ "${path}" contents)
+        string(LENGTH "${contents}" length)
+        set(offset 0)
+        while(offset LESS length)
+            string(SUBSTRING "${contents}" ${offset} 12000 part)
+            string(APPEND openkai2_fsr_parts "R\"OKFSR(${part})OKFSR\",\n")
+            math(EXPR offset "${offset}+12000")
+        endwhile()
+        string(APPEND openkai2_fsr_parts "\"\\n\",\n")
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${path}")
+    endforeach()
+    configure_file("${project_root}/src/render/fsr_source.h.in"
+        "${CMAKE_CURRENT_BINARY_DIR}/openkai2_fsr_shader.h" @ONLY)
     target_sources(ps2_runtime PRIVATE "${project_root}/src/render/gpu_device.cpp"
         "${project_root}/src/render/gpu_backend.cpp" "${project_root}/src/render/gpu_window.cpp")
     find_path(OPENKAI2_GLFW_INCLUDE_DIR GLFW/glfw3.h HINTS
         "${raylib_SOURCE_DIR}/external/glfw/include" "${raylib_SOURCE_DIR}/src/external/glfw/include" REQUIRED)
     target_include_directories(ps2_runtime PRIVATE "${CMAKE_CURRENT_BINARY_DIR}" "${OPENKAI2_GLFW_INCLUDE_DIR}")
     target_link_libraries(ps2_runtime PRIVATE ${CMAKE_DL_LIBS})
+    add_executable(openkai2_display_tests
+        "${project_root}/tests/display_filter_tests.cpp"
+        "${project_root}/src/render/presentation_filter.cpp"
+        "${project_root}/src/graphics_settings.cpp")
+    target_compile_features(openkai2_display_tests PRIVATE cxx_std_17)
+    target_include_directories(openkai2_display_tests PRIVATE
+        "${project_root}/src" "${CMAKE_CURRENT_BINARY_DIR}")
+    target_link_libraries(openkai2_display_tests PRIVATE raylib)
+
     target_include_directories(ps2_runtime BEFORE PUBLIC "${overlay_dir}/include")
     target_include_directories(ps2_runtime BEFORE PRIVATE "${overlay_dir}" "${overlay_dir}/runtime")
     target_include_directories(ps2_runtime PRIVATE "${CMAKE_SOURCE_DIR}/ps2xRuntime/src/lib/Kernel/Stubs")

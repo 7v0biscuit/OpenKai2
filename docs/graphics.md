@@ -26,8 +26,17 @@ extracted application. The game ISO is required in every renderer mode.
 The launcher saves resolution, windowed/borderless display mode, VSync, FXAA,
 texture filtering and nearest/bilinear/bicubic presentation scaling. The default
 aspect ratio is 4:3; 16:9, stretch and native pixel aspect are also available.
-FXAA and scaling operate on the completed game image. Bicubic scaling is a
-spatial filter; FSR and frame generation are not included in this build.
+FXAA and scaling operate on the completed game image. AMD FSR 1 uses the
+original full-precision EASU and RCAS shaders for spatial
+upscaling and sharpening. It runs after optional FXAA and clamps all reads to
+the active image, excluding framebuffer padding and letterboxing. A smaller
+output uses bicubic filtering. FSR processes the completed image, including UI;
+it does not reduce guest CPU work or generate frames.
+
+FSR 3/4 are not available. Temporal reconstruction requires depth, motion
+vectors, jitter and history management, plus a supported backend. The current
+OpenGL presentation path exposes a completed color image only. Frame generation
+remains a separate future integration.
 
 The default presentation cap is 60 FPS. Higher caps through 240 FPS and unlimited
 presentation do not change the original guest vertical blank cadence. When a

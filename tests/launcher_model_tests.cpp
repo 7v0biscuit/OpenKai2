@@ -66,7 +66,7 @@ int main() {
         s.windowMode = 1;
         s.antialiasing = 1;
         s.textureFilter = 2;
-        s.upscaler = 2;
+        s.upscaler = 3;
         s.aspect = 1;
         s.vsync = false;
         s.autoBackups = false;
@@ -77,7 +77,7 @@ int main() {
         auto read = read_settings(root / "settings.ini");
         require(read.iso == s.iso && read.fps == 144 && read.width == 2560 && read.height == 1440 &&
                     read.windowMode == 1 && read.antialiasing == 1 && read.textureFilter == 2 &&
-                    read.upscaler == 2 && read.aspect == 1 && !read.vsync && !read.autoBackups &&
+                    read.upscaler == 3 && read.aspect == 1 && !read.vsync && !read.autoBackups &&
                     read.renderer == "gpu" && !read.autoUpdates && read.updateChannel == 0,
                 "Settings roundtrip changed values");
         require(read_settings(root / "absent.ini").fps == 60, "Default pacing is not 60 FPS");

@@ -7,7 +7,7 @@ GraphicsSettings options;
 }
 void set_graphics_settings(const GraphicsSettings &s) {
     if (s.width < 640 || s.width > 7680 || s.height < 448 || s.height > 4320 ||
-        s.textureFilter > 2 || s.upscaler > 2 || s.antialiasing > 1 || s.aspect > 3)
+        s.textureFilter > 2 || s.upscaler > 3 || s.antialiasing > 1 || s.aspect > 3)
         throw std::runtime_error("Invalid display settings");
     options = s;
 }

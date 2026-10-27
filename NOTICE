@@ -17,6 +17,13 @@ third_party/pcsx2-vu/. Their fast_float headers use the MIT license. The
 application and integration code remain GPL-3.0-only. The bundled fmt 12.1.0
 formatting headers retain their MIT license.
 
+The spatial presentation upscaler uses AMD FidelityFX Super Resolution 1,
+revision a21ffb8f6c13233ba336352bdff293894c706575:
+https://github.com/GPUOpen-Effects/FidelityFX-FSR
+The unmodified shader headers in third_party/fidelityfx-fsr/ retain their MIT
+notices, including Michal Drobot's shader portability contributions. This is
+FSR 1 spatial upscaling, without temporal reconstruction or frame generation.
+
 Portable Windows bundles include third-party notices in licenses/. The source
 locations for those notices and the pinned FFmpeg build recipe are recorded in
 third_party/licenses/sources.json.

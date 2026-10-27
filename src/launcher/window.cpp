@@ -33,9 +33,9 @@
 
 namespace openkai2::launcher {
 namespace {
-constexpr COLORREF background = RGB(15, 22, 32), panel = RGB(22, 32, 45), raised = RGB(30, 43, 59);
-constexpr COLORREF border = RGB(44, 60, 78), ink = RGB(245, 242, 233), muted = RGB(153, 170, 189);
-constexpr COLORREF orange = RGB(249, 151, 52), gold = RGB(233, 187, 91), red = RGB(255, 139, 125);
+constexpr COLORREF background = RGB(17, 22, 29), panel = RGB(23, 30, 39), raised = RGB(32, 41, 53);
+constexpr COLORREF border = RGB(47, 58, 72), ink = RGB(238, 241, 245), muted = RGB(157, 169, 184);
+constexpr COLORREF orange = RGB(236, 150, 60), gold = RGB(236, 184, 110), red = RGB(255, 139, 125);
 enum Id {
     PlayTab = 101,
     SavesTab,
@@ -65,7 +65,8 @@ enum Id {
     AutomaticUpdates,
     CheckUpdates,
     InstallUpdate,
-    ReleasePage
+    ReleasePage,
+    ResetGraphics = 170
 };
 std::wstring wide(const std::string &s) {
     if (s.empty())
@@ -96,9 +97,9 @@ struct Fonts {
                                DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                                CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
         };
-        body = font(15, FW_NORMAL);
+        body = font(14, FW_NORMAL);
         caption = font(12, FW_NORMAL);
-        heading = font(32, FW_SEMIBOLD);
+        heading = font(25, FW_SEMIBOLD);
         brand = font(16, FW_SEMIBOLD);
     }
     ~Fonts() { clear(); }
@@ -117,14 +118,15 @@ struct Result {
     std::optional<StagedUpdate> staged;
 };
 LRESULT CALLBACK combo_procedure(HWND, UINT, WPARAM, LPARAM);
+LRESULT CALLBACK button_procedure(HWND, UINT, WPARAM, LPARAM);
 struct Window {
     HWND hwnd{};
     Fonts fonts;
     unsigned dpi = 96;
-    int page = 0;
+    int page = 0, hotButton = 0;
     Settings settings;
     std::filesystem::path candidateIso;
-    Job activeJob = Job::verify;
+    Job activeJob = Job::verify, activeUpdateJob = Job::checkUpdate;
     std::optional<DiscMount> disc;
     std::optional<UpdateRelease> release;
     std::optional<StagedUpdate> staged;
@@ -136,12 +138,22 @@ struct Window {
         {1280, 720}, {1600, 900}, {1920, 1080}, {2560, 1440}, {3840, 2160}};
     std::vector<std::filesystem::path> backups;
     HANDLE child{};
-    std::future<Result> task;
+    std::future<Result> task, updateTask;
     std::shared_ptr<Progress> progress = std::make_shared<Progress>();
-    bool closing = false, error = false, externalGame = false, picking = false;
-    std::wstring status = L"Choose your game ISO to get started.";
+    std::shared_ptr<Progress> updateProgress = std::make_shared<Progress>();
+    bool closing = false, error = false, updateError = false, externalGame = false, picking = false;
+    bool installRequested = false;
+    std::chrono::steady_clock::time_point lastInput = std::chrono::steady_clock::now();
+    std::wstring status = L"Choose a game ISO to get started.";
     int p(int n) const { return MulDiv(n, int(dpi), 96); }
     bool busy() const { return task.valid(); }
+    bool updating() const { return updateTask.valid(); }
+    bool dropdownOpen() const {
+        for (auto [id, control] : controls)
+            if ((id >= Renderer && id <= Aspect) || id == UpdateChannel || id == AutomaticUpdates)
+                if (SendMessageW(control, CB_GETDROPPEDSTATE, 0, 0)) return true;
+        return false;
+    }
     std::filesystem::path card() const {
         return disc ? disc->root / "mc0" : std::filesystem::path{};
     }
@@ -158,15 +170,27 @@ struct Window {
         DrawTextW(dc, value.c_str(), int(value.size()), &r, flags);
         SelectObject(dc, old);
     }
+    void box(HDC dc, RECT rect, COLORREF color, COLORREF outline = border) {
+        fill(dc, rect, background);
+        auto brush = CreateSolidBrush(color);
+        auto pen = CreatePen(PS_SOLID, p(1), outline);
+        auto oldBrush = SelectObject(dc, brush), oldPen = SelectObject(dc, pen);
+        RoundRect(dc, rect.left, rect.top, rect.right, rect.bottom, p(6), p(6));
+        SelectObject(dc, oldBrush); SelectObject(dc, oldPen);
+        DeleteObject(brush); DeleteObject(pen);
+    }
     void button(int id, const wchar_t *label) {
         controls[id] =
             CreateWindowExW(0, L"BUTTON", label, WS_CHILD | WS_TABSTOP | BS_OWNERDRAW, 0, 0, 0, 0,
                             hwnd, reinterpret_cast<HMENU>(intptr_t(id)), nullptr, nullptr);
+        auto old = reinterpret_cast<WNDPROC>(SetWindowLongPtrW(controls[id], GWLP_WNDPROC,
+                    reinterpret_cast<LONG_PTR>(button_procedure)));
+        SetPropW(controls[id], L"OpenKai2.ButtonProcedure", reinterpret_cast<HANDLE>(old));
     }
     void combo(int id, const std::vector<std::wstring> &items, int selected) {
         auto w = CreateWindowExW(0, L"COMBOBOX", L"",
                                  WS_CHILD | WS_TABSTOP | CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED |
-                                     CBS_HASSTRINGS | WS_VSCROLL,
+                                     CBS_HASSTRINGS | CBS_NOINTEGRALHEIGHT | WS_VSCROLL,
                                  0, 0, 0, 0, hwnd, reinterpret_cast<HMENU>(intptr_t(id)), nullptr,
                                  nullptr);
         controls[id] = w;
@@ -182,8 +206,21 @@ struct Window {
     int selected(int id) const { return int(SendMessageW(controls.at(id), CB_GETCURSEL, 0, 0)); }
     void place(int id, int x, int y, int w, int h, bool visible = true) {
         auto c = controls.at(id);
-        SetWindowPos(c, nullptr, p(x), p(y), p(w), p(h), SWP_NOZORDER | SWP_NOACTIVATE);
-        ShowWindow(c, visible ? SW_SHOW : SW_HIDE);
+        wchar_t type[32]{};
+        GetClassNameW(c, type, 32);
+        int allocatedHeight = p(h);
+        if (lstrcmpiW(type, L"ComboBox") == 0) {
+            // A native combo's requested height includes its drop list, even
+            // though GetWindowRect reports only the collapsed field afterwards.
+            const auto rows = std::min<LRESULT>(8, SendMessageW(c, CB_GETCOUNT, 0, 0));
+            allocatedHeight += int(rows) * p(32) + p(4);
+            SendMessageW(c, CB_SETITEMHEIGHT, WPARAM(-1), p(30));
+            SendMessageW(c, CB_SETITEMHEIGHT, 0, p(32));
+        }
+        SetWindowPos(c, nullptr, p(x), p(y), p(w), allocatedHeight, SWP_NOZORDER | SWP_NOACTIVATE);
+        const bool shown = (GetWindowLongPtrW(c, GWL_STYLE) & WS_VISIBLE) != 0;
+        if (visible != shown)
+            ShowWindow(c, visible ? SW_SHOWNA : SW_HIDE);
     }
     void initialize() {
         fonts.make(dpi);
@@ -195,9 +232,10 @@ struct Window {
                                                           {CheckUpdates, L"Check now"},
                                                           {InstallUpdate, L"Install update"},
                                                           {ReleasePage, L"View releases"},
-                                                          {ChooseIso, L"Choose ISO"},
+                                                          {ResetGraphics, L"Reset graphics"},
+                                                          {ChooseIso, L"Choose ISO…"},
                                                           {VerifyIso, L"Verify again"},
-                                                          {Play, L"PLAY"},
+                                                          {Play, L"Play"},
                                                           {ImportFolder, L"Import folder"},
                                                           {ImportFile, L"Import save"},
                                                           {Backup, L"Back up now"},
@@ -226,7 +264,7 @@ struct Window {
         combo(WindowMode, {L"Windowed", L"Borderless fullscreen"}, int(settings.windowMode));
         combo(Antialiasing, {L"Off", L"FXAA"}, int(settings.antialiasing));
         combo(Filtering, {L"Game default", L"Nearest", L"Bilinear"}, int(settings.textureFilter));
-        combo(Upscaler, {L"Nearest", L"Bilinear", L"Bicubic"}, int(settings.upscaler));
+        combo(Upscaler, {L"Nearest", L"Bilinear", L"Bicubic", L"AMD FSR 1 · Spatial"}, int(settings.upscaler));
         combo(Vsync, {L"Off", L"On"}, settings.vsync ? 1 : 0);
         combo(AutoBackup, {L"Off", L"On"}, settings.autoBackups ? 1 : 0);
         combo(Aspect, {L"4:3", L"16:9", L"Stretch", L"Native pixels"}, int(settings.aspect));
@@ -246,156 +284,182 @@ struct Window {
         SetTimer(hwnd, 1, 75, nullptr);
         layout();
     }
-    void layout() {
-        RECT rect;
-        GetClientRect(hwnd, &rect);
-        const int w = MulDiv(rect.right, 96, int(dpi)), content = w - 264, col = (content - 24) / 2;
-        for (auto [id, c] : controls)
-            ShowWindow(c, SW_HIDE);
-        place(PlayTab, 16, 152, 160, 44);
-        place(SavesTab, 16, 206, 160, 44);
-        place(SettingsTab, 16, 260, 160, 44);
-        place(UpdatesTab, 16, 314, 160, 44);
-        if (page == 0) {
-            place(ChooseIso, 240, 320, 152, 42);
-            place(VerifyIso, 408, 320, 144, 42);
-            place(Play, 224, 466, content + 16, 60);
-        }
-        if (page == 1) {
-            place(ImportFolder, 224, 240, 148, 42);
-            place(ImportFile, 384, 240, 136, 42);
-            place(Backup, 532, 240, 152, 42);
-            place(OpenSaves, 696, 240, 168, 42);
-            place(BackupList, 224, 344, content + 16, 188, !backups.empty());
-            place(Restore, 224, 552, 180, 42);
-            place(OpenBackups, 420, 552, 164, 42);
-        }
-        if (page == 2) {
-            const int right = 224 + col + 24;
-            const int ids[] = {Renderer,  Fps,      Resolution, WindowMode, Antialiasing,
-                               Filtering, Upscaler, Vsync,      AutoBackup, Aspect};
-            for (int i = 0; i < 10; ++i)
-                place(ids[i], i % 2 ? right : 224, 188 + (i / 2) * 76, col, 40);
-        }
-        if (page == 3) {
-            place(UpdateChannel, 224, 188, col, 40);
-            place(AutomaticUpdates, 224 + col + 24, 188, col, 40);
-            place(CheckUpdates, 224, 408, 144, 42);
-            place(InstallUpdate, 384, 408, 168, 42);
-            place(ReleasePage, 568, 408, 148, 42);
-        }
-        for (int id : {UpdateChannel, AutomaticUpdates, CheckUpdates, InstallUpdate})
-            EnableWindow(controls[id], !busy() && !child && !externalGame &&
-                         (id != InstallUpdate || release.has_value() || staged.has_value()));
+    void refreshEnabled() {
         const bool active = disc.has_value() && !busy() && !child && !externalGame;
-        EnableWindow(controls[ChooseIso], !busy() && !child && !externalGame);
-        EnableWindow(controls[VerifyIso],
-                     !candidateIso.empty() && !busy() && !child && !externalGame);
-        EnableWindow(controls[Play], active);
-        for (int id : {ImportFolder, ImportFile, Backup, OpenSaves, OpenBackups})
+        for (int id : {ChooseIso, VerifyIso})
+            EnableWindow(controls[id], !busy() && !child && !externalGame &&
+                         (id != VerifyIso || !candidateIso.empty()));
+        for (int id : {Play, ImportFolder, ImportFile, Backup, OpenSaves, OpenBackups})
             EnableWindow(controls[id], active);
         EnableWindow(controls[Restore], active && !backups.empty());
         EnableWindow(controls[BackupList], !busy() && !child);
-        for (int id = Renderer; id <= Aspect; ++id)
-            EnableWindow(controls[id], !busy());
-        EnableWindow(controls[Resolution], !busy() && settings.windowMode == 0);
+        // Preferences can be edited while verification or another session runs.
+        // They are read by the next game process, not applied to a running one.
+        EnableWindow(controls[Resolution], settings.windowMode == 0);
+        for (int id : {UpdateChannel, AutomaticUpdates, CheckUpdates, InstallUpdate})
+            EnableWindow(controls[id], !updating() &&
+                         (id != InstallUpdate || (!busy() && !child && !externalGame &&
+                          (release.has_value() || staged.has_value()))));
         InvalidateRect(hwnd, nullptr, FALSE);
     }
+    void layout() {
+        RECT rect{}; GetClientRect(hwnd, &rect);
+        const int w = MulDiv(rect.right, 96, int(dpi)), content = w - 240;
+        const int col = (content - 24) / 2, right = 216 + col + 24;
+        std::vector<int> order{PlayTab, SavesTab, SettingsTab, UpdatesTab};
+        auto position = [&](int id, int x, int y, int width, int height) {
+            place(id, x, y, width, height); order.push_back(id);
+        };
+        place(PlayTab, 16, 116, 152, 40);
+        place(SavesTab, 16, 164, 152, 40);
+        place(SettingsTab, 16, 212, 152, 40);
+        place(UpdatesTab, 16, 260, 152, 40);
+        if (page == 0) {
+            position(ChooseIso, 236, 292, 136, 36);
+            position(VerifyIso, 384, 292, 136, 36);
+            position(Play, w - 176, 410, 152, 44);
+        } else if (page == 1) {
+            position(AutoBackup, w - 192, 146, 168, 36);
+            position(ImportFolder, 216, 218, 148, 36);
+            position(ImportFile, 376, 218, 136, 36);
+            position(Backup, 524, 218, 136, 36);
+            position(OpenSaves, 672, 218, 168, 36);
+            position(BackupList, 216, 324, content, 192);
+            if (backups.empty()) ShowWindow(controls[BackupList], SW_HIDE);
+            position(Restore, 216, 536, 180, 36);
+            position(OpenBackups, 408, 536, 152, 36);
+        } else if (page == 2) {
+            position(WindowMode, 216, 168, col, 36);
+            position(Resolution, right, 168, col, 36);
+            position(Aspect, 216, 236, col, 36);
+            position(Fps, right, 236, col, 36);
+            position(Vsync, 216, 304, col, 36);
+            position(Renderer, 216, 416, col, 36);
+            position(Antialiasing, right, 416, col, 36);
+            position(Filtering, 216, 484, col, 36);
+            position(Upscaler, right, 484, col, 36);
+            position(ResetGraphics, 216, 552, 144, 36);
+        } else {
+            position(UpdateChannel, 216, 168, col, 36);
+            position(AutomaticUpdates, right, 168, col, 36);
+            position(CheckUpdates, 216, 352, 132, 36);
+            position(InstallUpdate, 360, 352, 152, 36);
+            position(ReleasePage, 524, 352, 144, 36);
+        }
+        HWND previous = HWND_TOP;
+        for (auto id : order) {
+            auto control = controls.at(id);
+            SetWindowPos(control, previous, 0, 0, 0, 0,
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            previous = control;
+        }
+        for (auto [id, control] : controls)
+            if (std::find(order.begin(), order.end(), id) == order.end() &&
+                (GetWindowLongPtrW(control, GWL_STYLE) & WS_VISIBLE))
+                ShowWindow(control, SW_HIDE);
+        refreshEnabled();
+    }
     void paint() {
-        PAINTSTRUCT ps;
-        auto dc = BeginPaint(hwnd, &ps);
-        RECT rect;
-        GetClientRect(hwnd, &rect);
+        PAINTSTRUCT ps{}; auto dc = BeginPaint(hwnd, &ps);
+        RECT rect{}; GetClientRect(hwnd, &rect);
+        if (rect.right <= 0 || rect.bottom <= 0) { EndPaint(hwnd, &ps); return; }
         auto memory = CreateCompatibleDC(dc);
         auto bitmap = CreateCompatibleBitmap(dc, rect.right, rect.bottom);
         auto old = SelectObject(memory, bitmap);
+        const int w = MulDiv(rect.right, 96, int(dpi)), h = MulDiv(rect.bottom, 96, int(dpi));
+        const int content = w - 240, col = (content - 24) / 2, right = 216 + col + 24;
         fill(memory, rect, background);
-        fill(memory, {0, 0, p(192), rect.bottom}, panel);
-        fill(memory, {p(24), p(48), p(28), p(76)}, orange);
-        text(memory, L"OPENKAI2", 40, 50, 144, 28, fonts.brand);
-        text(memory, L"DESKTOP", 40, 82, 132, 22, fonts.caption, muted);
-        text(memory,
-             page == 0   ? L"Play"
-             : page == 1 ? L"Saves"
-                         : page == 2 ? L"Settings" : L"Updates",
-             224, 44, 720, 48, fonts.heading);
-        text(memory,
-             page == 0   ? L"Budokai 2 · USA"
-             : page == 1 ? L"Memory card saves and recoverable backups"
-                         : page == 2 ? L"Display and graphics preferences" : L"Updates from the project GitHub repository",
-             224, 100, 740, 26, fonts.body, muted);
-        const int w = MulDiv(rect.right, 96, int(dpi)), content = w - 264;
+        fill(memory, {0, 0, p(184), rect.bottom}, panel);
+        fill(memory, {p(183), 0, p(184), rect.bottom}, border);
+        fill(memory, {p(16), p(32), p(19), p(50)}, orange);
+        text(memory, L"OpenKai2", 28, 30, 144, 26, fonts.brand);
+        text(memory, L"Budokai 2", 28, 60, 144, 20, fonts.caption, muted);
+        text(memory, child || externalGame ? L"Game running" : disc ? L"ISO verified" : L"No ISO selected", 24,
+             h - 80, 144, 20, fonts.caption, child ? orange : muted);
+        text(memory, wide(application_version), 24, h - 52, 144, 20, fonts.caption, muted);
+        const wchar_t *titles[] = {L"Play", L"Saves", L"Settings", L"Updates"};
+        const wchar_t *subtitles[] = {L"Your game, launch options and disc verification.",
+            L"Import saves and keep recoverable copies of your memory card.",
+            L"Saved automatically. Changes apply the next time you start the game.",
+            L"Keep OpenKai2 current through GitHub releases."};
+        text(memory, titles[page], 216, 28, content, 36, fonts.heading);
+        text(memory, subtitles[page], 216, 76, content, 24, fonts.caption, muted);
+        line(memory, p(216), p(112), p(content), border);
         if (page == 0) {
-            fill(memory, {p(224), p(152), p(w - 24), p(400)}, panel);
-            fill(memory, {p(224), p(152), p(228), p(400)}, orange);
-            text(memory, L"DRAGON BALL Z", 248, 178, 520, 24, fonts.caption, gold);
-            text(memory, L"Budokai 2", 248, 212, 600, 48, fonts.heading);
-            text(memory,
-                 candidateIso.empty() ? L"No ISO selected" : candidateIso.filename().wstring(), 248,
-                 276, content - 16, 28, fonts.body, ink,
-                 DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
-            const auto state = child    ? L"PLAYING"
-                               : busy() ? L"WORKING"
-                               : disc   ? L"VERIFIED"
-                                        : L"SELECT ISO";
-            text(memory, state, w - 184, 178, 136, 24, fonts.caption, disc ? gold : muted,
-                 DT_RIGHT | DT_SINGLELINE);
-            text(memory, L"Your ISO is verified before every launch.", 224, 420, content, 28,
+            box(memory, {p(216), p(140), p(w - 24), p(352)}, panel);
+            text(memory, L"Budokai 2", 236, 160, content - 200, 36, fonts.heading);
+            text(memory, L"USA · Original disc image", 236, 204, content - 200, 20,
                  fonts.caption, muted);
+            const auto state = child ? L"Playing" : busy() ? L"Checking…" : disc ? L"Verified" : L"Select ISO";
+            text(memory, state, w - 172, 168, 124, 24, fonts.body, disc ? gold : muted,
+                 DT_RIGHT | DT_SINGLELINE | DT_NOPREFIX);
+            text(memory, candidateIso.empty() ? L"No ISO selected" : candidateIso.filename().wstring(),
+                 236, 236, content - 40, 24, fonts.body, ink, DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+            text(memory, candidateIso.empty() ? L"Choose your Budokai 2 USA ISO to continue." : candidateIso.wstring(),
+                 236, 264, content - 40, 20, fonts.caption, muted, DT_SINGLELINE | DT_PATH_ELLIPSIS | DT_NOPREFIX);
+            text(memory, L"Launch settings", 216, 386, content, 20, fonts.brand);
+            const auto mode = settings.windowMode ? L"Borderless fullscreen" : L"Windowed";
+            const auto limit = settings.fps ? std::to_wstring(settings.fps) + L" FPS limit" : L"Uncapped presentation";
+            const auto resolution = settings.windowMode ? L"Desktop resolution" :
+                std::to_wstring(settings.width) + L" × " + std::to_wstring(settings.height);
+            text(memory, std::wstring(mode) + L" · " + resolution, 216, 420, content - 176, 24, fonts.body);
+            text(memory, limit + L" · " + (settings.renderer == "cpu" ? L"Software renderer" :
+                 settings.renderer == "gpu" ? L"GPU renderer" : L"Automatic renderer"),
+                 216, 452, content - 176, 24, fonts.caption, muted);
+            text(memory, L"The ISO must be present. Its files are checked before every game launch.",
+                 216, 506, content, 44, fonts.caption, muted, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
         } else if (page == 1) {
-            fill(memory, {p(224), p(152), p(w - 24), p(220)}, panel);
-            text(memory, disc ? L"Memory card · Slot 1" : L"Verify an ISO to manage its saves", 244,
-                 174, content - 16, 30, fonts.body);
-            text(memory, L"Import a PSU save, an extracted save folder, or an OpenKai2 ZIP backup.",
-                 224, 300, content + 16, 28, fonts.caption, muted);
+            text(memory, L"Automatic session backups", 216, 146, content - 200, 24, fonts.brand);
+            text(memory, L"Keep a copy before and after each game session.", 216, 176, content - 200, 20,
+                 fonts.caption, muted);
+            text(memory, disc ? L"Memory card · Slot 1" : L"Verify an ISO to manage its memory card.",
+                 216, 296, content, 24, fonts.brand);
             if (backups.empty())
-                text(memory, L"No backups yet. Create one before your next session.", 244, 404,
-                     content - 16, 40, fonts.body, muted);
+                text(memory, L"No backups yet. Create one before importing or replacing a save.",
+                     236, 392, content - 40, 48, fonts.caption, muted, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
+            text(memory, L"Imports: PSU, extracted save folders and OpenKai2 ZIP backups.",
+                 216, 264, content, 20, fonts.caption, muted);
         } else if (page == 2) {
-            const int col = (content - 24) / 2;
-            const wchar_t *labels[] = {L"Renderer",
-                                       L"Frame rate limit",
-                                       L"Window resolution",
-                                       L"Display mode",
-                                       L"Anti-aliasing",
-                                       L"Texture filtering",
-                                       L"Upscaling",
-                                       L"VSync",
-                                       L"Automatic session backups",
-                                       L"Aspect ratio"};
-            for (int i = 0; i < 10; ++i)
-                text(memory, labels[i], i % 2 ? 224 + col + 24 : 224, 160 + (i / 2) * 76, col, 24,
-                     fonts.caption, muted);
-            text(memory, L"Changes apply next launch. Game speed stays at its original rate.", 224,
-                 566, content + 16, 28, fonts.caption, muted);
+            text(memory, L"Display", 216, 120, content, 24, fonts.brand);
+            const wchar_t *labels[] = {L"Display mode", L"Window resolution", L"Aspect ratio", L"Presentation limit", L"VSync"};
+            for (int i = 0; i < 5; ++i)
+                text(memory, labels[i], i % 2 ? right : 216, 146 + (i / 2) * 68, col, 20, fonts.caption, muted);
+            text(memory, L"Limits affect presentation, not game speed. VSync can lower the effective cap.", right, 300, col, 44,
+                 fonts.caption, muted, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
+            text(memory, L"Rendering", 216, 368, content, 24, fonts.brand);
+            const wchar_t *renderLabels[] = {L"Renderer", L"Anti-aliasing", L"Texture filtering", L"Image scaling"};
+            for (int i = 0; i < 4; ++i)
+                text(memory, renderLabels[i], i % 2 ? right : 216, 394 + (i / 2) * 68, col, 20, fonts.caption, muted);
+            text(memory, L"FSR 1 sharpens spatial upscaling. Frame generation is unavailable.", 376, 558,
+                 content - 160, 32, fonts.caption, muted, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
         } else {
-            const int col = (content - 24) / 2;
-            text(memory, L"Release channel", 224, 160, col, 24, fonts.caption, muted);
-            text(memory, L"Automatic updates", 224 + col + 24, 160, col, 24, fonts.caption, muted);
-            text(memory, L"Installed version  " + wide(application_version), 224, 264, content, 30,
-                 fonts.body, gold);
-            text(memory, updateStatus, 224, 310, content, 64, fonts.body, ink,
+            text(memory, L"Release channel", 216, 146, col, 20, fonts.caption, muted);
+            text(memory, L"Automatic updates", right, 146, col, 20, fonts.caption, muted);
+            text(memory, L"Installed version  " + wide(application_version), 216, 244, content, 24, fonts.brand);
+            std::wstring updateMessage = updateStatus;
+            if (updating()) {
+                std::lock_guard lock(updateProgress->mutex);
+                if (!updateProgress->text.empty()) updateMessage = updateProgress->text;
+            }
+            text(memory, updateMessage, 216, 286, content, 48, fonts.body, updateError ? red : ink,
                  DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
-            text(memory, L"Downloads are checked against the release SHA-256 checksums. Updates apply"
-                         L" after the game and save backups finish, then restart the launcher.",
-                 224, 486, content, 64, fonts.caption, muted, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
-            text(memory, L"ISO preferences, saves and backups stay in your data folder.",
-                 224, 558, content, 28, fonts.caption, muted);
+            text(memory, L"Updates are verified before installation. Game sessions and save operations"
+                         L" finish before files are replaced and the launcher restarts.",
+                 216, 428, content, 64, fonts.caption, muted, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
+            text(memory, L"ISO preferences, saves and backups are preserved.",
+                 216, 510, content, 24, fonts.caption, muted);
         }
-        const int footer = std::max(608, MulDiv(rect.bottom, 96, int(dpi)) - 52);
-        line(memory, p(224), p(footer - 12), p(content + 16), border);
+        const int footer = h - 38;
+        line(memory, p(216), p(footer - 12), p(content), border);
         std::wstring message = status;
         if (busy()) {
             std::lock_guard lock(progress->mutex);
-            if (!progress->text.empty())
-                message = progress->text;
+            if (!progress->text.empty()) message = progress->text;
         }
-        text(memory, message, 224, footer, content + 16, 36, fonts.caption, error ? red : muted,
-             DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
+        text(memory, message, 216, footer, content, 30, fonts.caption, error ? red : muted,
+             DT_LEFT | DT_END_ELLIPSIS | DT_SINGLELINE | DT_NOPREFIX);
         BitBlt(dc, 0, 0, rect.right, rect.bottom, memory, 0, 0, SRCCOPY);
-        SelectObject(memory, old);
-        DeleteObject(bitmap);
-        DeleteDC(memory);
+        SelectObject(memory, old); DeleteObject(bitmap); DeleteDC(memory);
         EndPaint(hwnd, &ps);
     }
     void drawItem(const DRAWITEMSTRUCT &item) {
@@ -410,7 +474,9 @@ struct Window {
             auto color = primary ? (enabled ? orange : raised) : (chosen ? raised : panel);
             if (item.itemState & ODS_SELECTED)
                 color = primary ? gold : raised;
-            fill(dc, r, color);
+            const bool hover = hotButton == id && enabled;
+            if (hover && !(item.itemState & ODS_SELECTED)) color = primary ? gold : raised;
+            box(dc, r, color, primary && enabled ? color : chosen || hover ? border : panel);
             if (chosen)
                 fill(dc, {r.left, r.top, r.left + p(3), r.bottom}, orange);
             wchar_t label[100]{};
@@ -419,7 +485,8 @@ struct Window {
             SetBkMode(dc, TRANSPARENT);
             SetTextColor(dc, primary && enabled ? background : enabled ? ink : muted);
             RECT textRect = r;
-            textRect.left += p(16);
+            textRect.left += p(navigation ? 16 : 12);
+            textRect.right -= p(12);
             DrawTextW(dc, label, -1, &textRect,
                       DT_SINGLELINE | DT_VCENTER | (navigation ? DT_LEFT : DT_CENTER) |
                           DT_NOPREFIX);
@@ -476,17 +543,18 @@ struct Window {
         }
         if (!backups.empty())
             SendMessageW(controls[BackupList], LB_SETCURSEL, 0, 0);
+        if (page == 1) ShowWindow(controls[BackupList], backups.empty() ? SW_HIDE : SW_SHOWNA);
     }
     void start(Job kind, std::filesystem::path source = {}) {
-        if (busy() || child)
-            return;
-        activeJob = kind;
+        const bool background = kind == Job::checkUpdate || kind == Job::downloadUpdate;
+        if (background ? updating() : (busy() || child)) return;
+        if (background) activeUpdateJob = kind; else activeJob = kind;
         if (kind == Job::verify || kind == Job::launch)
             candidateIso = source.empty() ? settings.iso : source;
         const auto prefs = settings;
         const auto save = card(), archive = backupPath();
         const auto availableRelease = release;
-        auto updates = progress;
+        auto updates = background ? updateProgress : progress;
         {
             std::lock_guard lock(updates->mutex);
             updates->text = kind == Job::verify || kind == Job::launch
@@ -494,9 +562,9 @@ struct Window {
                                 : kind == Job::checkUpdate || kind == Job::downloadUpdate
                                       ? L"Checking GitHub for updates…" : L"Working with your saves…";
         }
-        error = false;
+        if (background) updateError = false; else error = false;
         std::cout << "[launcher] operation=" << int(kind) << " started" << std::endl;
-        task = std::async(std::launch::async, [kind, source, prefs, save, archive, updates, availableRelease]() {
+        auto work = std::async(std::launch::async, [kind, source, prefs, save, archive, updates, availableRelease]() {
             Result result{kind, {}, {}, L""};
             if (kind == Job::checkUpdate || kind == Job::downloadUpdate) {
                 result.release = kind == Job::checkUpdate ? check_for_updates(prefs.updateChannel != 0)
@@ -537,7 +605,8 @@ struct Window {
             }
             return result;
         });
-        layout();
+        if (background) updateTask = std::move(work); else task = std::move(work);
+        refreshEnabled();
     }
     void launch() {
         wchar_t exe[32768]{};
@@ -560,98 +629,76 @@ struct Window {
         ShowWindow(hwnd, SW_MINIMIZE);
     }
     void timer() {
-        if (busy() && task.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
+        for (const bool background : {false, true}) {
+            auto &work = background ? updateTask : task;
+            if (!work.valid() || work.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
+                continue;
             try {
-                auto result = task.get();
-                status = result.message;
-                std::cout << "[launcher] operation=" << int(result.kind) << " completed"
-                          << std::endl;
-                error = false;
-                if (result.disc) {
-                    disc = std::move(result.disc);
-                    settings.iso = result.image;
-                    write_settings(settings_path(), settings);
-                }
-                if (result.kind == Job::checkUpdate || result.kind == Job::downloadUpdate) {
+                auto result = work.get();
+                std::cout << "[launcher] operation=" << int(result.kind) << " completed" << std::endl;
+                if (background) {
                     release = std::move(result.release);
                     staged = std::move(result.staged);
-                    updateStatus = result.message;
-                }
-                refreshBackups();
-                if (!closing && result.kind == Job::launch)
-                    launch();
-                if (!closing && result.kind == Job::downloadUpdate && staged) {
-                    apply_update(*staged);
-                    staged.reset();
-                    DestroyWindow(hwnd);
-                    return;
+                    updateStatus = staged && child ? L"Update downloaded. Installation waits for the game to close."
+                                                  : result.message;
+                    updateError = false;
+                    if (result.kind == Job::downloadUpdate && staged) installRequested = true;
+                } else {
+                    status = result.message; error = false;
+                    if (result.disc) {
+                        disc = std::move(result.disc);
+                        settings.iso = result.image;
+                        write_settings(settings_path(), settings);
+                    }
+                    refreshBackups();
+                    if (!closing && result.kind == Job::launch) launch();
                 }
             } catch (const std::exception &e) {
-                if (activeJob == Job::verify || activeJob == Job::launch)
-                    disc.reset();
-                status = wide(e.what());
-                if (activeJob == Job::checkUpdate || activeJob == Job::downloadUpdate)
-                    updateStatus = status;
-                std::cerr << "[launcher:error] " << e.what() << std::endl;
-                error = true;
+                if (background) {
+                    updateStatus = wide(e.what()); updateError = true;
+                } else {
+                    if (activeJob == Job::verify || activeJob == Job::launch) disc.reset();
+                    status = wide(e.what()); error = true;
+                }
+                std::cerr << (background ? "[launcher:update-error] " : "[launcher:error] ")
+                          << e.what() << std::endl;
             }
-            if (closing) {
-                DestroyWindow(hwnd);
-                return;
-            }
-            layout();
+            refreshEnabled();
         }
         if (child && WaitForSingleObject(child, 0) == WAIT_OBJECT_0) {
-            DWORD code = 0;
-            GetExitCodeProcess(child, &code);
-            CloseHandle(child);
-            child = nullptr;
-            status =
-                code ? L"The game stopped with an error. See the startup log." : L"Session ended.";
+            DWORD code = 0; GetExitCodeProcess(child, &code);
+            CloseHandle(child); child = nullptr;
+            status = code ? L"The game stopped with an error. See the startup log." : L"Session ended.";
             error = code != 0;
-            if (!closing) {
-                ShowWindow(hwnd, SW_RESTORE);
-                SetForegroundWindow(hwnd);
-            }
-            if (settings.autoBackups && disc)
-                start(Job::afterExit);
-            else if (closing) {
-                DestroyWindow(hwnd);
-                return;
-            } else
-                layout();
+            if (!closing) { ShowWindow(hwnd, SW_RESTORE); SetForegroundWindow(hwnd); }
+            if (settings.autoBackups && disc) start(Job::afterExit);
+            refreshEnabled();
         }
         if (!child && !busy()) {
             const bool active = session_active();
-            if (active != externalGame) {
-                externalGame = active;
-                layout();
-            }
+            if (active != externalGame) { externalGame = active; refreshEnabled(); }
         }
-        if (!closing && !picking && !busy() && !child && !externalGame) {
-            if (staged && settings.autoUpdates) {
-                // The worker waits for this process (and a portable wrapper) to exit.
+        if (closing && !child && !busy() && !updating()) { DestroyWindow(hwnd); return; }
+        if (!closing && !picking && !dropdownOpen()) {
+            if (updatePending && !updating()) {
+                updatePending = false;
+                if (settings.autoUpdates) start(Job::checkUpdate);
+            }
+            const bool idle = std::chrono::steady_clock::now() - lastInput >= std::chrono::seconds(5);
+            if (!busy() && !updating() && !child && !externalGame && staged &&
+                (installRequested || (settings.autoUpdates && idle && (page == 0 || page == 3)))) {
                 try { apply_update(*staged); }
                 catch (const std::exception &e) {
-                    updateStatus = status = wide(e.what());
-                    error = true;
+                    updateStatus = wide(e.what()); updateError = true;
+                    installRequested = false;
                     settings.autoUpdates = false;
                     SendMessageW(controls[AutomaticUpdates], CB_SETCURSEL, 0, 0);
-                    layout();
-                    return;
+                    refreshEnabled(); return;
                 }
-                staged.reset();
-                DestroyWindow(hwnd);
-                return;
-            }
-            if (updatePending) {
-                updatePending = false;
-                if (settings.autoUpdates)
-                    start(Job::checkUpdate);
+                staged.reset(); DestroyWindow(hwnd); return;
             }
         }
-        if (busy())
-            InvalidateRect(hwnd, nullptr, FALSE);
+        if (busy() || (updating() && page == 3)) InvalidateRect(hwnd, nullptr, FALSE);
     }
     std::filesystem::path chooseFallback(bool folder, bool iso) {
         if (folder) {
@@ -754,38 +801,49 @@ struct Window {
         return path;
     }
     void saveOptions() {
-        settings.renderer = selected(Renderer) == 1   ? "gpu"
+        Settings next = settings;
+        next.renderer = selected(Renderer) == 1   ? "gpu"
                             : selected(Renderer) == 2 ? "cpu"
                                                       : "auto";
-        settings.fps = rates.at(size_t(selected(Fps)));
+        next.fps = rates.at(size_t(selected(Fps)));
         const auto size = sizes.at(size_t(selected(Resolution)));
-        settings.width = size.first;
-        settings.height = size.second;
-        settings.windowMode = unsigned(selected(WindowMode));
-        settings.antialiasing = unsigned(selected(Antialiasing));
-        settings.textureFilter = unsigned(selected(Filtering));
-        settings.upscaler = unsigned(selected(Upscaler));
-        settings.vsync = selected(Vsync) != 0;
-        settings.autoBackups = selected(AutoBackup) != 0;
-        settings.aspect = unsigned(selected(Aspect));
-        write_settings(settings_path(), settings);
-        status = L"Settings saved. Changes apply next launch.";
+        next.width = size.first;
+        next.height = size.second;
+        next.windowMode = unsigned(selected(WindowMode));
+        next.antialiasing = unsigned(selected(Antialiasing));
+        next.textureFilter = unsigned(selected(Filtering));
+        next.upscaler = unsigned(selected(Upscaler));
+        next.vsync = selected(Vsync) != 0;
+        next.autoBackups = selected(AutoBackup) != 0;
+        next.aspect = unsigned(selected(Aspect));
+        write_settings(settings_path(), next);
+        settings = std::move(next);
+        status = child ? L"Settings saved. Restart the game to apply them." : L"Settings saved.";
+        std::cout << "[launcher:settings] saved fps=" << settings.fps << " size=" << settings.width << 'x'
+                  << settings.height << " mode=" << settings.windowMode << " renderer=" << settings.renderer
+                  << " aspect=" << settings.aspect << " aa=" << settings.antialiasing
+                  << " filtering=" << settings.textureFilter << " scaling=" << settings.upscaler
+                  << " vsync=" << settings.vsync << std::endl;
         error = false;
     }
     void command(int id, int notification) {
+        lastInput = std::chrono::steady_clock::now();
         if (picking)
             return;
         if (id >= PlayTab && id <= UpdatesTab) {
             page = id - PlayTab;
+            for (int tab = PlayTab; tab <= UpdatesTab; ++tab)
+                InvalidateRect(controls[tab], nullptr, FALSE);
             layout();
             return;
         }
         if (id >= Renderer && id <= Aspect && notification == CBN_SELCHANGE) {
             saveOptions();
-            layout();
+            refreshEnabled();
             return;
         }
         if ((id == UpdateChannel || id == AutomaticUpdates) && notification == CBN_SELCHANGE) {
+            if (updating()) return;
             settings.updateChannel = unsigned(selected(UpdateChannel));
             settings.autoUpdates = selected(AutomaticUpdates) != 0;
             write_settings(settings_path(), settings);
@@ -793,13 +851,31 @@ struct Window {
             staged.reset();
             updatePending = true;
             updateStatus = L"Update preferences saved.";
-            layout();
+            updateError = false;
+            refreshEnabled();
             return;
+        }
+        if (id == ResetGraphics) {
+            Settings defaults;
+            auto next = settings;
+            next.fps = defaults.fps; next.width = defaults.width; next.height = defaults.height;
+            next.windowMode = defaults.windowMode; next.antialiasing = defaults.antialiasing;
+            next.textureFilter = defaults.textureFilter; next.upscaler = defaults.upscaler;
+            next.aspect = defaults.aspect; next.vsync = defaults.vsync; next.renderer = defaults.renderer;
+            write_settings(settings_path(), next); settings = std::move(next);
+            const std::pair<int, int> choices[] = {{Renderer, 0}, {Fps, 1}, {Resolution, 0},
+                {WindowMode, 0}, {Antialiasing, 0}, {Filtering, 0}, {Upscaler, 1}, {Vsync, 1}, {Aspect, 0}};
+            for (auto [control, value] : choices) SendMessageW(controls[control], CB_SETCURSEL, value, 0);
+            status = L"Graphics defaults restored. ISO and save preferences were kept.";
+            error = false; refreshEnabled(); return;
         }
         if (id == ReleasePage) {
             ShellExecuteW(hwnd, L"open", L"https://github.com/7v0biscuit/OpenKai2/releases", nullptr,
                           nullptr, SW_SHOWNORMAL);
             return;
+        }
+        if (id == CheckUpdates) {
+            updatePending = false; start(Job::checkUpdate); return;
         }
         if (busy() || child)
             return;
@@ -808,16 +884,9 @@ struct Window {
             layout();
             return;
         }
-        if (id == CheckUpdates) {
-            updatePending = false;
-            start(Job::checkUpdate);
-        } else if (id == InstallUpdate) {
-            if (staged) {
-                apply_update(*staged);
-                staged.reset();
-                DestroyWindow(hwnd);
-            } else if (release)
-                start(Job::downloadUpdate);
+        if (id == InstallUpdate) {
+            if (staged) { installRequested = true; refreshEnabled(); }
+            else if (release) start(Job::downloadUpdate);
         } else if (id == ChooseIso) {
             auto p = choose(false, true);
             if (!p.empty()) {
@@ -850,12 +919,28 @@ struct Window {
         }
     }
     ~Window() {
-        if (task.valid())
-            task.wait();
+        if (task.valid()) task.wait();
+        if (updateTask.valid()) updateTask.wait();
         if (child)
             CloseHandle(child);
     }
 };
+LRESULT CALLBACK button_procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
+    auto original = reinterpret_cast<WNDPROC>(GetPropW(hwnd, L"OpenKai2.ButtonProcedure"));
+    auto *owner = reinterpret_cast<Window *>(GetWindowLongPtrW(GetParent(hwnd), GWLP_USERDATA));
+    if (owner && message == WM_MOUSEMOVE) {
+        const int id = GetDlgCtrlID(hwnd);
+        if (owner->hotButton != id) {
+            owner->hotButton = id;
+            TRACKMOUSEEVENT tracking{sizeof(TRACKMOUSEEVENT), TME_LEAVE, hwnd, 0};
+            TrackMouseEvent(&tracking); InvalidateRect(hwnd, nullptr, FALSE);
+        }
+    } else if (owner && message == WM_MOUSELEAVE) {
+        owner->hotButton = 0; InvalidateRect(hwnd, nullptr, FALSE);
+    }
+    return original ? CallWindowProcW(original, hwnd, message, wp, lp)
+                    : DefWindowProcW(hwnd, message, wp, lp);
+}
 LRESULT CALLBACK combo_procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
     auto original = reinterpret_cast<WNDPROC>(GetPropW(hwnd, L"OpenKai2.ComboProcedure"));
     auto *owner = reinterpret_cast<Window *>(GetWindowLongPtrW(GetParent(hwnd), GWLP_USERDATA));
@@ -969,7 +1054,7 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
                 ShowWindow(hwnd, SW_HIDE);
                 return 0;
             }
-            if (self->busy()) {
+            if (self->busy() || self->updating()) {
                 self->closing = true;
                 self->status = L"Finishing the current operation…";
                 return 0;

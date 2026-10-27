@@ -16,7 +16,7 @@ std::filesystem::path settings_path() {
 }
 void validate_settings(const Settings &s) {
     if (s.fps > 240 || s.width < 640 || s.width > 7680 || s.height < 448 || s.height > 4320 ||
-        s.windowMode > 1 || s.antialiasing > 1 || s.textureFilter > 2 || s.upscaler > 2 ||
+        s.windowMode > 1 || s.antialiasing > 1 || s.textureFilter > 2 || s.upscaler > 3 ||
         s.aspect > 3 || s.updateChannel > 1 || (s.renderer != "auto" && s.renderer != "gpu" && s.renderer != "cpu"))
         throw std::runtime_error("Invalid graphics settings");
 }

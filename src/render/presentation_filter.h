@@ -9,8 +9,9 @@ class PresentationFilter {
     void close();
 
   private:
-    Shader edge_{}, cubic_{}, linear_{};
-    RenderTexture2D target_{};
+    void drawFsr(Texture2D frame, Rectangle source, Rectangle destination);
+    Shader edge_{}, cubic_{}, linear_{}, easu_{}, rcas_{};
+    RenderTexture2D target_{}, fsrTarget_{};
 };
 int test_presentation_filters();
 } // namespace openkai2

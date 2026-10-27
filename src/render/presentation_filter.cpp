@@ -2,6 +2,9 @@
 #include "render/presentation_filter.h"
 #include "graphics_settings.h"
 #include "rlgl.h"
+#include "openkai2_fsr_shader.h"
+#include <algorithm>
+#include <string>
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
@@ -50,6 +53,59 @@ void main(){vec2 pos=fragTexCoord*sourceSize-0.5,base=floor(pos),f=fract(pos);ve
   sum+=texture(texture0,clamp(uv,0.5/sourceSize,contentMax-0.5/sourceSize)).rgb*kernel(float(x)-f.x)*kernel(float(y)-f.y);}
  finalColor=vec4(clamp(sum,0.0,1.0),1.0)*fragColor*colDiffuse;
 })GLSL";
+// FSR's algorithm is supplied by AMD's unmodified headers. The adapters below
+// gather clamped active-content pixels, excluding framebuffer padding.
+// Coordinates stay in top-down source space even after the optional FXAA pass.
+constexpr const char *fsrEasuAdapter = R"GLSL(
+in vec2 fragTexCoord; in vec4 fragColor;
+uniform sampler2D texture0; uniform vec4 colDiffuse;
+uniform vec2 sourceSize, contentMax, outputSize;
+uniform int sourceFlipped;
+out vec4 finalColor;
+vec3 fsrRead(ivec2 p) {
+ ivec2 extent=ivec2(contentMax*sourceSize+0.5);
+ p=clamp(p,ivec2(0),extent-1);
+ if(sourceFlipped!=0)p.y=extent.y-1-p.y;
+ return texelFetch(texture0,p,0).rgb;
+}
+vec4 fsrGather(vec2 uv,int channel) {
+ ivec2 p=ivec2(floor(uv*sourceSize-0.5));
+ return vec4(fsrRead(p+ivec2(0,1))[channel],fsrRead(p+ivec2(1,1))[channel],
+             fsrRead(p+ivec2(1,0))[channel],fsrRead(p)[channel]);
+}
+vec4 FsrEasuRF(vec2 uv){return fsrGather(uv,0);}
+vec4 FsrEasuGF(vec2 uv){return fsrGather(uv,1);}
+vec4 FsrEasuBF(vec2 uv){return fsrGather(uv,2);}
+void main() {
+ uvec4 c0,c1,c2,c3;
+ FsrEasuCon(c0,c1,c2,c3,contentMax.x*sourceSize.x,contentMax.y*sourceSize.y,
+            sourceSize.x,sourceSize.y,outputSize.x,outputSize.y);
+ vec3 color;FsrEasuF(color,uvec2(gl_FragCoord.xy),c0,c1,c2,c3);
+ finalColor=vec4(clamp(color,0.0,1.0),1.0);
+})GLSL";
+constexpr const char *fsrRcasAdapter = R"GLSL(
+in vec2 fragTexCoord; in vec4 fragColor;
+uniform sampler2D texture0; uniform vec4 colDiffuse;
+uniform vec2 sourceSize;
+out vec4 finalColor;
+vec4 FsrRcasLoadF(ivec2 p){return texelFetch(texture0,clamp(p,ivec2(0),ivec2(sourceSize)-1),0);}
+void FsrRcasInputF(inout float r,inout float g,inout float b){}
+void main() {
+ uvec4 constants;FsrRcasCon(constants,0.2);
+ vec3 color;FsrRcasF(color.r,color.g,color.b,uvec2(fragTexCoord*sourceSize),constants);
+ finalColor=vec4(clamp(color,0.0,1.0),1.0)*fragColor*colDiffuse;
+})GLSL";
+Shader fsrShader(bool sharpen) {
+    std::string source="#version 430\n#define A_GPU 1\n#define A_GLSL 1\n";
+    source+=sharpen ? "#define FSR_RCAS_F 1\n" : "#define FSR_EASU_F 1\n";
+    for(const auto *part:fsrSourceParts)source+=part;
+    source+=sharpen ? fsrRcasAdapter : fsrEasuAdapter;
+    auto result=LoadShaderFromMemory(nullptr,source.c_str());
+    if(!IsShaderValid(result) || GetShaderLocation(result,"sourceSize")<0 ||
+       GetShaderLocation(result,sharpen ? "texture0" : "outputSize")<0)
+        throw std::runtime_error("AMD FSR 1 requires OpenGL 4.3 and working EASU/RCAS shaders");
+    return result;
+}
 Shader shader(const char *source) {
     auto result = LoadShaderFromMemory(nullptr, source);
     if (!IsShaderValid(result) || GetShaderLocation(result, "sourceSize") < 0 ||
@@ -89,10 +145,17 @@ void PresentationFilter::draw(Texture2D frame, Rectangle source, Rectangle desti
         frame = target_.texture;
         source = {0, 0, float(w), -float(h)};
     }
+    if (s.upscaler == 3 && destination.width >= source.width &&
+        destination.height >= std::abs(source.height)) {
+        drawFsr(frame, source, destination);
+        return;
+    }
+    // EASU is an upscaler; use bicubic for a smaller output window.
+    const bool cubic = s.upscaler >= 2;
     SetTextureFilter(frame, s.upscaler == 1 ? TEXTURE_FILTER_BILINEAR : TEXTURE_FILTER_POINT);
     const bool clampLinear = s.upscaler == 1 && (source.width < float(frame.width) ||
                                                  std::abs(source.height) < float(frame.height));
-    if (s.upscaler == 2) {
+    if (cubic) {
         if (!cubic_.id)
             cubic_ = shader(cubicSource);
         dimensions(cubic_, frame, source);
@@ -104,10 +167,42 @@ void PresentationFilter::draw(Texture2D frame, Rectangle source, Rectangle desti
         BeginShaderMode(linear_);
     }
     DrawTexturePro(frame, source, destination, {0, 0}, 0, WHITE);
-    if (s.upscaler == 2 || clampLinear)
+    if (cubic || clampLinear)
         EndShaderMode();
 }
+void PresentationFilter::drawFsr(Texture2D frame, Rectangle source, Rectangle destination) {
+    if(!easu_.id)easu_=fsrShader(false);
+    if(!rcas_.id)rcas_=fsrShader(true);
+    const int w=std::max(1,int(std::round(destination.width)));
+    const int h=std::max(1,int(std::round(destination.height)));
+    if(fsrTarget_.texture.width!=w || fsrTarget_.texture.height!=h) {
+        if(fsrTarget_.id)UnloadRenderTexture(fsrTarget_);
+        fsrTarget_=LoadRenderTexture(w,h);
+        if(!IsRenderTextureValid(fsrTarget_))
+            throw std::runtime_error("Cannot allocate AMD FSR 1 upscaling target");
+    }
+    dimensions(easu_,frame,source);
+    const float output[]={float(w),float(h)};
+    const int flipped=source.height<0 ? 1 : 0;
+    SetShaderValue(easu_,GetShaderLocation(easu_,"outputSize"),output,SHADER_UNIFORM_VEC2);
+    SetShaderValue(easu_,GetShaderLocation(easu_,"sourceFlipped"),&flipped,SHADER_UNIFORM_INT);
+    BeginTextureMode(fsrTarget_);
+    ClearBackground(BLACK);
+    BeginShaderMode(easu_);
+    DrawTexturePro(frame,{0,0,source.width,std::abs(source.height)},
+                   {0,0,float(w),float(h)},{0,0},0,WHITE);
+    EndShaderMode();EndTextureMode();
+    // EASU writes logical top-down rows into increasing texture Y. Unlike the
+    // FXAA render target it therefore needs no Y inversion for presentation.
+    SetShaderValue(rcas_,GetShaderLocation(rcas_,"sourceSize"),output,SHADER_UNIFORM_VEC2);
+    BeginShaderMode(rcas_);
+    DrawTexturePro(fsrTarget_.texture,{0,0,float(w),float(h)},destination,{0,0},0,WHITE);
+    EndShaderMode();
+}
 void PresentationFilter::close() {
+    if(fsrTarget_.id){UnloadRenderTexture(fsrTarget_);fsrTarget_={};}
+    if(easu_.id){UnloadShader(easu_);easu_={};}
+    if(rcas_.id){UnloadShader(rcas_);rcas_={};}
     if (target_.id) {
         UnloadRenderTexture(target_);
         target_ = {};
@@ -163,7 +258,7 @@ int test_presentation_filters() {
             return result;
         };
         for (unsigned aa = 0; aa < 2; ++aa)
-            for (unsigned scaler = 0; scaler < 3; ++scaler) {
+            for (unsigned scaler = 0; scaler < 4; ++scaler) {
                 auto result = draw(aa, scaler);
                 require(result.size() == 80u * 64u, "Display output dimensions changed");
                 for (unsigned y = 0; y < 64; ++y)
@@ -180,6 +275,11 @@ int test_presentation_filters() {
                             black.g < 8 && black.b < 8,
                         "Display filter flipped or corrupted the source");
             }
+        const auto bilinear = draw(0, 1), fsr = draw(0, 3);
+        unsigned changed = 0;
+        for (size_t i = 0; i < fsr.size(); ++i)
+            if (std::abs(int(fsr[i].r) - int(bilinear[i].r)) > 8) ++changed;
+        require(changed > 16, "FSR did not produce edge-adaptive output distinct from bilinear");
         // At 1:1 scale, intermediate edge values must come from FXAA rather
         // than bilinear enlargement of the black/white input.
         auto edgeCount = [&](unsigned aa) {
@@ -210,7 +310,7 @@ int test_presentation_filters() {
         UnloadTexture(source);
         CloseWindow();
         set_graphics_settings(saved);
-        std::cout << "Display filter comparisons passed: all six AA/scaler combinations, content "
+        std::cout << "Display filter comparisons passed: all eight AA/scaler combinations (including FSR 1 EASU/RCAS), content "
                      "bounds, orientation, letterboxing and native-size edge smoothing.\n";
         return 0;
     } catch (...) {

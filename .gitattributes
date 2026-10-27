@@ -12,3 +12,6 @@
 
 # Keep upstream license text unchanged, including its original whitespace.
 third_party/licenses/** -whitespace
+
+# Preserve unmodified upstream shader headers.
+third_party/fidelityfx-fsr/** -whitespace

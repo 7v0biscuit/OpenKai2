@@ -9,7 +9,7 @@
  #include "render/gpu_backend.h"
  #include "ps2_log.h"
  #include "ps2_stubs.h"
-@@ -735,6 +737,10 @@
+@@ -735,6 +737,13 @@
  #else
          SetConfigFlags(FLAG_WINDOW_RESIZABLE);
          InitWindow(HOST_WINDOW_WIDTH, HOST_WINDOW_HEIGHT, title);
@@ -17,6 +17,9 @@
 +        SetWindowSize(int(display.width),int(display.height));
 +        if(display.vsync)SetWindowState(FLAG_VSYNC_HINT);
 +        if(display.borderless)ToggleBorderlessWindowed();
++        std::cout << "[display:window] actual=" << GetScreenWidth() << 'x' << GetScreenHeight()
++                  << " borderless=" << IsWindowState(FLAG_BORDERLESS_WINDOWED_MODE)
++                  << " vsync_hint=" << IsWindowState(FLAG_VSYNC_HINT) << std::endl;
          openkai2::initialize_window_gpu();
          m_audioBackend.setAudioReady(false);
          openkai2::start_host_audio(this,false);

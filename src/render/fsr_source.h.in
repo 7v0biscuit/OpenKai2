@@ -1,0 +1,7 @@
+// SPDX-License-Identifier: GPL-3.0-only
+#pragma once
+namespace openkai2 {
+inline constexpr const char *fsrSourceParts[] = {
+@openkai2_fsr_parts@
+};
+}

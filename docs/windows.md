@@ -3,6 +3,25 @@
 OpenKai2 is in development. The runtime reaches level selection.
 Complete matches, performance, and gameplay still need validation.
 
+## Launcher preferences
+
+Use **Settings** for display mode, window resolution, aspect ratio, presentation
+limit, VSync, renderer, FXAA, texture filtering and image scaling. Native lists
+support mouse and keyboard selection. Changes save automatically and apply to
+the next game session; an already running game keeps its launch settings.
+Borderless mode uses the desktop resolution. **Reset graphics** restores only
+graphics defaults, preserving the ISO, saves and update preferences.
+
+The **Saves** page contains automatic session backups, imports and recovery.
+Update checks run independently of ISO selection and settings. Installation
+waits until the game and save operations finish.
+
+**AMD FSR 1 · Spatial** requires OpenGL 4.3 and uses EASU upscaling followed by RCAS sharpening. It scales
+the completed native-resolution image to the window, including the game's UI;
+it does not reduce guest execution cost or generate extra game frames. Smaller
+output sizes use bicubic filtering. FSR 3/4 temporal reconstruction and frame
+generation require renderer inputs and backend support that are not available.
+
 ## Launcher updates
 
 The **Updates** page checks releases from `7v0biscuit/OpenKai2` on GitHub.

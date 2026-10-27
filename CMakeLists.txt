@@ -76,3 +76,6 @@ if(BUILD_TESTING)
     endif()
     add_test(NAME launcher_settings_saves COMMAND openkai2_launcher_tests)
 endif()
+
+include(tools/native/launcher-ui.cmake)
+openkai2_add_launcher_ui("${CMAKE_CURRENT_SOURCE_DIR}" "${BUILD_TESTING}")

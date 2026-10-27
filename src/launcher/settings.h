@@ -10,7 +10,7 @@ struct Settings {
     unsigned windowMode = 0;    // windowed, borderless
     unsigned antialiasing = 0;  // off, FXAA
     unsigned textureFilter = 0; // game, nearest, bilinear
-    unsigned upscaler = 1;      // nearest, bilinear, bicubic
+    unsigned upscaler = 1;      // nearest, bilinear, bicubic, FSR 1
     unsigned aspect = 0;        // 4:3, 16:9, stretch, native pixels
     bool vsync = true, autoBackups = true;
     bool autoUpdates = true;
