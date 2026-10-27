@@ -41,11 +41,37 @@ void click(HWND w,int id) {
     require(GetDlgItem(w,id)!=nullptr,"Missing launcher action");
     SendMessageW(GetDlgItem(w,id),BM_CLICK,0,0);
 }
+void mouse_click(HWND control, int x, int y) {
+    POINT point{x,y}; ClientToScreen(control,&point);
+    // Consecutive test actions are independent clicks, not a double-click on
+    // the same arrow (which native combo boxes interpret differently).
+    static POINT previous{-10000,-10000};
+    static auto last=std::chrono::steady_clock::now()-std::chrono::seconds(2);
+    const auto interval=std::chrono::milliseconds(GetDoubleClickTime()+20);
+    if(std::abs(point.x-previous.x)<=GetSystemMetrics(SM_CXDOUBLECLK) &&
+       std::abs(point.y-previous.y)<=GetSystemMetrics(SM_CYDOUBLECLK)) {
+        const auto elapsed=std::chrono::steady_clock::now()-last;
+        if(elapsed<interval)std::this_thread::sleep_for(interval-elapsed);
+    }
+    previous=point;last=std::chrono::steady_clock::now();
+    require(SetCursorPos(point.x,point.y)!=FALSE,"Cannot position native input");
+    INPUT input[2]{};
+    input[0].type=INPUT_MOUSE;input[0].mi.dwFlags=MOUSEEVENTF_LEFTDOWN;
+    input[1].type=INPUT_MOUSE;input[1].mi.dwFlags=MOUSEEVENTF_LEFTUP;
+    require(SendInput(2,input,sizeof(INPUT))==2,"Cannot submit native mouse input");
+}
 void open_dropdown(HWND combo) {
-    // Exercise the native popup, rather than changing CB_SETCURSEL and faking
-    // a notification (which cannot detect a popup with no usable list area).
-    SendMessageW(combo,CB_SHOWDROPDOWN,TRUE,0);
-    require(SendMessageW(combo,CB_GETDROPPEDSTATE,0,0)!=0,"Dropdown did not open");
+    // A real click also positions the pointer and focuses the field. Direct
+    // CB_SHOWDROPDOWN can leave focus in the previous combo on Windows.
+    SetForegroundWindow(GetAncestor(combo,GA_ROOT));
+    RECT field{};GetClientRect(combo,&field);
+    mouse_click(combo,field.right-10,(field.bottom-field.top)/2);
+    const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(5);
+    while(!SendMessageW(combo,CB_GETDROPPEDSTATE,0,0) &&
+          std::chrono::steady_clock::now()<deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    if(!SendMessageW(combo,CB_GETDROPPEDSTATE,0,0))
+        throw std::runtime_error("Dropdown did not open: "+std::to_string(GetDlgCtrlID(combo)));
     COMBOBOXINFO info{};info.cbSize=sizeof(info);
     require(GetComboBoxInfo(combo,&info)!=FALSE,"Cannot inspect dropdown");
     RECT list{};GetClientRect(info.hwndList,&list);
@@ -54,22 +80,21 @@ void open_dropdown(HWND combo) {
     require(list.bottom-list.top>=std::min<LRESULT>(count,6)*item,
             "Dropdown popup is too short to display its options");
 }
-void mouse_choice(HWND combo, int index) {
-    RECT field{}; GetClientRect(combo, &field);
-    const auto arrow = MAKELPARAM(field.right - 10, (field.bottom - field.top) / 2);
-    SendMessageW(combo, WM_LBUTTONDOWN, MK_LBUTTON, arrow);
-    SendMessageW(combo, WM_LBUTTONUP, 0, arrow);
-    require(SendMessageW(combo, CB_GETDROPPEDSTATE, 0, 0) != 0,
-            "Clicking the dropdown arrow did not open the native list");
-    COMBOBOXINFO info{}; info.cbSize = sizeof(info);
-    require(GetComboBoxInfo(combo, &info) != FALSE, "Cannot inspect dropdown list");
-    const auto row = SendMessageW(combo, CB_GETITEMHEIGHT, 0, 0);
-    const auto top = SendMessageW(info.hwndList, LB_GETTOPINDEX, 0, 0);
-    const auto point = MAKELPARAM(16, int((index - top) * row + row / 2));
-    SendMessageW(info.hwndList, WM_MOUSEMOVE, 0, point);
-    SendMessageW(info.hwndList, WM_LBUTTONDOWN, MK_LBUTTON, point);
-    SendMessageW(info.hwndList, WM_LBUTTONUP, 0, point);
-    require(SendMessageW(combo, CB_GETCURSEL, 0, 0) == index, "Mouse selection did not stick");
+void mouse_choice(HWND combo,int index) {
+    open_dropdown(combo);
+    COMBOBOXINFO info{};info.cbSize=sizeof(info);
+    require(GetComboBoxInfo(combo,&info)!=FALSE,"Cannot inspect dropdown list");
+    const auto row=SendMessageW(combo,CB_GETITEMHEIGHT,0,0);
+    const auto top=SendMessageW(info.hwndList,LB_GETTOPINDEX,0,0);
+    mouse_click(info.hwndList,16,int((index-top)*row+row/2));
+    const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(5);
+    while(SendMessageW(combo,CB_GETDROPPEDSTATE,0,0) &&
+          std::chrono::steady_clock::now()<deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    const auto actual=SendMessageW(combo,CB_GETCURSEL,0,0);
+    if(actual!=index)throw std::runtime_error("Native mouse selection: control="+
+        std::to_string(GetDlgCtrlID(combo))+" expected="+std::to_string(index)+
+        " actual="+std::to_string(actual));
 }
 template<class Predicate> void wait_until(Predicate ready, const char *failure) {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
@@ -80,12 +105,26 @@ template<class Predicate> void wait_until(Predicate ready, const char *failure) 
 }
 void keyboard_choice(HWND combo,int index) {
     open_dropdown(combo);
-    SendMessageW(combo,WM_KEYDOWN,VK_HOME,0);
-    for(int i=0;i<index;++i)SendMessageW(combo,WM_KEYDOWN,VK_DOWN,0);
+    const auto key=[](WORD code) {
+        INPUT events[2]{};
+        for(auto &event:events){event.type=INPUT_KEYBOARD;event.ki.wVk=code;}
+        events[1].ki.dwFlags=KEYEVENTF_KEYUP;
+        require(SendInput(2,events,sizeof(INPUT))==2,"Cannot submit native keyboard input");
+    };
+    key(VK_HOME);
+    wait_until([&]{return SendMessageW(combo,CB_GETCURSEL,0,0)==0;},"Home did not select the first option");
+    for(int i=0;i<index;++i) {
+        key(VK_DOWN);
+        wait_until([&]{return SendMessageW(combo,CB_GETCURSEL,0,0)==i+1;},"Arrow did not select the next option");
+    }
     require(SendMessageW(combo,CB_GETDROPPEDSTATE,0,0)!=0,
             "Changing a setting closed the dropdown before confirmation");
-    SendMessageW(combo,WM_KEYDOWN,VK_RETURN,0);
-    require(SendMessageW(combo,CB_GETCURSEL,0,0)==index,"Native keyboard selection did not stick");
+    key(VK_RETURN);
+    wait_until([&]{return !SendMessageW(combo,CB_GETDROPPEDSTATE,0,0);},"Confirm did not close the popup");
+    const auto actual=SendMessageW(combo,CB_GETCURSEL,0,0);
+    if(actual!=index)throw std::runtime_error("Native keyboard selection: control="+
+        std::to_string(GetDlgCtrlID(combo))+" expected="+std::to_string(index)+
+        " actual="+std::to_string(actual));
 }
 }
 // Only the network boundary is substituted. Controls, notifications, files and
