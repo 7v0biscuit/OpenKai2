@@ -171,7 +171,8 @@ void PresentationFilter::draw(Texture2D frame, Rectangle source, Rectangle desti
         EndShaderMode();
 }
 void PresentationFilter::drawFsr(Texture2D frame, Rectangle source, Rectangle destination) {
-    if(!easu_.id)easu_=fsrShader(false);
+    const bool initializing=!easu_.id;
+    if(initializing)easu_=fsrShader(false);
     if(!rcas_.id)rcas_=fsrShader(true);
     const int w=std::max(1,int(std::round(destination.width)));
     const int h=std::max(1,int(std::round(destination.height)));
@@ -181,6 +182,9 @@ void PresentationFilter::drawFsr(Texture2D frame, Rectangle source, Rectangle de
         if(!IsRenderTextureValid(fsrTarget_))
             throw std::runtime_error("Cannot allocate AMD FSR 1 upscaling target");
     }
+    if(initializing)
+        std::cout << "[display:filter] fsr=1 method=easu+rcas source=" << source.width << 'x'
+                  << std::abs(source.height) << " output=" << w << 'x' << h << std::endl;
     dimensions(easu_,frame,source);
     const float output[]={float(w),float(h)};
     const int flipped=source.height<0 ? 1 : 0;
