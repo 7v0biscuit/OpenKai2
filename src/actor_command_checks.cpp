@@ -11,6 +11,7 @@ namespace openkai2 {
 void verify_actor_commands(PS2Runtime& runtime,uint8_t* ram) {
     auto require=[](bool ok,const char* why){if(!ok)throw std::runtime_error(why);};
     for(auto at:translation::script_command_entries)require(runtime.hasFunction(at),"Script command entry is missing");
+    for(auto at:translation::object_callback_entries)require(runtime.hasFunction(at),"Installed object callback is missing");
     for(auto at:translation::actor_command_entries)require(runtime.hasFunction(at),"Actor command entry is missing");
     for(auto at:translation::actor_timing_entries)require(runtime.hasFunction(at),"Actor timing entry is missing");
     for(auto at:translation::actor_state_entries)require(runtime.hasFunction(at),"Actor state entry is missing");
@@ -26,6 +27,29 @@ void verify_actor_commands(PS2Runtime& runtime,uint8_t* ram) {
         const auto fn=runtime.lookupFunction(c.pc);require(fn!=nullptr,"Actor command reached an untranslated continuation");
         try{fn(ram,&c,&runtime);}catch(const EeDispatcherTransfer&){}
     }require(c.pc==returned,"Actor command did not return");};
+    // The constructor installs its update callback in the JR delay slot. Run
+    // both original routines around the half-frame completion boundary.
+    for(auto alias:{0u,0x80000000u,0xa0000000u})for(unsigned index:{0u,2u,7u})
+    for(int threshold:{-1,0,5})for(float edge:{-0.75f,-0.5f,-0.25f}){
+        std::memset(ram+context,0xa5,0x100u);std::memset(ram+state,0x5a,0x100u);
+        m.write32(context,descriptor|alias);m.write32(descriptor,index);
+        m.write32(state+0x2cu,actor|alias);m.write32(actor,uint32_t(threshold));
+        const float origin=16.0f;
+        std::memcpy(ram+0x3a4d48u+index*4u,&origin,4u);
+        R5900Context c{};c.pc=0x225990u;c.r[4]=_mm_cvtsi32_si128(context|alias);c.r[5]=_mm_cvtsi32_si128(state|alias);
+        c.r[28]=_mm_cvtsi32_si128(0x3ac4f0u|alias);c.r[29]=_mm_cvtsi32_si128(sp|alias);c.r[31]=_mm_cvtsi32_si128(returned);
+        run(c);float recorded;std::memcpy(&recorded,ram+context+0x2cu,4u);
+        require(getRegU32(&c,2)==3u && m.read32(context+0x10u)==0x225930u && m.read32(context+0x24u)==uint32_t(threshold) && recorded==origin,
+                "Object wait constructor lost its threshold, time or delay-slot callback");
+        const float current=origin+float(threshold)+edge;
+        std::memcpy(ram+0x3a4d48u+index*4u,&current,4u);
+        c.pc=m.read32(context+0x10u);run(c);
+        const bool waiting=edge < -0.5f;
+        require(getRegU32(&c,2)==(waiting?3u:1u) && m.read32(context+0x10u)==(waiting?0x225930u:0u),
+                "Object update callback changed its completion boundary");
+        require(getRegU32(&c,29)==(sp|alias) && getRegU32(&c,31)==returned && m.read32(context+0x14u)==0xa5a5a5a5u && m.read32(context+0x28u)==0xa5a5a5a5u,
+                "Object update callback changed its caller or neighboring state");
+    }
     for(auto alias:{0u,0x80000000u,0xa0000000u})for(unsigned value:{0u,1u,3u,127u,128u,255u}){
         std::memset(ram+context,0xa5,0x100u);std::memset(ram+state,0x5a,0x100u);
         m.write8(0x3a4b78u,uint8_t(value));

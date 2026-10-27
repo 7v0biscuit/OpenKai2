@@ -84,7 +84,7 @@ class TranslationEntries(unittest.TestCase):
     def test_reviewed_tables_have_complete_unique_coverage(self):
         self.assertEqual(len(ENTRIES.DISPATCH_TABLES), 7)
         self.assertTrue(all(len(row) == 14 for _, row in ENTRIES.DISPATCH_TABLES))
-        self.assertEqual(len(set(ENTRIES.ENTRY_POINTS)), 922)
+        self.assertEqual(len(set(ENTRIES.ENTRY_POINTS)), 994)
         self.assertEqual(len(ENTRIES.ZERO_RETURN_ENTRIES), 39)
         self.assertTrue(set(ENTRIES.ZERO_RETURN_ENTRIES) <= set(ENTRIES.ENTRY_POINTS))
         self.assertNotIn(0x00387110, ENTRIES.ENTRY_POINTS)
@@ -99,7 +99,7 @@ class TranslationEntries(unittest.TestCase):
             path = Path(temporary) / 'entries.h'
             ENTRIES.emit_check_header(path)
             content, changed = path.read_text(), path.stat().st_mtime_ns
-            self.assertIn('std::array<uint32_t, 922> entries', content)
+            self.assertIn('std::array<uint32_t, 994> entries', content)
             self.assertIn('std::array<uint32_t, 39> zero_return_entries', content)
             for address in ENTRIES.ENTRY_POINTS:
                 self.assertIn(f'0x{address:08x}u,', content)
@@ -252,6 +252,25 @@ class TranslationEntries(unittest.TestCase):
             edited=bytearray(data);edited[address-0x100000+128]^=1
             with self.assertRaisesRegex(ValueError,'Indirect methods|Script command'):
                 ENTRIES.verify_elf_metadata(edited)
+
+    def test_object_callback_installations(self):
+        self.assertEqual(len(ENTRIES.OBJECT_CALLBACK_ENTRIES), 79)
+        self.assertIn(0x225930, ENTRIES.OBJECT_CALLBACK_ENTRIES)
+        self.assertNotIn(0x33c440, ENTRIES.OBJECT_CALLBACK_ENTRIES)
+        self.assertNotIn(0x33c500, ENTRIES.OBJECT_CALLBACK_ENTRIES)
+        self.assertTrue(set(ENTRIES.OBJECT_CALLBACK_ENTRIES) <= set(ENTRIES.ENTRY_POINTS))
+        original = self.make_elf_metadata()
+        ENTRIES.verify_elf_metadata(original)
+        for _, high_pc, _, low_pc, _, store_pc, _ in ENTRIES.OBJECT_CALLBACK_INSTALLS:
+            for pc in (high_pc, low_pc, store_pc):
+                data = bytearray(original); data[pc-0x100000+128] ^= 1
+                with self.subTest(pc=pc), self.assertRaisesRegex(ValueError, 'Object callback|Actor timing instructions|Impact effect instructions'):
+                    ENTRIES.verify_elf_metadata(data)
+        for pc, words in ENTRIES.OBJECT_CALLBACK_WORDS:
+            for index in (0, len(words)-1):
+                data = bytearray(original); data[pc-0x100000+128+index*4] ^= 1
+                with self.subTest(pc=pc, index=index), self.assertRaisesRegex(ValueError, 'Object callback|Actor timing instructions|Impact effect instructions'):
+                    ENTRIES.verify_elf_metadata(data)
 
     def test_actor_state_bank_is_registered(self):
         self.assertEqual(len(ENTRIES.ACTOR_STATE_ENTRIES),13)
@@ -520,6 +539,9 @@ class TranslationEntries(unittest.TestCase):
                               + ENTRIES.MOVIE_CALLBACK_TABLES + ENTRIES.MOVIE_PACKET_TABLES
                               + ENTRIES.MOVIE_TIMING_TABLES + ENTRIES.SCENE_MODE_TABLES + ENTRIES.BATTLE_COMMAND_TABLES + ENTRIES.AURA_UPDATE_TABLES + ENTRIES.BATTLE_UPDATE_TABLES + ENTRIES.BATTLE_DRAW_TABLES + ENTRIES.FIGHT_STATE_TABLES + ENTRIES.ATTACK_EFFECT_TABLES + ENTRIES.IMPACT_EFFECT_TABLES + ENTRIES.ACTOR_COMMAND_TABLES + ENTRIES.ACTOR_TIMING_TABLES + ENTRIES.ACTOR_STATE_TABLES + ENTRIES.PAUSE_MENU_TABLES + ENTRIES.STORY_CALLBACK_TABLES + ENTRIES.SCRIPT_COMMAND_TABLES + ENTRIES.SCRIPT_COMMAND_ROOTS):
             put(base, entries)
+        for _, high_pc, high_word, low_pc, low_word, store_pc, store_word in ENTRIES.OBJECT_CALLBACK_INSTALLS:
+            for pc, word in ((high_pc, high_word), (low_pc, low_word), (store_pc, store_word)):
+                put(pc, (word,))
         put(0x00387420, ENTRIES.MOVIE_TIMING_RATES)
         for address in ENTRIES.ZERO_RETURN_ENTRIES:
             put(address, (0x03E00008, 0x0000102D))
@@ -532,7 +554,7 @@ class TranslationEntries(unittest.TestCase):
         put(ENTRIES.BATTLE_ASSET_TABLE_BASE,ENTRIES.BATTLE_ASSET_TABLE_WORDS)
         for address,words in ENTRIES.BATTLE_ASSET_WORDS:
             put(address,words)
-        for address,words in ENTRIES.ACTOR_TIMING_WORDS+ENTRIES.ACTOR_STATE_WORDS+ENTRIES.SCRIPT_COMMAND_WORDS:
+        for address,words in ENTRIES.ACTOR_TIMING_WORDS+ENTRIES.ACTOR_STATE_WORDS+ENTRIES.SCRIPT_COMMAND_WORDS+ENTRIES.OBJECT_CALLBACK_WORDS:
             put(address,words)
         for address,words in ENTRIES.STORY_CALLBACK_WORDS:
             put(address,words)
