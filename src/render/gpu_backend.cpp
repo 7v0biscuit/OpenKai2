@@ -39,6 +39,7 @@ std::bitset<PageCount> rectangle_pages(unsigned psm,unsigned base,unsigned width
 namespace {
 using Pages=std::bitset<gpu::PageCount>;
 std::atomic<uint64_t> totalGpuDraws{},totalCpuDraws{},totalBatches{},totalTiles{},totalUploads{},totalReadbacks{},totalCulled{};
+std::atomic<uint64_t> totalPaletteLoads{},totalPaletteReuses{};
 bool indexed(unsigned psm){return psm==19u || psm==20u || psm==27u || psm==36u || psm==44u;}
 bool fourBit(unsigned psm){return psm==20u || psm==36u || psm==44u;}
 uint32_t bits(float value){uint32_t result;std::memcpy(&result,&value,4u);return result;}
@@ -103,6 +104,7 @@ struct GpuRasterBackend::Impl {
     Pages cpuDirty,gpuDirty,batchWrites,batchSources;bool disabled=false,cpuFrame=false;
     GSTransferCommand transfer{};GpuRenderStats statistics{};
     std::array<uint16_t,512> clut{};std::array<uint32_t,2> cbp{};uint32_t clutGeneration=0;
+    std::array<uint32_t,8> loadedPaletteKey{};Pages loadedPalettePages;bool loadedPaletteValid=false;
     std::vector<uint32_t> commands,palette,activeTiles;
     std::array<std::vector<uint32_t>,65536> tileCommands;
     std::map<std::array<uint32_t,3>,uint32_t> paletteOffsets;
@@ -246,16 +248,18 @@ void GpuRasterBackend::Initialize(uint8_t* vram,uint32_t size){
     // buffer. Complete its GPU work without writing back through that pointer.
     if(vram==m->vram)m->materialize();
     else if(m->resources){m->submit();m->device->invoke([](gpu::Api& gl){gl.Finish();});}
-    m->vram=vram;m->size=size;m->cpu.Initialize(vram,size);m->cpuDirty.set();m->gpuDirty.reset();m->clut.fill(0u);m->cbp.fill(0u);++m->clutGeneration;m->cpuFrame=false;
+    m->vram=vram;m->size=size;m->cpu.Initialize(vram,size);m->cpuDirty.set();m->gpuDirty.reset();m->clut.fill(0u);m->cbp.fill(0u);++m->clutGeneration;m->cpuFrame=false;m->loadedPaletteValid=false;
 }
-void GpuRasterBackend::Reset(){std::lock_guard lock(m->mutex);m->materialize();m->cpu.Reset();m->clut.fill(0u);m->cbp.fill(0u);++m->clutGeneration;m->cpuFrame=false;}
+void GpuRasterBackend::Reset(){std::lock_guard lock(m->mutex);m->materialize();m->cpu.Reset();m->clut.fill(0u);m->cbp.fill(0u);++m->clutGeneration;m->cpuFrame=false;m->loadedPaletteValid=false;}
 void GpuRasterBackend::Submit(const GSPrimitiveBatch& batch){
     std::lock_guard lock(m->mutex);gpu::Command command{};Pages writes,sources;
     if(!m->vram || !batch.vertexCount)return;
     if(m->cpuFrame || !m->encode(batch,command,writes,sources) || !m->ready()){
+        m->loadedPaletteValid=false;
         m->materialize();m->cpu.Submit(batch);m->cpuDirty.set();m->cpuFrame=true;++m->statistics.cpuDraws;totalCpuDraws.fetch_add(1u,std::memory_order_relaxed);return;
     }
     ++m->statistics.gpuDraws;totalGpuDraws.fetch_add(1u,std::memory_order_relaxed);if(command[2u]>command[4u]){++m->statistics.culled;totalCulled.fetch_add(1u,std::memory_order_relaxed);return;}
+    if((writes&m->loadedPalettePages).any())m->loadedPaletteValid=false;
     const std::array<uint32_t,5> target={command[6],command[7],command[8],command[13],command[38]};
     if(!m->commands.empty() && (m->target!=target || (sources&m->batchWrites).any() || (writes&m->batchSources).any()))m->submit();
     m->upload();m->target=target;
@@ -283,7 +287,14 @@ void GpuRasterBackend::LoadClut(const GSTex0Reg& t,const GSTexClutReg& tc){
     if(t.cld==0u || t.cld>=6u)load=false;
     if(t.cld==2u)m->cbp[0]=t.cbp;if(t.cld==3u)m->cbp[1]=t.cbp;
     if(t.cld==4u || t.cld==5u){const unsigned slot=t.cld-4u;load=load && m->cbp[slot]!=t.cbp;m->cbp[slot]=t.cbp;}
-    if(load)m->materialize(rectanglePages(t.cpsm,t.cbp,t.csm==0u ? 1u : std::max<unsigned>(tc.cbw,1u),t.csm==0u ? 0u : unsigned(tc.cou)*16u,t.csm==0u ? 0u : tc.cov,t.csm==0u ? 16u : 256u,t.csm==0u ? 16u : 1u));
+    const std::array<uint32_t,8> key={t.psm,t.cpsm,t.csm,t.csa,t.cbp,tc.cbw,tc.cou,tc.cov};
+    // CLD=1 has no CBP-register side effect. Reuse its latched bytes only
+    // while every source page is unchanged; all other CLD modes run normally.
+    if(load && t.cld==1u && m->loadedPaletteValid && key==m->loadedPaletteKey){
+        ++m->statistics.paletteReuses;totalPaletteReuses.fetch_add(1u,std::memory_order_relaxed);return;
+    }
+    Pages pages;
+    if(load){pages=rectanglePages(t.cpsm,t.cbp,t.csm==0u ? 1u : std::max<unsigned>(tc.cbw,1u),t.csm==0u ? 0u : unsigned(tc.cou)*16u,t.csm==0u ? 0u : tc.cov,t.csm==0u ? 16u : 256u,t.csm==0u ? 16u : 1u);m->materialize(pages);m->loadedPaletteValid=false;}
     m->cpu.LoadClut(t,tc);if(!load)return;
     const bool sixteen=t.cpsm==2u || t.cpsm==10u;if(!sixteen && t.cpsm!=0u && t.cpsm!=1u)return;
     const unsigned count=fourBit(t.psm) ? 16u : 256u,base=(unsigned(t.csa)&(sixteen ? 31u : 15u))*16u;
@@ -294,23 +305,24 @@ void GpuRasterBackend::LoadClut(const GSTex0Reg& t,const GSTexClutReg& tc){
         const uint32_t raw=m->cpu.ReadVram(t.cpsm,t.cbp,t.csm==0u ? 1u : std::max<unsigned>(tc.cbw,1u),x,y);
         const unsigned destination=(suffix ? i : base+i)&(sixteen ? 511u : 255u);
         m->clut[destination]=uint16_t(raw);if(!sixteen)m->clut[destination+256u]=uint16_t(raw>>16u);
-    }++m->clutGeneration;
+    }++m->clutGeneration;++m->statistics.paletteLoads;totalPaletteLoads.fetch_add(1u,std::memory_order_relaxed);
+    m->loadedPaletteKey=key;m->loadedPalettePages=pages;m->loadedPaletteValid=t.cld==1u;
 }
 void GpuRasterBackend::BeginTransfer(const GSTransferCommand& c){
     std::lock_guard lock(m->mutex);m->transfer=c;
     if(c.direction==1u || c.direction==2u)m->materialize();
-    if(c.direction==2u)m->submit();m->cpu.BeginTransfer(c);if(c.direction==2u)m->cpuDirty.set();
+    if(c.direction==2u)m->submit();m->cpu.BeginTransfer(c);if(c.direction==2u){m->cpuDirty.set();m->loadedPaletteValid=false;}
 }
 void GpuRasterBackend::UploadImage(const uint8_t* data,uint32_t bytes){
     std::lock_guard lock(m->mutex);const auto before=m->cpu.GetTransferSnapshot();
     if(!data || !bytes || before.direction!=0u){m->cpu.UploadImage(data,bytes);return;}
     const auto& t=m->transfer;const auto& lut=gpu::address_tables();const unsigned bpp=lut[(t.bitbltbuf.dpsm&63u)*8u+3u];
-    if(!bpp || !t.trxreg.rrw){m->materialize();m->submit();m->cpu.UploadImage(data,bytes);m->cpuDirty.set();return;}
+    if(!bpp || !t.trxreg.rrw){m->materialize();m->submit();m->cpu.UploadImage(data,bytes);m->cpuDirty.set();m->loadedPaletteValid=false;return;}
     unsigned count=std::min<unsigned>(uint64_t(bytes)*8u/bpp,before.totalPixels-before.copiedPixels),first=before.copiedPixels;Pages pages;
     while(count){const unsigned x=first%t.trxreg.rrw,y=first/t.trxreg.rrw,span=std::min<unsigned>(count,t.trxreg.rrw-x);
         pages|=rectanglePages(t.bitbltbuf.dpsm,t.bitbltbuf.dbp,std::max<unsigned>(t.bitbltbuf.dbw,1u),t.trxpos.dsax+x,t.trxpos.dsay+y,span,1u);first+=span;count-=span;}
     if((pages&m->gpuDirty).any())m->materialize(pages);else m->submit();
-    m->cpu.UploadImage(data,bytes);m->cpuDirty|=pages;
+    m->cpu.UploadImage(data,bytes);m->cpuDirty|=pages;if((pages&m->loadedPalettePages).any())m->loadedPaletteValid=false;
 }
 void GpuRasterBackend::Flush(){std::lock_guard lock(m->mutex);m->submit();}
 void GpuRasterBackend::TextureFlush(){std::lock_guard lock(m->mutex);m->submit();m->cpu.TextureFlush();}
@@ -328,14 +340,14 @@ bool GpuRasterBackend::ClearFramebuffer(const GSContext& c,uint32_t rgba){
         gpu::Command command{};Pages writes,sources;
         if(m->encode(batch,command,writes,sources) && m->ready()){Submit(batch);return true;}
     }
-    m->materialize();const bool result=m->cpu.ClearFramebuffer(c,rgba);if(result)m->cpuDirty.set();return result;
+    m->materialize();const bool result=m->cpu.ClearFramebuffer(c,rgba);if(result){m->cpuDirty.set();m->loadedPaletteValid=false;}return result;
 }
 uint32_t GpuRasterBackend::ConsumeLocalToHostBytes(uint8_t* out,uint32_t count){std::lock_guard lock(m->mutex);m->materialize();return m->cpu.ConsumeLocalToHostBytes(out,count);}
 uint32_t GpuRasterBackend::ReadVram(uint32_t psm,uint32_t base,uint32_t width,uint32_t x,uint32_t y)const{std::lock_guard lock(m->mutex);if(!gpu::address_tables()[(psm&63u)*8u]){m->materialize();return m->cpu.ReadVram(psm,base,width,x,y);}const auto page=gpu::bit_address(psm,base,width,x,y)/(gpu::PageBytes*8u);if(m->gpuDirty[page]){Pages requested;requested.set(page);m->materialize(requested);}return m->cpu.ReadVram(psm,base,width,x,y);}
-void GpuRasterBackend::WriteVram(uint32_t psm,uint32_t base,uint32_t width,uint32_t x,uint32_t y,uint32_t value){std::lock_guard lock(m->mutex);if(!gpu::address_tables()[(psm&63u)*8u]){m->materialize();m->cpu.WriteVram(psm,base,width,x,y,value);m->cpuDirty.set();return;}const auto page=gpu::bit_address(psm,base,width,x,y)/(gpu::PageBytes*8u);if(m->gpuDirty[page]){Pages requested;requested.set(page);m->materialize(requested);}else m->submit();m->cpu.WriteVram(psm,base,width,x,y,value);m->cpuDirty.set(page);}
+void GpuRasterBackend::WriteVram(uint32_t psm,uint32_t base,uint32_t width,uint32_t x,uint32_t y,uint32_t value){std::lock_guard lock(m->mutex);m->loadedPaletteValid=false;if(!gpu::address_tables()[(psm&63u)*8u]){m->materialize();m->cpu.WriteVram(psm,base,width,x,y,value);m->cpuDirty.set();return;}const auto page=gpu::bit_address(psm,base,width,x,y)/(gpu::PageBytes*8u);if(m->gpuDirty[page]){Pages requested;requested.set(page);m->materialize(requested);}else m->submit();m->cpu.WriteVram(psm,base,width,x,y,value);m->cpuDirty.set(page);}
 void GpuRasterBackend::SnapshotVram(std::vector<uint8_t>& out)const{std::lock_guard lock(m->mutex);m->materialize();m->cpu.SnapshotVram(out);}
 GSTransferSnapshot GpuRasterBackend::GetTransferSnapshot()const{std::lock_guard lock(m->mutex);return m->cpu.GetTransferSnapshot();}
 GpuRenderStats GpuRasterBackend::stats()const{std::lock_guard lock(m->mutex);return m->statistics;}
-GpuRenderStats gpu_render_statistics(){return {totalGpuDraws.load(std::memory_order_relaxed),totalCpuDraws.load(std::memory_order_relaxed),totalBatches.load(std::memory_order_relaxed),totalTiles.load(std::memory_order_relaxed),totalUploads.load(std::memory_order_relaxed),totalReadbacks.load(std::memory_order_relaxed),totalCulled.load(std::memory_order_relaxed)};}
+GpuRenderStats gpu_render_statistics(){return {totalGpuDraws.load(std::memory_order_relaxed),totalCpuDraws.load(std::memory_order_relaxed),totalBatches.load(std::memory_order_relaxed),totalTiles.load(std::memory_order_relaxed),totalUploads.load(std::memory_order_relaxed),totalReadbacks.load(std::memory_order_relaxed),totalCulled.load(std::memory_order_relaxed),totalPaletteLoads.load(std::memory_order_relaxed),totalPaletteReuses.load(std::memory_order_relaxed)};}
 std::unique_ptr<GSRasterBackend> make_raster_backend(){return std::make_unique<GpuRasterBackend>();}
 }

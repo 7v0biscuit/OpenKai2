@@ -120,3 +120,22 @@ target compares ordered batches with the CPU renderer and checks output hashes.
 Its `--footprints` mode measures CPU page preparation; `--submission` measures
 small textured draw batches, waits for GPU completion, and compares complete
 VRAM with the CPU reference. These synthetic timings are not game FPS.
+
+## Widescreen and image clarity
+
+The 16:9 mode applies a horizontal camera correction for the USA executable.
+It uses the same 3/4 projection factor as the maintained
+[PCSX2 widescreen reference](https://github.com/PCSX2/pcsx2_patches/blob/main/patches/SLUS-20779_1FB1F8E2.pnach)
+by Catarax, applied at the original camera scale load. Other aspect modes keep the original camera.
+The 640×448 movie surface retains its original TV proportions. **Stretch to
+window** remains available as a separate display choice.
+
+The launcher’s **Clear image preset** selects bicubic scaling, original texture
+filtering and no FXAA. It preserves resolution, aspect ratio, frame limit,
+VSync and save/update preferences. Spatial upscaling cannot recover detail
+absent from the original image.
+
+Completed-frame timing is reported separately from window redraw counts. The
+`performance:frames` line records measured presentation rate, frame-interval
+percentile upper bounds, the longest interval and intervals exceeding 25 ms.
+These measurements help distinguish pacing spikes from an average frame rate.

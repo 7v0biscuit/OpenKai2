@@ -3,6 +3,7 @@
 #include "ps2_runtime.h"
 #include "runtime/ee_scheduler.h"
 #include "openkai2_translation_entries.h"
+#include "graphics_settings.h"
 #include <array>
 #include <cstring>
 #include <stdexcept>
@@ -12,6 +13,7 @@ void verify_actor_commands(PS2Runtime& runtime,uint8_t* ram) {
     auto require=[](bool ok,const char* why){if(!ok)throw std::runtime_error(why);};
     for(auto at:translation::script_command_entries)require(runtime.hasFunction(at),"Script command entry is missing");
     for(auto at:translation::object_callback_entries)require(runtime.hasFunction(at),"Installed object callback is missing");
+    for(auto at:translation::interaction_entries)require(runtime.hasFunction(at),"Story interaction command is missing");
     for(auto at:translation::actor_command_entries)require(runtime.hasFunction(at),"Actor command entry is missing");
     for(auto at:translation::actor_timing_entries)require(runtime.hasFunction(at),"Actor timing entry is missing");
     for(auto at:translation::actor_state_entries)require(runtime.hasFunction(at),"Actor state entry is missing");
@@ -27,6 +29,35 @@ void verify_actor_commands(PS2Runtime& runtime,uint8_t* ram) {
         const auto fn=runtime.lookupFunction(c.pc);require(fn!=nullptr,"Actor command reached an untranslated continuation");
         try{fn(ram,&c,&runtime);}catch(const EeDispatcherTransfer&){}
     }require(c.pc==returned,"Actor command did not return");};
+    {
+        const auto originalGraphics=graphics_settings();
+        struct GraphicsRestore { GraphicsSettings settings;~GraphicsRestore(){set_graphics_settings(settings);} } graphicsRestore{originalGraphics};
+        Restore projection{runtime,{}};
+        projection.replace(0x123c18u,[](uint8_t*,R5900Context* c,PS2Runtime* r){
+            auto& memory=r->memory();float horizontal,vertical;
+            const auto h=memory.read32(marker+4u),v=memory.read32(marker+8u);
+            std::memcpy(&horizontal,&h,4u);std::memcpy(&vertical,&v,4u);
+            if(c->f[21]!=horizontal || c->f[20]!=vertical)
+                throw std::runtime_error("Camera correction changed the horizontal scale or vertical projection");
+            memory.write32(marker,memory.read32(marker)+1u);c->pc=returned;
+            throw EeDispatcherTransfer{};
+        });
+        for(unsigned aspect=0;aspect<4u;++aspect)for(unsigned field:{0u,1u})for(auto alias:{0u,0x80000000u,0xa0000000u}){
+            auto settings=originalGraphics;settings.aspect=aspect;set_graphics_settings(settings);
+            const float camera[24]={1,1,16,0,1.5f,1.25f,2048,2048,0.1f,65535,1,0,1.6f,2.2857144f,0,512,0,0,0,0,0,0,0,0};
+            std::memcpy(ram+context,camera,sizeof(camera));m.write8(0x3a4b7cu,uint8_t(field));
+            const float horizontal=aspect==1u?1.125f:1.5f,vertical=field?0.625f:1.25f;
+            m.write32(marker,0u);std::memcpy(ram+marker+4u,&horizontal,4u);std::memcpy(ram+marker+8u,&vertical,4u);
+            R5900Context c{};c.pc=0x1317a0u;c.r[4]=_mm_cvtsi32_si128(context|alias);
+            c.r[28]=_mm_cvtsi32_si128(0x3ac4f0u|alias);c.r[29]=_mm_cvtsi32_si128(sp|alias);c.r[31]=_mm_cvtsi32_si128(returned);
+            run(c);
+            float x,y;std::memcpy(&x,ram+context+0x50u,4u);std::memcpy(&y,ram+context+0x54u,4u);
+            require(m.read32(marker)==1u && x==horizontal*256.0f && y==vertical*256.0f,
+                    "Camera correction did not reach the original projection outputs");
+            require(std::memcmp(ram+context,camera,0x30u)==0 && m.read32(context+0x3cu)==0x44000000u,
+                    "Camera correction modified its input parameters");
+        }
+    }
     // The constructor installs its update callback in the JR delay slot. Run
     // both original routines around the half-frame completion boundary.
     for(auto alias:{0u,0x80000000u,0xa0000000u})for(unsigned index:{0u,2u,7u})
@@ -63,6 +94,27 @@ void verify_actor_commands(PS2Runtime& runtime,uint8_t* ram) {
         c.pc=0x1fad00u;run(c);
         require(m.read32(state)==uint32_t(int32_t(int8_t(value))) && getRegU32(&c,2)==1u,"Actor-state command lost signed state byte");
         require(getRegU32(&c,29)==(sp|alias) && getRegU32(&c,31)==returned,"Script command lost its caller frame");
+    }
+    restore.replace(0x276620u,[](uint8_t*,R5900Context* c,PS2Runtime* r){
+        if(getRegU32(c,4)!=r->memory().read32(marker+4u) || getRegU32(c,5)!=r->memory().read32(marker+8u))
+            throw std::runtime_error("Confirmation command changed predicate arguments");
+        c->r[2]=_mm_cvtsi32_si128(r->memory().read32(marker));c->pc=getRegU32(c,31);
+    });
+    for(auto alias:{0u,0x80000000u,0xa0000000u})for(unsigned ready:{0u,1u})
+    for(int flag:{-1,0,1})for(unsigned index:{7u,25u}){
+        std::memset(ram+context,0xa5,0x100u);std::memset(ram+state,0x5a,0x100u);
+        m.write16(context+4u,uint16_t(flag));m.write32(state+0x1cu,index);
+        m.write32(marker,ready);m.write32(marker+4u,context|alias);m.write32(marker+8u,state|alias);
+        R5900Context c{};c.pc=0x275fe0u;c.r[4]=_mm_cvtsi32_si128(context|alias);c.r[5]=_mm_cvtsi32_si128(state|alias);
+        c.r[29]=_mm_cvtsi32_si128(sp|alias);c.r[31]=_mm_cvtsi32_si128(returned);
+        c.r[16]=_mm_set_epi32(1,2,3,4);c.r[17]=_mm_set_epi32(5,6,7,8);const auto saved=c;
+        run(c);
+        require(m.read32(state+0x10u)==(ready?0u:0x5a5a5a5au) &&
+                m.read32(state+0x1cu)==(ready && flag==0 ? (index==25u?0u:25u) : index),
+                "Confirmation command changed readiness or selection state");
+        require(getRegU32(&c,29)==(sp|alias) && getRegU32(&c,31)==returned &&
+                std::memcmp(&c.r[16],&saved.r[16],32u)==0 && m.read32(state+0x14u)==0x5a5a5a5au,
+                "Confirmation command changed its caller or neighboring state");
     }
     restore.replace(0x1b6520u,[](uint8_t*,R5900Context* c,PS2Runtime* r){
         auto& memory=r->memory();uint32_t a,b;std::memcpy(&a,&c->f[12],4u);std::memcpy(&b,&c->f[13],4u);

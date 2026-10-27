@@ -7,6 +7,8 @@
 #include <functional>
 #include <mutex>
 #include <thread>
+#include <iosfwd>
+#include "frame_pacing.h"
 
 namespace openkai2 {
 // Presentation may wait on the raster lock. Keep that work off the window
@@ -21,12 +23,16 @@ public:
     uint64_t completed() const { return completed_.load(std::memory_order_acquire); }
     uint64_t rendered() const { return rendered_.load(std::memory_order_relaxed); }
     uint64_t work_us() const { return workUs_.load(std::memory_order_relaxed); }
+    void report_timing(std::ostream&) const;
     void rethrow_if_failed();
     void stop();
 private:
     void run();
     std::function<void(uint64_t)> render_;
-    std::mutex mutex_;
+    mutable std::mutex mutex_;
+    FramePacing pacing_;
+    FramePacing samplePacing_;
+    uint64_t beganUs_=0,lastSampleUs_=0;
     std::condition_variable ready_;
     bool stopping_=false,haveTick_=false;
     uint64_t tick_=0,requested_=0;

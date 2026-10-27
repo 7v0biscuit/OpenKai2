@@ -20,7 +20,10 @@ inline DisplayRectangle display_rectangle(float screenWidth, float screenHeight,
                                           float sourceHeight, unsigned aspect) {
     if (screenWidth <= 0 || screenHeight <= 0 || sourceWidth <= 0 || sourceHeight <= 0)
         return {};
-    const float ratio = aspect == 0   ? 4.0f / 3.0f
+    // This game's Sofdec output is a 640x448 TV surface. Widescreen changes
+    // the 3D camera; it must not widen prerecorded video with that camera.
+    const bool originalVideo = aspect == 1 && sourceWidth == 640 && sourceHeight == 448;
+    const float ratio = aspect == 0 || originalVideo ? 4.0f / 3.0f
                         : aspect == 1 ? 16.0f / 9.0f
                         : aspect == 2 ? screenWidth / screenHeight
                                       : sourceWidth / sourceHeight;

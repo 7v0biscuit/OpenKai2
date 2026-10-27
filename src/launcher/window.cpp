@@ -66,7 +66,7 @@ enum Id {
     CheckUpdates,
     InstallUpdate,
     ReleasePage,
-    ResetGraphics = 170, OpenGraphics, OpenSaveManager
+    ResetGraphics = 170, OpenGraphics, OpenSaveManager, ClearImage
 };
 std::wstring wide(const std::string &s) {
     if (s.empty())
@@ -99,7 +99,7 @@ struct Fonts {
         };
         body = font(15, FW_NORMAL);
         caption = font(12, FW_NORMAL);
-        heading = font(28, FW_SEMIBOLD);
+        heading = font(32, FW_SEMIBOLD);
         brand = font(16, FW_SEMIBOLD);
     }
     ~Fonts() { clear(); }
@@ -235,9 +235,10 @@ struct Window {
                                                           {ResetGraphics, L"Reset graphics"},
                                                           {OpenGraphics,L"Graphics settings"},
                                                           {OpenSaveManager,L"Manage saves"},
+                                                          {ClearImage,L"Clear image preset"},
                                                           {ChooseIso, L"Choose ISO…"},
                                                           {VerifyIso, L"Verify again"},
-                                                          {Play, L"Play"},
+                                                          {Play, L"Launch game"},
                                                           {ImportFolder, L"Import folder"},
                                                           {ImportFile, L"Import save"},
                                                           {Backup, L"Back up now"},
@@ -269,7 +270,7 @@ struct Window {
         combo(Upscaler, {L"Nearest", L"Bilinear", L"Bicubic", L"AMD FSR 1 · Spatial"}, int(settings.upscaler));
         combo(Vsync, {L"Off", L"On"}, settings.vsync ? 1 : 0);
         combo(AutoBackup, {L"Off", L"On"}, settings.autoBackups ? 1 : 0);
-        combo(Aspect, {L"4:3", L"16:9", L"Stretch", L"Native pixels"}, int(settings.aspect));
+        combo(Aspect, {L"4:3 · Original", L"16:9 · Widescreen", L"Stretch to window", L"Native pixels"}, int(settings.aspect));
         combo(UpdateChannel, {L"Stable releases", L"Stable + prereleases"}, int(settings.updateChannel));
         combo(AutomaticUpdates, {L"Off", L"On"}, settings.autoUpdates ? 1 : 0);
         controls[BackupList] = CreateWindowExW(
@@ -343,6 +344,7 @@ struct Window {
             position(Filtering, 216, 484, col, 36);
             position(Upscaler, right, 484, col, 36);
             position(ResetGraphics, 216, 552, 144, 36);
+            position(ClearImage, 376, 552, 164, 36);
         } else {
             position(UpdateChannel, 216, 168, col, 36);
             position(AutomaticUpdates, right, 168, col, 36);
@@ -378,13 +380,13 @@ struct Window {
         fill(memory, {p(16), p(32), p(19), p(50)}, orange);
         fill(memory, {p(16), p(95), p(168), p(96)}, border);
         text(memory, L"OpenKai2", 28, 30, 144, 30, fonts.brand);
-        text(memory, L"GAME LIBRARY", 24, 108, 144, 18, fonts.caption, muted);
+        text(memory, L"YOUR LIBRARY", 24, 108, 144, 18, fonts.caption, muted);
         text(memory, L"Budokai 2", 28, 60, 144, 20, fonts.caption, muted);
         text(memory, child || externalGame ? L"Game running" : disc ? L"ISO verified" : L"No ISO selected", 24,
              h - 80, 144, 20, fonts.caption, child ? orange : muted);
         text(memory, wide(application_version), 24, h - 52, 144, 20, fonts.caption, muted);
-        const wchar_t *titles[] = {L"Play", L"Saves", L"Settings", L"Updates"};
-        const wchar_t *subtitles[] = {L"Select your disc and start the game.",
+        const wchar_t *titles[] = {L"Your game", L"Save manager", L"Game settings", L"Updates"};
+        const wchar_t *subtitles[] = {L"Your disc, play setup and saves. Ready for the next session.",
             L"Import saves, create backups, or restore a previous copy.",
             L"Saved automatically. Changes apply the next time you start the game.",
             L"Check for releases and choose your update channel."};
@@ -402,9 +404,10 @@ struct Window {
                 fill(memory,{hero.left,y,hero.right,y+1},RGB(31-t*9/255,48-t*17/255,75-t*29/255));
             }
             fill(memory,{p(216),p(140),p(220),p(296)},orange);
+            line(memory,p(240),p(236),p(std::max(80,content-300)),RGB(65,83,106));
             text(memory,L"DRAGON BALL Z",240,160,content-48,22,fonts.caption,gold);
             text(memory,L"Budokai 2",238,187,content-240,42,fonts.heading);
-            text(memory,L"USA edition  /  SLUS-20779",240,244,content-48,24,fonts.body,muted);
+            text(memory,L"USA EDITION   /   SLUS-20779",240,250,content-260,20,fonts.caption,muted);
             box(memory,{p(216),p(316),p(w-24),p(408)},panel);
             text(memory,L"GAME DISC",236,328,content-368,18,fonts.caption,muted);
             text(memory,candidateIso.empty() ? L"Choose your ISO to get started" : candidateIso.filename().wstring(),
@@ -412,13 +415,13 @@ struct Window {
             text(memory,candidateIso.empty() ? L"The selected path is remembered automatically." : candidateIso.wstring(),
                  236,386,content-40,16,fonts.caption,muted,DT_SINGLELINE|DT_PATH_ELLIPSIS|DT_NOPREFIX);
             const int card=(content-24)/3;
-            const wchar_t* captions[]={L"RENDERING",L"DISPLAY",L"FRAME PACING"};
+            const wchar_t* captions[]={L"GRAPHICS PROFILE",L"DISPLAY",L"FRAME PACING"};
             const std::wstring values[]={settings.renderer=="cpu" ? L"Software" : settings.renderer=="gpu" ? L"OpenGL GPU" : L"Automatic",
                 settings.windowMode ? L"Borderless" : std::to_wstring(settings.width)+L" × "+std::to_wstring(settings.height),
                 settings.fps ? std::to_wstring(settings.fps)+L" FPS limit" : L"Unlimited"};
             const wchar_t* scaling[]={L"Nearest scaling",L"Bilinear scaling",L"Bicubic scaling",L"AMD FSR 1 spatial"};
             const std::wstring details[]={std::wstring(scaling[settings.upscaler])+(settings.antialiasing ? L" / FXAA" : L""),
-                settings.aspect==0 ? L"4:3 aspect ratio" : settings.aspect==1 ? L"16:9 aspect ratio" : L"Custom aspect ratio",
+                settings.aspect==0 ? L"Original 4:3 proportions" : settings.aspect==1 ? L"16:9 widescreen projection" : L"Custom aspect ratio",
                 settings.vsync ? L"VSync on · Original game timing" : L"VSync off · Original game timing"};
             for(int i=0;i<3;++i){const int x=216+i*(card+12);
                 box(memory,{p(x),p(428),p(x+card),p(504)},panel);
@@ -426,8 +429,9 @@ struct Window {
                 text(memory,values[i],x+14,458,card-28,22,fonts.brand);
                 text(memory,details[i],x+14,484,card-28,16,fonts.caption,muted,DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
             }
-            text(memory,disc ? L"Launch game" : L"Select and verify your disc to enable Play.",216,526,content-208,24,fonts.brand);
-            text(memory,L"Game files are verified before every launch.",216,555,content-208,22,fonts.caption,muted);
+            text(memory,disc ? L"Everything in place" : L"Add your game disc",216,526,content-208,24,fonts.brand);
+            text(memory,disc ? (settings.autoBackups ? L"Disc checked at launch · Automatic save backups on" : L"Disc checked at launch · Manual save backups")
+                             : L"Choose an ISO above. Your selection is remembered.",216,555,content-208,22,fonts.caption,muted);
         } else if (page == 1) {
             box(memory,{p(204),p(132),p(w-12),p(202)},panel);
             box(memory,{p(204),p(288),p(w-12),p(524)},panel);
@@ -448,14 +452,14 @@ struct Window {
             const wchar_t *labels[] = {L"Display mode", L"Window resolution", L"Aspect ratio", L"Presentation limit", L"VSync"};
             for (int i = 0; i < 5; ++i)
                 text(memory, labels[i], i % 2 ? right : 216, 146 + (i / 2) * 68, col, 20, fonts.caption, muted);
-            text(memory, L"Limits affect presentation, not game speed. VSync can lower the effective cap.", right, 300, col, 44,
+            text(memory, L"60 FPS with VSync is the recommended starting point.", right, 300, col, 44,
                  fonts.caption, muted, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
             text(memory, L"Rendering", 216, 368, content, 24, fonts.brand);
             const wchar_t *renderLabels[] = {L"Renderer", L"Anti-aliasing", L"Texture filtering", L"Image scaling"};
             for (int i = 0; i < 4; ++i)
                 text(memory, renderLabels[i], i % 2 ? right : 216, 394 + (i / 2) * 68, col, 20, fonts.caption, muted);
-            text(memory, L"FSR 1 uses GPU upscaling and sharpening. Requires OpenGL 4.3.", 376, 558,
-                 content - 160, 32, fonts.caption, muted, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
+            text(memory, L"For clearer text, try the clear image preset. FSR 1 is available for spatial upscaling.", 556, 552,
+                 content - 340, 48, fonts.caption, muted, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
         } else {
             box(memory,{p(204),p(132),p(w-12),p(218)},panel);
             box(memory,{p(204),p(232),p(w-12),p(404)},panel);
@@ -514,10 +518,21 @@ struct Window {
             textRect.left += p(navigation ? 16 : 12);
             textRect.right -= p(12);
             if(navigation){
+                const int left=r.left+p(16),top=r.top+p(13),size=p(14);
+                const COLORREF accent=chosen ? gold : muted;
+                auto pen=CreatePen(PS_SOLID,p(2),accent);auto previous=SelectObject(dc,pen);
+                const auto stroke=[&](int x,int y,int ex,int ey){MoveToEx(dc,x,y,nullptr);LineTo(dc,ex,ey);};
+                if(id==PlayTab){stroke(left,top,left,top+size);stroke(left,top,left+size,top+size/2);stroke(left+size,top+size/2,left,top+size);}
+                else if(id==SavesTab){stroke(left,top,left+size,top);stroke(left,top,left,top+size);stroke(left+size,top,left+size,top+size);stroke(left,top+size,left+size,top+size);stroke(left+p(4),top+p(5),left+p(10),top+p(5));}
+                else if(id==SettingsTab){for(int i=0;i<3;++i){const int y=top+i*p(6);stroke(left,y,left+size,y);fill(dc,{left+p(i==1?8:3),y-p(2),left+p(i==1?11:6),y+p(3)},accent);}}
+                else{stroke(left,top+size/2,left+size,top+size/2);stroke(left+p(9),top+p(2),left+size,top+size/2);stroke(left+size,top+size/2,left+p(9),top+size-p(2));}
+                SelectObject(dc,previous);DeleteObject(pen);
+                textRect.left=r.left+p(44);
                 textRect.top+=p(8);textRect.bottom=textRect.top+p(23);
                 DrawTextW(dc,label,-1,&textRect,DT_SINGLELINE|DT_LEFT|DT_NOPREFIX);
                 SelectObject(dc,fonts.caption);SetTextColor(dc,chosen ? gold : muted);
                 const wchar_t* descriptions[]={L"ISO & launch",L"Imports & recovery",L"Display & rendering",L"Release channels"};
+                textRect.left=r.left+p(16);
                 textRect.top+=p(23);textRect.bottom=textRect.top+p(18);
                 DrawTextW(dc,descriptions[id-PlayTab],-1,&textRect,DT_SINGLELINE|DT_LEFT|DT_NOPREFIX);
             }else DrawTextW(dc,label,-1,&textRect,DT_SINGLELINE|DT_VCENTER|DT_CENTER|DT_NOPREFIX);
@@ -887,6 +902,14 @@ struct Window {
             updateError = false;
             refreshEnabled();
             return;
+        }
+        if (id == ClearImage) {
+            auto next=settings;next.antialiasing=0;next.textureFilter=0;next.upscaler=2;
+            write_settings(settings_path(),next);settings=std::move(next);
+            for(auto choice : {std::pair<int,int>{Antialiasing,0},{Filtering,0},{Upscaler,2}})
+                SendMessageW(controls[choice.first],CB_SETCURSEL,choice.second,0);
+            status=L"Clear image preset saved: bicubic scaling, original texture filtering, FXAA off.";
+            error=false;refreshEnabled();return;
         }
         if (id == ResetGraphics) {
             Settings defaults;

@@ -72,6 +72,51 @@ GSPrimitiveBatch material(unsigned mode,bool sprite){
     if(sprite){b.vertices[1].v=2040u;b.vertices[1].t=float(b.vertices[1].v)/2048.0f;}
     return b;
 }
+void checkPaletteReuse(){
+    unsigned cases=0u;
+    for(unsigned psm:{19u,20u,44u})for(unsigned cpsm:{0u,2u})for(unsigned csm:{0u,1u}){
+        Comparison pair;auto batch=material(64u,true);auto& t=batch.state.context.tex0;
+        t.psm=psm;t.cpsm=cpsm;t.csm=csm;t.csa=0u;t.cld=1u;
+        batch.state.prim.fst=true;batch.state.prim.abe=false;batch.vertices[0].x=batch.vertices[0].y=8;
+        batch.vertices[1].x=40;batch.vertices[1].y=32;batch.vertices[0].u=batch.vertices[0].v=0;
+        batch.vertices[1].u=32u*16u;batch.vertices[1].v=24u*16u;
+        GSTexClutReg tc{};tc.cbw=1u;tc.cou=2u;tc.cov=3u;batch.state.texclut=tc;
+        const auto load=[&]{pair.cpu->LoadClut(t,tc);pair.gpu->LoadClut(t,tc);};
+        load();const auto initial=pair.gpu->stats();
+        for(unsigned i=0;i<64u;++i){load();pair.draw(batch);}
+        const auto repeated=pair.gpu->stats();
+        if(repeated.paletteLoads!=initial.paletteLoads || repeated.paletteReuses-initial.paletteReuses!=64u)
+            throw std::runtime_error("Unchanged CLD=1 palette loads were repeated");
+        pair.compare("Repeated palette draws");
+        t.cld=2u;load();t.cld=1u;const auto before=pair.gpu->stats();load();
+        if(pair.gpu->stats().paletteLoads!=before.paletteLoads+1u)
+            throw std::runtime_error("CBP-register load reused a prior palette key");
+        // CPU writes, transfer uploads and GPU draws may all edit a palette.
+        const unsigned x=csm?unsigned(tc.cou)*16u:0u,y=csm?tc.cov:0u;
+        pair.write(cpsm,t.cbp,1u,x,y,cpsm?0xffffu:0x80a07030u);
+        auto prior=pair.gpu->stats().paletteLoads;load();pair.draw(batch);
+        if(pair.gpu->stats().paletteLoads!=prior+1u)throw std::runtime_error("CPU palette write did not invalidate reuse");
+        GSTransferCommand transfer{};transfer.direction=0u;transfer.bitbltbuf.dpsm=cpsm;
+        transfer.bitbltbuf.dbp=t.cbp;transfer.bitbltbuf.dbw=1u;transfer.trxpos.dsax=x;transfer.trxpos.dsay=y;
+        transfer.trxreg.rrw=1u;transfer.trxreg.rrh=1u;const uint32_t changed=0x80306090u;
+        pair.cpu->BeginTransfer(transfer);pair.gpu->BeginTransfer(transfer);
+        pair.cpu->UploadImage(reinterpret_cast<const uint8_t*>(&changed),cpsm?2u:4u);
+        pair.gpu->UploadImage(reinterpret_cast<const uint8_t*>(&changed),cpsm?2u:4u);
+        prior=pair.gpu->stats().paletteLoads;load();pair.draw(batch);
+        if(pair.gpu->stats().paletteLoads!=prior+1u)throw std::runtime_error("Palette upload did not invalidate reuse");
+        auto paint=batch;paint.state.prim.tme=false;auto& target=paint.state.context;
+        target.frame.fbp=t.cbp/32u;target.frame.fbw=1u;target.frame.psm=cpsm;target.test=0x30000u;
+        target.scissor={0u,63u,0u,31u};paint.vertices[0].x=float(x);paint.vertices[0].y=float(y);
+        paint.vertices[1].x=float(x+1u);paint.vertices[1].y=float(y+1u);pair.draw(paint);
+        prior=pair.gpu->stats().paletteLoads;load();pair.draw(batch);
+        if(pair.gpu->stats().paletteLoads!=prior+1u)throw std::runtime_error("GPU palette write did not invalidate reuse");
+        pair.compare("Palette edit and CBP transitions");
+        pair.cpu->Reset();pair.gpu->Reset();prior=pair.gpu->stats().paletteLoads;load();pair.draw(batch);
+        if(pair.gpu->stats().paletteLoads!=prior+1u)throw std::runtime_error("Palette reuse survived reset");
+        pair.compare("Palette reset");++cases;
+    }
+    std::cout<<"GPU palette reuse comparisons passed: "<<cases<<" formats/addressing states, 768 reused loads, CPU/upload/GPU edits, CBP transitions and reset.\n";
+}
 void checkPresentationReadbacks(){
     for(unsigned variant=0;variant<19u;++variant){
         Comparison pair(false);auto draw=material(0u,true);
@@ -337,7 +382,7 @@ int run_gpu_checks(bool required){
         const bool initialized=gpu::initialize_headless(error);
 #endif
         if(!initialized){std::cout<<"GPU checks unavailable: "<<error<<'\n';return required ? 1 : 77;}
-        checkFlatDepth();checkDepthPlanes();checkPresentationReadbacks();checkEmptyTriangles();checkMaterials();checkIntegerPipeline();checkFormats();checkLines();checkCoherence();checkRebind();checkClears();checkSourceChanges();checkPartialReadbacks();
+        checkFlatDepth();checkDepthPlanes();checkPaletteReuse();checkPresentationReadbacks();checkEmptyTriangles();checkMaterials();checkIntegerPipeline();checkFormats();checkLines();checkCoherence();checkRebind();checkClears();checkSourceChanges();checkPartialReadbacks();
         const auto before=gpu_render_statistics().gpuDraws;verify_vector_runtime_gpu();
         if(gpu_render_statistics().gpuDraws-before!=8u)throw std::runtime_error("VIF/PATH1 integration did not execute eight GPU triangles");
         // A failed asynchronous submission must propagate to its caller and

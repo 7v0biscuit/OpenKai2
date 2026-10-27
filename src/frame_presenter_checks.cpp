@@ -14,6 +14,23 @@ void verify_frame_presenter() {
         if(!ok)throw std::runtime_error(std::string("Runtime asynchronous presentation regression: ")+reason);
     };
     const auto originalLimit=window_fps_limit();
+    FramePacing measured;
+    require(measured.summary().fps()==0.0 && measured.summary().p95Us==0,"empty timing samples were reported as frames");
+    measured.record(0u,1000u);
+    for(unsigned i=1;i<=99u;++i)measured.record(i*16683u,1000u);
+    auto timing=measured.summary();
+    require(timing.frames==100u && timing.intervals==99u && timing.elapsedUs==99u*16683u &&
+            timing.p50Us==17000u && timing.p95Us==17000u && timing.late==0u && timing.workUs==100000u,
+            "completed frame timing or percentile calculation changed");
+    measured.record(99u*16683u+40000u,5000u);timing=measured.summary();
+    require(timing.late==1u && timing.maxUs==40000u && timing.p99Us==17000u && timing.fps()<60.0,
+            "a slow presentation was hidden from frame pacing statistics");
+    measured.record(99u*16683u+1040000u,1000u);timing=measured.summary();
+    require(timing.p99Us==40000u && timing.maxUs==1000000u && timing.late==2u,
+            "long frame intervals overflowed timing buckets");
+    measured.restart(2000000u);measured.record(2040000u,1000u);timing=measured.summary();
+    require(timing.frames==1u && timing.intervals==1u && timing.elapsedUs==40000u && timing.late==1u,
+            "a slow frame at a reporting boundary disappeared");
     for(unsigned value=0;value<=240u;++value){
         require(parse_window_fps_limit(std::to_string(value))==value,"display limit parsed incorrectly");
         set_window_fps_limit(value);require(window_fps_limit()==value,"display limit was not retained");

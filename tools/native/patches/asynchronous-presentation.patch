@@ -78,7 +78,7 @@
  
          BeginDrawing();
          ClearBackground(BLACK);
-@@ -2496,6 +2495,13 @@
+@@ -2496,6 +2495,14 @@
          gameThread.join();
      }
  
@@ -89,6 +89,7 @@
 +              << " window_frames=" << windowFrames << " elapsed_ms=" << elapsedMs()
 +              << " guest_fields=" << m_memory.gs().vsyncTick.load(std::memory_order_acquire)
 +              << " work_us=" << presenter.work_us() << std::endl;
++    presenter.report_timing(std::cout);
      startupDiagnostics.report(windowClosed ? "window-close" : "execution-stopped",
                                elapsedMs(), m_eeScheduler->snapshot(), startupActivity(), std::cout);
      openkai2::report_startup_graphics(m_gs, elapsedMs(), std::cout);

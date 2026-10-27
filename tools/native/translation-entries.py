@@ -3590,12 +3590,27 @@ OBJECT_CALLBACK_WORDS = (
     (0x00225990, (0x8CA6002C,0x3C030022,0x24635930,0x24020003,0x8CC60000,0x27858858,0xAC860024,0x8C860000,0x8CC60000,0x00063080,0x00A62821,0xC4A00000,0xE480002C,0x03E00008,0xAC830010,0x00000000)),
 )
 
+# Story interaction commands selected by the signed-byte dispatcher at
+# 0x002769e0, and the adjacent UI method bank. Preserve reserved null slots.
+INTERACTION_TABLES = (
+    (0x00379780, (0x002765C0,0x00276570,0x00276220,0x00275F50,0x00275E50,0x00275D90,0x00275D50,0x00275C50,0x00275BD0,0x00275B30,0x00276180,0x00276120,0x002760E0,0x00276050,0x00275ED0,0x00275AF0,0x00275AC0,0x00275A60,0x00275A10,0x002759B0,0x00275980,0x00275FE0,0x00000000,0x00000000)),
+    (0x003797E0, (0x00274570,0x00274480,0x00274420,0x002743B0,0x002742B0,0x00274240,0x00274170,0x002740D0,0x00273FA0,0x00000000,0x00000000,0x00000000)),
+)
+INTERACTION_ENTRIES = tuple(sorted({x for _, row in INTERACTION_TABLES for x in row if x}))
+INTERACTION_WORDS = (
+    (0x00275FE0, (0x27BDFFD0,0xFFBF0020,0x7FB10010,0x7FB00000,0x0080882D,0x0C09D988,0x00A0802D,0x1040000E,0x00000000,0xAE000010,0x86230004,0x1460000A,0x00000000,0x8E04001C,0x24030019,0x14830004,0x00000000,0x10000004,0xAE00001C,0x00000000,0xAE03001C,0x00000000,0xDFBF0020,0x7BB10010,0x7BB00000,0x03E00008,0x27BD0030,0x00000000)),
+    (0x002769E0, (0x82230000,0x3C020038,0x24429780,0x0220202D,0x00031880,0x00431021,0x8C420000,0x0040F809,0x0200282D)),
+)
+
+# Camera horizontal scale load and its original branch delay slot.
+PROJECTION_WORDS = ((0x001317F0, (0xC6150010,0x8382868C,0x10400007,0x00000000)), )
+
 ENTRY_POINTS = tuple(dict.fromkeys((0x00167188,)
     + tuple(address for _, row in DISPATCH_TABLES for address in row)
     + FILE_CALLBACK_ENTRIES + STREAM_CALLBACK_ENTRIES + MEMORY_STREAM_ENTRIES
     + tuple(address for _, address in TRANSLATED_SDK_ENTRIES)
     + ASSET_RELOCATION_ENTRIES + FADE_CALLBACK_ENTRIES + MOVIE_CALLBACK_ENTRIES
-    + MOVIE_PACKET_ENTRIES + MOVIE_TIMING_ENTRIES + DRAW_SETUP_ENTRIES + (VERSUS_ANIMATION_ENTRY,) + BATTLE_INIT_ENTRIES + BATTLE_ASSET_ENTRIES + SCENE_MODE_ENTRIES + BATTLE_COMMAND_ENTRIES + AURA_UPDATE_ENTRIES + BATTLE_UPDATE_ENTRIES + BATTLE_DRAW_ENTRIES + FIGHT_STATE_ENTRIES + ATTACK_EFFECT_ENTRIES + IMPACT_EFFECT_ENTRIES + ACTOR_COMMAND_ENTRIES + ACTOR_TIMING_ENTRIES + ACTOR_STATE_ENTRIES + PAUSE_MENU_ENTRIES + STORY_CALLBACK_ENTRIES + SCRIPT_COMMAND_ENTRIES + OBJECT_CALLBACK_ENTRIES))
+    + MOVIE_PACKET_ENTRIES + MOVIE_TIMING_ENTRIES + DRAW_SETUP_ENTRIES + (VERSUS_ANIMATION_ENTRY,) + BATTLE_INIT_ENTRIES + BATTLE_ASSET_ENTRIES + SCENE_MODE_ENTRIES + BATTLE_COMMAND_ENTRIES + AURA_UPDATE_ENTRIES + BATTLE_UPDATE_ENTRIES + BATTLE_DRAW_ENTRIES + FIGHT_STATE_ENTRIES + ATTACK_EFFECT_ENTRIES + IMPACT_EFFECT_ENTRIES + ACTOR_COMMAND_ENTRIES + ACTOR_TIMING_ENTRIES + ACTOR_STATE_ENTRIES + PAUSE_MENU_ENTRIES + STORY_CALLBACK_ENTRIES + SCRIPT_COMMAND_ENTRIES + OBJECT_CALLBACK_ENTRIES + INTERACTION_ENTRIES))
 
 
 def configure(text):
@@ -3629,13 +3644,17 @@ def configure(text):
 def verify_generated(directory):
     directory = Path(directory)
     registry = (directory / 'register_functions.cpp').read_text()
+    bindings = {}
+    for match in re.finditer(r'g_ps2RecompiledFunctionTable\[\d+\]\s*=\s*(\w+);\s*//\s*0x([0-9a-f]+)\b', registry, re.IGNORECASE):
+        bindings.setdefault(int(match.group(2), 16), match.group(1))
+    owners = {}
     for address in ENTRY_POINTS:
-        binding = re.search(
-            rf'g_ps2RecompiledFunctionTable\[\d+\]\s*=\s*(\w+);\s*//\s*0x0*{address:x}\b',
-            registry, re.IGNORECASE)
-        if not binding:
+        binding = bindings.get(address)
+        if binding is None:
             raise ValueError(f'Generated dispatch table is missing guest entry 0x{address:08x}; regenerate translation')
-        owner = (directory / (binding.group(1) + '.cpp')).read_text()
+        if binding not in owners:
+            owners[binding] = (directory / (binding + '.cpp')).read_text()
+        owner = owners[binding]
         dedicated = re.search(rf'// Address:\s*0x0*{address:x}\s*-', owner, re.IGNORECASE)
         resumed = (re.search(rf'case\s+0x0*{address:x}u:\s*goto\s+label_{address:x};', owner, re.IGNORECASE)
                    and re.search(rf'^label_{address:x}:', owner, re.MULTILINE | re.IGNORECASE))
@@ -3657,7 +3676,7 @@ def verify_elf_metadata(data):
         raise ValueError('Startup dispatcher table roots differ from the reviewed metadata')
     for base, entries in (DISPATCH_TABLES + FILE_CALLBACK_TABLES + STREAM_CALLBACK_TABLES + MEMORY_STREAM_TABLES
                           + FADE_CALLBACK_TABLES + MOVIE_CALLBACK_TABLES + MOVIE_PACKET_TABLES
-                          + MOVIE_TIMING_TABLES + BATTLE_INIT_TABLES + SCENE_MODE_TABLES + BATTLE_COMMAND_TABLES + AURA_UPDATE_TABLES + BATTLE_UPDATE_TABLES + BATTLE_DRAW_TABLES + FIGHT_STATE_TABLES + ATTACK_EFFECT_TABLES + IMPACT_EFFECT_TABLES + ACTOR_COMMAND_TABLES + ACTOR_TIMING_TABLES + ACTOR_STATE_TABLES + PAUSE_MENU_TABLES + STORY_CALLBACK_TABLES + SCRIPT_COMMAND_TABLES + SCRIPT_COMMAND_ROOTS):
+                          + MOVIE_TIMING_TABLES + BATTLE_INIT_TABLES + SCENE_MODE_TABLES + BATTLE_COMMAND_TABLES + AURA_UPDATE_TABLES + BATTLE_UPDATE_TABLES + BATTLE_DRAW_TABLES + FIGHT_STATE_TABLES + ATTACK_EFFECT_TABLES + IMPACT_EFFECT_TABLES + ACTOR_COMMAND_TABLES + ACTOR_TIMING_TABLES + ACTOR_STATE_TABLES + PAUSE_MENU_TABLES + STORY_CALLBACK_TABLES + SCRIPT_COMMAND_TABLES + SCRIPT_COMMAND_ROOTS + INTERACTION_TABLES):
         if words(base, len(entries)) != entries:
             raise ValueError(f'Indirect methods differ from the reviewed table at 0x{base:08x}')
     if words(0x00387420, len(MOVIE_TIMING_RATES)) != MOVIE_TIMING_RATES:
@@ -3683,6 +3702,12 @@ def verify_elf_metadata(data):
     for address,expected in ACTOR_TIMING_WORDS:
         if words(address,len(expected)) != expected:
             raise ValueError(f'Actor timing instructions differ at 0x{address:08x}')
+    for address, expected in PROJECTION_WORDS:
+        if words(address, len(expected)) != expected:
+            raise ValueError(f'Camera projection instructions differ at 0x{address:08x}')
+    for address, expected in INTERACTION_WORDS:
+        if words(address, len(expected)) != expected:
+            raise ValueError(f'Interaction command instructions differ at 0x{address:08x}')
     for address,expected in SCRIPT_COMMAND_WORDS:
         if words(address,len(expected)) != expected:
             raise ValueError(f'Script command instructions differ at 0x{address:08x}')
@@ -3761,6 +3786,7 @@ def emit_check_header(path):
                           ('story_callback_entries', STORY_CALLBACK_ENTRIES),
                           ('script_command_entries', SCRIPT_COMMAND_ENTRIES),
                           ('object_callback_entries', OBJECT_CALLBACK_ENTRIES),
+                          ('interaction_entries', INTERACTION_ENTRIES),
                           ('actor_state_entries', ACTOR_STATE_ENTRIES),
                           ('actor_state_slots', ACTOR_STATE_TABLES[0][1]),
                           ('actor_timing_entries', ACTOR_TIMING_ENTRIES),

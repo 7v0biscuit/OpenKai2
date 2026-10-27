@@ -212,6 +212,12 @@ int main() {
                         "Saved aspect ratio was not restored");
                 require(SendMessageW(GetDlgItem(w,146),CB_GETCURSEL,0,0)==3,
                         "Saved FSR preference was not restored");
+                click(w,173);
+                const auto clear=read_settings(settings_path());
+                require(clear.antialiasing==0 && clear.textureFilter==0 && clear.upscaler==2,
+                        "Clear image preset was not saved");
+                require(clear.fps==120 && clear.aspect==1 && !clear.autoBackups && !clear.autoUpdates,
+                        "Clear image preset changed display pacing or save preferences");
                 click(w,170);
                 auto reset = read_settings(settings_path());
                 require(reset.fps==60 && reset.aspect==0 && reset.antialiasing==0 &&
@@ -220,7 +226,7 @@ int main() {
                 require(!reset.autoBackups && !reset.autoUpdates && reset.updateChannel==0,
                         "Reset graphics changed save/update preferences");
                 SetWindowPos(w,nullptr,0,0,1000,680,SWP_NOZORDER|SWP_NOACTIVATE);
-                for(int id : {140,141,142,143,144,145,146,147,149,170}) {
+                for(int id : {140,141,142,143,144,145,146,147,149,170,173}) {
                     RECT bounds{},client{};GetWindowRect(GetDlgItem(w,id),&bounds);GetClientRect(w,&client);
                     MapWindowPoints(nullptr,w,reinterpret_cast<POINT*>(&bounds),2);
                     require(bounds.left>=0 && bounds.top>=0 && bounds.right<=client.right &&

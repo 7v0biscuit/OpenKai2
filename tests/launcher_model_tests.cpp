@@ -212,6 +212,9 @@ int main() {
                 "Original TV aspect is incorrect");
         require(wide.width == 1920 && wide.height == 1080 && wide.x == 0,
                 "Widescreen aspect is incorrect");
+        const auto video = openkai2::display_rectangle(1920,1080,640,448,1);
+        require(video.width==1440 && video.x==240 && video.height==1080,
+                "Widescreen stretched the original movie surface");
         require(stretch.width == 1280 && stretch.height == 1024,
                 "Stretch mode did not fill the window");
         require(std::abs(native.width / native.height - 512.0f / 448.0f) < 0.0001f,
