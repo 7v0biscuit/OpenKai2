@@ -10,7 +10,7 @@ add_library(openkai2_spu2 STATIC
     "${spu2_root}/SPU2/ReverbResample.cpp"
     "${spu2_root}/SPU2/spu2sys.cpp"
     "${project_root}/src/audio/spu2_mirror.cpp")
-target_compile_features(openkai2_spu2 PRIVATE cxx_std_20)
+target_compile_features(openkai2_spu2 PRIVATE cxx_std_20 INTERFACE cxx_std_17)
 target_include_directories(openkai2_spu2 PRIVATE "${project_root}/src/audio/spu2/shims"
     "${spu2_root}" "${spu2_root}/SPU2" "${project_root}/third_party/pcsx2-vu/upstream"
     PUBLIC "${project_root}/src")
