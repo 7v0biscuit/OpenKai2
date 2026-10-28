@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "host_audio.h"
-#include "audio_buffer.h"
+#include "audio_stretch.h"
 #include <raylib.h>
 #include <algorithm>
 #include <array>
@@ -15,12 +15,13 @@ namespace openkai2 {
 namespace {
 // SPU2 output runs at 48 kHz. The device stream uses the same rate and 32-bit
 // float samples, so PCM reaches the mixer without resampling or requantizing.
+// Each core's stream is time-stretched to the rate the game produces it.
 constexpr unsigned outputRate = 48000u, chunkFrames = 1024u;
 HostAudioOptions options;
 
 struct Output {
     std::array<StereoAudioQueue, 2> queues;
-    std::array<StereoAudioPlayback, 2> playback;
+    std::array<StretchedPlayback, 2> playback;
     float gain = 1.0f;
 };
 
@@ -37,12 +38,12 @@ float limit(float value) {
 void render(Output &output, float *samples, unsigned frames) {
     for (unsigned first = 0; first < frames; first += chunkFrames) {
         const unsigned count = std::min(chunkFrames, frames - first);
-        std::array<int32_t, chunkFrames * 2u> mixed{};
-        const std::span<int32_t> span(mixed.data(), count * 2u);
+        std::array<float, chunkFrames * 2u> mixed{};
+        const std::span<float> span(mixed.data(), count * 2u);
         for (unsigned core = 0; core < 2u; ++core)
-            output.playback[core].mix(output.queues[core], span);
+            output.playback[core].render(output.queues[core], span);
         for (unsigned i = 0; i < count * 2u; ++i)
-            samples[first * 2u + i] = limit(float(mixed[i]) * output.gain / 32768.0f);
+            samples[first * 2u + i] = limit(mixed[i] * output.gain);
     }
 }
 
@@ -146,25 +147,47 @@ int test_host_audio() {
         };
         auto check = std::make_unique<Output>();
         check->gain = gainFor(50u);
-        // Two cores of constant PCM: after the prefill and fade-in, the
-        // stream must carry their sum at half volume.
-        std::vector<int16_t> first(4096u * 2u, 8192), second(4096u * 2u, 4096);
+        // Two cores of constant PCM at full speed: once primed, the stream
+        // must carry their sum at half volume.
+        std::vector<int16_t> first(16384u * 2u, 8192), second(16384u * 2u, 4096);
         check->queues[0].push(first);
         check->queues[1].push(second);
-        std::vector<float> samples(4096u * 2u);
-        render(*check, samples.data(), 4096u);
+        std::vector<float> samples(8192u * 2u);
+        render(*check, samples.data(), 8192u);
         const float expected = (8192.0f + 4096.0f) * 0.5f / 32768.0f;
-        require(samples.front() > 0.0f && samples.front() < expected * 0.05f, "Mixer started without a fade-in");
-        require(std::fabs(samples[3000u * 2u] - expected) < 1.0e-6f &&
-                    std::fabs(samples[3000u * 2u + 1u] - expected) < 1.0e-6f,
+        require(samples.front() < expected * 0.05f, "Mixer started without a fade-in");
+        require(std::fabs(samples[6000u * 2u] - expected) < 1.0e-5f &&
+                    std::fabs(samples[6000u * 2u + 1u] - expected) < 1.0e-5f,
                 "Mixer did not sum both SPU2 cores at the requested volume");
-        require(limit(0.5f) == 0.5f && limit(4.0f) <= 1.0f && limit(1.0f) < 1.0f && limit(1.0f) > 0.95f && limit(-4.0f) == -limit(4.0f),
+        require(limit(0.5f) == 0.5f && limit(4.0f) <= 1.0f && limit(1.0f) < 1.0f && limit(1.0f) > 0.95f &&
+                    limit(-4.0f) == -limit(4.0f),
                 "Limiter changed quiet samples or clipped loud ones");
+        // A tone produced at 70% of real time is stretched, not interrupted.
+        auto slow = std::make_unique<Output>();
+        std::vector<int16_t> tone(48000u * 2u);
+        for (unsigned i = 0; i < 48000u; ++i)
+            tone[i * 2u] = tone[i * 2u + 1u] = int16_t(8000.0 * std::sin(2.0 * 3.14159265358979323846 * 440.0 * i / 48000.0));
+        size_t fed = 0, gaps = 0;
+        std::vector<float> block(1024u * 2u);
+        for (unsigned step = 0; step < 60u; ++step) {
+            const size_t count = std::min<size_t>(717u, 48000u - fed);
+            slow->queues[0].push(std::span<const int16_t>(tone.data() + fed * 2u, count * 2u));
+            fed += count;
+            std::fill(block.begin(), block.end(), 0.0f);
+            render(*slow, block.data(), 1024u);
+            if (step > 12u)
+                for (unsigned i = 0; i < 1024u; i += 64u)
+                    gaps += std::fabs(block[i * 2u]) + std::fabs(block[(i + 16u) * 2u]) + std::fabs(block[(i + 32u) * 2u]) < 1.0e-4f;
+        }
+        require(gaps == 0u, "Slow PCM left silent gaps instead of being stretched");
+        require(slow->playback[0].speed() < 0.85, "Playback rate did not follow the slower stream");
         check->queues[0].discardPending();
         check->queues[1].discardPending();
         render(*check, samples.data(), 1024u);
+        std::fill(samples.begin(), samples.end(), 0.0f);
+        render(*check, samples.data(), 1024u);
         require(std::fabs(samples[1023u * 2u]) < 1.0e-6f, "Stopped stream kept playing");
-        std::cout << "Host audio mixer passed: 48 kHz float stereo, both SPU2 cores, volume and limiter.\n"
+        std::cout << "Host audio mixer passed: 48 kHz float stereo, both SPU2 cores, volume, limiter and time-stretching.\n"
                   << "Host audio output is " << (options.enabled ? "enabled" : "disabled")
                   << " in settings at " << options.volume << "% volume.\n";
         return 0;
