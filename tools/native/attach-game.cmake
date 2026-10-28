@@ -85,6 +85,7 @@ function(openkai2_attach_generated_sources)
         "${project_root}/tools/native/patches/launcher-display.patch"
         "${project_root}/tools/native/patches/window-redraw-pacing.patch"
         "${project_root}/tools/native/patches/disc-timing.patch"
+        "${project_root}/tools/native/patches/fpu-conversion.patch"
         "${project_root}/tools/native/patches/simulation-pacing.patch"
         "${project_root}/tools/native/patches/vector-native-backend.patch"
         "${project_root}/tools/native/patches/guest-timing.patch"
@@ -512,6 +513,10 @@ function(openkai2_attach_generated_sources)
     endif()
     ps2x_stage_ffmpeg_runtime_dlls(openkai2_cdvd_tests)
     add_test(NAME cdvd_iso_layout COMMAND openkai2_cdvd_tests)
+    add_executable(openkai2_fpu_tests "${project_root}/tests/fpu_conversion_tests.cpp")
+    target_include_directories(openkai2_fpu_tests BEFORE PRIVATE "${overlay_dir}/include")
+    target_link_libraries(openkai2_fpu_tests PRIVATE ps2_runtime)
+    add_test(NAME fpu_conversion COMMAND openkai2_fpu_tests)
     if(OPENKAI2_RUNTIME_TESTS_ONLY)
         add_test(NAME launcher_help COMMAND ps2EntryRunner --help)
         set_tests_properties(launcher_help PROPERTIES

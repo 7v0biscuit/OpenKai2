@@ -9,6 +9,18 @@ The original Budokai 2 USA ISO is required at every game launch. Automated
 checks cover bounded runtime behavior and Windows packaging; full retail
 compatibility requires separate validation.
 
+## EE float conversion
+
+`CVT.W.S` now truncates toward zero and saturates by sign at 2^31, matching the
+EE. The runtime previously rounded to nearest, so any conversion with a fraction
+of .5 or more came out one too high. The UI keyframe sampler at `0x001A8200`
+then scanned past the end of its keyframe table and returned zeroed values near
+the end of a track. Dragon World message and Yes/No sprites use that sampler,
+and the board movement code wraps its path time with the same conversion
+(`0x0023A67C`). Regression checks cover truncation, signed zero, saturation and
+the looped-time arithmetic; in-game confirmation of story dialogue and board
+movement is pending.
+
 ## Animation scripts and rendering
 
 Scene script coverage includes 485 commands in complete static banks, plus the
