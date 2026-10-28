@@ -153,7 +153,8 @@ def main():
                       patches / 'pixel-blending.patch', patches / 'spu2-pcm-output.patch', patches / 'iop-import-cache.patch', patches / 'small-triangles.patch', patches / 'iop-execution.patch', patches / 'ct32-pixels.patch', patches / 'early-depth.patch', patches / 'prepared-clut.patch', patches / 'draw-clut-sampling.patch', patches / 'guest-timing.patch', patches / 'vu-context.patch', patches / 'draw-history-sampling.patch', patches / 'texture-cache-binding.patch', patches / 'tested-pixel-writer.patch', patches / 'host-audio-device.patch', patches / 'vector-throughput.patch', patches / 'vector-scheduling.patch', patches / 'work-timings.patch', patches / 'vector-arithmetic.patch', patches / 'vif-unpack.patch', patches / 'raster-shading.patch', patches / 'vector-product-flags.patch', patches / 'vector-transfers.patch', patches / 'vector-operands.patch', patches / 'vector-flag-batches.patch', patches / 'vector-fetch-validation.patch', patches / 'vector-constant-register.patch', patches / 'vector-fmac-kernel.patch', patches / 'gpu-rendering.patch', patches / 'flat-depth.patch', patches / 'display-pacing.patch', patches / 'gif-vertex-state.patch', patches / 'gif-tag-format.patch', patches / 'vector-code-diagnostics.patch', patches / 'vector-native-backend.patch', patches / 'simulation-pacing.patch', patches / 'launcher-display.patch', patches / 'window-redraw-pacing.patch',
                       patches / 'disc-timing.patch', patches / 'fpu-conversion.patch',
                       patches / 'soft-double-math.patch', patches / 'vector-data-memory.patch',
-                      patches / 'gif-path-timings.patch'):
+                      patches / 'gif-path-timings.patch',
+                      patches / 'spu2-mirror.patch'):
             apply_overlay_patch(temporary, patch)
         for source in temporary.rglob('*'):
             if source.is_file():

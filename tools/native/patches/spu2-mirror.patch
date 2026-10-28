@@ -1,0 +1,121 @@
+--- a/emulator/core/iop_memory.h
++++ b/emulator/core/iop_memory.h
+@@ -76,12 +76,18 @@
+ 
+         [[nodiscard]] static uint32_t physicalAddress(uint32_t address) noexcept;
+ 
++        // IOP cycle count used to time the SPU2 writes this memory mirrors.
++        void setClock(const uint64_t *clock) noexcept { m_clock = clock; }
++
+     private:
++        [[nodiscard]] uint64_t clock() const noexcept { return m_clock ? *m_clock : 0u; }
++        void mirrorSpu2(uint32_t address, uint16_t value) const;
+         [[nodiscard]] uint32_t readHardware32(uint32_t address) const;
+         void writeHardware32(uint32_t address, uint32_t value);
+         void markOwned(uint32_t address, size_t size);
+ 
+         openkai2::Spu2PcmCapture m_audio;
++        const uint64_t *m_clock = nullptr;
+         std::array<uint64_t,RamSize/4096u> m_pageGeneration{};
+         std::vector<uint8_t> m_ram;
+         std::vector<uint8_t> m_owned;
+--- a/emulator/core/iop_memory.cpp
++++ b/emulator/core/iop_memory.cpp
+@@ -1,4 +1,5 @@
+ #include "iop_memory.h"
++#include "audio/spu2_mirror.h"
+ 
+ #include <algorithm>
+ #include <cstring>
+@@ -33,6 +34,7 @@
+         for(auto& generation:m_pageGeneration)++generation;
+         m_hardware.clear();
+         m_audio.reset();
++        openkai2::spu2::reset(m_ram.data(), clock());
+         m_allocations.clear();
+         m_heapCursor = HeapBase;
+         m_interruptStatus = 0;
+@@ -123,10 +125,17 @@
+             markOwned(phys, sizeof(value));
+             return;
+         }
++        mirrorSpu2(phys, value);
+         write8(address, static_cast<uint8_t>(value));
+         write8(address + 1u, static_cast<uint8_t>(value >> 8u));
+     }
+ 
++    void IopMemory::mirrorSpu2(uint32_t address, uint16_t value) const
++    {
++        if (address >= Spu2Base && address < Spu2End)
++            openkai2::spu2::write16(address, value, clock());
++    }
++
+     void IopMemory::write32(uint32_t address, uint32_t value)
+     {
+         const uint32_t phys = physicalAddress(address);
+@@ -143,6 +152,8 @@
+         }
+         if ((phys & 3u) == 0u)
+         {
++            mirrorSpu2(phys, static_cast<uint16_t>(value));
++            mirrorSpu2(phys + 2u, static_cast<uint16_t>(value >> 16u));
+             writeHardware32(phys, value);
+             return;
+         }
+@@ -293,6 +304,12 @@
+         // ADPCM/program data and remains outside the host PCM stream.
+         const uint32_t core=secondCore ? 1u : 0u;
+         const bool pcmWrite=(value&1u)!=0u && (readHardware32(0x1F9001B0u+core*0x400u)&(1u<<core))!=0u;
++        // Every transfer towards the SPU2 also reaches the mirrored core; with
++        // AutoDMA enabled it reads the stream from IOP memory as it plays.
++        if((value&1u)!=0u) {
++            const uint32_t source=physicalAddress(readHardware32(address-8u));
++            openkai2::spu2::dma_write(core,source,uint32_t(std::min<uint64_t>(transferWords*4u,RamSize)),clock());
++        }
+         if(pcmWrite) {
+             const uint32_t source=physicalAddress(readHardware32(address-8u));
+             const uint64_t bytes=transferWords*4u;
+--- a/emulator/iop_emulator.cpp
++++ b/emulator/iop_emulator.cpp
+@@ -1,4 +1,5 @@
+ #include "iop_emulator.h"
++#include "audio/spu2_mirror.h"
+ #include "cdvd_rpc.h"
+ #include "imports/iop_cdvd.h"
+ #include "core/iop_cpu.h"
+@@ -120,6 +121,7 @@
+ 
+         void reset()
+         {
++            memory.setClock(&totalCycles);
+             memory.reset();
+             kernel.reset();
+             modules.clear();
+@@ -548,7 +550,11 @@
+             try
+             {
+                 for (const int irq : completed)
++                {
++                    if (irq == 0x24 || irq == 0x28)
++                        openkai2::spu2::dma_complete(irq == 0x28 ? 1u : 0u, totalCycles);
+                     (void)intrman.dispatchInterrupt(irq, *this);
++                }
+             }
+             catch (...)
+             {
+@@ -845,8 +851,13 @@
+         m_impl->eeCycleCarry = total % 8u;
+         if (iopCycles) {
+             m_impl->runCycles(iopCycles);
+-            if(m_impl->memory.hasAudio())for(const auto& block:m_impl->memory.takeAudio())
+-                m_impl->host.audioPcm(block.core,block.stop ? std::span<const int16_t>{} : std::span<const int16_t>(block.samples),48000u);
++            // The mirrored SPU2 mixes voices, effects and AutoDMA input into
++            // the console's final output; the raw AutoDMA capture is unused.
++            if(m_impl->memory.hasAudio())(void)m_impl->memory.takeAudio();
++            thread_local std::vector<int16_t> mixed;
++            openkai2::spu2::advance(m_impl->totalCycles);
++            openkai2::spu2::take_output(mixed);
++            if(!mixed.empty())m_impl->host.audioPcm(0u,std::span<const int16_t>(mixed),48000u);
+         }
+     }
+ 

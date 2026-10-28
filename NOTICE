@@ -17,6 +17,9 @@ third_party/pcsx2-vu/. Their fast_float headers use the MIT license. The
 application and integration code remain GPL-3.0-only. The bundled fmt 12.1.0
 formatting headers retain their MIT license.
 
+Game audio is synthesized by PCSX2's SPU2 core from the same revision,
+included under third_party/pcsx2-spu2/ with its LGPL-3.0-or-later notices.
+
 The spatial presentation upscaler uses AMD FidelityFX Super Resolution 1,
 revision a21ffb8f6c13233ba336352bdff293894c706575:
 https://github.com/GPUOpen-Effects/FidelityFX-FSR

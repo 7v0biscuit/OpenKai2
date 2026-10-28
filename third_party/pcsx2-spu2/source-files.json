@@ -1,0 +1,97 @@
+{
+  "repository": "https://github.com/PCSX2/pcsx2",
+  "revision": "dcfd663c1903025864a865d3fcf508d0caab70c7",
+  "version": "v2.1.27",
+  "files": [
+    {
+      "path": "upstream/pcsx2/SPU2/ADSR.cpp",
+      "upstream_path": "pcsx2/SPU2/ADSR.cpp",
+      "upstream_sha256": "03b0e210354668f745286b8a542bc2fb5664e276f37c490bec22915f9cce543d",
+      "sha256": "03b0e210354668f745286b8a542bc2fb5664e276f37c490bec22915f9cce543d"
+    },
+    {
+      "path": "upstream/pcsx2/SPU2/Debug.h",
+      "upstream_path": "pcsx2/SPU2/Debug.h",
+      "upstream_sha256": "a290b5dcb103a34406e0c1f4b6267515adf97e18aabb460a9d3ed1a739c94b7c",
+      "sha256": "a290b5dcb103a34406e0c1f4b6267515adf97e18aabb460a9d3ed1a739c94b7c"
+    },
+    {
+      "path": "upstream/pcsx2/SPU2/Dma.cpp",
+      "upstream_path": "pcsx2/SPU2/Dma.cpp",
+      "upstream_sha256": "e7b599a10c8e3ea88246b59a5eb16f336e6ce2ad243a827940211afd8ce97c61",
+      "sha256": "e7b599a10c8e3ea88246b59a5eb16f336e6ce2ad243a827940211afd8ce97c61"
+    },
+    {
+      "path": "upstream/pcsx2/SPU2/Dma.h",
+      "upstream_path": "pcsx2/SPU2/Dma.h",
+      "upstream_sha256": "c5ee9e5a3107801e57125e8d16bf8977217375010877a8d9fad9cb22fa84aca8",
+      "sha256": "c5ee9e5a3107801e57125e8d16bf8977217375010877a8d9fad9cb22fa84aca8"
+    },
+    {
+      "path": "upstream/pcsx2/SPU2/Mixer.cpp",
+      "upstream_path": "pcsx2/SPU2/Mixer.cpp",
+      "upstream_sha256": "110a9208199ad96184129db4a76cad76c126c6595d173f0a4504c9a5b7f912df",
+      "sha256": "110a9208199ad96184129db4a76cad76c126c6595d173f0a4504c9a5b7f912df"
+    },
+    {
+      "path": "upstream/pcsx2/SPU2/ReadInput.cpp",
+      "upstream_path": "pcsx2/SPU2/ReadInput.cpp",
+      "upstream_sha256": "20b73db75b906d5d70d6d08c21eadcd11e8e69ee66a67424f3fc12a3f2628589",
+      "sha256": "20b73db75b906d5d70d6d08c21eadcd11e8e69ee66a67424f3fc12a3f2628589"
+    },
+    {
+      "path": "upstream/pcsx2/SPU2/RegTable.cpp",
+      "upstream_path": "pcsx2/SPU2/RegTable.cpp",
+      "upstream_sha256": "ff0a120226d99610db4e504e4f970ea2cd4f79273a8664f07cfbb6797f542d65",
+      "sha256": "ff0a120226d99610db4e504e4f970ea2cd4f79273a8664f07cfbb6797f542d65"
+    },
+    {
+      "path": "upstream/pcsx2/SPU2/Reverb.cpp",
+      "upstream_path": "pcsx2/SPU2/Reverb.cpp",
+      "upstream_sha256": "5ddb8c1dd5e663a71aae8bfa44bafeb1dc4407c996231f309ece824ef5d23108",
+      "sha256": "5ddb8c1dd5e663a71aae8bfa44bafeb1dc4407c996231f309ece824ef5d23108"
+    },
+    {
+      "path": "upstream/pcsx2/SPU2/ReverbResample.cpp",
+      "upstream_path": "pcsx2/SPU2/ReverbResample.cpp",
+      "upstream_sha256": "65e603fb35a3980072ffaef8c7ac65b4acdecedb95bcba33d5bd2405337b3f96",
+      "sha256": "828f9600f1cd2aa0e4a6b222798652c32c3eb15a6852c0d7c39bb22ec55b2aa4"
+    },
+    {
+      "path": "upstream/pcsx2/SPU2/defs.h",
+      "upstream_path": "pcsx2/SPU2/defs.h",
+      "upstream_sha256": "65667b7ba1d6bb00235878f40664d7cc6847180ded8464e28f13893e3e0d07fd",
+      "sha256": "65667b7ba1d6bb00235878f40664d7cc6847180ded8464e28f13893e3e0d07fd"
+    },
+    {
+      "path": "upstream/pcsx2/SPU2/interpolate_table.h",
+      "upstream_path": "pcsx2/SPU2/interpolate_table.h",
+      "upstream_sha256": "14efc787ed83520497b03752ab52b56a8120ef69c07e33602ae99c8564ab76a1",
+      "sha256": "14efc787ed83520497b03752ab52b56a8120ef69c07e33602ae99c8564ab76a1"
+    },
+    {
+      "path": "upstream/pcsx2/SPU2/regs.h",
+      "upstream_path": "pcsx2/SPU2/regs.h",
+      "upstream_sha256": "015628396e6a499f3a1bf5c27a33479fec539923ef6fac1c07bafcf88b64f4d3",
+      "sha256": "015628396e6a499f3a1bf5c27a33479fec539923ef6fac1c07bafcf88b64f4d3"
+    },
+    {
+      "path": "upstream/pcsx2/SPU2/spdif.h",
+      "upstream_path": "pcsx2/SPU2/spdif.h",
+      "upstream_sha256": "c45677d5ffc6acb9d013bd1a0a4e03958a576bf9b1018d04df272600b0c59fac",
+      "sha256": "c45677d5ffc6acb9d013bd1a0a4e03958a576bf9b1018d04df272600b0c59fac"
+    },
+    {
+      "path": "upstream/pcsx2/SPU2/spu2.h",
+      "upstream_path": "pcsx2/SPU2/spu2.h",
+      "upstream_sha256": "c977a81238e28e9a6917b5c170eb69be2cc202e2662a701516c58e069f8faf86",
+      "sha256": "c977a81238e28e9a6917b5c170eb69be2cc202e2662a701516c58e069f8faf86"
+    },
+    {
+      "path": "upstream/pcsx2/SPU2/spu2sys.cpp",
+      "upstream_path": "pcsx2/SPU2/spu2sys.cpp",
+      "upstream_sha256": "964bf993a02d5a9c4f9967e7a5df2c8444629ee85cefbf1b44863f0c1fa62357",
+      "sha256": "964bf993a02d5a9c4f9967e7a5df2c8444629ee85cefbf1b44863f0c1fa62357"
+    }
+  ]
+}

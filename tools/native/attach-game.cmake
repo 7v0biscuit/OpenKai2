@@ -100,6 +100,7 @@ function(openkai2_attach_generated_sources)
         "${project_root}/tools/native/patches/soft-double-math.patch"
         "${project_root}/tools/native/patches/vector-data-memory.patch"
         "${project_root}/tools/native/patches/gif-path-timings.patch"
+        "${project_root}/tools/native/patches/spu2-mirror.patch"
         "${project_root}/tools/native/patches/simulation-pacing.patch"
         "${project_root}/tools/native/patches/vector-native-backend.patch"
         "${project_root}/tools/native/patches/guest-timing.patch"
@@ -185,7 +186,8 @@ function(openkai2_attach_generated_sources)
             target_include_directories(${test} BEFORE PRIVATE "${overlay_dir}" "${project_root}/src")
         endif()
     endforeach()
-    target_link_libraries(ps2_iop PRIVATE openkai2_disc)
+    include("${project_root}/tools/native/spu2-core.cmake")
+    target_link_libraries(ps2_iop PRIVATE openkai2_disc openkai2_spu2)
     add_library(openkai2_guest_checks STATIC "${project_root}/src/sound_checks.cpp"
         "${project_root}/src/iop_checks.cpp" "${project_root}/src/iop_wait_checks.cpp")
     target_compile_definitions(openkai2_guest_checks PRIVATE OPENKAI2_SPU2_PCM=1)
@@ -193,6 +195,9 @@ function(openkai2_attach_generated_sources)
         PRIVATE "${CMAKE_SOURCE_DIR}/ps2xIOP/src")
     target_include_directories(openkai2_guest_checks BEFORE PRIVATE "${overlay_dir}")
     target_link_libraries(openkai2_guest_checks PUBLIC ps2_iop)
+    add_executable(openkai2_spu2_tests "${project_root}/tests/spu2_mirror_tests.cpp")
+    target_link_libraries(openkai2_spu2_tests PRIVATE openkai2_spu2)
+    add_test(NAME spu2_mirror COMMAND openkai2_spu2_tests)
     add_executable(openkai2_sound_tests "${project_root}/tests/sound_register_tests.cpp")
     target_link_libraries(openkai2_sound_tests PRIVATE openkai2_guest_checks)
     add_test(NAME sound_registers COMMAND openkai2_sound_tests)
