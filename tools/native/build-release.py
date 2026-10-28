@@ -116,7 +116,8 @@ def main():
             script = temporary / template
             values = {'VERSION': args.version, 'VERSION_NUMERIC': numeric,
                       'PAYLOAD_DIR': str(payload), 'OUTPUT_FILE': str(output / filename),
-                      'DELETE_FILES': str(delete_files), 'INSTALLED_KIB': str(installed_kib)}
+                      'DELETE_FILES': str(delete_files), 'INSTALLED_KIB': str(installed_kib),
+                      'ICON': str(ROOT / 'packaging/windows/openkai2.ico')}
             definitions = ''.join(f'!define {key} "{nsis_literal(value)}"\n' for key, value in values.items())
             script.write_text(definitions + (ROOT / 'packaging/windows' / template).read_text(), encoding='utf-8')
             subprocess.run([args.makensis, '-V2', str(script)], check=True)

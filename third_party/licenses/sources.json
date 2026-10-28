@@ -22,5 +22,6 @@
   "pcsx2-gpl.txt": "https://github.com/PCSX2/pcsx2/blob/dcfd663c1903025864a865d3fcf508d0caab70c7/COPYING.GPLv3",
   "fast-float.txt": "https://github.com/PCSX2/pcsx2/blob/dcfd663c1903025864a865d3fcf508d0caab70c7/3rdparty/fast_float/LICENSE-MIT",
   "fmt.txt": "https://github.com/fmtlib/fmt/blob/407c905e45ad75fc29bf0f9bb7c5c2fd3475976f/LICENSE",
-  "fidelityfx-fsr.txt": "https://github.com/GPUOpen-Effects/FidelityFX-FSR/blob/a21ffb8f6c13233ba336352bdff293894c706575/license.txt"
+  "fidelityfx-fsr.txt": "https://github.com/GPUOpen-Effects/FidelityFX-FSR/blob/a21ffb8f6c13233ba336352bdff293894c706575/license.txt",
+  "bangers-ofl.txt": "https://github.com/google/fonts/blob/9b59ea9f333c5b8a99fa44e2a698496d6cde5b8e/ofl/bangers/OFL.txt"
 }

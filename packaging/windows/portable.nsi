@@ -4,6 +4,7 @@ Unicode true
 
 Name "OpenKai2 ${VERSION}"
 OutFile "${OUTPUT_FILE}"
+Icon "${ICON}"
 RequestExecutionLevel user
 SilentInstall silent
 AutoCloseWindow true

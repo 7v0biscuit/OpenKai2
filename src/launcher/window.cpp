@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "launcher/window.h"
+#include "launcher/display_font.h"
 #include "disc_image.h"
 #include "launcher/saves.h"
 #include "launcher/session.h"
@@ -141,15 +142,31 @@ void orb(HDC dc, int cx, int cy, int radius, int stars) {
                  RGB(204, 38, 30));
     ellipse(dc, cx - radius * 2 / 5, cy - radius * 2 / 5, std::max(2, radius / 7), RGB(255, 241, 214));
 }
+// Title lettering: the display face with a dark edge traced around it. y is the baseline.
+void lettering(HDC dc, const std::wstring &value, int x, int y, HFONT font, COLORREF color, COLORREF edge,
+               int stroke) {
+    auto oldFont = SelectObject(dc, font);
+    const auto oldAlign = SetTextAlign(dc, TA_LEFT | TA_BASELINE);
+    SetBkMode(dc, TRANSPARENT);
+    SetTextColor(dc, edge);
+    for (int dy = -stroke; dy <= stroke; ++dy)
+        for (int dx = -stroke; dx <= stroke; ++dx)
+            if ((dx || dy) && dx * dx + dy * dy <= stroke * stroke + 1)
+                TextOutW(dc, x + dx, y + dy, value.c_str(), int(value.size()));
+    SetTextColor(dc, color);
+    TextOutW(dc, x, y, value.c_str(), int(value.size()));
+    SetTextAlign(dc, oldAlign);
+    SelectObject(dc, oldFont);
+}
 struct Fonts {
-    HFONT body{}, caption{}, label{}, heading{}, display{}, brand{}, strong{};
+    HFONT body{}, caption{}, label{}, heading{}, display{}, brand{}, strong{}, title{}, wordmark{};
     void clear() {
-        for (auto f : {body, caption, label, heading, display, brand, strong})
+        for (auto f : {body, caption, label, heading, display, brand, strong, title, wordmark})
             if (f)
                 DeleteObject(f);
-        body = caption = label = heading = display = brand = strong = nullptr;
+        body = caption = label = heading = display = brand = strong = title = wordmark = nullptr;
     }
-    void make(unsigned dpi) {
+    void make(unsigned dpi, const wchar_t *lettering) {
         clear();
         auto font = [&](int size, int weight, const wchar_t *face = L"Segoe UI") {
             return CreateFontW(-MulDiv(size, int(dpi), 96), 0, 0, 0, weight, FALSE, FALSE, FALSE,
@@ -163,6 +180,8 @@ struct Fonts {
         display = font(40, FW_BOLD);
         brand = font(17, FW_SEMIBOLD);
         strong = font(14, FW_SEMIBOLD);
+        title = font(38, FW_NORMAL, lettering);
+        wordmark = font(58, FW_NORMAL, lettering);
     }
     ~Fonts() { clear(); }
 };
@@ -191,6 +210,7 @@ LRESULT CALLBACK button_procedure(HWND, UINT, WPARAM, LPARAM);
 struct Window {
     HWND hwnd{};
     Fonts fonts;
+    const wchar_t *letteringFace = L"Bangers";
     unsigned dpi = 96;
     int page = 0, hotButton = 0;
     Settings settings;
@@ -319,7 +339,7 @@ struct Window {
             ShowWindow(c, visible ? SW_SHOWNA : SW_HIDE);
     }
     void initialize() {
-        fonts.make(dpi);
+        fonts.make(dpi, letteringFace);
         for (auto [id, label] :
              std::vector<std::pair<int, const wchar_t *>>{{PlayTab, L"Play"},
                                                           {SavesTab, L"Saves"},
@@ -498,7 +518,7 @@ struct Window {
             L"Choose your Budokai 2 disc image, then jump in.",
             L"Import, back up and restore your memory card.",
             L"Changes save automatically and take effect the next time you launch."};
-        text(dc, titles[page], contentLeft, 26, content - 180, 36, fonts.heading);
+        lettering(dc, titles[page], p(contentLeft), p(58), fonts.title, ink, RGB(6, 8, 14), p(2));
         text(dc, subtitles[page], contentLeft, 66, content - 180, 20, fonts.caption, muted,
              DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
         const auto label = stateLabel();
@@ -534,7 +554,8 @@ struct Window {
         DeleteObject(region);
 
         caps(dc, L"DRAGON BALL Z", contentLeft + 30, heroTop + 22, 300, gold);
-        text(dc, L"Budokai 2", contentLeft + 27, heroTop + 38, content - 260, 54, fonts.display);
+        lettering(dc, L"Budokai 2", p(contentLeft + 28), p(heroTop + 82), fonts.wordmark, RGB(255, 240, 222),
+                  RGB(28, 12, 4), p(3));
         text(dc, L"PlayStation 2  ·  NTSC-U  ·  SLUS-20779", contentLeft + 30, heroTop + 92,
              content - 260, 18, fonts.caption, RGB(214, 196, 180));
 
@@ -1392,7 +1413,7 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
         }
         case WM_DPICHANGED: {
             self->dpi = HIWORD(wp);
-            self->fonts.make(self->dpi);
+            self->fonts.make(self->dpi, self->letteringFace);
             for (auto [id, c] : self->controls)
                 SendMessageW(c, WM_SETFONT, reinterpret_cast<WPARAM>(self->fonts.body), TRUE);
             auto *r = reinterpret_cast<RECT *>(lp);
@@ -1464,7 +1485,16 @@ int run_window(const std::filesystem::path &initialIso) {
                 CoUninitialize();
         }
     } cleanup{com};
+    DWORD installed = 0;
+    auto fontResource = AddFontMemResourceEx(const_cast<unsigned char *>(display_font), DWORD(display_font_size),
+                                             nullptr, &installed);
+    struct FontCleanup {
+        HANDLE handle;
+        ~FontCleanup() { if (handle) RemoveFontMemResourceEx(handle); }
+    } fontCleanup{fontResource};
     Window state;
+    if (!fontResource || !installed)
+        state.letteringFace = L"Segoe UI";
     try {
         state.settings = read_settings(settings_path());
     } catch (const std::exception &e) {
@@ -1475,13 +1505,19 @@ int run_window(const std::filesystem::path &initialIso) {
         state.settings.iso = initialIso;
     if (!state.settings.autoUpdates)
         state.updateStatus = L"Automatic updates are off. Use Check now to look for a release.";
-    WNDCLASSW type{};
+    WNDCLASSEXW type{};
+    type.cbSize = sizeof(type);
     type.style = CS_HREDRAW | CS_VREDRAW;
     type.lpfnWndProc = procedure;
     type.hInstance = GetModuleHandleW(nullptr);
     type.lpszClassName = L"OpenKai2.Launcher";
     type.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    RegisterClassW(&type);
+    type.hIcon = static_cast<HICON>(LoadImageW(type.hInstance, MAKEINTRESOURCEW(1), IMAGE_ICON, 0, 0,
+                                               LR_DEFAULTSIZE | LR_SHARED));
+    type.hIconSm = static_cast<HICON>(LoadImageW(type.hInstance, MAKEINTRESOURCEW(1), IMAGE_ICON,
+                                                 GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON),
+                                                 LR_SHARED));
+    RegisterClassExW(&type);
     if (auto user = GetModuleHandleW(L"user32.dll"))
         if (auto fn = reinterpret_cast<UINT(WINAPI *)()>(GetProcAddress(user, "GetDpiForSystem")))
             state.dpi = fn();
