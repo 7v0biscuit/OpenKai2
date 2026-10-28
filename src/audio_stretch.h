@@ -19,7 +19,7 @@ class StretchedPlayback {
 public:
     static constexpr unsigned window = 1024u, hop = window / 2u, search = 256u;
     static constexpr unsigned target = 3072u, prefill = target + window + search * 2u;
-    static constexpr double slowest = 0.5, fastest = 1.25;
+    static constexpr double slowest = 0.25, fastest = 1.25;
 
     StretchedPlayback() {
         for (unsigned i = 0; i < window; ++i)
@@ -33,6 +33,8 @@ public:
         previous_ = -1;
         position_ = 0.0;
         speed_ = 1.0;
+        rate_ = 1.0;
+        arrived_ = 0;
         playing_ = false;
         boundary_ = 0;
     }
@@ -80,6 +82,7 @@ private:
         const size_t got = queue.mix(raw_);
         for (size_t i = 0; i < got * 2u; ++i)
             input_.push_back(float(raw_[i]) / 32768.0f);
+        arrived_ += got;
     }
     float sample(size_t frame, unsigned channel) const { return input_[frame * 2u + channel]; }
     // Cross-correlation of a candidate window start against the natural
@@ -98,12 +101,28 @@ private:
                 return false;
             playing_ = true;
             position_ = double(search);
+            // The prefill arrives as one burst; it says nothing about the rate.
+            arrived_ = 0;
         }
-        // Rate follows the queued depth: below the target the stream is
-        // stretched, above it slightly compressed to recover latency.
-        const double queued = double(frames()) - position_;
-        const double wanted = std::clamp(queued / double(target + window), slowest, fastest);
-        speed_ += (wanted - speed_) * 0.08;
+        // Rate follows how fast the game produces audio, corrected by the
+        // queued depth so latency returns to the target. Near full speed it
+        // plays at exactly 1.0, where each window continues the previous one
+        // and the output is the input unchanged.
+        rate_ += (double(arrived_) / hop - rate_) * 0.02;
+        arrived_ = 0;
+        const double fill = (double(frames()) - position_) / double(target + window);
+        // Audio arrives in bursts, so the estimate wanders; once locked at
+        // full speed a wider band keeps it there.
+        const bool locked = speed_ == 1.0;
+        const bool steady = locked ? fill >= 0.5 && fill <= 2.0 && std::abs(rate_ - 1.0) < 0.15
+                                   : fill >= 0.75 && fill <= 1.5 && std::abs(rate_ - 1.0) < 0.08;
+        const double wanted = steady ? 1.0 : std::clamp(rate_ * std::clamp(fill, 0.5, 2.0), slowest, fastest);
+        speed_ += (wanted - speed_) * 0.25;
+        if (wanted == 1.0 && std::abs(speed_ - 1.0) < 0.002) {
+            speed_ = 1.0;
+            if (previous_ >= 0)
+                position_ = double(previous_ + hop);
+        }
         const auto nominal = size_t(position_);
         if (nominal + search + window > frames()) {
             underruns_.fetch_add(1u, std::memory_order_relaxed);
@@ -162,7 +181,8 @@ private:
     std::vector<int32_t> raw_;
     size_t outputRead_ = 0;
     int64_t previous_ = -1;
-    double position_ = 0.0, speed_ = 1.0;
+    double position_ = 0.0, speed_ = 1.0, rate_ = 1.0;
+    size_t arrived_ = 0;
     bool playing_ = false;
     uint64_t boundary_ = 0;
     std::atomic<uint64_t> underruns_{0}, silent_{0};

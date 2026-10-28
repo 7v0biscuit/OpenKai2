@@ -69,7 +69,55 @@ int main() {
         run(48000u);
         std::vector<int16_t> tail(out.end() - 4800, out.end());
         require(energy(tail) < 10.0, "A released voice kept playing");
-        std::cout << "SPU2 mirror passed: 48 kHz mixing, DMA upload, ADPCM voice key on and release.\n";
+        // Streamed music: AutoDMA blocks of 256 left then 256 right samples,
+        // refilled in IOP memory as soon as each transfer completes.
+        openkai2::spu2::reset(iop.data(), now);
+        write(0x198, 0x0FF0);
+        write(0x598, 0x0FFC);
+        for (uint32_t core : {0x760u, 0x788u}) {
+            write(core, 0x3FFF);
+            write(core + 2u, 0x3FFF);
+        }
+        write(0x76C, 0x7FFF); // core 0 sound data input volume
+        write(0x76E, 0x7FFF);
+        write(0x1B0, 0x0001); // AutoDMA on core 0
+        constexpr unsigned streamBlocks = 8u, frames = streamBlocks * 256u;
+        std::vector<int16_t> music;
+        unsigned phase = 0;
+        for (unsigned transfer = 0; transfer < 12u; ++transfer) {
+            auto *pcm = reinterpret_cast<int16_t *>(iop.data() + 0x20000u);
+            for (unsigned b = 0; b < streamBlocks; ++b)
+                for (unsigned i = 0; i < 256u; ++i, ++phase) {
+                    const auto value = int16_t(12000.0 * std::sin(2.0 * 3.14159265358979323846 * 1000.0 * phase / 48000.0));
+                    pcm[b * 512u + i] = value;
+                    pcm[b * 512u + 256u + i] = value;
+                }
+            openkai2::spu2::dma_write(0, 0x20000u, frames * 4u, now);
+            run(frames);
+            music.insert(music.end(), out.begin(), out.end());
+            openkai2::spu2::dma_complete(0, now);
+            std::memset(iop.data() + 0x20000u, 0x55, frames * 4u); // the driver refills its buffer
+            // The driver takes a moment to answer the interrupt and restart.
+            now += 2000u;
+            openkai2::spu2::advance(now);
+            openkai2::spu2::take_output(out);
+            music.insert(music.end(), out.begin(), out.end());
+        }
+        // Goertzel energy at 1 kHz against the total, over the settled tail.
+        std::vector<double> left;
+        for (size_t i = music.size() / 2u; i + 1u < music.size(); i += 2u)
+            left.push_back(music[i]);
+        const double k = 2.0 * std::cos(2.0 * 3.14159265358979323846 * 1000.0 / 48000.0);
+        double s1 = 0.0, s2 = 0.0, total = 0.0;
+        for (double x : left) {
+            const double s = x + k * s1 - s2;
+            s2 = s1;
+            s1 = s;
+            total += x * x;
+        }
+        const double tone = (s1 * s1 + s2 * s2 - k * s1 * s2) * 2.0 / double(left.size());
+        require(total > 0.0 && tone / total > 0.95, "AutoDMA music did not play back as a clean tone");
+        std::cout << "SPU2 mirror passed: 48 kHz mixing, DMA upload, ADPCM voice key on and release, clean AutoDMA streaming.\n";
         return 0;
     } catch (const std::exception &error) {
         std::cerr << error.what() << '\n';

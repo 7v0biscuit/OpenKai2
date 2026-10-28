@@ -181,13 +181,53 @@ int test_host_audio() {
         }
         require(gaps == 0u, "Slow PCM left silent gaps instead of being stretched");
         require(slow->playback[0].speed() < 0.85, "Playback rate did not follow the slower stream");
+        // A fight running at 40% of real time still plays continuously.
+        auto crawl = std::make_unique<Output>();
+        fed = gaps = 0;
+        for (unsigned step = 0; step < 100u; ++step) {
+            const size_t count = std::min<size_t>(410u, 48000u - fed);
+            crawl->queues[0].push(std::span<const int16_t>(tone.data() + fed * 2u, count * 2u));
+            fed += count;
+            std::fill(block.begin(), block.end(), 0.0f);
+            render(*crawl, block.data(), 1024u);
+            if (step > 30u)
+                for (unsigned i = 0; i < 1024u; i += 64u)
+                    gaps += std::fabs(block[i * 2u]) + std::fabs(block[(i + 16u) * 2u]) + std::fabs(block[(i + 32u) * 2u]) < 1.0e-4f;
+        }
+        require(gaps == 0u, "PCM at 40% speed left silent gaps");
+        // At full speed the stretcher is transparent: output equals input.
+        auto steady = std::make_unique<Output>();
+        steady->gain = 1.0f;
+        size_t pushed = StretchedPlayback::prefill + 512u;
+        steady->queues[0].push(std::span<const int16_t>(tone.data(), pushed * 2u));
+        std::vector<float> through(24576u * 2u);
+        for (unsigned step = 0; step < 24u; ++step) {
+            render(*steady, through.data() + step * 1024u * 2u, 1024u);
+            const size_t count = std::min<size_t>(1024u, 48000u - pushed);
+            steady->queues[0].push(std::span<const int16_t>(tone.data() + pushed * 2u, count * 2u));
+            pushed += count;
+        }
+        // Find where output frame 12000 sits in the tone, then compare 8000
+        // frames; the window sum leaves only float rounding (about -90 dB).
+        const auto input = [&](size_t frame) { return limit(float(tone[frame * 2u]) / 32768.0f); };
+        size_t lag = 0;
+        double worst = 1.0;
+        for (size_t start = 0u; start < 30000u && worst > 1.0e-4; ++start) {
+            worst = 0.0;
+            for (size_t i = 0; i < 64u && worst <= 1.0e-4; ++i)
+                worst = std::max(worst, double(std::fabs(through[(12000u + i) * 2u] - input(start + i))));
+            lag = start;
+        }
+        for (size_t i = 0; i < 8000u; ++i)
+            worst = std::max(worst, double(std::fabs(through[(12000u + i) * 2u] - input(lag + i))));
+        require(worst < 1.0e-4, "Full-speed playback changed the waveform");
         check->queues[0].discardPending();
         check->queues[1].discardPending();
         render(*check, samples.data(), 1024u);
         std::fill(samples.begin(), samples.end(), 0.0f);
         render(*check, samples.data(), 1024u);
         require(std::fabs(samples[1023u * 2u]) < 1.0e-6f, "Stopped stream kept playing");
-        std::cout << "Host audio mixer passed: 48 kHz float stereo, both SPU2 cores, volume, limiter and time-stretching.\n"
+        std::cout << "Host audio mixer passed: 48 kHz float stereo, both SPU2 cores, volume, limiter, transparent full-speed playback and stretching to 40% speed.\n"
                   << "Host audio output is " << (options.enabled ? "enabled" : "disabled")
                   << " in settings at " << options.volume << "% volume.\n";
         return 0;
