@@ -10,6 +10,11 @@
 #include <dlfcn.h>
 #endif
 namespace openkai2::gpu {
+namespace {
+// Jobs the producer may queue ahead of the GPU thread. A deeper queue absorbs
+// a slow batch without stalling the game thread; each job holds one batch.
+constexpr size_t queueDepth=16u;
+}
 struct Device::Impl {
     Context context;Api api;std::string description;std::thread thread;
     std::mutex mutex;std::condition_variable changed;std::deque<std::function<void(Api&)>> jobs;
@@ -50,7 +55,7 @@ Device::Device(Context context):m(std::make_unique<Impl>(std::move(context))) {
 }
 Device::~Device(){stop();}
 void Device::post(std::function<void(Api&)> job) {
-    std::unique_lock lock(m->mutex);m->changed.wait(lock,[&]{return m->jobs.size()<4u || m->failure || m->stopping || m->finished;});
+    std::unique_lock lock(m->mutex);m->changed.wait(lock,[&]{return m->jobs.size()<queueDepth || m->failure || m->stopping || m->finished;});
     if(m->failure)std::rethrow_exception(m->failure);
     if(m->stopping || m->finished)throw std::runtime_error("GPU device has stopped");
     m->jobs.push_back(std::move(job));m->changed.notify_all();

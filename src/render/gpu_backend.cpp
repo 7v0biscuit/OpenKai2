@@ -19,7 +19,7 @@
 namespace openkai2 {
 namespace gpu {
 std::bitset<PageCount> rectangle_pages(unsigned psm,unsigned base,unsigned width,unsigned x,unsigned y,unsigned w,unsigned h){
-    std::bitset<PageCount> pages;const auto& lut=gpu::address_tables();if(!lut[(psm&63u)*8u] || !w || !h)return pages;
+    std::bitset<PageCount> pages;static const auto& lut=gpu::address_tables();if(!lut[(psm&63u)*8u] || !w || !h)return pages;
     if(uint64_t(w)*h>4u*1024u*1024u){pages.set();return pages;}
     // Aligned bases place every logical format page entirely inside one
     // physical 8 KiB page. Its swizzle cannot change the physical page ID.
@@ -100,6 +100,7 @@ void compileResources(gpu::Api& gl,Resources& r){
 }
 struct GpuRasterBackend::Impl {
     mutable std::recursive_mutex mutex;GSCpuBackend cpu;uint8_t* vram=nullptr;uint32_t size=0;
+    const std::vector<uint32_t>& lut=gpu::address_tables();
     std::shared_ptr<gpu::Device> device;std::shared_ptr<Resources> resources;
     Pages cpuDirty,gpuDirty,batchWrites,batchSources;bool disabled=false,cpuFrame=false;
     GSTransferCommand transfer{};GpuRenderStats statistics{};
@@ -190,7 +191,7 @@ struct GpuRasterBackend::Impl {
         if((!sprite && !point && !line && !triangle)
             || batch.vertexCount!=(point ? 1u : triangle ? 3u : 2u) || (c.frame.psm!=0u && c.frame.psm!=1u && c.frame.psm!=2u && c.frame.psm!=10u)
             || (c.zbuf.psm!=0u && c.zbuf.psm!=1u && c.zbuf.psm!=2u && c.zbuf.psm!=10u && c.zbuf.psm!=48u && c.zbuf.psm!=49u && c.zbuf.psm!=50u && c.zbuf.psm!=58u) || s.scanmsk!=0u)return false;
-        if(textured && (!gpu::address_tables()[(t.psm&63u)*8u] || !s.textureWidth || !s.textureHeight || s.textureWidth>1024u || s.textureHeight>1024u))return false;
+        if(textured && (!lut[(t.psm&63u)*8u] || !s.textureWidth || !s.textureHeight || s.textureWidth>1024u || s.textureHeight>1024u))return false;
         if(textured && indexed(t.psm) && t.cpsm!=0u && t.cpsm!=1u && t.cpsm!=2u && t.cpsm!=10u)return false;
         float minX=0,maxX=0,minY=0,maxY=0;const unsigned width=std::max<unsigned>(c.frame.fbw,1u);
         for(unsigned i=0;i<batch.vertexCount;++i){const auto& v=batch.vertices[i];
