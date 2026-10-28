@@ -13,6 +13,8 @@ struct Settings {
     unsigned upscaler = 1;      // nearest, bilinear, bicubic, FSR 1
     unsigned aspect = 0;        // 4:3, 16:9, stretch, native pixels
     bool vsync = true, autoBackups = true;
+    bool audio = true;
+    unsigned volume = 100;      // percent
     bool autoUpdates = true;
     unsigned updateChannel = 1; // stable, stable and prerelease
     std::string renderer = "auto";

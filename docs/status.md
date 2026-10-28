@@ -32,6 +32,18 @@ uses it to turn a direction vector into a facing angle (`0x001B96E0`,
 direction and never reach its target point. The stubs now follow the integer
 calling convention; in-game confirmation is pending.
 
+## VU0 macro conversions and divides
+
+The translated `VFTOI` used SSE truncation, which turns every positive value
+of 2^31 or more into `0x80000000`; the VU saturates it to `0x7FFFFFFF`. The
+screen-space packers around `0x0013879C` mask that result to 16 bits, so an
+overflowing coordinate landed at zero instead of the far edge. `VDIV` by zero
+returned 0 rather than the signed VU maximum, and `VRSQRT` ignored its
+numerator. `patch-vector-macros.py` routes the 45 translated sites through VU
+helpers after recompilation. Unit checks cover saturation, signed zero
+divisors, denormal operands and the `RSQRT` numerator; whether this accounts
+for the distorted limbs and hair seen in fights is not yet confirmed in game.
+
 ## Animation scripts and rendering
 
 Scene script coverage includes 485 commands in complete static banks, plus the

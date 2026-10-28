@@ -90,7 +90,7 @@ void usage() {
               << "OpenKai2 --self-test checks compiled callback dispatch without booting the game.\n"
               << "OpenKai2 --gpu-self-test checks GPU rendering without a game ISO.\n"
               << "OpenKai2 --display-self-test checks display filters without a game ISO.\n"
-              << "OpenKai2 --audio-test reports the disabled host audio status.\n";
+              << "OpenKai2 --audio-test checks the audio mixer without opening a playback device.\n";
 #ifdef _WIN32
     std::cout << "Double-click OpenKai2.exe to open the launcher, choose an ISO, and manage settings and saves.\n";
 #endif
@@ -106,6 +106,7 @@ int main(int argc, char* argv[]) {
         openkai2::launcher::Settings preferences;
         try { preferences=openkai2::launcher::read_settings(openkai2::launcher::settings_path()); }
         catch(const std::exception& e) {std::cerr<<"[settings] "<<e.what()<<"; using defaults\n";}
+        openkai2::set_host_audio_options({preferences.audio, preferences.volume});
         const auto rendererEnvironment=std::getenv("OPENKAI2_RENDERER");
         std::string renderer=rendererEnvironment ? rendererEnvironment : preferences.renderer;
         const auto displayEnvironment=std::getenv("OPENKAI2_FPS_LIMIT");

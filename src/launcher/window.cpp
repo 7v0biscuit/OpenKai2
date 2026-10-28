@@ -16,8 +16,10 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <commdlg.h>
 #include <functional>
 #include <future>
@@ -72,6 +74,7 @@ enum Id {
     Vsync,
     AutoBackup,
     Aspect,
+    Audio,
     UpdateChannel = 160,
     AutomaticUpdates,
     CheckUpdates,
@@ -81,6 +84,16 @@ enum Id {
     ClearImage = 173
 };
 constexpr int pageCount = 3;
+constexpr std::array<unsigned, 4> audioVolumes{100u, 75u, 50u, 25u};
+// Off, then the volume steps; a hand-edited volume selects the nearest step.
+int audioChoice(const Settings &settings) {
+    if (!settings.audio)
+        return 0;
+    const auto nearest = std::min_element(audioVolumes.begin(), audioVolumes.end(), [&](unsigned a, unsigned b) {
+        return std::abs(int(a) - int(settings.volume)) < std::abs(int(b) - int(settings.volume));
+    });
+    return 1 + int(nearest - audioVolumes.begin());
+}
 
 std::wstring wide(const std::string &s) {
     if (s.empty())
@@ -241,7 +254,7 @@ struct Window {
     bool running() const { return child || externalGame; }
     bool dropdownOpen() const {
         for (auto [id, control] : controls)
-            if ((id >= Renderer && id <= Aspect) || id == UpdateChannel || id == AutomaticUpdates)
+            if ((id >= Renderer && id <= Audio) || id == UpdateChannel || id == AutomaticUpdates)
                 if (SendMessageW(control, CB_GETDROPPEDSTATE, 0, 0)) return true;
         return false;
     }
@@ -386,6 +399,8 @@ struct Window {
         combo(AutoBackup, {L"Off", L"On"}, settings.autoBackups ? 1 : 0);
         combo(Aspect, {L"4:3 (original)", L"16:9 (widescreen)", L"Stretch to window", L"Native pixels"},
               int(settings.aspect));
+        combo(Audio, {L"Off", L"On · 100% volume", L"On · 75% volume", L"On · 50% volume", L"On · 25% volume"},
+              audioChoice(settings));
         combo(UpdateChannel, {L"Stable", L"Stable and prerelease"}, int(settings.updateChannel));
         combo(AutomaticUpdates, {L"Off", L"On"}, settings.autoUpdates ? 1 : 0);
         controls[BackupList] = CreateWindowExW(
@@ -455,6 +470,7 @@ struct Window {
             position(Aspect, grid.x(2), Grid::field(displayTop, 0), grid.column, 34);
             position(Fps, grid.x(0), Grid::field(displayTop, 1), grid.column, 34);
             position(Vsync, grid.x(1), Grid::field(displayTop, 1), grid.column, 34);
+            position(Audio, grid.x(2), Grid::field(displayTop, 1), grid.column, 34);
             position(Renderer, grid.x(0), Grid::field(graphicsTop, 0), grid.column, 34);
             position(Antialiasing, grid.x(1), Grid::field(graphicsTop, 0), grid.column, 34);
             position(Filtering, grid.x(2), Grid::field(graphicsTop, 0), grid.column, 34);
@@ -664,16 +680,16 @@ struct Window {
         auto label = [&](int top, int row, int column, const wchar_t *value) {
             caps(dc, value, grid.x(column), Grid::label(top, row), grid.column);
         };
-        section(displayTop, 2, L"Display", L"Window, aspect ratio and frame pacing", muted);
+        section(displayTop, 2, L"Display",
+                settings.windowMode ? L"Borderless uses your desktop resolution. 60 FPS with VSync paces best."
+                                    : L"60 FPS with VSync gives the smoothest pacing.",
+                muted);
         label(displayTop, 0, 0, L"WINDOW MODE");
         label(displayTop, 0, 1, L"RESOLUTION");
         label(displayTop, 0, 2, L"ASPECT RATIO");
         label(displayTop, 1, 0, L"FRAME RATE CAP");
         label(displayTop, 1, 1, L"VSYNC");
-        text(dc, settings.windowMode ? L"Borderless uses your desktop resolution."
-                                     : L"60 FPS with VSync gives the smoothest pacing.",
-             grid.x(2), Grid::field(displayTop, 1) - 4, grid.column, 40, fonts.caption, muted,
-             DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
+        label(displayTop, 1, 2, L"GAME AUDIO");
 
         section(graphicsTop, 2, L"Graphics", L"Renderer, filtering and upscaling", muted);
         label(graphicsTop, 0, 0, L"RENDERER");
@@ -1166,6 +1182,11 @@ struct Window {
         next.vsync = selected(Vsync) != 0;
         next.autoBackups = selected(AutoBackup) != 0;
         next.aspect = unsigned(selected(Aspect));
+        if (const int choice = selected(Audio); choice > 0) {
+            next.audio = true;
+            next.volume = audioVolumes[size_t(choice - 1)];
+        } else
+            next.audio = false;
         write_settings(settings_path(), next);
         settings = std::move(next);
         status = child ? L"Settings saved. Restart the game to use them." : L"Settings saved.";
@@ -1173,7 +1194,8 @@ struct Window {
                   << settings.height << " mode=" << settings.windowMode << " renderer=" << settings.renderer
                   << " aspect=" << settings.aspect << " aa=" << settings.antialiasing
                   << " filtering=" << settings.textureFilter << " scaling=" << settings.upscaler
-                  << " vsync=" << settings.vsync << std::endl;
+                  << " vsync=" << settings.vsync << " audio=" << settings.audio
+                  << " volume=" << settings.volume << std::endl;
         error = false;
     }
     void command(int id, int notification) {
@@ -1188,7 +1210,7 @@ struct Window {
             SetFocus(controls[id]);
             return;
         }
-        if (id >= Renderer && id <= Aspect && notification == CBN_SELCHANGE) {
+        if (id >= Renderer && id <= Audio && notification == CBN_SELCHANGE) {
             saveOptions();
             refreshEnabled();
             return;

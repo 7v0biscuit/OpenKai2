@@ -70,6 +70,8 @@ int main() {
         s.aspect = 1;
         s.vsync = false;
         s.autoBackups = false;
+        s.audio = false;
+        s.volume = 75;
         s.renderer = "gpu";
         s.autoUpdates = false;
         s.updateChannel = 0;
@@ -78,9 +80,15 @@ int main() {
         require(read.iso == s.iso && read.fps == 144 && read.width == 2560 && read.height == 1440 &&
                     read.windowMode == 1 && read.antialiasing == 1 && read.textureFilter == 2 &&
                     read.upscaler == 3 && read.aspect == 1 && !read.vsync && !read.autoBackups &&
+                    !read.audio && read.volume == 75 &&
                     read.renderer == "gpu" && !read.autoUpdates && read.updateChannel == 0,
                 "Settings roundtrip changed values");
         require(read_settings(root / "absent.ini").fps == 60, "Default pacing is not 60 FPS");
+        require(read_settings(root / "absent.ini").audio && read_settings(root / "absent.ini").volume == 100,
+                "Game audio is not on at full volume by default");
+        s.volume = 101;
+        rejects([&] { write_settings(root / "settings.ini", s); });
+        s.volume = 75;
         auto original = bytes(root / "settings.ini");
         s.fps = 241;
         rejects([&] { write_settings(root / "settings.ini", s); });
