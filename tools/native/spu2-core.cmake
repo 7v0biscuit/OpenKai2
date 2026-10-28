@@ -19,5 +19,5 @@ if(MSVC)
     target_compile_options(openkai2_spu2 PRIVATE /utf-8 "/FI${project_root}/src/audio/spu2/shims/Spu2Prefix.h")
 else()
     target_compile_options(openkai2_spu2 PRIVATE -msse4.1 -fno-strict-aliasing -Wno-attributes
-        -include "${project_root}/src/audio/spu2/shims/Spu2Prefix.h")
+        "SHELL:-include ${project_root}/src/audio/spu2/shims/Spu2Prefix.h")
 endif()
