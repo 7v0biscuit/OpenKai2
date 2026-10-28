@@ -102,10 +102,17 @@ jobs:
           VERSION=$(python -c 'import json; print(json.load(open("../packaging/windows/release-input.json"))["version"])')
           TAG="v$VERSION"
           TITLE=$(python -c 'import json; c=json.load(open("../packaging/windows/release-input.json")); print("v" + c["version"])')
+          # A manual run from main creates the version tag on the dispatched
+          # commit when the release is published; tag pushes reuse their tag.
+          TARGET=(--verify-tag)
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && [ "$GITHUB_REF" = refs/heads/main ] &&
+             ! git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null; then
+            TARGET=(--target "$GITHUB_SHA")
+          fi
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release edit "$TAG" --draft --prerelease --title "$TITLE" --notes-file release-notes.md
           else
-            gh release create "$TAG" --verify-tag --draft --prerelease --title "$TITLE" --notes-file release-notes.md
+            gh release create "$TAG" "${TARGET[@]}" --draft --prerelease --title "$TITLE" --notes-file release-notes.md
           fi
           gh release upload "$TAG" OpenKai2.exe OpenKai2-windows-x64.zip OpenKai2-Setup.exe SHA256SUMS.txt --clobber
           gh release edit "$TAG" --draft=false --prerelease --latest=false
