@@ -85,7 +85,7 @@ public:
 
 void usage() {
     std::cout << "Usage: OpenKai2 [--renderer=auto|gpu|cpu] [--fps-limit=0..240] <path-to-Budokai-2-USA.iso>\n"
-              << "Host display limit defaults to 60; 0 is unlimited. Game timing stays at its original rate.\n"
+              << "Host display limit defaults to 240; 0 is unlimited. Game timing stays at its original rate.\n"
               << "The original game ISO is required on every boot.\n"
               << "OpenKai2 --self-test checks compiled callback dispatch without booting the game.\n"
               << "OpenKai2 --gpu-self-test checks GPU rendering without a game ISO.\n"

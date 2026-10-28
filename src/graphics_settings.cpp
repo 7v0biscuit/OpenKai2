@@ -12,7 +12,9 @@ void set_graphics_settings(const GraphicsSettings &s) {
     options = s;
 }
 const GraphicsSettings &graphics_settings() noexcept { return options; }
-bool texture_filter_enabled(bool original) noexcept {
+bool texture_filter_enabled(bool original, bool sprite) noexcept {
+    if (options.textureFilter == 2 && sprite)
+        return original;
     return options.textureFilter == 0 ? original : options.textureFilter == 2;
 }
 } // namespace openkai2

@@ -11,7 +11,9 @@ struct GraphicsSettings {
 };
 void set_graphics_settings(const GraphicsSettings &settings);
 const GraphicsSettings &graphics_settings() noexcept;
-bool texture_filter_enabled(bool gameFilter) noexcept;
+// Forced bilinear filtering smooths 3D surfaces only. Sprites carry text, HUD
+// and atlas images whose neighbouring texels must not bleed into each other.
+bool texture_filter_enabled(bool gameFilter, bool sprite = false) noexcept;
 int test_presentation_filters();
 struct DisplayRectangle {
     float x, y, width, height;

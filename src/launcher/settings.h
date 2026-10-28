@@ -6,7 +6,7 @@
 namespace openkai2::launcher {
 struct Settings {
     std::filesystem::path iso;
-    unsigned fps = 60, width = 1280, height = 720;
+    unsigned fps = 240, width = 1280, height = 720;
     unsigned windowMode = 0;    // windowed, borderless
     unsigned antialiasing = 0;  // off, FXAA
     unsigned textureFilter = 0; // game, nearest, bilinear

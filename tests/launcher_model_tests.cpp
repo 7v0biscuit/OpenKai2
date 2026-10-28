@@ -83,7 +83,7 @@ int main() {
                     !read.audio && read.volume == 75 &&
                     read.renderer == "gpu" && !read.autoUpdates && read.updateChannel == 0,
                 "Settings roundtrip changed values");
-        require(read_settings(root / "absent.ini").fps == 60, "Default pacing is not 60 FPS");
+        require(read_settings(root / "absent.ini").fps == 240, "Default frame rate cap is not 240 FPS");
         require(read_settings(root / "absent.ini").audio && read_settings(root / "absent.ini").volume == 100,
                 "Game audio is not on at full volume by default");
         s.volume = 101;

@@ -392,7 +392,7 @@ struct Window {
               int(std::find(sizes.begin(), sizes.end(), size) - sizes.begin()));
         combo(WindowMode, {L"Windowed", L"Borderless fullscreen"}, int(settings.windowMode));
         combo(Antialiasing, {L"Off", L"FXAA"}, int(settings.antialiasing));
-        combo(Filtering, {L"Game default", L"Nearest (sharp)", L"Bilinear (smooth)"},
+        combo(Filtering, {L"Game default", L"Nearest (sharp)", L"Bilinear (3D surfaces)"},
               int(settings.textureFilter));
         combo(Upscaler, {L"Nearest", L"Bilinear", L"Bicubic", L"AMD FSR 1"}, int(settings.upscaler));
         combo(Vsync, {L"Off", L"On"}, settings.vsync ? 1 : 0);
@@ -681,8 +681,8 @@ struct Window {
             caps(dc, value, grid.x(column), Grid::label(top, row), grid.column);
         };
         section(displayTop, 2, L"Display",
-                settings.windowMode ? L"Borderless uses your desktop resolution. 60 FPS with VSync paces best."
-                                    : L"60 FPS with VSync gives the smoothest pacing.",
+                settings.windowMode ? L"Borderless uses your desktop resolution. The game draws up to 60 frames a second."
+                                    : L"The game draws up to 60 frames a second; a higher cap only lowers latency.",
                 muted);
         label(displayTop, 0, 0, L"WINDOW MODE");
         label(displayTop, 0, 1, L"RESOLUTION");
@@ -1252,7 +1252,7 @@ struct Window {
             next.aspect = defaults.aspect; next.vsync = defaults.vsync; next.renderer = defaults.renderer;
             write_settings(settings_path(), next);
             settings = std::move(next);
-            const std::pair<int, int> choices[] = {{Renderer, 0}, {Fps, 1}, {Resolution, 0},
+            const std::pair<int, int> choices[] = {{Renderer, 0}, {Fps, 6}, {Resolution, 0},
                 {WindowMode, 0}, {Antialiasing, 0}, {Filtering, 0}, {Upscaler, 1}, {Vsync, 1}, {Aspect, 0}};
             for (auto [control, value] : choices) SendMessageW(controls[control], CB_SETCURSEL, value, 0);
             status = L"Display and graphics settings restored. Your disc, saves and update choices were kept.";
