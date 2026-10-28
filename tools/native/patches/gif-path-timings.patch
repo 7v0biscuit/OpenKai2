@@ -1,0 +1,10 @@
+--- a/runtime/ps2_memory.cpp
++++ b/runtime/ps2_memory.cpp
+@@ -2041,6 +2041,7 @@
+ {
+     if (!data || sizeBytes < 16)
+         return;
++    openkai2::RuntimeWorkTimer work(openkai2::RuntimeWork::gifPath23, pathId != GifPathId::Path1);
+ 
+     if (pathId == GifPathId::Path3)
+     {

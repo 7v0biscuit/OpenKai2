@@ -4,6 +4,7 @@
 #include "gpu_layout.h"
 #include "runtime/gs/gs_cpu_backend.h"
 #include "openkai2_gpu_shader.h"
+#include "work_timings.h"
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -150,6 +151,7 @@ struct GpuRasterBackend::Impl {
         const auto pages=gpuDirty&requested;
         if(!resources || !pages.any())return;submit();
         statistics.readbacks+=pages.count()*gpu::PageBytes;totalReadbacks.fetch_add(pages.count()*gpu::PageBytes,std::memory_order_relaxed);
+        RuntimeWorkTimer wait(RuntimeWork::gpuWait);
         device->invoke([r=resources,pages,ram=vram](gpu::Api& gl){
             gl.MemoryBarrier(gpu::ShaderStorageBarrier|gpu::BufferUpdateBarrier);gl.BindBuffer(gpu::ShaderStorageBuffer,r->buffers[0]);
             for(unsigned p=0;p<gpu::PageCount;){if(!pages[p]){++p;continue;}const unsigned start=p;while(p<gpu::PageCount && pages[p])++p;const unsigned offset=start*gpu::PageBytes;gl.GetBufferSubData(gpu::ShaderStorageBuffer,offset,(p-start)*gpu::PageBytes,ram+offset);}
@@ -339,12 +341,18 @@ void GpuRasterBackend::UploadImage(const uint8_t* data,uint32_t bytes){
     unsigned count=std::min<unsigned>(uint64_t(bytes)*8u/bpp,before.totalPixels-before.copiedPixels),first=before.copiedPixels;Pages pages;
     while(count){const unsigned x=first%t.trxreg.rrw,y=first/t.trxreg.rrw,span=std::min<unsigned>(count,t.trxreg.rrw-x);
         pages|=rectanglePages(t.bitbltbuf.dpsm,t.bitbltbuf.dbp,std::max<unsigned>(t.bitbltbuf.dbw,1u),t.trxpos.dsax+x,t.trxpos.dsay+y,span,1u);first+=span;count-=span;}
-    if((pages&m->gpuDirty).any())m->materialize(pages);else m->submit();
+    // Pending draws that sample these pages must run before the new bytes
+    // reach the GPU. Unrelated draws keep batching across the upload.
+    if((pages&m->gpuDirty).any())m->materialize(pages);else if((pages&m->batchSources).any())m->submit();
     m->cpu.UploadImage(data,bytes);m->cpuDirty|=pages;if((pages&m->loadedPalettePages).any())m->loadedPaletteValid=false;
 }
 void GpuRasterBackend::Flush(){std::lock_guard lock(m->mutex);m->submit();}
 void GpuRasterBackend::TextureFlush(){std::lock_guard lock(m->mutex);m->submit();m->cpu.TextureFlush();}
-void GpuRasterBackend::Sync(GSSyncReason reason){std::lock_guard lock(m->mutex);if(reason==GSSyncReason::Presentation)m->submit();else if(reason==GSSyncReason::DebugReadback || reason==GSSyncReason::LocalToHost || reason==GSSyncReason::Reset)m->materialize();else {m->submit();if(m->device && m->resources)m->device->invoke([](gpu::Api& gl){gl.Finish();});}m->cpu.Sync(reason);}
+void GpuRasterBackend::Sync(GSSyncReason reason){std::lock_guard lock(m->mutex);if(reason==GSSyncReason::Presentation)m->submit();else if(reason==GSSyncReason::DebugReadback || reason==GSSyncReason::LocalToHost || reason==GSSyncReason::Reset)m->materialize();
+    // FINISH only needs the work dispatched: every host read of VRAM already
+    // waits for the pages it reads, so waiting for an idle GPU here stalls
+    // the game thread for nothing.
+    else m->submit();m->cpu.Sync(reason);}
 PresentationFrame GpuRasterBackend::Present(const GSPresentationRequest& request){std::lock_guard lock(m->mutex);m->materialize(presentationPages(request));auto frame=m->cpu.Present(request);m->cpuFrame=false;return frame;}
 bool GpuRasterBackend::ClearFramebuffer(const GSContext& c,uint32_t rgba){
     std::lock_guard lock(m->mutex);

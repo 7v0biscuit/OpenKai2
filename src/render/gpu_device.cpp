@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "gpu_device.h"
+#include "work_timings.h"
 #include <condition_variable>
 #include <deque>
 #include <future>
@@ -55,7 +56,9 @@ Device::Device(Context context):m(std::make_unique<Impl>(std::move(context))) {
 }
 Device::~Device(){stop();}
 void Device::post(std::function<void(Api&)> job) {
-    std::unique_lock lock(m->mutex);m->changed.wait(lock,[&]{return m->jobs.size()<queueDepth || m->failure || m->stopping || m->finished;});
+    std::unique_lock lock(m->mutex);
+    if(m->jobs.size()>=queueDepth){RuntimeWorkTimer wait(RuntimeWork::gpuWait);m->changed.wait(lock,[&]{return m->jobs.size()<queueDepth || m->failure || m->stopping || m->finished;});}
+    m->changed.wait(lock,[&]{return m->jobs.size()<queueDepth || m->failure || m->stopping || m->finished;});
     if(m->failure)std::rethrow_exception(m->failure);
     if(m->stopping || m->finished)throw std::runtime_error("GPU device has stopped");
     m->jobs.push_back(std::move(job));m->changed.notify_all();
