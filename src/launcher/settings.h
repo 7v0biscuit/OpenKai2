@@ -16,6 +16,7 @@ struct Settings {
     bool audio = true;
     unsigned volume = 100;      // percent
     bool autoUpdates = true;
+    bool discordPresence = true;
     unsigned updateChannel = 1; // stable, stable and prerelease
     std::string renderer = "auto";
 };

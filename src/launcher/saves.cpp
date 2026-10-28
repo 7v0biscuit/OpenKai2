@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "launcher/saves.h"
+#include "launcher/content_unlock.h"
 #include "launcher/paths.h"
 #include "launcher/session.h"
 #include <algorithm>
@@ -348,23 +349,8 @@ fs::path backup_card(const fs::path &card, const fs::path &backups) {
     write_zip(path, files);
     return path;
 }
-void import_save(const fs::path &card, const fs::path &source, const fs::path &backups,
-                 bool restore) {
-    SessionLock session;
-    auto incoming = read_save(source);
-    if (incoming.empty())
-        fail("The selected save is empty");
-    auto old = read_card(card);
-    std::map<std::string, SaveFile> combined;
-    if (!restore)
-        for (auto &f : old)
-            combined.emplace(fold(f.name), std::move(f));
-    for (auto &f : incoming)
-        combined[fold(f.name)] = std::move(f);
-    SaveFiles final;
-    for (auto &item : combined)
-        final.push_back(std::move(item.second));
-    validate(final);
+namespace {
+void commit_card(const fs::path& card,const fs::path& backups,const SaveFiles& final) {
     backup_card(card, backups);
     safe_parents(card);
     fs::create_directories(card.parent_path());
@@ -409,4 +395,41 @@ void import_save(const fs::path &card, const fs::path &source, const fs::path &b
         throw;
     }
 }
+} // namespace
+void import_save(const fs::path &card, const fs::path &source, const fs::path &backups,
+                 bool restore) {
+    SessionLock session;
+    auto incoming = read_save(source);
+    if (incoming.empty())
+        fail("The selected save is empty");
+    auto old = read_card(card);
+    std::map<std::string, SaveFile> combined;
+    if (!restore)
+        for (auto &f : old)
+            combined.emplace(fold(f.name), std::move(f));
+    for (auto &f : incoming)
+        combined[fold(f.name)] = std::move(f);
+    SaveFiles final;
+    for (auto &item : combined)
+        final.push_back(std::move(item.second));
+    validate(final);
+    commit_card(card,backups,final);
+}
+bool unlock_card_content(const fs::path& card,const fs::path& backups) {
+    SessionLock session;
+    auto files=read_card(card);
+    auto progress=std::find_if(files.begin(),files.end(),[](const SaveFile& file){
+        return fold(file.name)=="baslus-20779dbz2/baslus-20779dbz2";
+    });
+    if(progress==files.end())fail("Create a Budokai 2 USA save in the game before unlocking content");
+    auto decoded=decode_progress_save(progress->data);
+    if(!unlock_progress_content(decoded))return false;
+    progress->data=encode_progress_save(decoded);
+    // Validate the exact bytes which will be installed, before creating a
+    // backup or replacing anything on the existing memory card.
+    decode_progress_save(progress->data);
+    commit_card(card,backups,files);
+    return true;
+}
+
 } // namespace openkai2::launcher

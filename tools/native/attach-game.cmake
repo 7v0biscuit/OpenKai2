@@ -19,6 +19,9 @@ function(openkai2_attach_generated_sources)
         message(FATAL_ERROR "No generated Budokai 2 sources; run ps2_recomp first")
     endif()
     get_filename_component(project_root "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../.." ABSOLUTE)
+    include("${project_root}/tools/native/discord.cmake")
+    openkai2_add_discord("${project_root}" TRUE)
+    target_link_libraries(ps2EntryRunner PRIVATE openkai2_discord_presence)
     execute_process(COMMAND git -C "${project_root}" rev-parse HEAD
         OUTPUT_VARIABLE runtime_revision OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
     if(NOT runtime_revision)
@@ -35,7 +38,7 @@ function(openkai2_attach_generated_sources)
         target_link_libraries(openkai2_disc PUBLIC bcrypt)
     endif()
     add_library(openkai2_launcher_model STATIC "${project_root}/src/launcher/settings.cpp"
-        "${project_root}/src/launcher/saves.cpp" "${project_root}/src/launcher/session.cpp" "${project_root}/src/launcher/update.cpp")
+        "${project_root}/src/launcher/saves.cpp" "${project_root}/src/launcher/content_unlock.cpp" "${project_root}/src/launcher/session.cpp" "${project_root}/src/launcher/update.cpp")
     target_link_libraries(openkai2_launcher_model PUBLIC openkai2_disc)
     target_compile_features(openkai2_launcher_model PUBLIC cxx_std_17)
     if(MSVC)
@@ -59,6 +62,9 @@ function(openkai2_attach_generated_sources)
         target_compile_options(openkai2_launcher_tests PRIVATE /utf-8)
     endif()
     add_test(NAME launcher_settings_saves COMMAND openkai2_launcher_tests)
+    add_executable(openkai2_content_unlock_tests "${project_root}/tests/content_unlock_tests.cpp")
+    target_link_libraries(openkai2_content_unlock_tests PRIVATE openkai2_launcher_model)
+    add_test(NAME content_unlock_saves COMMAND openkai2_content_unlock_tests)
     find_package(Python3 3.10 REQUIRED COMPONENTS Interpreter)
     find_package(Threads REQUIRED)
     execute_process(COMMAND "${Python3_EXECUTABLE}"
@@ -477,7 +483,7 @@ function(openkai2_attach_generated_sources)
     endif()
     target_link_libraries(ps2EntryRunner PRIVATE openkai2_vector_checks openkai2_gpu_checks)
     target_sources(ps2EntryRunner PRIVATE ${generated_sources} "${project_root}/src/main.cpp"
-        "${project_root}/src/runtime_checks.cpp" "${project_root}/src/stream_checks.cpp"
+        "${project_root}/src/runtime_checks.cpp" "${project_root}/src/content_unlock_checks.cpp" "${project_root}/src/stream_checks.cpp"
         "${project_root}/src/sound_transfer_checks.cpp" "${project_root}/src/asset_checks.cpp"
         "${project_root}/src/draw_setup_checks.cpp" "${project_root}/src/battle_command_checks.cpp" "${project_root}/src/battle_update_checks.cpp" "${project_root}/src/fight_state_checks.cpp" "${project_root}/src/attack_effect_checks.cpp" "${project_root}/src/impact_effect_checks.cpp" "${project_root}/src/actor_command_checks.cpp" "${project_root}/src/pause_menu_checks.cpp" "${project_root}/src/story_checks.cpp" "${project_root}/src/animation_checks.cpp" "${project_root}/src/aura_checks.cpp" "${project_root}/src/fade_checks.cpp" "${project_root}/src/movie_checks.cpp" "${project_root}/src/mpeg_checks.cpp"
         "${project_root}/src/mpeg_decode_checks.cpp")
@@ -485,12 +491,12 @@ function(openkai2_attach_generated_sources)
     # preserves the existing translation batches during incremental builds.
     set_source_files_properties("$ENV{OPENKAI2_WORK_DIR}/budokai2-native/output/entry_109390_0x1093f8.cpp"
         TARGET_DIRECTORY ps2EntryRunner PROPERTIES SKIP_UNITY_BUILD_INCLUSION TRUE)
-    set_source_files_properties("${project_root}/src/main.cpp" "${project_root}/src/runtime_checks.cpp"
+    set_source_files_properties("${project_root}/src/main.cpp" "${project_root}/src/runtime_checks.cpp" "${project_root}/src/content_unlock_checks.cpp"
         "${project_root}/src/stream_checks.cpp" "${project_root}/src/sound_transfer_checks.cpp" "${project_root}/src/asset_checks.cpp"
         "${project_root}/src/draw_setup_checks.cpp" "${project_root}/src/battle_command_checks.cpp" "${project_root}/src/battle_update_checks.cpp" "${project_root}/src/fight_state_checks.cpp" "${project_root}/src/attack_effect_checks.cpp" "${project_root}/src/impact_effect_checks.cpp" "${project_root}/src/actor_command_checks.cpp" "${project_root}/src/pause_menu_checks.cpp" "${project_root}/src/story_checks.cpp" "${project_root}/src/animation_checks.cpp" "${project_root}/src/aura_checks.cpp" "${project_root}/src/fade_checks.cpp" "${project_root}/src/movie_checks.cpp" "${project_root}/src/mpeg_checks.cpp"
         "${project_root}/src/mpeg_decode_checks.cpp"
         TARGET_DIRECTORY ps2EntryRunner PROPERTIES SKIP_UNITY_BUILD_INCLUSION TRUE)
-    set_property(SOURCE "${project_root}/src/runtime_checks.cpp" "${project_root}/src/stream_checks.cpp" "${project_root}/src/asset_checks.cpp"
+    set_property(SOURCE "${project_root}/src/runtime_checks.cpp" "${project_root}/src/content_unlock_checks.cpp" "${project_root}/src/stream_checks.cpp" "${project_root}/src/asset_checks.cpp"
         "${project_root}/src/draw_setup_checks.cpp" "${project_root}/src/battle_command_checks.cpp" "${project_root}/src/battle_update_checks.cpp" "${project_root}/src/fight_state_checks.cpp" "${project_root}/src/attack_effect_checks.cpp" "${project_root}/src/impact_effect_checks.cpp" "${project_root}/src/actor_command_checks.cpp" "${project_root}/src/pause_menu_checks.cpp" "${project_root}/src/story_checks.cpp" "${project_root}/src/animation_checks.cpp" "${project_root}/src/aura_checks.cpp" "${project_root}/src/fade_checks.cpp" "${project_root}/src/movie_checks.cpp"
         TARGET_DIRECTORY ps2EntryRunner APPEND PROPERTY
         INCLUDE_DIRECTORIES "${CMAKE_BINARY_DIR}")

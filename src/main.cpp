@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
+#include "discord_presence.h"
 #include "host_audio.h"
 #include "disc_image.h"
 #include "display_settings.h"
@@ -167,6 +168,10 @@ int main(int argc, char* argv[]) {
         openkai2::set_graphics_settings(display);
         openkai2::set_renderer_preference(renderer);
         openkai2::launcher::SessionLock gameSession;
+        openkai2::DiscordPresence presence;
+        presence.enable(preferences.discordPresence);
+        presence.watch_enabled([]{return openkai2::launcher::read_settings(openkai2::launcher::settings_path()).discordPresence;});
+        presence.update("Starting Budokai 2","Verifying game disc");
         log.open();
         std::cout << "[build] source_revision=" OPENKAI2_SOURCE_REVISION " renderer="
                   << openkai2::renderer_preference() << " presentation=async" << std::endl;
@@ -197,6 +202,7 @@ int main(int argc, char* argv[]) {
         auto paths=PS2Runtime::getIoPaths();
         paths.cdImage=std::filesystem::absolute(image);
         PS2Runtime::setIoPaths(paths);
+        presence.update("Playing Budokai 2","In game");
         runtime.run();
         return 0;
     } catch (const std::exception& error) {

@@ -14,7 +14,8 @@ Native PC recompilation of **Dragon Ball Z: Budokai 2**, built with
 
 The launcher includes automatic GitHub updates with stable and prerelease channels,
 verified downloads and recovery during file replacement. ISO preferences, saves
-and backups are preserved.
+and backups are preserved. The Saves page includes reversible character and stage
+unlocks; optional [Discord activity](docs/discord.md) follows the launcher and game.
 
 ## Windows downloads
 
@@ -42,8 +43,7 @@ automatically with an OpenGL 4.3 driver; a CPU compatibility path is available.
 **In development — complete gameplay is not yet supported.** The runtime
 reaches the title screen, menus, versus level selection, and the fight scene.
 Attack effects and fight progression remain incomplete, frame rates are
-unstable, and character poses need further validation. Host audio playback is
-disabled while performance work continues.
+unstable, and character poses and host audio quality need further validation.
 VU1 microprograms use [PCSX2's microVU recompiler](docs/vector-runtime.md).
 Stable 60 FPS and complete matches have not been verified.
 

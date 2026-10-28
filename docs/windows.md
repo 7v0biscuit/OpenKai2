@@ -15,6 +15,16 @@ defaults** resets only display and graphics settings, preserving the ISO, saves
 and update preferences.
 
 The **Saves** page contains automatic session backups, imports and recovery.
+**Unlock all** unlocks all characters and stages in an existing USA progress
+save. It checks both save checksums and creates a backup before replacing the
+card. Story progress, skill inventory and other games' files are preserved.
+Restore the backup from **Backup history** to undo the change. Create a save
+in the game first; the tool does not manufacture a new game save.
+
+**Discord activity** in the sidebar controls Rich Presence for the launcher and
+game, including a running session. It uses the Discord desktop client and the
+same application icon. See [Discord activity](discord.md) for art-asset setup.
+
 Update checks run independently of ISO selection and settings. Installation
 waits until the game and save operations finish.
 

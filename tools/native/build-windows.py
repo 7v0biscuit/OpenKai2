@@ -106,7 +106,7 @@ def main():
             '-DOPENKAI2_RUNTIME_TESTS_ONLY=ON',
             f'-DCMAKE_PROJECT_TOP_LEVEL_INCLUDES={(ROOT / "tools/native/attach-game.cmake").as_posix()}')
         run('cmake', '--build', build, '--config', configuration, '--target',
-            'ps2EntryRunner', 'openkai2_iop_wait_tests', 'openkai2_iop_pipeline_tests',
+            'ps2EntryRunner', 'openkai2_content_unlock_tests', 'openkai2_discord_tests', 'openkai2_spu2_tests', 'openkai2_fpu_tests', 'openkai2_soft_double_tests', 'openkai2_iop_wait_tests', 'openkai2_iop_pipeline_tests',
             'openkai2_launcher_tests', 'openkai2_launcher_ui_tests', 'openkai2_sound_tests', 'openkai2_cdvd_tests', 'openkai2_dma_tests', 'openkai2_startup_tests',
             'openkai2_thread_tests', 'openkai2_callback_tests', 'openkai2_graphics_tests', 'openkai2_gpu_tests', 'openkai2_vector_tests', 'openkai2_vector_backend_tests', 'openkai2_guest_timing_tests', 'openkai2_input_tests', 'openkai2_presenter_tests',
             'ps2_iop_emulator_tests', 'ps2_iop_import_tests',
@@ -149,6 +149,7 @@ def main():
         '-DPS2X_RUNNER_UNITY_BUILD_BATCH_SIZE=8',
         f'-DCMAKE_PROJECT_TOP_LEVEL_INCLUDES={(ROOT / "tools/native/attach-game.cmake").as_posix()}')
     run('cmake', '--build', build, '--config', configuration, '--target', 'ps2EntryRunner',
+        'openkai2_content_unlock_tests', 'openkai2_discord_tests', 'openkai2_spu2_tests', 'openkai2_fpu_tests', 'openkai2_soft_double_tests',
         'openkai2_launcher_tests', 'openkai2_launcher_ui_tests',
         'ps2_iop_emulator_tests', 'ps2_iop_import_tests', 'ps2_iop_compatibility_tests',
         'ps2_iop_import_version_tests', 'openkai2_iop_wait_tests', 'openkai2_iop_pipeline_tests', 'openkai2_sound_tests',

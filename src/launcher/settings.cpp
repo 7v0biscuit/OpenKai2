@@ -73,6 +73,8 @@ Settings read_settings(const std::filesystem::path &file) {
             row >> s.autoBackups;
         else if (key == "auto_updates")
             row >> s.autoUpdates;
+        else if (key == "discord_presence")
+            row >> s.discordPresence;
         else if (key == "update_channel")
             row >> s.updateChannel;
         else if (key == "renderer")
@@ -106,7 +108,8 @@ void write_settings(const std::filesystem::path &file, const Settings &s) {
         << "\nupscaler " << s.upscaler << "\naspect " << s.aspect << "\nvsync " << s.vsync
         << "\naudio " << s.audio << "\nvolume " << s.volume
         << "\nauto_backups " << s.autoBackups << "\nauto_updates " << s.autoUpdates
-        << "\nupdate_channel " << s.updateChannel << "\nrenderer " << std::quoted(s.renderer) << '\n';
+        << "\nupdate_channel " << s.updateChannel << "\nrenderer " << std::quoted(s.renderer)
+        << "\ndiscord_presence " << s.discordPresence << '\n';
     out.close();
     if (!out)
         throw std::runtime_error("Cannot finish saving settings");

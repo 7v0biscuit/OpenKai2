@@ -151,7 +151,7 @@ int main() {
         std::filesystem::create_directories(root);
         struct Cleanup {std::filesystem::path path;~Cleanup(){std::error_code ec;std::filesystem::remove_all(path,ec);}} cleanup{root};
         require(SetEnvironmentVariableW(L"LOCALAPPDATA",root.c_str())!=FALSE,"Cannot isolate settings");
-        Settings initial;initial.autoUpdates=true;
+        Settings initial;initial.autoUpdates=true;initial.discordPresence=false;
         write_settings(settings_path(),initial);
         std::exception_ptr failure;
         std::thread driver([&] {
@@ -162,7 +162,11 @@ int main() {
                 require(IsWindowEnabled(GetDlgItem(w,110)) != FALSE,
                         "Background update check blocked choosing an ISO");
                 click(w,103);
-                for(int id=140;id<=149;++id) {
+                mouse_choice(GetDlgItem(w,174),1);
+                require(read_settings(settings_path()).discordPresence,"Discord preference was not saved");
+                mouse_choice(GetDlgItem(w,174),0);
+                require(!read_settings(settings_path()).discordPresence,"Discord preference did not switch off");
+                for(int id=140;id<=150;++id) {
                     if(id==148)continue; // Session backups live on the Saves page.
                     auto combo=GetDlgItem(w,id);
                     open_dropdown(combo);
@@ -172,6 +176,9 @@ int main() {
                 require(read_settings(settings_path()).fps==120,"FPS was not persisted by native interaction");
                 mouse_choice(GetDlgItem(w,144),1);
                 require(read_settings(settings_path()).antialiasing==1,"Mouse anti-aliasing selection was not saved");
+                mouse_choice(GetDlgItem(w,150),3);
+                require(read_settings(settings_path()).audio && read_settings(settings_path()).volume==50,
+                        "Audio preference was not persisted");
                 keyboard_choice(GetDlgItem(w,149),1);
                 require(read_settings(settings_path()).aspect==1,"Aspect ratio was not persisted");
                 keyboard_choice(GetDlgItem(w,143),1);
@@ -221,13 +228,15 @@ int main() {
                         "Clear image preset changed display pacing or save preferences");
                 click(w,170);
                 auto reset = read_settings(settings_path());
-                require(reset.fps==60 && reset.aspect==0 && reset.antialiasing==0 &&
+                require(reset.fps==240 && reset.aspect==0 && reset.antialiasing==0 &&
                         reset.width==1280 && reset.height==720 && reset.renderer=="auto",
                         "Graphics defaults did not reset");
                 require(!reset.autoBackups && !reset.autoUpdates && reset.updateChannel==0,
                         "Reset graphics changed save/update preferences");
+                require(!reset.discordPresence,"Reset graphics changed the Discord preference");
+                require(reset.audio && reset.volume==50,"Reset graphics changed the audio preference");
                 SetWindowPos(w,nullptr,0,0,1000,680,SWP_NOZORDER|SWP_NOACTIVATE);
-                for(int id : {140,141,142,143,144,145,146,147,149,160,161,162,163,164,170,173}) {
+                for(int id : {140,141,142,143,144,145,146,147,149,150,160,161,162,163,164,170,173,174}) {
                     RECT bounds{},client{};GetWindowRect(GetDlgItem(w,id),&bounds);GetClientRect(w,&client);
                     MapWindowPoints(nullptr,w,reinterpret_cast<POINT*>(&bounds),2);
                     require(bounds.left>=0 && bounds.top>=0 && bounds.right<=client.right &&
@@ -245,6 +254,17 @@ int main() {
                     wait_until([&]{return IsWindowVisible(GetDlgItem(w,route.second))!=FALSE;},
                         "Page shortcut did not navigate from the focused control");
                 }
+                click(w,102);
+                RECT previous{};
+                for(int id : {121,120,122,124,127}) {
+                    RECT bounds{},client{};GetWindowRect(GetDlgItem(w,id),&bounds);GetClientRect(w,&client);
+                    MapWindowPoints(nullptr,w,reinterpret_cast<POINT*>(&bounds),2);
+                    require(IsWindowVisible(GetDlgItem(w,id)) && bounds.left>=previous.right &&
+                            bounds.right<=client.right && bounds.bottom<=client.bottom,
+                            "Save tools overlap or are clipped at the minimum size");
+                    previous=bounds;
+                }
+                require(!IsWindowEnabled(GetDlgItem(w,127)),"Unlocks were enabled without a verified disc");
             } catch (...) { failure=std::current_exception(); }
             if(w)PostMessageW(w,WM_CLOSE,0,0);
         });

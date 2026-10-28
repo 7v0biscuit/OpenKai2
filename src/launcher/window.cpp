@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "launcher/window.h"
+#include "discord_presence.h"
 #include "launcher/display_font.h"
 #include "disc_image.h"
 #include "launcher/saves.h"
@@ -64,6 +65,7 @@ enum Id {
     OpenSaves,
     OpenBackups,
     BackupList,
+    UnlockAll,
     Renderer = 140,
     Fps,
     Resolution,
@@ -81,7 +83,8 @@ enum Id {
     InstallUpdate,
     ReleasePage,
     ResetGraphics = 170,
-    ClearImage = 173
+    ClearImage = 173,
+    DiscordActivity = 174
 };
 constexpr int pageCount = 3;
 constexpr std::array<unsigned, 4> audioVolumes{100u, 75u, 50u, 25u};
@@ -172,12 +175,12 @@ void lettering(HDC dc, const std::wstring &value, int x, int y, HFONT font, COLO
     SelectObject(dc, oldFont);
 }
 struct Fonts {
-    HFONT body{}, caption{}, label{}, heading{}, display{}, brand{}, strong{}, title{}, wordmark{};
+    HFONT body{}, caption{}, label{}, heading{}, brand{}, strong{}, wordmark{};
     void clear() {
-        for (auto f : {body, caption, label, heading, display, brand, strong, title, wordmark})
+        for (auto f : {body, caption, label, heading, brand, strong, wordmark})
             if (f)
                 DeleteObject(f);
-        body = caption = label = heading = display = brand = strong = title = wordmark = nullptr;
+        body = caption = label = heading = brand = strong = wordmark = nullptr;
     }
     void make(unsigned dpi, const wchar_t *lettering) {
         clear();
@@ -190,10 +193,8 @@ struct Fonts {
         caption = font(12, FW_NORMAL);
         label = font(11, FW_BOLD);
         heading = font(26, FW_SEMIBOLD);
-        display = font(40, FW_BOLD);
         brand = font(17, FW_SEMIBOLD);
         strong = font(14, FW_SEMIBOLD);
-        title = font(38, FW_NORMAL, lettering);
         wordmark = font(58, FW_NORMAL, lettering);
     }
     ~Fonts() { clear(); }
@@ -202,7 +203,7 @@ struct Progress {
     std::mutex mutex;
     std::wstring text;
 };
-enum class Job { verify, launch, backup, importSave, restore, afterExit, checkUpdate, downloadUpdate };
+enum class Job { verify, launch, backup, importSave, restore, afterExit, checkUpdate, downloadUpdate, unlock };
 struct Result {
     Job kind;
     std::optional<DiscMount> disc;
@@ -227,6 +228,8 @@ struct Window {
     unsigned dpi = 96;
     int page = 0, hotButton = 0;
     Settings settings;
+    DiscordPresence presence;
+    PresenceStatus lastPresenceStatus=PresenceStatus::off;
     std::filesystem::path candidateIso;
     Job activeJob = Job::verify, activeUpdateJob = Job::checkUpdate;
     std::optional<DiscMount> disc;
@@ -254,7 +257,7 @@ struct Window {
     bool running() const { return child || externalGame; }
     bool dropdownOpen() const {
         for (auto [id, control] : controls)
-            if ((id >= Renderer && id <= Audio) || id == UpdateChannel || id == AutomaticUpdates)
+            if ((id >= Renderer && id <= Audio) || id == UpdateChannel || id == AutomaticUpdates || id == DiscordActivity)
                 if (SendMessageW(control, CB_GETDROPPEDSTATE, 0, 0)) return true;
         return false;
     }
@@ -284,7 +287,7 @@ struct Window {
         SelectObject(dc, old);
     }
     // Small spaced capitals used for section and field labels.
-    void caps(HDC dc, const std::wstring &value, int x, int y, int w, COLORREF color = faint,
+    void caps(HDC dc, const std::wstring &value, int x, int y, int w, COLORREF color = muted,
               UINT flags = DT_LEFT) {
         const int spacing = SetTextCharacterExtra(dc, p(1));
         text(dc, value, x, y, w, 16, fonts.label, color, flags | DT_SINGLELINE | DT_NOPREFIX);
@@ -352,6 +355,7 @@ struct Window {
             ShowWindow(c, visible ? SW_SHOWNA : SW_HIDE);
     }
     void initialize() {
+        presence.enable(settings.discordPresence);
         fonts.make(dpi, letteringFace);
         for (auto [id, label] :
              std::vector<std::pair<int, const wchar_t *>>{{PlayTab, L"Play"},
@@ -365,11 +369,12 @@ struct Window {
                                                           {ChooseIso, L"Choose ISO…"},
                                                           {VerifyIso, L"Verify"},
                                                           {Play, L"Play"},
-                                                          {ImportFolder, L"Import folder…"},
+                                                          {ImportFolder, L"Import folder"},
                                                           {ImportFile, L"Import file…"},
                                                           {Backup, L"Back up now"},
+                                                          {UnlockAll,L"Unlock all"},
                                                           {Restore, L"Restore backup"},
-                                                          {OpenSaves, L"Open save folder"},
+                                                          {OpenSaves, L"Open saves"},
                                                           {OpenBackups, L"Open backup folder"}})
             button(id, label);
         if (std::find(rates.begin(), rates.end(), settings.fps) == rates.end())
@@ -397,6 +402,7 @@ struct Window {
         combo(Upscaler, {L"Nearest", L"Bilinear", L"Bicubic", L"AMD FSR 1"}, int(settings.upscaler));
         combo(Vsync, {L"Off", L"On"}, settings.vsync ? 1 : 0);
         combo(AutoBackup, {L"Off", L"On"}, settings.autoBackups ? 1 : 0);
+        combo(DiscordActivity,{L"Off",L"On"},settings.discordPresence ? 1 : 0);
         combo(Aspect, {L"4:3 (original)", L"16:9 (widescreen)", L"Stretch to window", L"Native pixels"},
               int(settings.aspect));
         combo(Audio, {L"Off", L"On · 100% volume", L"On · 75% volume", L"On · 50% volume", L"On · 25% volume"},
@@ -418,7 +424,7 @@ struct Window {
         for (int id : {ChooseIso, VerifyIso})
             EnableWindow(controls[id], !busy() && !running() &&
                          (id != VerifyIso || !candidateIso.empty()));
-        for (int id : {Play, ImportFolder, ImportFile, Backup, OpenSaves, OpenBackups})
+        for (int id : {Play, ImportFolder, ImportFile, Backup, OpenSaves, OpenBackups, UnlockAll})
             EnableWindow(controls[id], active);
         EnableWindow(controls[Restore], active && !backups.empty());
         EnableWindow(controls[BackupList], !busy() && !child);
@@ -443,6 +449,7 @@ struct Window {
         };
         for (int i = 0; i < pageCount; ++i)
             place(PlayTab + i, 12, 104 + i * 58, sidebarWidth - 24, 50);
+        position(DiscordActivity, 24, h - 130, sidebarWidth - 48, 32);
         if (page == 0) {
             position(Play, contentLeft + 28, heroBottom - 70, 168, 46);
             position(VerifyIso, right - 20 - 96, discTop + 26, 96, 36);
@@ -450,9 +457,9 @@ struct Window {
         } else if (page == 1) {
             const int panelBottom = h - 64;
             position(AutoBackup, right - 20 - 160, 142, 160, 34);
-            const int gap = 12, action = (content - 40 - 3 * gap) / 4;
+            const int gap = 12, action = (content - 40 - 4 * gap) / 5;
             int x = contentLeft + 20;
-            for (int id : {ImportFile, ImportFolder, Backup, OpenSaves}) {
+            for (int id : {ImportFile, ImportFolder, Backup, OpenSaves, UnlockAll}) {
                 position(id, x, 246, action, 36);
                 x += action + gap;
             }
@@ -511,30 +518,25 @@ struct Window {
         orb(dc, p(38), p(48), p(15), 2);
         text(dc, L"OpenKai2", 64, 28, 150, 24, fonts.brand);
         text(dc, L"Budokai 2 for PC", 64, 51, 150, 18, fonts.caption, muted);
-        caps(dc, L"MENU", 24, 82, 160);
 
-        const int top = h - 152;
-        box(dc, {p(12), p(top), p(sidebarWidth - 12), p(top + 78)}, panel);
-        caps(dc, L"STATUS", 26, top + 14, 160);
-        ellipse(dc, p(30), p(top + 45), p(4), stateColor());
-        text(dc, stateLabel(), 42, top + 35, 160, 20, fonts.strong, stateColor(),
-             DT_LEFT | DT_SINGLELINE | DT_NOPREFIX);
-        const std::wstring detail = running() ? L"Saves unlock when it closes"
-                                    : busy()  ? L"Settings stay available"
-                                    : disc    ? (settings.autoBackups ? L"Auto backups on" : L"Auto backups off")
-                                              : L"USA ISO required";
-        text(dc, detail, 26, top + 56, 170, 16, fonts.caption, muted,
+        const int top = h - 162;
+        line(dc, p(24), p(top - 10), p(sidebarWidth - 48), border);
+        caps(dc, L"DISCORD ACTIVITY", 24, top + 6, sidebarWidth - 48);
+        const auto state = presence.status();
+        text(dc, !settings.discordPresence ? L"Activity sharing is off"
+                  : state == PresenceStatus::connected ? L"Connected to Discord"
+                  : L"Waiting for desktop app", 24, top + 74, sidebarWidth - 48, 18,
+             fonts.caption, state == PresenceStatus::connected ? green : muted,
              DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
-        text(dc, L"Version " + wide(application_version), 26, h - 58, 170, 18, fonts.caption, muted);
-        text(dc, L"Ctrl+1–3 switches pages", 26, h - 38, 170, 18, fonts.caption, faint);
+        text(dc, L"v" + wide(application_version), 24, h - 38, sidebarWidth - 48, 18, fonts.caption, faint);
     }
     void paintHeader(HDC dc, int w, int content) {
         const wchar_t *titles[] = {L"Play", L"Saves", L"Settings"};
         const wchar_t *subtitles[] = {
-            L"Choose your Budokai 2 disc image, then jump in.",
+            L"Your game, ready when you are.",
             L"Import, back up and restore your memory card.",
-            L"Changes save automatically and take effect the next time you launch."};
-        lettering(dc, titles[page], p(contentLeft), p(58), fonts.title, ink, RGB(6, 8, 14), p(2));
+            L"Saved automatically. Game settings apply at the next launch."};
+        text(dc, titles[page], contentLeft, 28, content - 180, 34, fonts.heading);
         text(dc, subtitles[page], contentLeft, 66, content - 180, 20, fonts.caption, muted,
              DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
         const auto label = stateLabel();
@@ -564,8 +566,15 @@ struct Window {
         for (int x = hero.left; x < hero.right; x += 2)
             fill(dc, {x, hero.top, x + 2, hero.bottom}, mix(heroFrom, heroTo, (x - hero.left) * 255 / span));
         const int cx = right - 100, cy = heroTop + 96;
-        orb(dc, p(cx), p(cy), p(58), 2);
-        orb(dc, p(cx - 118), p(cy + 52), p(16), 1);
+        // A restrained outline gives the title room without additional artwork.
+        auto pen = CreatePen(PS_SOLID, p(1), mix(heroTo, orange, 46));
+        auto oldPen = SelectObject(dc, pen);
+        auto oldBrush = SelectObject(dc, GetStockObject(NULL_BRUSH));
+        for (int radius : {74, 90, 106})
+            Ellipse(dc, p(cx - radius), p(cy - radius), p(cx + radius), p(cy + radius));
+        SelectObject(dc, oldBrush);
+        SelectObject(dc, oldPen);
+        DeleteObject(pen);
         SelectClipRgn(dc, nullptr);
         DeleteObject(region);
 
@@ -648,9 +657,8 @@ struct Window {
              content - 220, 18, fonts.caption, muted, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
 
         panelBox(dc, contentLeft, 206, right, 322);
-        text(dc, L"Import and back up", contentLeft + 20, 218, content - 40, 22, fonts.strong);
-        text(dc, L"Accepts .psu exports, extracted save folders and OpenKai2 .zip backups. "
-                 L"Your current card is backed up before anything is replaced.",
+        text(dc, L"Save tools", contentLeft + 20, 218, content - 40, 22, fonts.strong);
+        text(dc, L"Import saves or unlock every character and stage. A backup is made before changes.",
              contentLeft + 20, 290, content - 40, 18, fonts.caption, muted,
              DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
 
@@ -659,13 +667,14 @@ struct Window {
         if (disc)
             text(dc, std::to_wstring(backups.size()) + (backups.size() == 1 ? L" backup" : L" backups"),
                  right - 160, 350, 140, 20, fonts.caption, muted, DT_RIGHT | DT_SINGLELINE | DT_NOPREFIX);
-        if (backups.empty()) {
-            box(dc, {p(contentLeft + 20), p(382), p(right - 20), p(std::max(440, panelBottom - 64))}, field,
-                border, 8);
-            text(dc, disc ? L"No backups yet. Use Back up now, or play a session with automatic backups on."
-                          : L"Verify your disc on the Play page to manage saves.",
-                 contentLeft + 36, 382, content - 72, std::max(58, panelBottom - 64 - 382), fonts.caption, muted,
-                 DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        if(backups.empty()) {
+            const int bottom=std::max(440,panelBottom-64),middle=(382+bottom)/2;
+            box(dc,{p(contentLeft+20),p(382),p(right-20),p(bottom)},field,border,8);
+            text(dc,disc ? L"No backups yet" : L"Choose your game disc",contentLeft+36,middle-28,
+                 content-72,24,fonts.strong,ink,DT_CENTER|DT_SINGLELINE|DT_NOPREFIX);
+            text(dc,disc ? L"Back up your save before importing or unlocking content."
+                         : L"Verify your ISO on the Play page to manage saves.",contentLeft+36,middle+4,
+                 content-72,38,fonts.caption,muted,DT_CENTER|DT_WORDBREAK|DT_NOPREFIX);
         }
     }
     void paintSettings(HDC dc, int content) {
@@ -951,6 +960,10 @@ struct Window {
                     backup_card(result.disc->root / "mc0",
                                 default_cache_directory().parent_path() / "backups" / result.disc->image_sha256);
                 result.message = L"Disc verified. You're ready to play.";
+            } else if(kind==Job::unlock) {
+                const bool changed=unlock_card_content(save,archive);
+                result.message=changed ? L"All characters and stages unlocked. Your previous card is in Backup history."
+                                       : L"All characters and stages are already unlocked.";
             } else if (kind == Job::backup || kind == Job::afterExit) {
                 auto p = backup_card(save, archive);
                 result.message = p.empty() ? L"There is no save data to back up yet." : L"Backup created.";
@@ -986,6 +999,12 @@ struct Window {
         ShowWindow(hwnd, SW_MINIMIZE);
     }
     void timer() {
+        presence.enable(settings.discordPresence);
+        const char* pages[]={"Choosing a game","Managing saves","Configuring settings"};
+        presence.update(running()?"Playing Budokai 2":"In launcher",running()?"In game":pages[page]);
+        if(presence.status()!=lastPresenceStatus && !dropdownOpen()) {
+            lastPresenceStatus=presence.status();InvalidateRect(hwnd,nullptr,FALSE);
+        }
         for (const bool background : {false, true}) {
             auto &work = background ? updateTask : task;
             if (!work.valid() || work.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
@@ -1181,6 +1200,7 @@ struct Window {
         next.upscaler = unsigned(selected(Upscaler));
         next.vsync = selected(Vsync) != 0;
         next.autoBackups = selected(AutoBackup) != 0;
+        next.discordPresence=selected(DiscordActivity)!=0;
         next.aspect = unsigned(selected(Aspect));
         if (const int choice = selected(Audio); choice > 0) {
             next.audio = true;
@@ -1210,8 +1230,12 @@ struct Window {
             SetFocus(controls[id]);
             return;
         }
-        if (id >= Renderer && id <= Audio && notification == CBN_SELCHANGE) {
+        if (((id >= Renderer && id <= Audio) || id == DiscordActivity) && notification == CBN_SELCHANGE) {
             saveOptions();
+            if (id == DiscordActivity) {
+                presence.enable(settings.discordPresence);
+                status = L"Discord activity preference saved.";
+            }
             refreshEnabled();
             return;
         }
@@ -1301,6 +1325,8 @@ struct Window {
                 start(Job::importSave, p);
         } else if (id == Backup && disc)
             start(Job::backup);
+        else if(id==UnlockAll && disc)
+            start(Job::unlock);
         else if (id == Restore && disc) {
             auto i = SendMessageW(controls[BackupList], LB_GETCURSEL, 0, 0);
             if (i >= 0 && size_t(i) < backups.size())
