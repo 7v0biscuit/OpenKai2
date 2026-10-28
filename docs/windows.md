@@ -173,11 +173,13 @@ See [Vector execution](vector-runtime.md) for validation and developer settings.
 
 ## Audio output
 
-Game audio plays streamed music, voices and movie audio through a 48 kHz float
-stereo stream. Settings → Display → Game audio turns it off or sets the volume
-(100, 75, 50 or 25%). Sound effects played through SPU2 voices are not
-synthesized yet. The startup log reports `[audio:output] enabled=1` with the
-stream format, or the reason output is off. `--audio-test` checks the mixer
+Game audio is synthesized by PCSX2's SPU2 core from the same register writes
+and transfers the console's sound chip receives: music, voices, sound effects
+and reverb. When the game runs below full speed, audio is time-stretched
+rather than interrupted. Settings → Display → Game audio turns it off or sets
+the volume (100, 75, 50 or 25%). The startup log reports `[audio:output]
+enabled=1` with the stream format, or the reason output is off, and
+`[audio:output] stopped` with underrun counts. `--audio-test` checks the mixer
 without opening a playback device.
 
 ## Build requirements

@@ -724,16 +724,19 @@ renderer references remain enabled.
 
 ## Audio
 
-SPU2 AutoDMA PCM from both cores is mixed into a 48 kHz, 32-bit float stereo
-device stream: the SPU2's own rate, so samples reach the device without
-resampling. A soft limiter keeps the summed cores below full scale. The
-launcher's Game audio control turns output off, which opens no device, or sets
-the volume. `--audio-test` checks the mixer offline.
+PCSX2's SPU2 core (v2.1.27) runs as a passive mirror of the emulated IOP's
+SPU2. Every register write and transfer towards the SPU2 is replayed into it,
+and it mixes the 48 voices with ADSR envelopes, Gaussian interpolation,
+reverb and AutoDMA input into the console's 48 kHz output. The emulated IOP
+still answers all register reads, DMA completions and interrupts the game
+sees, so the mirror cannot change game timing.
 
-Only streamed PCM (ADX music, voices and movie audio) reaches the host. Sound
-effects that the game plays through SPU2 voices are not synthesized yet, and
-the decoded-sound backend stays silent. Guest sound DMA, RPC responses and
-interrupt timing are unchanged.
+The host stream is 32-bit float stereo at 48 kHz with a soft limiter. When
+the game runs below full speed, WSOLA time-stretching follows the queue depth
+so audio slows without gaps or a pitch change. The launcher's Game audio
+control turns output off, which opens no device, or sets the volume.
+`--audio-test` checks the mixer and the stretcher offline; the `spu2_mirror`
+test uploads an ADPCM voice, keys it on and off, and checks the output.
 
 ## Validation
 
