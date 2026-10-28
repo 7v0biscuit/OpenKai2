@@ -44,6 +44,12 @@ host stall misses a field deadline, the pacing anchor is rebased instead of
 running overdue fields in a burst. More window refreshes do not imply more
 completed game frames.
 
+While the guest is producing the next frame, the window pumps input without
+resubmitting the same image in a busy loop. New completed frames and window
+size changes draw immediately, with periodic repaints for exposed windows.
+An active debug overlay keeps its continuous refresh. This applies to every
+presentation cap, including unlimited, and does not change guest timing.
+
 Filtered output is reused while the completed game frame is unchanged. FXAA,
 bicubic and FSR passes run again after a new completed frame, crop, filter or
 output-size change. Nearest and bilinear presentation without FXAA retain the

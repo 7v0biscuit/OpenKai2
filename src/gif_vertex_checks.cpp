@@ -16,7 +16,7 @@ struct VertexCapture final : GSRasterBackend {
     void Submit(const GSPrimitiveBatch& b) override {batches.push_back(b);}
     void LoadClut(const GSTex0Reg&,const GSTexClutReg&) override {}
     void BeginTransfer(const GSTransferCommand&) override {throw std::runtime_error("Unexpected GIF fixture transfer");}
-    void UploadImage(const uint8_t*,uint32_t) override {throw std::runtime_error("Unexpected GIF fixture upload");}
+    void UploadImage(const uint8_t*,uint32_t) override {}
     void Flush() override {}
     void TextureFlush() override {}
     void Sync(GSSyncReason) override {}
@@ -73,6 +73,30 @@ void verify_gif_vertices() {
             const auto& b=out->batches.back();require(b.vertexCount==3u,"Packed XYZ3 fixture lost triangle assembly");
             for(const auto& v:b.vertices)require(v.z==double(depth),"Packed XYZ3 lost 32-bit vertex depth precision");
         }
+        // PRE is meaningful only on nonempty PACKED tags. Ignored tag bits
+        // must neither switch context nor discard a partially assembled sprite.
+        for(unsigned format=0u;format<3u;++format)for(unsigned loops:{0u,1u}) {
+            if((native && format!=0u) || (format==0u && loops!=0u))continue;
+            out->batches.clear();gs.writeRegister(0u,6u|(1u<<9u));
+            gs.writeRegister(0x4du,7u|(1ull<<16u)); // Distinguish context 1.
+            send(packet({vertex}));
+            std::vector<uint64_t> ignored={uint64_t(loops)|0x8000u|(1ull<<46u)
+                |(uint64_t(format)<<58u)|(1ull<<60u),15u};
+            if(loops)ignored.insert(ignored.end(),{0u,0u});
+            send(ignored);send(packet({{5u,128u|(192ull<<32u),123u}}));
+            require(out->batches.size()==1u && out->batches.back().vertexCount==2u
+                && out->batches.back().state.prim.type==GS_PRIM_SPRITE
+                && out->batches.back().state.prim.ctxt==1u
+                && out->batches.back().state.context.frame.fbp==7u,
+                "Ignored GIF PRE bits changed primitive state or discarded an in-progress sprite");
+        }
+        out->batches.clear();gs.writeRegister(0u,6u|(1u<<9u));
+        auto applied=packet({vertex});applied[0]|=1ull<<46u;
+        send(applied);
+        require(out->batches.size()==1u && out->batches.back().vertexCount==1u
+            && out->batches.back().state.prim.type==GS_PRIM_POINT
+            && out->batches.back().state.prim.ctxt==0u,
+            "Nonempty PACKED PRE did not apply its primitive and context");
     }
 }
 }

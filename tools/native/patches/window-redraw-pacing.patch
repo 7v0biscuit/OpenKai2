@@ -1,0 +1,59 @@
+--- a/runtime/ps2_runtime.cpp
++++ b/runtime/ps2_runtime.cpp
+@@ -2438,10 +2438,18 @@
+                 m_memory.gsWriteCount(), m_memory.vifWriteCount()};
+     };
+     uint64_t tick = 0, windowFrames = 0;
++    uint64_t lastWindowFrame = std::numeric_limits<uint64_t>::max(), lastWindowDrawMs = 0;
++    int lastWindowWidth = 0, lastWindowHeight = 0;
+     while (!isStopRequested() && !gameThreadFinished.load(std::memory_order_acquire))
+     {
+-        ++windowFrames;
+         openkai2::poll_host_input();
++        if (WindowShouldClose())
++        {
++            windowClosed = true;
++            RUNTIME_LOG("[run] window close requested, breaking out of loop");
++            requestStop();
++            break;
++        }
+         try { presenter.rethrow_if_failed(); }
+         catch (...) { requestStop(); break; }
+         presenter.request(m_memory.gs().vsyncTick.load(std::memory_order_acquire));
+@@ -2486,6 +2494,22 @@
+         uint32_t presentWidth = FB_WIDTH;
+         uint32_t presentHeight = DEFAULT_DISPLAY_HEIGHT;
+         const uint64_t completedFrame=presenter.completed();
++        const int windowWidth = GetScreenWidth(), windowHeight = GetScreenHeight();
++        const bool debugOverlay = m_debugUiInitialized && m_debugUiDrawCallback;
++        if (completedFrame == lastWindowFrame && windowWidth == lastWindowWidth &&
++            windowHeight == lastWindowHeight && elapsed - lastWindowDrawMs < 250u && !debugOverlay)
++        {
++            // EndDrawing normally pumps input. Keep pumping while the producer
++            // is busy, without submitting thousands of identical window blits.
++            PollInputEvents();
++            std::this_thread::sleep_for(std::chrono::milliseconds(1));
++            continue;
++        }
++        lastWindowFrame = completedFrame;
++        lastWindowWidth = windowWidth;
++        lastWindowHeight = windowHeight;
++        lastWindowDrawMs = elapsed;
++        ++windowFrames;
+         UploadFrame(frameTex, this, presentWidth, presentHeight, completedFrame);
+ 
+         BeginDrawing();
+@@ -2509,13 +2533,6 @@
+         }
+         EndDrawing();
+ 
+-        if (WindowShouldClose())
+-        {
+-            windowClosed = true;
+-            RUNTIME_LOG("[run] window close requested, breaking out of loop");
+-            requestStop();
+-            break;
+-        }
+     }
+ 
+     requestStop();

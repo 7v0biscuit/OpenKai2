@@ -77,8 +77,9 @@ void open_dropdown(HWND combo) {
     RECT list{};GetClientRect(info.hwndList,&list);
     const auto count=SendMessageW(combo,CB_GETCOUNT,0,0);
     const auto item=SendMessageW(combo,CB_GETITEMHEIGHT,0,0);
-    require(list.bottom-list.top>=std::min<LRESULT>(count,6)*item,
-            "Dropdown popup is too short to display its options");
+    if(list.bottom-list.top<std::min<LRESULT>(count,6)*item)
+        throw std::runtime_error("Dropdown popup is too short: control="+std::to_string(GetDlgCtrlID(combo))+
+            " height="+std::to_string(list.bottom-list.top)+" item="+std::to_string(item));
 }
 void mouse_choice(HWND combo,int index) {
     open_dropdown(combo);
@@ -231,6 +232,18 @@ int main() {
                     MapWindowPoints(nullptr,w,reinterpret_cast<POINT*>(&bounds),2);
                     require(bounds.left>=0 && bounds.top>=0 && bounds.right<=client.right &&
                             bounds.bottom<=client.bottom,"A settings control is clipped at minimum window size");
+                }
+                // Navigation shortcuts must work while a native field has focus.
+                for(auto route : {std::pair<WORD,int>{'2',120},{'4',160},{'1',110},{'3',140}}) {
+                    SetForegroundWindow(w);
+                    INPUT keys[4]{};
+                    for(auto& key:keys)key.type=INPUT_KEYBOARD;
+                    keys[0].ki.wVk=VK_CONTROL;keys[1].ki.wVk=route.first;
+                    keys[2].ki.wVk=route.first;keys[2].ki.dwFlags=KEYEVENTF_KEYUP;
+                    keys[3].ki.wVk=VK_CONTROL;keys[3].ki.dwFlags=KEYEVENTF_KEYUP;
+                    require(SendInput(4,keys,sizeof(INPUT))==4,"Cannot submit page shortcut");
+                    wait_until([&]{return IsWindowVisible(GetDlgItem(w,route.second))!=FALSE;},
+                        "Page shortcut did not navigate from the focused control");
                 }
             } catch (...) { failure=std::current_exception(); }
             if(w)PostMessageW(w,WM_CLOSE,0,0);

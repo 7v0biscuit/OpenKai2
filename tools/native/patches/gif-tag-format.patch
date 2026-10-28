@@ -1,0 +1,22 @@
+--- a/runtime/gs/gs_frontend.cpp
++++ b/runtime/gs/gs_frontend.cpp
+@@ -707,7 +707,9 @@
+         recordGifTagDebugEventUnlocked(sizeBytes, nloop, flg, nreg);
+ 
+         bool pre = ((tagLo >> 46) & 1) != 0;
+-        if (pre)
++        // EE User's Manual 7.2.2: empty tags ignore everything except EOP;
++        // PRE selects PRIM only for PACKED, never REGLIST or IMAGE.
++        if (pre && nloop != 0u && flg == GIF_FMT_PACKED)
+         {
+             writeRegisterUnlocked(GS_REG_PRIM, (tagLo >> 47) & 0x7FF);
+         }
+@@ -774,7 +776,7 @@
+         recordGifTagDebugEventUnlocked(sizeBytes, tag.nloop, GIF_FMT_PACKED, tag.nreg);
+ 
+         const bool pre = ((tag.lo >> 46u) & 1u) != 0u;
+-        if (pre)
++        if (pre && tag.nloop != 0u)
+             writeRegisterUnlocked(GS_REG_PRIM, (tag.lo >> 47u) & 0x7FFu);
+ 
+         uint32_t offset = tag.payloadOffset;

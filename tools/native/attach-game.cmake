@@ -83,6 +83,7 @@ function(openkai2_attach_generated_sources)
         COMMAND_ERROR_IS_FATAL ANY)
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
         "${project_root}/tools/native/patches/launcher-display.patch"
+        "${project_root}/tools/native/patches/window-redraw-pacing.patch"
         "${project_root}/tools/native/patches/simulation-pacing.patch"
         "${project_root}/tools/native/patches/vector-native-backend.patch"
         "${project_root}/tools/native/patches/guest-timing.patch"
@@ -107,6 +108,7 @@ function(openkai2_attach_generated_sources)
         "${project_root}/tools/native/patches/flat-depth.patch"
         "${project_root}/tools/native/patches/display-pacing.patch"
         "${project_root}/tools/native/patches/gif-vertex-state.patch"
+        "${project_root}/tools/native/patches/gif-tag-format.patch"
         "${project_root}/tools/native/patches/vector-code-diagnostics.patch"
         "${project_root}/tools/native/patches/work-timings.patch"
         "${project_root}/tools/native/patches/disc-layout.patch"
