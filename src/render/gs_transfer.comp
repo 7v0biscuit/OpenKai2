@@ -1,0 +1,45 @@
+// SPDX-License-Identifier: GPL-3.0-only
+#version 430 core
+// Host-to-local uploads and local-to-local copies performed in GPU VRAM, so
+// pages the GPU has drawn need no readback first. One invocation moves one
+// pixel; the host only dispatches transfers whose source and destination
+// pages are disjoint, so pixel order is irrelevant.
+layout(local_size_x=64) in;
+layout(std430,binding=0) buffer Vram {uint memory[];};
+layout(std430,binding=1) readonly buffer Job {uint job[];};
+layout(std430,binding=5) readonly buffer AddressTables {uint tables[];};
+// job: mode, count, first, rrw, dpsm, dbp, dbw, dsax, dsay, spsm, sbp, sbw, ssax, ssay, then upload data.
+const uint header=14u;
+uint bitAddress(uint psm,uint base,uint width,ivec2 pos){
+    uint d=(psm&63u)*8u;uint pw=tables[d],ph=tables[d+1u];
+    uvec2 p=uvec2(pos);uint page=(p.y/ph)*((width*64u)/pw)+p.x/pw;
+    return (base*2048u+page*65536u+tables[tables[d+5u]+(p.y%ph)*pw+p.x%pw])&33554431u;
+}
+uint bitsPerPixel(uint psm){return tables[(psm&63u)*8u+3u];}
+uint readPixel(uint psm,uint base,uint width,ivec2 pos){
+    uint bits=bitAddress(psm,base,width,pos),count=bitsPerPixel(psm);
+    uint value=memory[bits>>5u]>>(bits&31u);
+    return count==32u ? value : value&((1u<<count)-1u);
+}
+void writePixel(uint psm,uint base,uint width,ivec2 pos,uint value){
+    uint bits=bitAddress(psm,base,width,pos),count=bitsPerPixel(psm),address=bits>>5u,shift=bits&31u;
+    if(count==32u){memory[address]=value;return;}
+    // Neighbouring invocations may own other fields of this word.
+    uint mask=((1u<<count)-1u)<<shift;
+    atomicAnd(memory[address],~mask);atomicOr(memory[address],(value<<shift)&mask);
+}
+uint uploadValue(uint index,uint count){
+    uint bit=index*count,word=bit>>5u,shift=bit&31u;
+    uint value=job[header+word]>>shift;
+    if(shift+count>32u)value|=job[header+word+1u]<<(32u-shift);
+    return count==32u ? value : value&((1u<<count)-1u);
+}
+void main(){
+    uint index=gl_GlobalInvocationID.x;if(index>=job[1])return;
+    uint pixel=job[2]+index,rrw=job[3];
+    ivec2 offset=ivec2(pixel%rrw,pixel/rrw);
+    uint dpsm=job[4];
+    uint value=job[0]==0u ? uploadValue(index,bitsPerPixel(dpsm))
+                          : readPixel(job[9],job[10],job[11],offset+ivec2(job[12],job[13]));
+    writePixel(dpsm,job[5],job[6],offset+ivec2(job[7],job[8]),value);
+}

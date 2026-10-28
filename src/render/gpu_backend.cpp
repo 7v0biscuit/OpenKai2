@@ -40,7 +40,7 @@ std::bitset<PageCount> rectangle_pages(unsigned psm,unsigned base,unsigned width
 namespace {
 using Pages=std::bitset<gpu::PageCount>;
 std::atomic<uint64_t> totalGpuDraws{},totalCpuDraws{},totalBatches{},totalTiles{},totalUploads{},totalReadbacks{},totalCulled{};
-std::atomic<uint64_t> totalPaletteLoads{},totalPaletteReuses{};
+std::atomic<uint64_t> totalPaletteLoads{},totalPaletteReuses{},totalGpuTransfers{};
 bool indexed(unsigned psm){return psm==19u || psm==20u || psm==27u || psm==36u || psm==44u;}
 bool fourBit(unsigned psm){return psm==20u || psm==36u || psm==44u;}
 uint32_t bits(float value){uint32_t result;std::memcpy(&result,&value,4u);return result;}
@@ -86,13 +86,18 @@ uint32_t textureAlpha(const GSTexaReg& t,unsigned psm,uint32_t p){
     if(psm==2u || psm==10u)a=(a&128u) ? t.ta1 : t.aem && zero ? 0u : t.ta0;
     return (p&0xffffffu)|(a<<24u);
 }
-struct Resources {std::array<gpu::UInt,6> buffers{};gpu::UInt program=0u;};
-void compileResources(gpu::Api& gl,Resources& r){
-    const auto shader=gl.CreateShader(gpu::ComputeShader);const char* source=gpu::shaderSource;
+struct Resources {std::array<gpu::UInt,6> buffers{};gpu::UInt program=0u,transferProgram=0u,transferBuffer=0u;};
+gpu::UInt compileProgram(gpu::Api& gl,const char* source){
+    const auto shader=gl.CreateShader(gpu::ComputeShader);
     gl.ShaderSource(shader,1,&source,nullptr);gl.CompileShader(shader);int ok=0,length=0;gl.GetShaderiv(shader,0x8b81,&ok);
     if(!ok){gl.GetShaderiv(shader,0x8b84,&length);std::vector<char> log(std::max(length,1));gl.GetShaderInfoLog(shader,int(log.size()),nullptr,log.data());gl.DeleteShader(shader);throw std::runtime_error("GPU shader: "+std::string(log.data()));}
-    r.program=gl.CreateProgram();gl.AttachShader(r.program,shader);gl.LinkProgram(r.program);gl.DeleteShader(shader);gl.GetProgramiv(r.program,0x8b82,&ok);
-    if(!ok){gl.GetProgramiv(r.program,0x8b84,&length);std::vector<char> log(std::max(length,1));gl.GetProgramInfoLog(r.program,int(log.size()),nullptr,log.data());gl.DeleteProgram(r.program);r.program=0u;throw std::runtime_error("GPU program: "+std::string(log.data()));}
+    const auto program=gl.CreateProgram();gl.AttachShader(program,shader);gl.LinkProgram(program);gl.DeleteShader(shader);gl.GetProgramiv(program,0x8b82,&ok);
+    if(!ok){gl.GetProgramiv(program,0x8b84,&length);std::vector<char> log(std::max(length,1));gl.GetProgramInfoLog(program,int(log.size()),nullptr,log.data());gl.DeleteProgram(program);throw std::runtime_error("GPU program: "+std::string(log.data()));}
+    return program;
+}
+void compileResources(gpu::Api& gl,Resources& r){
+    r.program=compileProgram(gl,gpu::shaderSource);r.transferProgram=compileProgram(gl,gpu::transferShaderSource);
+    gl.GenBuffers(1,&r.transferBuffer);
     gl.GenBuffers(int(r.buffers.size()),r.buffers.data());
     gl.BindBuffer(gpu::ShaderStorageBuffer,r.buffers[0]);gl.BufferData(gpu::ShaderStorageBuffer,gpu::VramBytes,nullptr,gpu::DynamicDraw);
     const auto& lut=gpu::address_tables();gl.BindBuffer(gpu::ShaderStorageBuffer,r.buffers[5]);gl.BufferData(gpu::ShaderStorageBuffer,gpu::Size(lut.size()*4u),lut.data(),gpu::DynamicDraw);
@@ -119,7 +124,7 @@ struct GpuRasterBackend::Impl {
         catch(const std::exception& e){resources.reset();disabled=true;if(renderer_preference()=="gpu")throw;std::cerr<<"[renderer] GPU initialization failed: "<<e.what()<<"\n";return false;}
     }
     ~Impl(){
-        try{if(device && device->running()){submit();device->invoke([r=resources](gpu::Api& gl){if(r){gl.DeleteBuffers(int(r->buffers.size()),r->buffers.data());if(r->program)gl.DeleteProgram(r->program);}});}}catch(...){}
+        try{if(device && device->running()){submit();device->invoke([r=resources](gpu::Api& gl){if(r){gl.DeleteBuffers(int(r->buffers.size()),r->buffers.data());gl.DeleteBuffers(1,&r->transferBuffer);if(r->program)gl.DeleteProgram(r->program);if(r->transferProgram)gl.DeleteProgram(r->transferProgram);}});}}catch(...){}
 
     }
     void upload(){
@@ -159,6 +164,18 @@ struct GpuRasterBackend::Impl {
         });gpuDirty&=~pages;
     }
     void materialize(){Pages all;all.set();materialize(all);}
+    // Uploads and copies whose pages the GPU has drawn run in GPU VRAM, so
+    // the game thread never waits for a readback to merge them on the CPU.
+    bool transferFormat(unsigned psm)const{const unsigned bpp=lut[(psm&63u)*8u+3u];return lut[(psm&63u)*8u] && (bpp==4u || bpp==8u || bpp==16u || bpp==24u || bpp==32u);}
+    void transferOnGpu(std::vector<uint32_t> job){
+        const unsigned pixels=job[1];if(!pixels)return;
+        submit();upload();++statistics.gpuTransfers;totalGpuTransfers.fetch_add(1u,std::memory_order_relaxed);
+        device->post([r=resources,job=std::move(job),pixels](gpu::Api& gl){
+            gl.BindBuffer(gpu::ShaderStorageBuffer,r->transferBuffer);gl.BufferData(gpu::ShaderStorageBuffer,gpu::Size(job.size()*4u),job.data(),gpu::DynamicDraw);
+            gl.BindBufferBase(gpu::ShaderStorageBuffer,0,r->buffers[0]);gl.BindBufferBase(gpu::ShaderStorageBuffer,1,r->transferBuffer);gl.BindBufferBase(gpu::ShaderStorageBuffer,5,r->buffers[5]);
+            gl.UseProgram(r->transferProgram);gl.DispatchCompute((pixels+63u)/64u,1u,1u);gl.MemoryBarrier(gpu::ShaderStorageBarrier|gpu::BufferUpdateBarrier);gl.check("GPU VRAM transfer");
+        });
+    }
     // Pages read and written by a VRAM-to-VRAM or VRAM-to-host transfer.
     // Wrapped rectangles and unsupported formats keep the full-memory path.
     bool transferPages(const GSTransferCommand& c,Pages& source,Pages& destination){
@@ -324,6 +341,15 @@ void GpuRasterBackend::LoadClut(const GSTex0Reg& t,const GSTexClutReg& tc){
 }
 void GpuRasterBackend::BeginTransfer(const GSTransferCommand& c){
     std::lock_guard lock(m->mutex);m->transfer=c;Pages source,destination;
+    const unsigned pixels=unsigned(c.trxreg.rrw)*c.trxreg.rrh;
+    if(c.direction==2u && m->ready() && m->transferPages(c,source,destination) && ((source|destination)&m->gpuDirty).any() &&
+       !(source&destination).any() && m->transferFormat(c.bitbltbuf.spsm) && m->transferFormat(c.bitbltbuf.dpsm) && pixels<=65535u*64u){
+        const auto& b=c.bitbltbuf;const auto& p=c.trxpos;
+        m->transferOnGpu({1u,pixels,0u,c.trxreg.rrw,b.dpsm,b.dbp,std::max<unsigned>(b.dbw,1u),p.dsax,p.dsay,b.spsm,b.sbp,std::max<unsigned>(b.sbw,1u),p.ssax,p.ssay});
+        // The CPU copy is stale for these pages; record the finished transfer without copying.
+        auto finished=c;finished.trxreg.rrh=0u;m->cpu.BeginTransfer(finished);
+        m->gpuDirty|=destination;m->cpuDirty&=~destination;if((destination&m->loadedPalettePages).any())m->loadedPaletteValid=false;return;
+    }
     if((c.direction==1u || c.direction==2u) && m->transferPages(c,source,destination)){
         // Earlier draws may still sample the destination, so they are
         // dispatched before its new bytes are uploaded.
@@ -341,6 +367,16 @@ void GpuRasterBackend::UploadImage(const uint8_t* data,uint32_t bytes){
     unsigned count=std::min<unsigned>(uint64_t(bytes)*8u/bpp,before.totalPixels-before.copiedPixels),first=before.copiedPixels;Pages pages;
     while(count){const unsigned x=first%t.trxreg.rrw,y=first/t.trxreg.rrw,span=std::min<unsigned>(count,t.trxreg.rrw-x);
         pages|=rectanglePages(t.bitbltbuf.dpsm,t.bitbltbuf.dbp,std::max<unsigned>(t.bitbltbuf.dbw,1u),t.trxpos.dsax+x,t.trxpos.dsay+y,span,1u);first+=span;count-=span;}
+    if((pages&m->gpuDirty).any() && m->ready() && m->transferFormat(t.bitbltbuf.dpsm)){
+        // Write the pixels the CPU renderer accepts from this chunk into GPU
+        // VRAM as well; drawn pages stay GPU-owned and need no readback.
+        m->cpu.UploadImage(data,bytes);const auto after=m->cpu.GetTransferSnapshot();
+        const unsigned moved=after.copiedPixels-before.copiedPixels,used=unsigned((uint64_t(moved)*bpp+7u)/8u);
+        std::vector<uint32_t> job={0u,moved,before.copiedPixels,t.trxreg.rrw,t.bitbltbuf.dpsm,t.bitbltbuf.dbp,std::max<unsigned>(t.bitbltbuf.dbw,1u),t.trxpos.dsax,t.trxpos.dsay,0u,0u,0u,0u,0u};
+        job.resize(job.size()+(used+3u)/4u+1u,0u);std::memcpy(job.data()+14u,data,std::min(used,bytes));
+        m->transferOnGpu(std::move(job));
+        m->cpuDirty|=pages&~m->gpuDirty;if((pages&m->loadedPalettePages).any())m->loadedPaletteValid=false;return;
+    }
     // Pending draws that sample these pages must run before the new bytes
     // reach the GPU. Unrelated draws keep batching across the upload.
     if((pages&m->gpuDirty).any())m->materialize(pages);else if((pages&m->batchSources).any())m->submit();
@@ -375,6 +411,6 @@ void GpuRasterBackend::WriteVram(uint32_t psm,uint32_t base,uint32_t width,uint3
 void GpuRasterBackend::SnapshotVram(std::vector<uint8_t>& out)const{std::lock_guard lock(m->mutex);m->materialize();m->cpu.SnapshotVram(out);}
 GSTransferSnapshot GpuRasterBackend::GetTransferSnapshot()const{std::lock_guard lock(m->mutex);return m->cpu.GetTransferSnapshot();}
 GpuRenderStats GpuRasterBackend::stats()const{std::lock_guard lock(m->mutex);return m->statistics;}
-GpuRenderStats gpu_render_statistics(){return {totalGpuDraws.load(std::memory_order_relaxed),totalCpuDraws.load(std::memory_order_relaxed),totalBatches.load(std::memory_order_relaxed),totalTiles.load(std::memory_order_relaxed),totalUploads.load(std::memory_order_relaxed),totalReadbacks.load(std::memory_order_relaxed),totalCulled.load(std::memory_order_relaxed),totalPaletteLoads.load(std::memory_order_relaxed),totalPaletteReuses.load(std::memory_order_relaxed)};}
+GpuRenderStats gpu_render_statistics(){return {totalGpuDraws.load(std::memory_order_relaxed),totalCpuDraws.load(std::memory_order_relaxed),totalBatches.load(std::memory_order_relaxed),totalTiles.load(std::memory_order_relaxed),totalUploads.load(std::memory_order_relaxed),totalReadbacks.load(std::memory_order_relaxed),totalCulled.load(std::memory_order_relaxed),totalPaletteLoads.load(std::memory_order_relaxed),totalPaletteReuses.load(std::memory_order_relaxed),totalGpuTransfers.load(std::memory_order_relaxed)};}
 std::unique_ptr<GSRasterBackend> make_raster_backend(){return std::make_unique<GpuRasterBackend>();}
 }

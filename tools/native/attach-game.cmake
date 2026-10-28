@@ -264,9 +264,11 @@ function(openkai2_attach_generated_sources)
     target_sources(ps2_runtime PRIVATE "${project_root}/src/runtime_layout.cpp" "${project_root}/src/host_audio.cpp" "${project_root}/src/work_timings.cpp"
         "${project_root}/src/graphics_settings.cpp" "${project_root}/src/render/presentation_filter.cpp")
     file(READ "${project_root}/src/render/gs_compute.comp" openkai2_gpu_shader)
+    file(READ "${project_root}/src/render/gs_transfer.comp" openkai2_gpu_transfer_shader)
     configure_file("${project_root}/src/render/shader_source.h.in"
         "${CMAKE_CURRENT_BINARY_DIR}/openkai2_gpu_shader.h" @ONLY)
-    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${project_root}/src/render/gs_compute.comp")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${project_root}/src/render/gs_compute.comp"
+        "${project_root}/src/render/gs_transfer.comp")
     # Keep individual literals below MSVC's string-literal limit. The original
     # AMD headers remain byte-for-byte intact in the source tree.
     set(openkai2_fsr_parts "")

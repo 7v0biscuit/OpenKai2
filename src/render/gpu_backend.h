@@ -6,7 +6,7 @@
 namespace openkai2 {
 struct GpuRenderStats {
     uint64_t gpuDraws=0,cpuDraws=0,batches=0,tiles=0,uploads=0,readbacks=0,culled=0;
-    uint64_t paletteLoads=0,paletteReuses=0;
+    uint64_t paletteLoads=0,paletteReuses=0,gpuTransfers=0;
 };
 class GpuRasterBackend final:public GSRasterBackend {
 public:

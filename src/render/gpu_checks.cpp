@@ -281,6 +281,37 @@ void checkTransferPages(){
     pair.compare("GPU local-to-host transfer");
     std::cout<<"GPU transfer page checks passed: render-target copies, pending samplers and host readback.\n";
 }
+// Uploads into drawn pages and copies out of them must match the CPU renderer
+// without reading GPU VRAM back.
+void checkGpuTransfers(){
+    constexpr unsigned formats[]={GS_PSM_CT32,GS_PSM_CT24,GS_PSM_CT16,GS_PSM_CT16S,GS_PSM_T8,GS_PSM_T4,GS_PSM_T8H,GS_PSM_T4HL,GS_PSM_T4HH,48u,50u};
+    unsigned cases=0u;
+    for(unsigned psm:formats){
+        Comparison pair;auto p=material(8u,false);p.state.prim.tme=false;p.state.prim.iip=false;p.state.prim.abe=false;
+        pair.draw(p);pair.textureFlush();
+        GSTransferCommand t{};t.direction=0u;t.bitbltbuf.dbp=56u*32u;t.bitbltbuf.dbw=8u;t.bitbltbuf.dpsm=uint8_t(psm);
+        t.trxpos.dsax=3u;t.trxpos.dsay=5u;t.trxreg.rrw=37u;t.trxreg.rrh=11u;
+        const unsigned bpp=gpu::address_tables()[(psm&63u)*8u+3u];
+        std::vector<uint8_t> data((37u*11u*bpp/8u+15u)&~15u);for(unsigned i=0;i<data.size();++i)data[i]=uint8_t(i*37u+psm*11u+(i>>5u));
+        const auto before=pair.gpu->stats();
+        pair.cpu->BeginTransfer(t);pair.gpu->BeginTransfer(t);
+        for(unsigned first=0;first<data.size();first+=64u){const unsigned size=std::min<unsigned>(64u,unsigned(data.size())-first);
+            pair.cpu->UploadImage(data.data()+first,size);pair.gpu->UploadImage(data.data()+first,size);}
+        const auto after=pair.gpu->stats();
+        if(after.readbacks!=before.readbacks || after.gpuTransfers==before.gpuTransfers)
+            throw std::runtime_error("Upload into drawn pages read GPU VRAM back: psm="+std::to_string(psm));
+        pair.compare("GPU upload into drawn pages psm="+std::to_string(psm));
+        if(bpp==24u){++cases;continue;}
+        GSTransferCommand copy{};copy.direction=2u;copy.bitbltbuf.sbp=56u*32u;copy.bitbltbuf.sbw=8u;copy.bitbltbuf.spsm=uint8_t(psm);
+        copy.bitbltbuf.dbp=300u*32u;copy.bitbltbuf.dbw=4u;copy.bitbltbuf.dpsm=uint8_t(psm);copy.trxpos.ssax=1u;copy.trxpos.ssay=2u;
+        copy.trxpos.dsax=7u;copy.trxpos.dsay=3u;copy.trxreg.rrw=90u;copy.trxreg.rrh=21u;
+        const auto beforeCopy=pair.gpu->stats();
+        pair.cpu->BeginTransfer(copy);pair.gpu->BeginTransfer(copy);
+        if(pair.gpu->stats().readbacks!=beforeCopy.readbacks)throw std::runtime_error("Copy out of drawn pages read GPU VRAM back");
+        pair.compare("GPU copy out of drawn pages psm="+std::to_string(psm));cases+=2u;
+    }
+    std::cout<<"GPU VRAM transfer checks passed: "<<cases<<" uploads and copies across 11 formats without readbacks.\n";
+}
 void checkLines(){
     constexpr unsigned frames[]={0u,1u,2u,10u};
     for(unsigned mode=0;mode<64u;++mode){
@@ -348,7 +379,7 @@ void checkPartialReadbacks(){
     GSTransferCommand t{};t.direction=0u;t.bitbltbuf.dbp=112u*32u;t.bitbltbuf.dbw=8u;t.bitbltbuf.dpsm=0u;t.trxpos.dsax=70u;t.trxpos.dsay=4u;t.trxreg.rrw=1u;t.trxreg.rrh=1u;
     const uint32_t pixel=0x80231f7bu;before=pair.gpu->stats().readbacks;
     pair.cpu->BeginTransfer(t);pair.gpu->BeginTransfer(t);pair.cpu->UploadImage(reinterpret_cast<const uint8_t*>(&pixel),4u);pair.gpu->UploadImage(reinterpret_cast<const uint8_t*>(&pixel),4u);
-    if(pair.gpu->stats().readbacks-before!=gpu::PageBytes)throw std::runtime_error("Partial image upload copied unrelated pages");
+    if(pair.gpu->stats().readbacks!=before)throw std::runtime_error("Partial image upload into a drawn page read GPU VRAM back");
     p.state.context.frame.fbp=500u;pair.draw(p);pair.textureFlush();
     GSTex0Reg texture{};texture.psm=19u;texture.cpsm=0u;texture.cbp=16000u;texture.cld=1u;
     before=pair.gpu->stats().readbacks;pair.cpu->LoadClut(texture,{});pair.gpu->LoadClut(texture,{});
@@ -408,7 +439,7 @@ int run_gpu_checks(bool required){
         const bool initialized=gpu::initialize_headless(error);
 #endif
         if(!initialized){std::cout<<"GPU checks unavailable: "<<error<<'\n';return required ? 1 : 77;}
-        checkFlatDepth();checkDepthPlanes();checkPaletteReuse();checkPresentationReadbacks();checkEmptyTriangles();checkMaterials();checkIntegerPipeline();checkFormats();checkLines();checkCoherence();checkTransferPages();checkRebind();checkClears();checkSourceChanges();checkPartialReadbacks();
+        checkFlatDepth();checkDepthPlanes();checkPaletteReuse();checkPresentationReadbacks();checkEmptyTriangles();checkMaterials();checkIntegerPipeline();checkFormats();checkLines();checkCoherence();checkTransferPages();checkGpuTransfers();checkRebind();checkClears();checkSourceChanges();checkPartialReadbacks();
         const auto before=gpu_render_statistics().gpuDraws;verify_vector_runtime_gpu();
         if(gpu_render_statistics().gpuDraws-before!=8u)throw std::runtime_error("VIF/PATH1 integration did not execute eight GPU triangles");
         // A failed asynchronous submission must propagate to its caller and
