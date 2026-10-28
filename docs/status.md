@@ -21,6 +21,17 @@ and the board movement code wraps its path time with the same conversion
 the looped-time arithmetic; in-game confirmation of story dialogue and board
 movement is pending.
 
+## EE double-precision math
+
+The EE has no double-precision FPU, so the game's libm passes a `double` as a
+64-bit integer in `$a0` and returns one in `$v0`. The host stubs for `atan`,
+`floor` and `fabs` read and wrote `$f12`/`$f0` instead and returned garbage.
+`atan2` at `0x0011D940` is built on those two stubs, and the Dragon World board
+uses it to turn a direction vector into a facing angle (`0x001B96E0`,
+`0x001B9700`, `0x0020B430`), so a character could head off in the wrong
+direction and never reach its target point. The stubs now follow the integer
+calling convention; in-game confirmation is pending.
+
 ## Animation scripts and rendering
 
 Scene script coverage includes 485 commands in complete static banks, plus the

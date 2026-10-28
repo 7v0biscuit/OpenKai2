@@ -1,0 +1,61 @@
+--- a/Kernel/Stubs/LibC.cpp
++++ b/Kernel/Stubs/LibC.cpp
+@@ -1,3 +1,4 @@
++#include <bit>
+ #include "Common.h"
+ #include "LibC.h"
+ #include "ps2_log.h"
+@@ -1016,16 +1017,26 @@
+         ctx->f[0] = ::ceilf(arg);
+     }
+ 
++    // The EE has no double-precision FPU: its libm passes a double as a
++    // 64-bit integer in $a0 and returns one in $v0.
++    static double softDoubleArgument(R5900Context *ctx)
++    {
++        return std::bit_cast<double>(static_cast<uint64_t>(GPR_U64(ctx, 4)));
++    }
++
++    static void setSoftDoubleReturn(R5900Context *ctx, double value)
++    {
++        setReturnU64(ctx, std::bit_cast<uint64_t>(value));
++    }
++
+     void floor(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+     {
+-        float arg = ctx->f[12];
+-        ctx->f[0] = ::floorf(arg);
++        setSoftDoubleReturn(ctx, std::floor(softDoubleArgument(ctx)));
+     }
+ 
+     void fabs(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+     {
+-        float arg = ctx->f[12];
+-        ctx->f[0] = ::fabsf(arg);
++        setReturnU64(ctx, static_cast<uint64_t>(GPR_U64(ctx, 4)) & ~(uint64_t(1) << 63));
+     }
+     void abs(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+     {
+@@ -1040,21 +1051,7 @@
+ 
+     void atan(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+     {
+-        float in = ctx ? ctx->f[12] : 0.0f;
+-        if (in == 0.0f)
+-        {
+-            uint32_t raw = getRegU32(ctx, 4);
+-            std::memcpy(&in, &raw, sizeof(in));
+-        }
+-        const float out = std::atan(in);
+-        if (ctx)
+-        {
+-            ctx->f[0] = out;
+-        }
+-
+-        uint32_t outRaw = 0u;
+-        std::memcpy(&outRaw, &out, sizeof(outRaw));
+-        setReturnU32(ctx, outRaw);
++        setSoftDoubleReturn(ctx, std::atan(softDoubleArgument(ctx)));
+     }
+ 
+     void memchr(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)

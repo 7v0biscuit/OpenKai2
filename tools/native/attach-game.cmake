@@ -92,6 +92,7 @@ function(openkai2_attach_generated_sources)
         "${project_root}/tools/native/patches/window-redraw-pacing.patch"
         "${project_root}/tools/native/patches/disc-timing.patch"
         "${project_root}/tools/native/patches/fpu-conversion.patch"
+        "${project_root}/tools/native/patches/soft-double-math.patch"
         "${project_root}/tools/native/patches/simulation-pacing.patch"
         "${project_root}/tools/native/patches/vector-native-backend.patch"
         "${project_root}/tools/native/patches/guest-timing.patch"
@@ -523,6 +524,13 @@ function(openkai2_attach_generated_sources)
     target_include_directories(openkai2_fpu_tests BEFORE PRIVATE "${overlay_dir}/include")
     target_link_libraries(openkai2_fpu_tests PRIVATE ps2_runtime)
     add_test(NAME fpu_conversion COMMAND openkai2_fpu_tests)
+    add_executable(openkai2_soft_double_tests "${project_root}/tests/soft_double_tests.cpp"
+        "${CMAKE_SOURCE_DIR}/ps2xRuntime/src/runner/register_functions.cpp")
+    target_link_libraries(openkai2_soft_double_tests PRIVATE ps2_runtime)
+    if(MSVC)
+        target_link_options(openkai2_soft_double_tests PRIVATE /FORCE:MULTIPLE)
+    endif()
+    add_test(NAME soft_double_math COMMAND openkai2_soft_double_tests)
     if(OPENKAI2_RUNTIME_TESTS_ONLY)
         add_test(NAME launcher_help COMMAND ps2EntryRunner --help)
         set_tests_properties(launcher_help PROPERTIES
