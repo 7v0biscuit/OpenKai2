@@ -13,7 +13,7 @@
          void reset() noexcept;
  
 -        [[nodiscard]] bool dispatchImport(uint16_t ordinal, IopCpuState &cpu);
-+        [[nodiscard]] bool dispatchImport(uint16_t ordinal, IopCpuState &cpu, uint64_t currentCycle);
++        [[nodiscard]] bool dispatchImport(uint16_t ordinal, IopCpuState &cpu, uint64_t currentCycle = 0u);
          [[nodiscard]] std::optional<CompletionCallback> takeCompletionCallback() noexcept;
  
      private:
