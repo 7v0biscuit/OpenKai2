@@ -154,7 +154,8 @@ def main():
                       patches / 'disc-timing.patch', patches / 'fpu-conversion.patch',
                       patches / 'soft-double-math.patch', patches / 'vector-data-memory.patch',
                       patches / 'gif-path-timings.patch',
-                      patches / 'spu2-mirror.patch'):
+                      patches / 'spu2-mirror.patch',
+                      patches / 'vif-unpack-lanes.patch'):
             apply_overlay_patch(temporary, patch)
         for source in temporary.rglob('*'):
             if source.is_file():

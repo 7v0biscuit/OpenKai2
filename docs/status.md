@@ -32,6 +32,17 @@ uses it to turn a direction vector into a facing angle (`0x001B96E0`,
 direction and never reach its target point. The stubs now follow the integer
 calling convention; in-game confirmation is pending.
 
+## VIF unpack lanes
+
+V2 unpacks wrote only X and Y and V3 unpacks only X, Y and Z, leaving the
+remaining lanes of each VU1 vector with whatever an earlier upload left
+there. The console writes X Y X Y for V2 and takes V3's W from the next
+element of the stream, and V4-5 colours widen each field to eight bits;
+PCSX2 documents games that depend on all three. Both the contiguous and the
+masked unpack paths now match, checked lane by lane. Stale lanes in skinned
+vertex data are a candidate cause of the distorted limbs and hair seen in
+fights; this is not yet confirmed in game.
+
 ## VU0 macro conversions and divides
 
 The translated `VFTOI` used SSE truncation, which turns every positive value

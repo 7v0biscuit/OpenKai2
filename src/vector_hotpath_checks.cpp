@@ -347,8 +347,34 @@ void verify_vector_arithmetic(){
     const auto& expected=std::numeric_limits<long double>::digits==53 ? binary64 : extended;
     for(unsigned group=0;group<8u;++group)if(arithmetic_workload(group,1u).hash!=expected[group])throw std::runtime_error("Original arithmetic reference mismatch: "+std::to_string(group));
 }
+// V2 writes X Y X Y, V3 takes W from the next element and V4-5 widens each
+// field to eight bits, on both the contiguous and the masked paths.
+void verify_vif_unpack_lanes(){
+    auto m=std::make_unique<PS2Memory>();if(!m->initialize())throw std::runtime_error("Unpack lane memory initialization failed");
+    const auto lanes=[&](unsigned vector){std::array<uint32_t,4> out{};std::memcpy(out.data(),m->getVU1Data()+vector*16u,16u);return out;};
+    for(bool masked:{false,true}){
+        std::vector<uint8_t> setup;append(setup,0x01000101u);append(setup,0x20000000u);append(setup,0u);m->processVIF1Data(setup.data(),unsigned(setup.size()));
+        const uint32_t mask=masked ? 0x10u : 0u;
+        std::vector<uint8_t> packet;
+        append(packet,((0x64u|mask)<<24u)|(2u<<16u)|10u); // V2-32 x2 at 10
+        for(uint32_t v:{11u,12u,21u,22u})append(packet,v);
+        append(packet,((0x69u|mask)<<24u)|(2u<<16u)|20u); // V3-16 x2 at 20, then 2 more halfwords
+        for(uint16_t v:{uint16_t(1),uint16_t(2),uint16_t(3),uint16_t(0xfffc),uint16_t(5),uint16_t(6),uint16_t(7),uint16_t(8)}){const auto old=packet.size();packet.resize(old+2u);std::memcpy(packet.data()+old,&v,2u);}
+        append(packet,((0x6fu|mask)<<24u)|(1u<<16u)|30u); // V4-5 at 30
+        append(packet,0x0000ffffu&uint32_t(0x8000u|(31u<<10u)|(2u<<5u)|1u));
+        m->processVIF1Data(packet.data(),unsigned(packet.size()));
+        const auto v2=lanes(10u),v2b=lanes(11u),v3=lanes(20u),v3b=lanes(21u),c=lanes(30u);
+        if(v2!=std::array<uint32_t,4>{11u,12u,11u,12u} || v2b!=std::array<uint32_t,4>{21u,22u,21u,22u})
+            throw std::runtime_error("V2 unpack did not repeat its pair");
+        if(v3!=std::array<uint32_t,4>{1u,2u,3u,0xfffffffcu} || v3b[0]!=0xfffffffcu || v3b[3]!=7u)
+            throw std::runtime_error("V3 unpack did not take W from the next element");
+        if(c!=std::array<uint32_t,4>{8u,16u,248u,128u})throw std::runtime_error("V4-5 unpack did not widen its fields");
+    }
+}
 void verify_vif_unpack(){
-    constexpr uint64_t expected[8]={0xeda8bf5823fba9c1ull,0x1ae777eba7ed7329ull,0x7e3eb407d3600d5dull,0xd41e243247c1e17bull,0x43508ed25c310d69ull,0xb44eb2b3e01d5049ull,0x18f4348b003bfe6dull,0x7ba978b336a79085ull};
-    for(unsigned group=0;group<8u;++group)if(unpack_workload(group,1u).hash!=expected[group])throw std::runtime_error("Original VIF unpack reference mismatch: "+std::to_string(group));
+    verify_vif_unpack_lanes();
+    // Recorded after V2, V3 and V4-5 unpacks gained their console lane values.
+    constexpr uint64_t expected[8]={0x8e8827894e9ecd8dull,0x5d63ebe44d7b58a9ull,0x0d7358bc27679521ull,0xb4f4a0be8aaa9c32ull,0x9ff9c9c7816202d0ull,0x1fb904fd9ef2055dull,0x18f4348b003bfe6dull,0x781863fc6ff3da05ull};
+    for(unsigned group=0;group<8u;++group)if(unpack_workload(group,1u).hash!=expected[group])throw std::runtime_error("VIF unpack reference mismatch: "+std::to_string(group));
 }
 }

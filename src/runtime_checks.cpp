@@ -487,7 +487,7 @@ int run_runtime_checks() {
         verify_vector_arithmetic();
         std::cout << "Runtime vector arithmetic regression passed: 73728 original register, flag and cycle cases, binary64/x87 precision, cancellation and destination masks.\n";
         verify_vif_unpack();
-        std::cout << "Runtime VIF unpack regression passed: 1664 original memory/register snapshots, signed formats, wrapping, masks, row modes, fill/skip cycles, truncation and source overlap.\n";
+        std::cout << "Runtime VIF unpack regression passed: 1664 memory/register snapshots, V2/V3/V4-5 console lanes, signed formats, wrapping, masks, row modes, fill/skip cycles, truncation and source overlap.\n";
         verify_vector_pipeline_scheduling();
         std::cout << "Runtime vector scheduling regression passed: 128 original register, flag, memory and cycle references across pipeline stalls, resume budgets, reset and PATH1 callbacks.\n";
         verify_vector_execution();
