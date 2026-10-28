@@ -186,7 +186,7 @@ int main() {
                 keyboard_choice(GetDlgItem(w,148),0);
                 require(!read_settings(settings_path()).autoBackups,"Backup preference did not persist");
                 releaseUpdate = true;
-                click(w,104);
+                click(w,103);
                 wait_until([&] { return IsWindowEnabled(GetDlgItem(w,161)) != FALSE; },
                            "Update preferences did not unlock after the check completed");
                 keyboard_choice(GetDlgItem(w,161),0);
@@ -227,14 +227,14 @@ int main() {
                 require(!reset.autoBackups && !reset.autoUpdates && reset.updateChannel==0,
                         "Reset graphics changed save/update preferences");
                 SetWindowPos(w,nullptr,0,0,1000,680,SWP_NOZORDER|SWP_NOACTIVATE);
-                for(int id : {140,141,142,143,144,145,146,147,149,170,173}) {
+                for(int id : {140,141,142,143,144,145,146,147,149,160,161,162,163,164,170,173}) {
                     RECT bounds{},client{};GetWindowRect(GetDlgItem(w,id),&bounds);GetClientRect(w,&client);
                     MapWindowPoints(nullptr,w,reinterpret_cast<POINT*>(&bounds),2);
                     require(bounds.left>=0 && bounds.top>=0 && bounds.right<=client.right &&
-                            bounds.bottom<=client.bottom,"A settings control is clipped at minimum window size");
+                            bounds.bottom<=client.bottom,"A settings control is clipped at the minimum window size");
                 }
                 // Navigation shortcuts must work while a native field has focus.
-                for(auto route : {std::pair<WORD,int>{'2',120},{'4',160},{'1',110},{'3',140}}) {
+                for(auto route : {std::pair<WORD,int>{'2',120},{'1',110},{'3',160},{'2',148},{'3',140}}) {
                     SetForegroundWindow(w);
                     INPUT keys[4]{};
                     for(auto& key:keys)key.type=INPUT_KEYBOARD;

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "iso_fixture.h"
 #include "disc_image.h"
+#include "disc_timing.h"
 #include "ps2_runtime.h"
 #include "ps2_stubs.h"
 #include "Syscalls/RPC.h"
@@ -189,17 +190,25 @@ int main() {
             require(memory.writeRam(0x2400,path,sizeof(path)),"IOP test path write failed");
             IopCpuState cpu{};
             cpu.gpr[4]=0x2000; cpu.gpr[5]=0x2400;
-            require(cdvd.dispatchImport(10,cpu) && cpu.gpr[2]==1,"IOP file search failed");
+            require(cdvd.dispatchImport(10,cpu,0) && cpu.gpr[2]==1,"IOP file search failed");
             require(memory.read32(0x2000)==29,"IOP search did not preserve the original ISO sector");
             require(memory.read32(0x2004)==6,"IOP search returned an incorrect size");
             cpu={}; cpu.gpr[4]=29; cpu.gpr[5]=1; cpu.gpr[6]=buffer;
-            require(cdvd.dispatchImport(6,cpu) && cpu.gpr[2]==1,"IOP ISO sector read failed");
+            require(cdvd.dispatchImport(6,cpu,0) && cpu.gpr[2]==1,"IOP ISO sector read failed");
             uint8_t bytes[6]{};
             require(memory.readRam(buffer,bytes,sizeof(bytes)) && std::memcmp(bytes,"abcdef",6)==0,
                     "IOP sector contents differ from original ISO");
+            const auto done=openkai2::DiscTiming{}.read(0,29,1);
+            cpu={}; cpu.gpr[4]=1;
+            require(cdvd.dispatchImport(11,cpu,done-1) && cpu.gpr[2]==1,
+                    "IOP read finished before a PS2 drive could deliver it");
+            cpu={}; cpu.gpr[4]=1;
+            require(cdvd.dispatchImport(28,cpu,done-1) && cpu.gpr[2]==0x06,"Drive status did not report a read");
+            cpu={}; cpu.gpr[4]=1;
+            require(cdvd.dispatchImport(11,cpu,done) && cpu.gpr[2]==0,"IOP read did not finish on time");
             host.fail_reads=true;
             cpu={}; cpu.gpr[4]=16; cpu.gpr[5]=1; cpu.gpr[6]=buffer;
-            require(cdvd.dispatchImport(6,cpu) && cpu.gpr[2]==0,
+            require(cdvd.dispatchImport(6,cpu,done) && cpu.gpr[2]==0,
                     "Unreadable original ISO was replaced with synthetic disc data");
         }
         PS2Runtime::IoPaths paths;

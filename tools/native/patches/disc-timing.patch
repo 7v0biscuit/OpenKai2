@@ -1,0 +1,198 @@
+--- a/emulator/imports/iop_cdvd.h
++++ b/emulator/imports/iop_cdvd.h
+@@ -23,6 +23,7 @@
+             uint32_t address = 0u;
+             uint32_t gp = 0u;
+             uint32_t reason = 0u;
++            uint64_t delay = 0u;
+         };
+ 
+         IopCdvd(IopHost &host, IopMemory &memory, IopKernel &kernel);
+@@ -33,7 +34,7 @@
+ 
+         void reset() noexcept;
+ 
+-        [[nodiscard]] bool dispatchImport(uint16_t ordinal, IopCpuState &cpu);
++        [[nodiscard]] bool dispatchImport(uint16_t ordinal, IopCpuState &cpu, uint64_t currentCycle);
+         [[nodiscard]] std::optional<CompletionCallback> takeCompletionCallback() noexcept;
+ 
+     private:
+--- a/emulator/imports/iop_cdvd.cpp
++++ b/emulator/imports/iop_cdvd.cpp
+@@ -1,5 +1,6 @@
+ #include "iop_cdvd.h"
+ #include "disc_image.h"
++#include "disc_timing.h"
+ 
+ #include "../core/iop_cpu.h"
+ #include "../core/iop_kernel.h"
+@@ -10,6 +11,7 @@
+ #include <algorithm>
+ #include <array>
+ #include <cctype>
++#include <cstdlib>
+ #include <cstring>
+ #include <filesystem>
+ #include <limits>
+@@ -32,6 +34,8 @@
+         constexpr uint32_t kCdvdTypePs2Dvd = 0x14u;
+         constexpr uint32_t kCdvdReadyComplete = 2u;
+         constexpr uint32_t kCdvdStatusPause = 0x0Au;
++        constexpr uint32_t kCdvdStatusRead = 0x06u;
++        constexpr uint32_t kCdvdReadyBusy = 6u;
+         constexpr uint32_t kCdvdInitExit = 5u;
+         constexpr uint32_t kCdvdCallbackRead = 1u;
+         constexpr uint32_t kCdvdCallbackSeek = 4u;
+@@ -205,9 +209,14 @@
+             nodes.clear();
+             metadataSectors.clear();
+             imageHandle = 0u;
++            timing.reset();
++            // OPENKAI2_DISC_TIMING=instant restores immediate reads for development.
++            const char *mode = std::getenv("OPENKAI2_DISC_TIMING");
++            timed = !(mode && std::strcmp(mode, "instant") == 0);
++            timingReported = false;
+         }
+ 
+-        bool dispatchImport(uint16_t ordinal, IopCpuState &cpu)
++        bool dispatchImport(uint16_t ordinal, IopCpuState &cpu, uint64_t currentCycle)
+         {
+             const uint32_t a0 = cpu.gpr[4];
+             const uint32_t a1 = cpu.gpr[5];
+@@ -233,6 +242,11 @@
+             case 6: // sceCdRead
+                 if (readSectors(a0, a1, a2))
+                 {
++                    // The data is copied immediately, but callers observe the
++                    // command finishing when a real drive would.
++                    const uint64_t done = timed ? timing.read(currentCycle, a0, a1) : currentCycle;
++                    currentLsn = a0 + a1;
++                    reportTiming();
+                     signalCommandComplete();
+                     if (callback.address != 0u)
+                     {
+@@ -240,6 +254,7 @@
+                             callback.address,
+                             callback.gp,
+                             kCdvdCallbackRead,
++                            done - currentCycle,
+                         };
+                     }
+                     cpu.gpr[2] = 1u;
+@@ -249,6 +264,8 @@
+                 return true;
+ 
+             case 7: // sceCdSeek
++            {
++                const uint64_t done = timed ? timing.seek_to(currentCycle, a0) : currentCycle;
+                 currentLsn = a0;
+                 lastError = kCdvdErrorNone;
+                 signalCommandComplete();
+@@ -258,10 +275,12 @@
+                         callback.address,
+                         callback.gp,
+                         kCdvdCallbackSeek,
++                        done - currentCycle,
+                     };
+                 }
+                 cpu.gpr[2] = 1u;
+                 return true;
++            }
+ 
+             case 8: // sceCdGetError
+                 cpu.gpr[2] = lastError;
+@@ -271,7 +290,16 @@
+                 cpu.gpr[2] = searchFile(a0, a1) ? 1u : 0u;
+                 return true;
+ 
+-            case 11: // sceCdSync
++            case 11: // sceCdSync: modes with bit 0 set poll, the others block.
++                if (timed && timing.busy(currentCycle))
++                {
++                    if ((a0 & 1u) != 0u)
++                    {
++                        cpu.gpr[2] = 1u;
++                        return true;
++                    }
++                    kernel.delayCurrentUntil(timing.ready(), cpu);
++                }
+                 cpu.gpr[2] = 0u;
+                 return true;
+ 
+@@ -280,11 +308,20 @@
+                 return true;
+ 
+             case 13: // sceCdDiskReady
++                if (timed && timing.busy(currentCycle))
++                {
++                    if (a0 != 0u)
++                    {
++                        cpu.gpr[2] = kCdvdReadyBusy;
++                        return true;
++                    }
++                    kernel.delayCurrentUntil(timing.ready(), cpu);
++                }
+                 cpu.gpr[2] = kCdvdReadyComplete;
+                 return true;
+ 
+             case 28: // sceCdStatus
+-                cpu.gpr[2] = kCdvdStatusPause;
++                cpu.gpr[2] = timed && timing.busy(currentCycle) ? kCdvdStatusRead : kCdvdStatusPause;
+                 return true;
+ 
+             case 37: // sceCdCallback
+@@ -369,6 +406,15 @@
+             return interruptEventFlagId;
+         }
+ 
++        void reportTiming()
++        {
++            if (timingReported)
++                return;
++            timingReported = true;
++            host.log(LogLevel::Info, timed ? "[cdvd:timing] mode=ps2 drive=dvd-cav seek_ms=30/100 edge_speed=4x"
++                                           : "[cdvd:timing] mode=instant");
++        }
++
+         void signalCommandComplete()
+         {
+             if (interruptEventFlagId != 0)
+@@ -754,6 +800,9 @@
+         std::string imageIndexPath;
+         bool virtualIsoBuilt = false;
+         bool virtualIsoValid = false;
++        openkai2::DiscTiming timing;
++        bool timed = true;
++        bool timingReported = false;
+         uint32_t volumeSectors = 0u;
+         std::vector<IsoNode> nodes;
+         std::unordered_map<uint32_t, std::array<uint8_t, kSectorSize>> metadataSectors;
+@@ -771,9 +820,9 @@
+         m_impl->reset();
+     }
+ 
+-    bool IopCdvd::dispatchImport(uint16_t ordinal, IopCpuState &cpu)
++    bool IopCdvd::dispatchImport(uint16_t ordinal, IopCpuState &cpu, uint64_t currentCycle)
+     {
+-        return m_impl->dispatchImport(ordinal, cpu);
++        return m_impl->dispatchImport(ordinal, cpu, currentCycle);
+     }
+ 
+     std::optional<IopCdvd::CompletionCallback> IopCdvd::takeCompletionCallback() noexcept
+--- a/emulator/iop_emulator.cpp
++++ b/emulator/iop_emulator.cpp
+@@ -259,12 +259,12 @@
+             if (iequals(call.library, "sysmem") && sysmem.dispatchImport(call.ordinal, cpu))
+                 return ImportDisposition::Handled;
+ 
+-            if (iequals(call.library, "cdvdman") && cdvd.dispatchImport(call.ordinal, cpu))
++            if (iequals(call.library, "cdvdman") && cdvd.dispatchImport(call.ordinal, cpu, totalCycles))
+             {
+                 if (const auto callback = cdvd.takeCompletionCallback())
+                 {
+                     pendingGuestCallbacks.emplace(
+-                        totalCycles + kCdvdCompletionCycles,
++                        totalCycles + std::max(kCdvdCompletionCycles, callback->delay),
+                         ScheduledGuestCallback{
+                             callback->address,
+                             callback->gp,

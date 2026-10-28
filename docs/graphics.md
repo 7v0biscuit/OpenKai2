@@ -136,7 +136,7 @@ by Catarax, applied at the original camera scale load. Other aspect modes keep t
 The 640×448 movie surface retains its original TV proportions. **Stretch to
 window** remains available as a separate display choice.
 
-The launcher’s **Clear image preset** selects bicubic scaling, original texture
+The launcher’s **Crisp preset** selects bicubic scaling, original texture
 filtering and no FXAA. It preserves resolution, aspect ratio, frame limit,
 VSync and save/update preferences. Spatial upscaling cannot recover detail
 absent from the original image.

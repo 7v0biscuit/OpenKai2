@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""Configure reviewed guest callbacks and SDK routines for native translation."""
+"""Configure guest callbacks and SDK routines for native translation."""
 import argparse
 import hashlib
 from pathlib import Path
@@ -67,7 +67,7 @@ ZERO_RETURN_ENTRIES = (
     0x0019F410, 0x0019F660, 0x0019F668, 0x0019F670,
     0x0019F678, 0x0019F680, 0x0019F708,
 )
-# The file-driver interface starts at 0x0035FB38. Its last reviewed slot
+# The file-driver interface starts at 0x0035FB38. Its last known slot
 # (offset 0x60) is queried by the compiled caller at 0x00164940.
 FILE_CALLBACK_TABLES = ((0x0035FB38, (
     0x00167110, 0x00167188, 0x001672A0, 0x00000000,
@@ -3673,14 +3673,14 @@ def verify_elf_metadata(data):
         raise ValueError(f'Indirect entry metadata is outside the ELF at 0x{address:08x}')
 
     if words(0x00385748, len(DISPATCH_TABLES)) != tuple(base for base, _ in DISPATCH_TABLES):
-        raise ValueError('Startup dispatcher table roots differ from the reviewed metadata')
+        raise ValueError('Startup dispatcher table roots differ from the expected metadata')
     for base, entries in (DISPATCH_TABLES + FILE_CALLBACK_TABLES + STREAM_CALLBACK_TABLES + MEMORY_STREAM_TABLES
                           + FADE_CALLBACK_TABLES + MOVIE_CALLBACK_TABLES + MOVIE_PACKET_TABLES
                           + MOVIE_TIMING_TABLES + BATTLE_INIT_TABLES + SCENE_MODE_TABLES + BATTLE_COMMAND_TABLES + AURA_UPDATE_TABLES + BATTLE_UPDATE_TABLES + BATTLE_DRAW_TABLES + FIGHT_STATE_TABLES + ATTACK_EFFECT_TABLES + IMPACT_EFFECT_TABLES + ACTOR_COMMAND_TABLES + ACTOR_TIMING_TABLES + ACTOR_STATE_TABLES + PAUSE_MENU_TABLES + STORY_CALLBACK_TABLES + SCRIPT_COMMAND_TABLES + SCRIPT_COMMAND_ROOTS + INTERACTION_TABLES):
         if words(base, len(entries)) != entries:
-            raise ValueError(f'Indirect methods differ from the reviewed table at 0x{base:08x}')
+            raise ValueError(f'Indirect methods differ from the expected table at 0x{base:08x}')
     if words(0x00387420, len(MOVIE_TIMING_RATES)) != MOVIE_TIMING_RATES:
-        raise ValueError('Movie timing rates differ from the reviewed metadata')
+        raise ValueError('Movie timing rates differ from the expected metadata')
     for address in ZERO_RETURN_ENTRIES:
         if words(address, 2) != (0x03E00008, 0x0000102D):
             raise ValueError(f'Callback return instructions differ at 0x{address:08x}')
@@ -3688,11 +3688,11 @@ def verify_elf_metadata(data):
         if words(address, len(expected)) != expected:
             raise ValueError(f'Draw setup instructions differ at 0x{address:08x}')
     if words(VERSUS_ANIMATION_ENTRY,len(VERSUS_ANIMATION_WORDS)) != VERSUS_ANIMATION_WORDS:
-        raise ValueError('Versus animation callback differs from the reviewed instructions')
+        raise ValueError('Versus animation callback differs from the expected instructions')
     if words(BATTLE_INIT_ENTRIES[0],len(BATTLE_INIT_WORDS)) != BATTLE_INIT_WORDS:
-        raise ValueError('Battle initialization instructions differ from the reviewed sequence')
+        raise ValueError('Battle initialization instructions differ from the expected sequence')
     if words(BATTLE_ASSET_TABLE_BASE,len(BATTLE_ASSET_TABLE_WORDS)) != BATTLE_ASSET_TABLE_WORDS:
-        raise ValueError('Battle asset handlers or tags differ from the reviewed table')
+        raise ValueError('Battle asset handlers or tags differ from the expected table')
     for address,expected in BATTLE_ASSET_WORDS:
         if words(address,len(expected)) != expected:
             raise ValueError(f'Battle asset relocation instructions differ at 0x{address:08x}')
@@ -3745,7 +3745,7 @@ def verify_elf_metadata(data):
         if words(address,len(expected)) != expected:
             raise ValueError(f'Scene mode instructions differ at 0x{address:08x}')
     if words(ASSET_RELOCATION_BASE, len(ASSET_RELOCATION_WORDS)) != ASSET_RELOCATION_WORDS:
-        raise ValueError('Asset relocation handlers or tags differ from the reviewed table')
+        raise ValueError('Asset relocation handlers or tags differ from the expected table')
 
     for target, high_pc, high_word, low_pc, low_word, store_pc, store_word in OBJECT_CALLBACK_INSTALLS:
         for pc, expected in ((high_pc, high_word), (low_pc, low_word), (store_pc, store_word)):
@@ -3851,7 +3851,7 @@ def main():
             args.config.write_text(updated)
     if args.verify_generated:
         verify_generated(args.verify_generated)
-        print('Verified reviewed guest entry coverage.')
+        print('Verified guest entry coverage.')
     if args.emit_check_header:
         emit_check_header(args.emit_check_header)
     if not args.config and not args.verify_generated and not args.emit_check_header:

@@ -9,7 +9,7 @@ spec.loader.exec_module(PROJECTION)
 
 
 class ProjectionPatch(unittest.TestCase):
-    def test_reviewed_load_and_idempotent_generation(self):
+    def test_camera_load_and_idempotent_generation(self):
         original = '#include "ps2_runtime.h"\n' + PROJECTION.ORIGINAL + '    // next instruction\n'
         patched = PROJECTION.patch_projection(original)
         self.assertEqual(PROJECTION.patch_projection(patched), patched)

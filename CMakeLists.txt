@@ -46,6 +46,13 @@ if(BUILD_TESTING)
 endif()
 
 if(BUILD_TESTING)
+    add_executable(openkai2_disc_timing_tests tests/disc_timing_tests.cpp)
+    target_include_directories(openkai2_disc_timing_tests PRIVATE src)
+    target_compile_features(openkai2_disc_timing_tests PRIVATE cxx_std_17)
+    add_test(NAME disc_timing COMMAND openkai2_disc_timing_tests)
+endif()
+
+if(BUILD_TESTING)
     add_executable(openkai2_input_tests tests/host_input_tests.cpp src/host_input_checks.cpp)
     target_include_directories(openkai2_input_tests PRIVATE src)
     target_compile_features(openkai2_input_tests PRIVATE cxx_std_17)

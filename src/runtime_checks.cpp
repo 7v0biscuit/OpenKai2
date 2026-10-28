@@ -629,7 +629,7 @@ int run_runtime_checks() {
     std::cout << "Runtime callback regression passed: 0x00167188, argument stores, delay slot, and return.\n";
     for (const auto address : translation::entries)
         if (!runtime.hasFunction(address))
-            throw std::runtime_error("Runtime regression: reviewed indirect method is not registered");
+            throw std::runtime_error("Runtime regression: indirect method is not registered");
     constexpr uint32_t stack=0x01fffe40u;
     for (const auto address : translation::zero_return_entries) {
         R5900Context context{};

@@ -5,12 +5,14 @@ story sequences. Progression, performance and complete matches need validation.
 
 ## Launcher preferences
 
-Use **Settings** for display mode, window resolution, aspect ratio, presentation
-limit, VSync, renderer, FXAA, texture filtering and image scaling. Native lists
-support mouse and keyboard selection. Changes save automatically and apply to
-the next game session; an already running game keeps its launch settings.
-Borderless mode uses the desktop resolution. **Reset graphics** restores only
-graphics defaults, preserving the ISO, saves and update preferences.
+The launcher has three pages: **Play**, **Saves** and **Settings**
+(Ctrl+1 to Ctrl+3). **Settings** groups display mode, resolution, aspect ratio,
+frame rate cap and VSync; renderer, FXAA, texture filtering and upscaling; and
+update preferences. Lists support mouse and keyboard selection. Changes save
+automatically and apply to the next game session; an already running game keeps
+its launch settings. Borderless mode uses the desktop resolution. **Restore
+defaults** resets only display and graphics settings, preserving the ISO, saves
+and update preferences.
 
 The **Saves** page contains automatic session backups, imports and recovery.
 Update checks run independently of ISO selection and settings. Installation
@@ -24,10 +26,11 @@ generation require renderer inputs and backend support that are not available.
 
 ## Launcher updates
 
-The **Updates** page checks releases from `7v0biscuit/OpenKai2` on GitHub.
-Automatic updates are enabled by default with **Stable + prereleases**, so
-published development builds are included. Choose **Stable releases** to exclude
-prereleases, or turn automatic updates off and use **Check now** / **Install update**.
+The **Updates** section of **Settings** checks releases from `7v0biscuit/OpenKai2`
+on GitHub. Automatic updates are enabled by default on the **Stable and
+prerelease** channel, so published development builds are included. Choose
+**Stable** to exclude prereleases, or turn automatic updates off and use
+**Check now** / **Install**.
 Checks do not require a GitHub account or token. A connection failure leaves the
 existing application available.
 
@@ -61,6 +64,16 @@ USA ISO. GPU rendering requires an OpenGL 4.3 driver. Python and Visual Studio a
 Development downloads are unsigned. Verify their SHA-256 values against the
 release's `SHA256SUMS.txt`.
 
+## Loading times
+
+Disc reads follow the timing of a PS2 DVD drive: 30 ms short seeks, 100 ms full
+seeks and a constant-angular-velocity transfer rate from about 1.65x DVD speed at
+the hub to 4x at the edge of the layer. The time is measured in emulated IOP
+cycles, so loads take as many game frames as on a console regardless of host
+disk speed, which keeps load-inclusive runs comparable. The first read logs
+`[cdvd:timing] mode=ps2`. Developers can set `OPENKAI2_DISC_TIMING=instant` to
+restore immediate reads.
+
 ## Controls and saving
 
 Use arrows or WASD to move, **X or Space for Cross/confirm**, C for Circle/cancel,
@@ -90,8 +103,8 @@ available after the supported executable and every disc file have been checked.
 The verified ISO path is remembered for the next session. The ISO remains
 required, including when a verified cache already exists.
 
-The launcher uses native Windows controls, system typography, and an orange,
-navy, and gold palette.
+The launcher uses owner-drawn Windows controls, Segoe UI and a dark navy
+palette with orange and gold accents.
 
 **Settings** saves the renderer, frame-rate limit, window resolution,
 windowed/borderless mode, aspect ratio, VSync, FXAA, texture filtering, and spatial upscaling.

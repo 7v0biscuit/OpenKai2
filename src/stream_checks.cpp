@@ -20,7 +20,7 @@ void verify_stream_callbacks(PS2Runtime& runtime,uint8_t* memory) {
     constexpr uint32_t buffer=0x26000u, output=0x24300u;
     constexpr uint32_t stack=0x01fffe40u, returned=0x0019de98u;
     for (const auto address:translation::stream_callback_entries)
-        require(runtime.hasFunction(address),"reviewed SJRBF method is not registered");
+        require(runtime.hasFunction(address),"SJRBF method is not registered");
     std::memcpy(memory+table,translation::stream_callback_slots.data(),translation::stream_callback_slots.size()*4);
     // Exercise the actual stream methods with their optional critical-section
     // hooks unset. Those hooks belong to the independent EE scheduler checks.
@@ -50,7 +50,7 @@ void verify_stream_callbacks(PS2Runtime& runtime,uint8_t* memory) {
     };
     constexpr uint32_t memory_table=0x003676a8u,memory_object=0x003676e0u;
     for (const auto address:translation::memory_stream_entries)
-        require(runtime.hasFunction(address),"reviewed SJMEM method is not registered");
+        require(runtime.hasFunction(address),"SJMEM method is not registered");
     std::memcpy(memory+memory_table,translation::memory_stream_slots.data(),48u);
     auto memory_method=[&](unsigned slot,uint32_t object,uint32_t a1=0u,uint32_t a2=0u,uint32_t a3=0u) {
         return call(translation::memory_stream_slots[slot],{object,a1,a2,a3});

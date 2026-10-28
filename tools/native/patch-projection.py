@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""Apply the reviewed aspect correction to a translated USA camera routine."""
+"""Apply the aspect correction to the translated USA camera routine."""
 import argparse
 from pathlib import Path
 
@@ -15,10 +15,10 @@ CORRECTION = ('    '+MARKER+'\n'
 
 def patch_projection(text):
     if text.count(ORIGINAL) != 1:
-        raise ValueError('Reviewed camera load at 0x001317f0 is missing or ambiguous')
+        raise ValueError('Camera load at 0x001317f0 is missing or ambiguous')
     if MARKER in text:
         if text.count(MARKER) != 1 or ORIGINAL + CORRECTION not in text:
-            raise ValueError('Camera correction differs from the reviewed sequence')
+            raise ValueError('Camera correction differs from the expected sequence')
         return text
     return '#include "graphics_settings.h"\n' + text.replace(ORIGINAL, ORIGINAL + CORRECTION)
 

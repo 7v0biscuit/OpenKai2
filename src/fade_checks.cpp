@@ -20,7 +20,7 @@ void verify_fade_callbacks(PS2Runtime& runtime, uint8_t* memory) {
     constexpr uint32_t object=0x003b5630u, queue=0x00280000u, capacity=0x10000u;
     constexpr uint32_t gp=0x003ac4f0u, stack=0x01ffffc0u, returned=0x0019de98u;
     for (auto entry:translation::fade_callback_entries)
-        require(runtime.hasFunction(entry), "reviewed fade renderer is not registered");
+        require(runtime.hasFunction(entry), "fade renderer is not registered");
     std::memcpy(memory+0x003786e0u, translation::fade_callback_slots.data(),
                 translation::fade_callback_slots.size()*4);
     auto put=[&](uint32_t address, uint32_t value) { runtime.memory().write32(address,value); };

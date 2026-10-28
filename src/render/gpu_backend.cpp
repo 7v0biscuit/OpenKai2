@@ -156,6 +156,17 @@ struct GpuRasterBackend::Impl {
         });gpuDirty&=~pages;
     }
     void materialize(){Pages all;all.set();materialize(all);}
+    // Pages read and written by a VRAM-to-VRAM or VRAM-to-host transfer.
+    // Wrapped rectangles and unsupported formats keep the full-memory path.
+    bool transferPages(const GSTransferCommand& c,Pages& source,Pages& destination){
+        const auto& b=c.bitbltbuf;const auto& p=c.trxpos;const auto& r=c.trxreg;const auto& lut=gpu::address_tables();
+        const bool copy=c.direction==2u;
+        if(!r.rrw || !r.rrh || !lut[(b.spsm&63u)*8u] || (copy && !lut[(b.dpsm&63u)*8u]))return false;
+        if(p.ssax+r.rrw>2048u || p.ssay+r.rrh>2048u || (copy && (p.dsax+r.rrw>2048u || p.dsay+r.rrh>2048u)))return false;
+        source=rectanglePages(b.spsm,b.sbp,std::max<unsigned>(b.sbw,1u),p.ssax,p.ssay,r.rrw,r.rrh);
+        destination=copy ? rectanglePages(b.dpsm,b.dbp,std::max<unsigned>(b.dbw,1u),p.dsax,p.dsay,r.rrw,r.rrh) : Pages{};
+        return true;
+    }
     uint32_t paletteFor(const GSDrawState& state){
         const auto& t=state.context.tex0;
         const std::array<uint32_t,3> key={clutGeneration,uint32_t(t.psm)|(uint32_t(t.cpsm)<<8u)|(uint32_t(t.csm)<<16u)|(uint32_t(t.csa)<<24u),uint32_t(state.texa.ta0)|(uint32_t(state.texa.ta1)<<8u)|(uint32_t(state.texa.aem)<<16u)};
@@ -309,7 +320,13 @@ void GpuRasterBackend::LoadClut(const GSTex0Reg& t,const GSTexClutReg& tc){
     m->loadedPaletteKey=key;m->loadedPalettePages=pages;m->loadedPaletteValid=t.cld==1u;
 }
 void GpuRasterBackend::BeginTransfer(const GSTransferCommand& c){
-    std::lock_guard lock(m->mutex);m->transfer=c;
+    std::lock_guard lock(m->mutex);m->transfer=c;Pages source,destination;
+    if((c.direction==1u || c.direction==2u) && m->transferPages(c,source,destination)){
+        // Earlier draws may still sample the destination, so they are
+        // dispatched before its new bytes are uploaded.
+        m->materialize(source|destination);m->submit();m->cpu.BeginTransfer(c);
+        m->cpuDirty|=destination;if((destination&m->loadedPalettePages).any())m->loadedPaletteValid=false;return;
+    }
     if(c.direction==1u || c.direction==2u)m->materialize();
     if(c.direction==2u)m->submit();m->cpu.BeginTransfer(c);if(c.direction==2u){m->cpuDirty.set();m->loadedPaletteValid=false;}
 }
@@ -342,7 +359,8 @@ bool GpuRasterBackend::ClearFramebuffer(const GSContext& c,uint32_t rgba){
     }
     m->materialize();const bool result=m->cpu.ClearFramebuffer(c,rgba);if(result){m->cpuDirty.set();m->loadedPaletteValid=false;}return result;
 }
-uint32_t GpuRasterBackend::ConsumeLocalToHostBytes(uint8_t* out,uint32_t count){std::lock_guard lock(m->mutex);m->materialize();return m->cpu.ConsumeLocalToHostBytes(out,count);}
+// BeginTransfer already captured the source bytes for VRAM-to-host transfers.
+uint32_t GpuRasterBackend::ConsumeLocalToHostBytes(uint8_t* out,uint32_t count){std::lock_guard lock(m->mutex);return m->cpu.ConsumeLocalToHostBytes(out,count);}
 uint32_t GpuRasterBackend::ReadVram(uint32_t psm,uint32_t base,uint32_t width,uint32_t x,uint32_t y)const{std::lock_guard lock(m->mutex);if(!gpu::address_tables()[(psm&63u)*8u]){m->materialize();return m->cpu.ReadVram(psm,base,width,x,y);}const auto page=gpu::bit_address(psm,base,width,x,y)/(gpu::PageBytes*8u);if(m->gpuDirty[page]){Pages requested;requested.set(page);m->materialize(requested);}return m->cpu.ReadVram(psm,base,width,x,y);}
 void GpuRasterBackend::WriteVram(uint32_t psm,uint32_t base,uint32_t width,uint32_t x,uint32_t y,uint32_t value){std::lock_guard lock(m->mutex);m->loadedPaletteValid=false;if(!gpu::address_tables()[(psm&63u)*8u]){m->materialize();m->cpu.WriteVram(psm,base,width,x,y,value);m->cpuDirty.set();return;}const auto page=gpu::bit_address(psm,base,width,x,y)/(gpu::PageBytes*8u);if(m->gpuDirty[page]){Pages requested;requested.set(page);m->materialize(requested);}else m->submit();m->cpu.WriteVram(psm,base,width,x,y,value);m->cpuDirty.set(page);}
 void GpuRasterBackend::SnapshotVram(std::vector<uint8_t>& out)const{std::lock_guard lock(m->mutex);m->materialize();m->cpu.SnapshotVram(out);}

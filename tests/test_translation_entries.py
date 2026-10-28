@@ -81,7 +81,7 @@ class TranslationEntries(unittest.TestCase):
             self.verify_fixture('g_ps2RecompiledFunctionTable[1] = owner; // 0x167188',
                                 '// Address: 0x167188 - 0x1671a0', complete_tables=False)
 
-    def test_reviewed_tables_have_complete_unique_coverage(self):
+    def test_tables_have_complete_unique_coverage(self):
         self.assertEqual(len(ENTRIES.DISPATCH_TABLES), 7)
         self.assertTrue(all(len(row) == 14 for _, row in ENTRIES.DISPATCH_TABLES))
         self.assertEqual(len(set(ENTRIES.ENTRY_POINTS)), 1025)
@@ -94,7 +94,7 @@ class TranslationEntries(unittest.TestCase):
         self.assertEqual(output.lower().count('0x001908e0'), 1)
         self.assertEqual(ENTRIES.configure(output), output)
 
-    def test_runtime_check_header_uses_reviewed_entries(self):
+    def test_runtime_check_header_uses_translation_entries(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / 'entries.h'
             ENTRIES.emit_check_header(path)

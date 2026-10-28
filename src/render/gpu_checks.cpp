@@ -255,6 +255,32 @@ void checkCoherence(){
     transfer.direction=2u;transfer.bitbltbuf.sbp=112u*32u;transfer.bitbltbuf.sbw=8u;transfer.bitbltbuf.spsm=0u;transfer.bitbltbuf.dbp=56u*32u;transfer.trxpos.ssax=3u;transfer.trxpos.ssay=5u;
     pair.cpu->BeginTransfer(transfer);pair.gpu->BeginTransfer(transfer);pair.compare("GPU local-to-local transfer");
 }
+// Copies between render targets and textures move only their own pages, while
+// draws issued before the copy still observe the previous texture contents.
+void checkTransferPages(){
+    Comparison pair;auto p=material(8u,false);p.state.prim.tme=false;p.state.prim.iip=false;p.state.prim.abe=false;
+    pair.draw(p);
+    auto sample=material(24u,true);sample.state.context.frame.fbp=112u;sample.state.context.tex0.psm=GS_PSM_CT32;
+    sample.state.context.tex0.tbp0=200u*32u;sample.state.context.tex0.tbw=2u;sample.state.textureWidth=sample.state.textureHeight=64u;
+    sample.state.prim.abe=false;pair.draw(sample);
+    GSTransferCommand t{};t.direction=2u;t.bitbltbuf.sbp=56u*32u;t.bitbltbuf.sbw=8u;t.bitbltbuf.spsm=0u;
+    t.bitbltbuf.dbp=200u*32u;t.bitbltbuf.dbw=2u;t.bitbltbuf.dpsm=0u;t.trxpos.ssax=10u;t.trxpos.ssay=12u;t.trxreg.rrw=64u;t.trxreg.rrh=40u;
+    const auto before=pair.gpu->stats();
+    pair.cpu->BeginTransfer(t);pair.gpu->BeginTransfer(t);pair.textureFlush();
+    sample.state.context.frame.fbp=140u;pair.draw(sample);
+    const auto after=pair.gpu->stats();
+    if(after.uploads-before.uploads>=gpu::VramBytes/8u || after.readbacks-before.readbacks>=gpu::VramBytes/8u)
+        throw std::runtime_error("Local-to-local transfer moved unrelated VRAM pages");
+    pair.compare("GPU local-to-local transfer between a render target and a sampled texture");
+    t.direction=1u;t.trxpos.ssax=0u;t.trxpos.ssay=0u;t.trxreg.rrw=32u;t.trxreg.rrh=8u;pair.draw(p);
+    pair.cpu->BeginTransfer(t);pair.gpu->BeginTransfer(t);
+    std::vector<uint8_t> expected(32u*8u*4u),actual(expected.size());
+    if(pair.cpu->ConsumeLocalToHostBytes(expected.data(),uint32_t(expected.size()))!=expected.size() ||
+       pair.gpu->ConsumeLocalToHostBytes(actual.data(),uint32_t(actual.size()))!=actual.size() || expected!=actual)
+        throw std::runtime_error("GPU local-to-host transfer differs from the CPU renderer");
+    pair.compare("GPU local-to-host transfer");
+    std::cout<<"GPU transfer page checks passed: render-target copies, pending samplers and host readback.\n";
+}
 void checkLines(){
     constexpr unsigned frames[]={0u,1u,2u,10u};
     for(unsigned mode=0;mode<64u;++mode){
@@ -382,7 +408,7 @@ int run_gpu_checks(bool required){
         const bool initialized=gpu::initialize_headless(error);
 #endif
         if(!initialized){std::cout<<"GPU checks unavailable: "<<error<<'\n';return required ? 1 : 77;}
-        checkFlatDepth();checkDepthPlanes();checkPaletteReuse();checkPresentationReadbacks();checkEmptyTriangles();checkMaterials();checkIntegerPipeline();checkFormats();checkLines();checkCoherence();checkRebind();checkClears();checkSourceChanges();checkPartialReadbacks();
+        checkFlatDepth();checkDepthPlanes();checkPaletteReuse();checkPresentationReadbacks();checkEmptyTriangles();checkMaterials();checkIntegerPipeline();checkFormats();checkLines();checkCoherence();checkTransferPages();checkRebind();checkClears();checkSourceChanges();checkPartialReadbacks();
         const auto before=gpu_render_statistics().gpuDraws;verify_vector_runtime_gpu();
         if(gpu_render_statistics().gpuDraws-before!=8u)throw std::runtime_error("VIF/PATH1 integration did not execute eight GPU triangles");
         // A failed asynchronous submission must propagate to its caller and
