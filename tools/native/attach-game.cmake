@@ -98,6 +98,7 @@ function(openkai2_attach_generated_sources)
         "${project_root}/tools/native/patches/disc-timing.patch"
         "${project_root}/tools/native/patches/fpu-conversion.patch"
         "${project_root}/tools/native/patches/soft-double-math.patch"
+        "${project_root}/tools/native/patches/vector-data-memory.patch"
         "${project_root}/tools/native/patches/simulation-pacing.patch"
         "${project_root}/tools/native/patches/vector-native-backend.patch"
         "${project_root}/tools/native/patches/guest-timing.patch"

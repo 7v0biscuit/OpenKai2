@@ -7,6 +7,7 @@
 #include "runtime/ps2_vu1.h"
 #include "vector/pcsx2_bridge.h"
 #include <array>
+#include <bitset>
 #include <exception>
 #include <iostream>
 #include <mutex>
@@ -33,41 +34,87 @@ std::array<char, 512> vectorError{};
 bool jitActive = false, initialized = false, nativeInitialized = false,
      initializationFailed = false, previousBusy = false;
 u8 *externalData = nullptr;
+// The memory VU1.Mem addresses: the runtime's own VU1 data when it comes from
+// the nearby pool, otherwise a copy in nativeData.
+u8 *dataMemory = nativeData.data();
 uint64_t codeGeneration = ~uint64_t(0);
 const u8 *codeSource = nullptr;
 const void *activeOwner = nullptr;
 std::recursive_mutex executionMutex;
 bool executing = false;
 } // namespace
-namespace SysMemory {
-u8 *cache(unsigned unit) {
-    if (caches[unit])
-        return caches[unit];
+// Executable caches and directly addressed VU data both sit within 2 GiB of
+// the register file, since compiled blocks reach them with 32-bit offsets.
+static u8 *nearby(size_t bytes, bool executable) {
     const uintptr_t anchor = reinterpret_cast<uintptr_t>(&vuRegs) & ~uintptr_t(0xffffu);
     for (uintptr_t distance = 64u * 1024u * 1024u; distance <= 1536u * 1024u * 1024u;
          distance += 64u * 1024u * 1024u) {
         for (bool above : {true, false}) {
-            if ((above && anchor > std::numeric_limits<uintptr_t>::max() - distance - cacheBytes) ||
+            if ((above && anchor > std::numeric_limits<uintptr_t>::max() - distance - bytes) ||
                 (!above && anchor < distance + 0x10000u))
                 continue;
             const uintptr_t address = above ? anchor + distance : anchor - distance;
 #ifdef _WIN32
-            void *ptr = VirtualAlloc(reinterpret_cast<void *>(address), cacheBytes,
-                                     MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+            void *ptr = VirtualAlloc(reinterpret_cast<void *>(address), bytes, MEM_RESERVE | MEM_COMMIT,
+                                     executable ? PAGE_EXECUTE_READWRITE : PAGE_READWRITE);
             if (!ptr)
                 continue;
 #else
-            void *ptr = mmap(reinterpret_cast<void *>(address), cacheBytes,
-                             PROT_READ | PROT_WRITE | PROT_EXEC,
+            void *ptr = mmap(reinterpret_cast<void *>(address), bytes,
+                             PROT_READ | PROT_WRITE | (executable ? PROT_EXEC : 0),
                              MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);
             if (ptr == MAP_FAILED)
                 continue;
 #endif
-            caches[unit] = static_cast<u8 *>(ptr);
-            return caches[unit];
+            return static_cast<u8 *>(ptr);
         }
     }
-    throw std::runtime_error("Unable to allocate vector executable memory near the runtime");
+    throw std::runtime_error("Unable to allocate vector memory near the runtime");
+}
+namespace {
+constexpr size_t dataBlockBytes = 0x4000u, dataBlocks = 32u;
+u8 *dataRegion = nullptr;
+std::bitset<dataBlocks> dataUsed;
+std::mutex dataMutex;
+bool directData(const u8 *data) {
+    return dataRegion && data >= dataRegion && data < dataRegion + dataBlockBytes * dataBlocks;
+}
+} // namespace
+namespace openkai2 {
+uint8_t *allocate_vector_data() {
+    {
+        std::lock_guard lock(dataMutex);
+        try {
+            if (!dataRegion)
+                dataRegion = nearby(dataBlockBytes * dataBlocks, false);
+            for (size_t i = 0; i < dataBlocks; ++i)
+                if (!dataUsed[i]) {
+                    dataUsed.set(i);
+                    return dataRegion + i * dataBlockBytes;
+                }
+        } catch (const std::exception &) {
+        }
+    }
+    return new uint8_t[dataBlockBytes];
+}
+void release_vector_data(uint8_t *data) {
+    if (!data)
+        return;
+    {
+        std::lock_guard lock(dataMutex);
+        if (directData(data)) {
+            dataUsed.reset(size_t(data - dataRegion) / dataBlockBytes);
+            return;
+        }
+    }
+    delete[] data;
+}
+} // namespace openkai2
+namespace SysMemory {
+u8 *cache(unsigned unit) {
+    if (!caches[unit])
+        caches[unit] = nearby(cacheBytes, true);
+    return caches[unit];
 }
 u8 *GetVU0Rec() { return cache(0); }
 u8 *GetVU1Rec() { return cache(1); }
@@ -212,7 +259,7 @@ bool bridgeInitializeNative() noexcept {
         return false;
     try {
         if (!initialized) {
-            initializeRegisters(nativeCode.data(), nativeData.data());
+            initializeRegisters(nativeCode.data(), dataMemory);
             initialized = true;
         }
         SysMemory::GetVU1Rec();
@@ -243,7 +290,7 @@ void bridgeRun(VU1State &state, u8 *code, u8 *data, u32 budget, bool fresh, uint
     if (jitActive != jit && previousBusy)
         throw std::runtime_error("Cannot change vector engine during a program");
     if (!initialized) {
-        initializeRegisters(nativeCode.data(), nativeData.data());
+        initializeRegisters(nativeCode.data(), dataMemory);
         initialized = true;
     }
     if (jit && !bridgeInitializeNative())
@@ -275,10 +322,23 @@ void bridgeRun(VU1State &state, u8 *code, u8 *data, u32 budget, bool fresh, uint
         codeSource = code;
         codeGeneration = generation;
     }
+    // VU1 data from the nearby pool is executed in place. Compiled blocks embed
+    // its address, so binding another buffer discards them; a runtime keeps
+    // one VU1 memory for its lifetime.
+    u8 *const memory = directData(data) ? data : nativeData.data();
+    if (memory != dataMemory) {
+        if (previousBusy)
+            throw std::runtime_error("Vector data memory changed during a suspended program");
+        if (nativeInitialized)
+            CpuMicroVU1.Reset();
+        dataMemory = memory;
+        VU1.Mem = memory;
+    }
+    const bool copied = memory != data;
     if (fresh) {
         if (previousBusy && nativeInitialized)
             CpuMicroVU1.Clear(0u, 0x4000u);
-        initializeRegisters(nativeCode.data(), nativeData.data());
+        initializeRegisters(nativeCode.data(), dataMemory);
         packetBytes = parsedBytes = 0u;
         std::memcpy(VU1.VF, state.vf, sizeof(state.vf));
         VU1.VF[0] = {};
@@ -308,14 +368,15 @@ void bridgeRun(VU1State &state, u8 *code, u8 *data, u32 budget, bool fresh, uint
         CpuVU1->SetStartPC(state.pc & 0x3fffu);
     }
     activeOwner = owner;
-    std::memcpy(nativeData.data(), data, nativeData.size());
+    if (copied)
+        std::memcpy(nativeData.data(), data, nativeData.size());
     vif1Regs.top = state.top & 0x3ffu;
     vif1Regs.itop = state.itop & 0x3ffu;
     vif1Regs.stat.VEW = true;
     VU0.VI[REG_FBRST].UL = (state.dBitEnabled ? 0x400u : 0u) | (state.tBitEnabled ? 0x800u : 0u);
     VU0.VI[REG_VPU_STAT].UL = 0x100u;
     cpuRegs.cycle = VU1.cycle;
-    externalData = data;
+    externalData = copied ? data : nullptr;
     callback = fn;
     callbackContext = context;
     callbackError = nullptr;
@@ -325,7 +386,8 @@ void bridgeRun(VU1State &state, u8 *code, u8 *data, u32 budget, bool fresh, uint
     EmuConfig.Cpu.FPUFPCR = FPControlRegister::GetCurrent();
     const u32 before = VU1.cycle;
     CpuVU1->Execute(budget);
-    std::memcpy(data, nativeData.data(), nativeData.size());
+    if (copied)
+        std::memcpy(data, nativeData.data(), nativeData.size());
     std::memcpy(state.vf, VU1.VF, sizeof(state.vf));
     std::memcpy(state.acc, &VU1.ACC, sizeof(state.acc));
     for (unsigned i = 0u; i < 16u; ++i)

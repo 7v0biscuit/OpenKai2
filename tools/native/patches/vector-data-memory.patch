@@ -1,0 +1,36 @@
+--- a/runtime/ps2_memory.cpp
++++ b/runtime/ps2_memory.cpp
+@@ -1,5 +1,6 @@
+ #include "runtime/ps2_memory.h"
+ #include "work_timings.h"
++#include "vector/backend.h"
+ #include "runtime/ps2_address.h"
+ #include "runtime/gs/gs_frontend.h"
+ #include "ps2_log.h"
+@@ -274,7 +275,7 @@
+     }
+     if (m_vu1Data)
+     {
+-        delete[] m_vu1Data;
++        openkai2::release_vector_data(m_vu1Data);
+         m_vu1Data = nullptr;
+     }
+     if (m_vu0Code)
+@@ -306,7 +307,7 @@
+         delete[] m_vu0Code;
+         delete[] m_vu0Data;
+         delete[] m_vu1Code;
+-        delete[] m_vu1Data;
++        openkai2::release_vector_data(m_vu1Data);
+         m_rdram = nullptr;
+         m_scratchpad = nullptr;
+         ps2SetScratchpadHostPtr(nullptr);
+@@ -378,7 +379,7 @@
+         std::memset(m_vu0Data, 0, PS2_VU0_DATA_SIZE);
+ 
+         m_vu1Code = new uint8_t[PS2_VU1_CODE_SIZE];
+-        m_vu1Data = new uint8_t[PS2_VU1_DATA_SIZE];
++        m_vu1Data = openkai2::allocate_vector_data();
+         std::memset(m_vu1Code, 0, PS2_VU1_CODE_SIZE);
+         std::memset(m_vu1Data, 0, PS2_VU1_DATA_SIZE);
+         markVU0CodeModified();
