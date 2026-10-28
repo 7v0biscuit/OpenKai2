@@ -173,17 +173,12 @@ See [Vector execution](vector-runtime.md) for validation and developer settings.
 
 ## Audio output
 
-Host audio playback is disabled while frame-rate work continues. The application
-opens no playback device and runs no audio mixing callback. Decoded-sound
-playback and PCM queue delivery are disabled as well. This applies to movies,
-menus, and fights.
-
-Guest sound RPCs, DMA completion, and interrupts retain their timing so turning
-off host playback does not bypass game synchronization. The startup log reports
-`[audio:output] enabled=0`. `--audio-test` reports the disabled status without
-opening an output device. Host audio should remain disabled until sustained
-60 FPS has been established; there is no automatic or user-facing re-enable
-switch in this build.
+Game audio plays streamed music, voices and movie audio through a 48 kHz float
+stereo stream. Settings → Display → Game audio turns it off or sets the volume
+(100, 75, 50 or 25%). Sound effects played through SPU2 voices are not
+synthesized yet. The startup log reports `[audio:output] enabled=1` with the
+stream format, or the reason output is off. `--audio-test` checks the mixer
+without opening a playback device.
 
 ## Build requirements
 

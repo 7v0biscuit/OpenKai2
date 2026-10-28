@@ -724,15 +724,16 @@ renderer references remain enabled.
 
 ## Audio
 
-Host playback is disabled during performance development. Startup opens no
-playback device, PCM submission is a no-op, and decoded-sound playback uses a
-null backend. No audio mixing callback or playback queue runs. The
-`--audio-test` command reports this state without opening a device.
+SPU2 AutoDMA PCM from both cores is mixed into a 48 kHz, 32-bit float stereo
+device stream: the SPU2's own rate, so samples reach the device without
+resampling. A soft limiter keeps the summed cores below full scale. The
+launcher's Game audio control turns output off, which opens no device, or sets
+the volume. `--audio-test` checks the mixer offline.
 
-Guest sound DMA, RPC responses, and interrupt timing remain enabled. Their
-component regressions still cover planar PCM, transfer ordering, queue and fade
-logic. Retaining these checks does not enable host playback. Complete SPU2
-synthesis and retail audio fidelity remain incomplete.
+Only streamed PCM (ADX music, voices and movie audio) reaches the host. Sound
+effects that the game plays through SPU2 voices are not synthesized yet, and
+the decoded-sound backend stays silent. Guest sound DMA, RPC responses and
+interrupt timing are unchanged.
 
 ## Validation
 
