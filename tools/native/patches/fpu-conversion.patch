@@ -1,6 +1,6 @@
 --- a/include/ps2_runtime_macros.h
 +++ b/include/ps2_runtime_macros.h
-@@ -853,7 +853,16 @@
+@@ -853,7 +853,63 @@
  #define FPU_FLOOR_W_S(a) ((int32_t)floorf((float)(a)))
  #define FPU_CVT_S_W(a) ((float)(int32_t)(a))
  #define FPU_CVT_S_L(a) ((float)(int64_t)(a))
@@ -15,6 +15,53 @@
 +    return (bits & 0x80000000u) ? INT32_MIN : INT32_MAX;
 +}
 +#define FPU_CVT_W_S(a) ps2_cvt_w_s((float)(a))
++
++// The VU has no infinities or NaNs: exponent 255 is an ordinary large value
++// and denormals read as zero. These follow VFTOI, DIV, SQRT and RSQRT on
++// those inputs, which the translated VU0 macro code otherwise leaves to SSE.
++inline float ps2_vu_operand(float value)
++{
++    const uint32_t bits = std::bit_cast<uint32_t>(value);
++    if ((bits & 0x7F800000u) == 0u)
++        return std::bit_cast<float>(bits & 0x80000000u);
++    if ((bits & 0x7F800000u) == 0x7F800000u)
++        return std::bit_cast<float>((bits & 0x80000000u) | 0x7F7FFFFFu);
++    return value;
++}
++inline float ps2_vu_maximum(uint32_t sign)
++{
++    return std::bit_cast<float>((sign & 0x80000000u) | 0x7F7FFFFFu);
++}
++// Lanes of 2^31 or more saturate by sign. CVTTPS2DQ would return 0x80000000
++// for all of them, so those lanes are selected explicitly.
++inline __m128i ps2_vftoi(__m128 value)
++{
++    const __m128i bits = _mm_castps_si128(value);
++    const __m128i saturated = _mm_xor_si128(_mm_srai_epi32(bits, 31), _mm_set1_epi32(INT32_MAX));
++    const __m128i inRange = _mm_cmplt_epi32(_mm_and_si128(bits, _mm_set1_epi32(INT32_MAX)), _mm_set1_epi32(0x4F000000));
++    return _mm_or_si128(_mm_and_si128(inRange, _mm_cvttps_epi32(value)), _mm_andnot_si128(inRange, saturated));
++}
++inline float ps2_vdiv(float fs, float ft)
++{
++    fs = ps2_vu_operand(fs);
++    ft = ps2_vu_operand(ft);
++    if (ft == 0.0f)
++        return fs == 0.0f ? std::bit_cast<float>(0x7FFFFFFFu)
++                          : ps2_vu_maximum(std::bit_cast<uint32_t>(fs) ^ std::bit_cast<uint32_t>(ft));
++    return ps2_fdiv(fs, ft);
++}
++inline float ps2_vsqrt(float ft)
++{
++    return std::sqrt(std::fabs(ps2_vu_operand(ft)));
++}
++inline float ps2_vrsqrt(float fs, float ft)
++{
++    fs = ps2_vu_operand(fs);
++    ft = ps2_vu_operand(ft);
++    if (ft == 0.0f)
++        return fs == 0.0f ? std::bit_cast<float>(0x7FFFFFFFu) : ps2_vu_maximum(std::bit_cast<uint32_t>(fs));
++    return ps2_fdiv(fs, std::sqrt(std::fabs(ft)));
++}
  #define FPU_CVT_L_S(a) ((int64_t)(float)(a))
  #define FPU_C_F_S(a, b) (0)
  #define FPU_C_UN_S(a, b) (isnan((float)(a)) || isnan((float)(b)))

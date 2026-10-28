@@ -76,11 +76,16 @@ function(openkai2_attach_generated_sources)
             "${project_root}/tools/native/patch-projection.py"
             --directory "$ENV{OPENKAI2_WORK_DIR}/budokai2-native/output"
             COMMAND_ERROR_IS_FATAL ANY)
+        execute_process(COMMAND "${Python3_EXECUTABLE}"
+            "${project_root}/tools/native/patch-vector-macros.py"
+            --directory "$ENV{OPENKAI2_WORK_DIR}/budokai2-native/output"
+            COMMAND_ERROR_IS_FATAL ANY)
         set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
             "${project_root}/tools/native/translation-entries.py")
     endif()
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-        "${project_root}/tools/native/patch-projection.py")
+        "${project_root}/tools/native/patch-projection.py"
+        "${project_root}/tools/native/patch-vector-macros.py")
     set(overlay_dir "${CMAKE_BINARY_DIR}/openkai2-overlays")
     include("${project_root}/tools/native/vector-core.cmake")
     execute_process(COMMAND "${Python3_EXECUTABLE}"
@@ -100,7 +105,7 @@ function(openkai2_attach_generated_sources)
         "${project_root}/tools/native/patches/draw-history-sampling.patch"
         "${project_root}/tools/native/patches/texture-cache-binding.patch"
         "${project_root}/tools/native/patches/tested-pixel-writer.patch"
-        "${project_root}/tools/native/patches/host-audio-disabled.patch"
+        "${project_root}/tools/native/patches/host-audio-device.patch"
         "${project_root}/tools/native/patches/vector-throughput.patch"
         "${project_root}/tools/native/patches/vector-scheduling.patch"
         "${project_root}/tools/native/patches/vector-arithmetic.patch"
