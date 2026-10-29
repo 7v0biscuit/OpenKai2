@@ -192,7 +192,9 @@ A character goes on the select screen in one of three ways:
 The 3D preview's tables cover IDs below 37. The pose table at `0x37B3D0`
 holds a 44-byte row per ID, after 16 bytes, with the preview camera; the rows
 of IDs 1, 13, 14 and 19 hold a placeholder whose camera sits far too close.
-Every filled ID uses its base character's row. IDs 1, 13, 14 and 19 show
+Every filled ID uses its base character's row, in each of the three preview
+functions that read it (the translated code at `0x2AEBC0`, `0x2AF000` and
+`0x2AF4E0`), and its base's byte in the table at `0x37C0B0`. IDs 1, 13, 14 and 19 show
 their own model in the preview; filled IDs 37 and up (43 to 52) show their
 base character's model there, and their own in battle. The import tool uses
 IDs 1, 13, 14 and 19 first.
