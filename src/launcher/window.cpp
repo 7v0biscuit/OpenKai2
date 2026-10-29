@@ -301,8 +301,6 @@ struct Window {
     std::shared_ptr<mods::SourceDisc> source, game;
     // Budokai 2 discs list their characters, each with its files grouped.
     std::optional<mods::DiscRoster> sourceRoster, gameRoster;
-    // Model shapes read so far, by (on the game disc, entry).
-    mutable std::map<std::pair<bool, size_t>, std::optional<mods::ModelShape>> shapes;
     // What the import tool brings into Budokai 2. Only characters are mapped
     // so far, and only from Budokai 2 discs; imports only ever add.
     enum class Task { characters, stages, movesets, capsules } importTask = Task::characters;
@@ -1312,7 +1310,9 @@ struct Window {
         result.loaded = std::make_shared<mods::SourceDisc>(image);
         result.identity = mods::identify_disc(*result.loaded);
         result.roster = mods::read_disc_roster(*result.loaded);
-        if (!result.roster)
+        if (result.roster)
+            mods::read_model_shapes(*result.loaded, *result.roster);
+        else
             result.roster = mods::read_budokai3_models(*result.loaded);
         return result;
     }
@@ -1333,7 +1333,6 @@ struct Window {
                     mods::DiscIdentity identity) {
         source = std::move(disc);
         sourceRoster = std::move(roster);
-        shapes.clear();
         sourceIdentity = std::move(identity);
         SetWindowTextW(controls[EntryFilter], L"");
         setTask(importTask);
@@ -1346,7 +1345,10 @@ struct Window {
             InvalidateRect(controls[id], nullptr, FALSE);
         layout();
         fillSourceList();
-        fillTargetList();
+        if (characterView && sourceRoster->models)
+            showWearers();
+        else
+            fillTargetList();
         refreshEnabled();
     }
     // The left list: characters by name, filtered by the search box.
@@ -1364,6 +1366,13 @@ struct Window {
         for (size_t i = 0; i < sourceRoster->characters.size(); ++i) {
             const auto &character = sourceRoster->characters[i];
             auto label = wide(character.name);
+            if (sourceRoster->models && gameRoster) {
+                // Say who can wear each model, so a model nobody fits is plain.
+                const auto fit = mods::fitting_wearers(*sourceRoster, character.id, *gameRoster);
+                label += fit.empty() ? L"   ·   no Budokai 2 match"
+                                     : L"   ·   fits " + wide(gameRoster->find(fit.front())->name) +
+                                           (fit.size() > 1 ? L" +" + std::to_wstring(fit.size() - 1) : L"");
+            }
             auto lowered = label;
             std::transform(lowered.begin(), lowered.end(), lowered.begin(), ::towlower);
             if (!filter.empty() && lowered.find(filter) == std::wstring::npos)
@@ -1390,8 +1399,10 @@ struct Window {
             return;
         for (uint32_t cell = 0; cell < mods::roster_select_cells; ++cell) {
             const auto *occupant = gameRoster->find(gameRoster->grid[cell]);
-            const auto label = L"Spot " + std::to_wstring(cell + 1) + L"   ·   " +
-                               (occupant ? wide(occupant->name) : std::wstring(L"empty"));
+            auto label = L"Spot " + std::to_wstring(cell + 1) + L"   ·   " +
+                         (occupant ? wide(occupant->name) : std::wstring(L"empty"));
+            if (sourceRoster->models && sourceCharacter() && fits(cell))
+                label += L"   ·   fits";
             SendMessageW(list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
         }
         SendMessageW(list, LB_SETCURSEL, WPARAM(keep >= 0 && keep < LRESULT(mods::roster_select_cells) ? keep : 0), 0);
@@ -1421,7 +1432,6 @@ struct Window {
                   mods::DiscIdentity identity) {
         game = std::move(disc);
         gameRoster = std::move(roster);
-        shapes.clear();
         gameIdentity = identity;
         // The game disc is the source until another disc is chosen.
         if (!source)
@@ -1448,35 +1458,46 @@ struct Window {
     };
     // Why a model from another game cannot be worn by a Budokai 2 character,
     // or nothing when it can: their models must link their parts the same
-    // way, so the character's animations move it. Shapes are kept, as each
-    // one reads the disc.
+    // way, so the character's animations move it.
     std::optional<std::wstring> modelMismatch(const mods::DiscCharacter &model, const mods::DiscCharacter &wearer) const {
-        const auto shape = [&](mods::SourceDisc &disc, size_t entry) -> const std::optional<mods::ModelShape> & {
-            const auto key = std::pair{&disc == game.get(), entry};
-            auto found = shapes.find(key);
-            if (found == shapes.end())
-                found = shapes.emplace(key, mods::model_shape(disc, entry)).first;
-            return found->second;
-        };
-        const auto costumes = mods::costume_fields(*game, wearer);
-        if (costumes.empty())
+        const auto theirs = gameRoster->shapes.find(wearer.id);
+        if (theirs == gameRoster->shapes.end())
             return wide(wearer.name) + L" has no costume model to replace.";
-        const auto &theirs = shape(*game, costumes.front().second);
-        const auto &ours = shape(*source, model.files.front().second);
-        if (!theirs || !ours || !(*theirs == *ours))
-            return wide(model.name) + L" has " + std::to_wstring(ours ? ours->parts.size() : 0) + L" parts linked " +
-                   L"differently from " + wide(wearer.name) + L"'s " + std::to_wstring(theirs ? theirs->parts.size() : 0) +
-                   L", so " + wide(wearer.name) + L"'s moves can't animate it. Choose a character with the same body, "
-                   L"such as the same character.";
-        return std::nullopt;
+        const auto fit = mods::fitting_wearers(*sourceRoster, model.id, *gameRoster);
+        if (std::find(fit.begin(), fit.end(), wearer.id) != fit.end())
+            return std::nullopt;
+        const auto ours = sourceRoster->shapes.find(model.id);
+        std::wstring others;
+        for (size_t i = 0; i < fit.size() && i < 3; ++i)
+            others += (i ? L", " : L"") + wide(gameRoster->find(fit[i])->name);
+        return wide(model.name) + L" (" + std::to_wstring(ours->second.parts.size()) + L" parts) is built differently from " +
+               wide(wearer.name) + L"'s model (" + std::to_wstring(theirs->second.parts.size()) + L" parts), so " +
+               wide(wearer.name) + L"'s moves can't animate it. " +
+               (others.empty() ? L"No Budokai 2 character has the same body."
+                               : L"It fits " + others + (fit.size() > 3 ? L" and others." : L"."));
+    }
+    // Marks the spots whose character can wear the chosen model, and moves to
+    // the first of them when the chosen spot can't.
+    void showWearers() {
+        fillTargetList();
+        const auto list = controls[TargetList];
+        const auto spot = SendMessageW(list, LB_GETCURSEL, 0, 0);
+        if (spot >= 0 && fits(size_t(spot)))
+            return;
+        for (uint32_t cell = 0; cell < mods::roster_select_cells; ++cell)
+            if (fits(cell)) {
+                SendMessageW(list, LB_SETCURSEL, cell, 0);
+                return;
+            }
     }
     // Whether the chosen model can be worn by the character in a spot; other
     // imports fit any spot.
     bool fits(size_t spot) const {
         if (!sourceRoster || !sourceRoster->models)
             return true;
-        const auto *wearer = gameRoster->find(gameRoster->grid[spot]);
-        return wearer && !modelMismatch(*sourceCharacter(), *wearer);
+        const auto *model = sourceCharacter();
+        const auto *wearer = gameRoster ? gameRoster->find(gameRoster->grid[spot]) : nullptr;
+        return model && wearer && !modelMismatch(*model, *wearer);
     }
     // Adds a model from another game as a new character: a copy of the
     // Budokai 2 character in the chosen spot, wearing the model in every
@@ -2050,10 +2071,14 @@ struct Window {
         }
         if (id == EntryFilter && notification == EN_CHANGE) {
             fillSourceList();
+            if (characterView && sourceRoster->models)
+                showWearers();
             refreshEnabled();
             return;
         }
         if ((id == SourceFiles || id == TargetList) && notification == LBN_SELCHANGE) {
+            if (id == SourceFiles && sourceRoster && sourceRoster->models)
+                showWearers();
             refreshEnabled();
             return;
         }
