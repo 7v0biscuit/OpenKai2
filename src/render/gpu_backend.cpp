@@ -13,6 +13,7 @@
 #include <cstring>
 #include <iostream>
 #include <limits>
+#include <future>
 #include <map>
 #include <mutex>
 #include <stdexcept>
@@ -437,7 +438,32 @@ void GpuRasterBackend::Sync(GSSyncReason reason){std::lock_guard lock(m->mutex);
     // waits for the pages it reads, so waiting for an idle GPU here stalls
     // the game thread for nothing.
     else m->submit();m->cpu.Sync(reason);}
-PresentationFrame GpuRasterBackend::Present(const GSPresentationRequest& request){std::lock_guard lock(m->mutex);m->materialize(presentationPages(request));auto frame=m->cpu.Present(request);m->cpuFrame=false;return frame;}
+// The displayed pages the GPU drew are read back into a copy of VRAM, queued
+// at this point in the draw stream, and the frame is composed from that copy
+// after the backend lock is released, so drawing continues while the GPU
+// finishes and returns them.
+PresentationFrame GpuRasterBackend::Present(const GSPresentationRequest& request){
+    thread_local std::vector<uint8_t> snapshot;thread_local GSCpuBackend presenter;
+    std::future<void> readback;
+    {
+        std::lock_guard lock(m->mutex);
+        const Pages pages=presentationPages(request),dirty=m->gpuDirty&pages;m->cpuFrame=false;
+        if(!m->resources || !dirty.any())return m->cpu.Present(request);
+        snapshot.assign(m->vram,m->vram+m->size);m->submit();
+        m->statistics.readbacks+=dirty.count()*gpu::PageBytes;totalReadbacks.fetch_add(dirty.count()*gpu::PageBytes,std::memory_order_relaxed);
+        auto done=std::make_shared<std::promise<void>>();readback=done->get_future();
+        m->device->post([r=m->resources,dirty,ram=snapshot.data(),done](gpu::Api& gl){
+            try{
+                gl.MemoryBarrier(gpu::ShaderStorageBarrier|gpu::BufferUpdateBarrier);gl.BindBuffer(gpu::ShaderStorageBuffer,r->buffers[0]);
+                for(unsigned p=0;p<gpu::PageCount;){if(!dirty[p]){++p;continue;}const unsigned start=p;while(p<gpu::PageCount && dirty[p])++p;const unsigned offset=start*gpu::PageBytes;gl.GetBufferSubData(gpu::ShaderStorageBuffer,offset,(p-start)*gpu::PageBytes,ram+offset);}
+                gl.check("GPU presentation readback");done->set_value();
+            }catch(...){done->set_exception(std::current_exception());throw;}
+        });
+    }
+    {RuntimeWorkTimer wait(RuntimeWork::gpuWait);readback.get();}
+    presenter.Initialize(snapshot.data(),uint32_t(snapshot.size()));
+    return presenter.Present(request);
+}
 bool GpuRasterBackend::ClearFramebuffer(const GSContext& c,uint32_t rgba){
     std::lock_guard lock(m->mutex);
     if(!m->cpuFrame && c.frame.fbw && (c.frame.psm==0u || c.frame.psm==1u || ((c.frame.psm==2u || c.frame.psm==10u) && !c.frame.fbmsk))){

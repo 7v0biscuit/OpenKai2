@@ -154,10 +154,10 @@ void checkPresentationReadbacks(){
             if(copied!=2u*gpu::PageBytes)throw std::runtime_error("Color presentation copied more than its two physical pages");
             std::cout<<"GPU presentation fixture: copied "<<copied<<" bytes; retained depth and offscreen targets.\n";
         }
-        // The explicit 640x448 default-size case spans the depth page as
-        // color; every other fixture leaves it outside the presented surfaces.
+        // Presentation reads into its own copy of VRAM, so the depth page is
+        // still deferred and a later CPU read fetches it once.
         const auto depth=pair.gpu->ReadVram(GS_PSM_Z32,168u*32u,8u,4u,4u);
-        if(depth!=pair.cpu->ReadVram(GS_PSM_Z32,168u*32u,8u,4u,4u) || pair.gpu->stats().readbacks-before!=copied+(variant==18u ? 0u : gpu::PageBytes))
+        if(depth!=pair.cpu->ReadVram(GS_PSM_Z32,168u*32u,8u,4u,4u) || pair.gpu->stats().readbacks-before!=copied+gpu::PageBytes)
             throw std::runtime_error("Presentation lost a deferred depth page: "+std::to_string(variant));
         pair.compare("Selective presentation retains offscreen GPU contents");
     }
