@@ -53,6 +53,15 @@ std::string serial_of(const std::string &path) {
     std::replace(name.begin(), name.end(), '_', '-');
     return name;
 }
+// Up to `bytes` bytes at `offset` into an archive entry, fewer past its end.
+std::vector<uint8_t> read_bytes(SourceDisc &disc, const SourceDisc::Range &entry, uint64_t offset, size_t bytes) {
+    if (offset >= entry.size)
+        return {};
+    std::ostringstream text;
+    disc.copy(SourceDisc::Range{entry.offset + offset, std::min<uint64_t>(bytes, entry.size - offset)}, text);
+    const auto data = text.str();
+    return std::vector<uint8_t>(data.begin(), data.end());
+}
 std::string printable(const ExecutableImage &image, uint32_t at, size_t limit = 31) {
     std::string text;
     for (size_t i = 0; i < limit && image.contains(at + uint32_t(i), 1); ++i) {
@@ -246,7 +255,7 @@ DiscIdentity identify_disc(SourceDisc &disc) {
 std::string disc_report(SourceDisc &disc) {
     std::ostringstream out;
     const auto identity = identify_disc(disc);
-    out << "OpenKai2 disc report, version 2\n\nGame: " << game_name(identity.game) << "\nSerial: " << identity.serial
+    out << "OpenKai2 disc report, version 3\n\nGame: " << game_name(identity.game) << "\nSerial: " << identity.serial
         << "\nExecutable: " << identity.executable << "\n\nFiles:\n";
     char line[160];
     const auto hex = [&](const uint8_t *bytes, size_t count) {
@@ -273,15 +282,25 @@ std::string disc_report(SourceDisc &disc) {
         for (size_t i = 0; i < listed; ++i) {
             std::snprintf(line, sizeof line, "  %4zu %10u  ", i, entries[i].size);
             out << line;
-            const size_t bytes = std::min<size_t>(entries[i].size, 32);
-            if (bytes) {
-                const auto range = disc.range(file.path, i);
-                std::ostringstream head;
-                disc.copy(SourceDisc::Range{range.offset, bytes}, head);
-                const auto text = head.str();
-                hex(reinterpret_cast<const uint8_t *>(text.data()), text.size());
-            }
+            const auto range = disc.range(file.path, i);
+            const auto head = read_bytes(disc, range, 0, 32);
+            hex(head.data(), head.size());
             out << "  " << entries[i].name << '\n';
+            // An #AMB pack: the word at 16 counts its files and the word at
+            // 20 is where their 16-byte records start. Each record and the
+            // first bytes it leads to show the formats packed inside.
+            if (head.size() < 32 || std::memcmp(head.data(), "#AMB", 4) != 0)
+                continue;
+            const uint32_t count = std::min<uint32_t>(read32(head, 16), 64), table = read32(head, 20);
+            const auto records = read_bytes(disc, range, table, size_t(count) * 16);
+            for (uint32_t k = 0; k + 1 <= records.size() / 16; ++k) {
+                std::snprintf(line, sizeof line, "        %2u  %08X %08X %08X %08X  ", k, read32(records, k * 16),
+                              read32(records, k * 16 + 4), read32(records, k * 16 + 8), read32(records, k * 16 + 12));
+                out << line;
+                const auto inner = read_bytes(disc, range, read32(records, k * 16), 16);
+                hex(inner.data(), inner.size());
+                out << '\n';
+            }
         }
     }
     std::vector<uint8_t> elf;
@@ -349,6 +368,99 @@ std::string disc_report(SourceDisc &disc) {
                 }
             }
         }
+    }
+
+    // Runs of nearby names, then every string in them: the full lists,
+    // names the character test does not know included.
+    std::vector<std::pair<uint32_t, uint32_t>> lists;
+    for (size_t i = 0, j; i < names.size(); i = j) {
+        for (j = i + 1; j < names.size() && names[j] - names[j - 1] <= 0x200; ++j) {
+        }
+        if (j - i >= 5)
+            lists.emplace_back(names[i], std::min<uint32_t>(names[j - 1] + 0x40, uint32_t(memory.size())));
+    }
+    const auto in_lists = [&](uint32_t value) {
+        return std::any_of(lists.begin(), lists.end(), [&](const auto &list) {
+            return value >= list.first && value < list.second;
+        });
+    };
+    out << "\nStrings among the names:\n";
+    for (const auto &[first, end] : lists)
+        for (uint32_t at = first; at < end; ++at)
+            if (!memory[at - 1] && memory[at] >= 32 && memory[at] < 127)
+                if (const auto text = printable(*image, at, 47); text.size() >= 2) {
+                    std::snprintf(line, sizeof line, "  0x%08X  ", at);
+                    out << line << text << '\n';
+                }
+
+    // Records of tables that point at names, through the records whose name
+    // the walk above stopped at, and the data their other pointers lead to.
+    std::vector<std::pair<uint32_t, uint32_t>> spans;
+    std::vector<uint32_t> targets;
+    const auto words = [&](uint32_t at, uint32_t bytes) {
+        std::string text;
+        for (uint32_t word = 0; word < bytes; word += 4) {
+            std::snprintf(line, sizeof line, " %08X", read32(memory, at + word));
+            text += line;
+        }
+        return text;
+    };
+    const auto pointer = [&](uint32_t value) {
+        return value >= 0x100000u && value + 64 <= memory.size() && value % 4 == 0 && !in_lists(value);
+    };
+    auto by_stride = tables;
+    std::stable_sort(by_stride.begin(), by_stride.end(),
+                     [](const auto &a, const auto &b) { return a.stride < b.stride; });
+    for (const auto &table : by_stride) {
+        if (!table.pointers || table.stride < 8 ||
+            std::any_of(spans.begin(), spans.end(),
+                        [&](const auto &span) { return table.first >= span.first && table.first < span.second; }))
+            continue;
+        const auto alike = [&](uint32_t at) {
+            if (!image->contains(at, table.stride))
+                return false;
+            const auto name = read32(memory, at);
+            bool used = false;
+            for (uint32_t word = 4; word < table.stride; word += 4)
+                used |= read32(memory, at + word) != 0;
+            return used && (name == 0 || in_lists(name));
+        };
+        uint32_t first = table.first, end = table.first;
+        for (unsigned n = 0; n < 256 && first >= table.stride && alike(first - table.stride); ++n)
+            first -= table.stride;
+        for (unsigned n = 0; n < 512 && alike(end); ++n)
+            end += table.stride;
+        spans.emplace_back(first, end);
+        std::snprintf(line, sizeof line, "\nRecords from 0x%08X, %u bytes each:\n", first, table.stride);
+        out << line;
+        for (uint32_t at = first; at < end; at += table.stride) {
+            const auto name = read32(memory, at);
+            std::snprintf(line, sizeof line, "  0x%08X  %-18s", at, name ? printable(*image, name).c_str() : "-");
+            out << line << words(at, std::min<uint32_t>(table.stride, 256)) << '\n';
+            for (uint32_t word = 4; word < table.stride; word += 4)
+                if (pointer(read32(memory, at + word)))
+                    targets.push_back(read32(memory, at + word));
+        }
+    }
+    // Two steps out, so lists that point at lists show too.
+    std::vector<uint32_t> shown;
+    for (int depth = 0; depth < 2 && !targets.empty(); ++depth) {
+        std::sort(targets.begin(), targets.end());
+        targets.erase(std::unique(targets.begin(), targets.end()), targets.end());
+        std::vector<uint32_t> next;
+        if (depth == 0)
+            out << "\nData the records point at, 64 bytes each:\n";
+        for (const auto at : targets) {
+            if (shown.size() >= 2000 || std::binary_search(shown.begin(), shown.end(), at))
+                continue;
+            shown.insert(std::upper_bound(shown.begin(), shown.end(), at), at);
+            std::snprintf(line, sizeof line, "  0x%08X", at);
+            out << line << words(at, 64) << '\n';
+            for (uint32_t word = 0; word < 64; word += 4)
+                if (pointer(read32(memory, at + word)))
+                    next.push_back(read32(memory, at + word));
+        }
+        targets = std::move(next);
     }
     return out.str();
 }

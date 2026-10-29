@@ -95,6 +95,16 @@ Bytes disc_image(const Bytes &memory, const std::string &executable = "SLUS_207.
     put32(image, afs + 4, entries);
     for (uint32_t i = 0; i < entries; ++i)
         put32(image, afs + 8 + i * 8, 2 * sector);
+    // Entry 0 is an #AMB pack of one file, after the entry table.
+    const size_t pack = afs + 3072;
+    put32(image, afs + 8, 3072);
+    put32(image, afs + 12, 64);
+    std::memcpy(image.data() + pack, "#AMB ", 5);
+    put32(image, pack + 16, 1);
+    put32(image, pack + 20, 0x20);
+    put32(image, pack + 0x20, 0x30);
+    put32(image, pack + 0x24, 16);
+    std::memcpy(image.data() + pack + 0x30, "#AMO", 4);
     return image;
 }
 } // namespace
@@ -128,7 +138,8 @@ int main() {
             std::cerr << report;
         require(report.find("Game: Dragon Ball Z: Budokai 2") != std::string::npos &&
                     report.find("At 0x00389D40, 712 bytes apart, 53 names") != std::string::npos &&
-                    report.find("USR/DATA_CMN.AFS") != std::string::npos,
+                    report.find("USR/DATA_CMN.AFS") != std::string::npos &&
+                    report.find("         0  00000030 00000010 00000000 00000000  23414d4f") != std::string::npos,
                 "The disc report is missing the table or files");
         // Budokai 3 keeps its names in a list and its records point at them.
         auto third = memory_image();
@@ -141,7 +152,11 @@ int main() {
             std::memcpy(third.data() + list + 32 * i, thirdNames[i], std::strlen(thirdNames[i]));
             put32(third, records + 0x1a0 * i, list + 32 * i);
             put32(third, records + 0x1a0 * i + 0x40, 100 + i);
+            // and a pointer to a list of the character's files
+            put32(third, records + 0x1a0 * i + 8, roster_records + 0x4000 + 32 * i);
+            put32(third, roster_records + 0x4000 + 32 * i, 500 + i);
         }
+        put32(third, records + 0x1a0 * 10 + 4, 7); // a record without a name ends the list
         write(root / "b3.iso", disc_image(third, "SLUS_212.34"));
         SourceDisc b3(root / "b3.iso");
         require(identify_disc(b3).game == DragonBallGame::budokai3 && !read_disc_roster(b3),
@@ -156,6 +171,13 @@ int main() {
                     thirdReport.find("+0x040: 100 101 102") != std::string::npos &&
                     thirdReport.find("1 pointers  OMEGA SHENRON") != std::string::npos,
                 "The disc report did not follow pointers to a name list");
+        char span[64], files[64];
+        std::snprintf(span, sizeof span, "Records from 0x%08X, 416 bytes each:", records);
+        std::snprintf(files, sizeof files, "0x%08X 000001F5", roster_records + 0x4020);
+        require(thirdReport.find(span) != std::string::npos && thirdReport.find(files) != std::string::npos &&
+                    thirdReport.find("  -                  00000000 00000007") != std::string::npos &&
+                    thirdReport.find("  0x00389E40  GOKOU") != std::string::npos,
+                "The disc report did not show the records, the data they point at or the name list");
         auto plainGame = memory_image();
         std::memset(plainGame.data() + roster_records, 0, roster_count * roster_record_bytes);
         std::memset(plainGame.data() + 0x3A40C0u, 0, 16);
