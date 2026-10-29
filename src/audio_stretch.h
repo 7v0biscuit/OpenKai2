@@ -18,7 +18,7 @@ namespace openkai2 {
 class StretchedPlayback {
 public:
     static constexpr unsigned window = 1024u, hop = window / 2u, search = 256u;
-    static constexpr unsigned target = 3072u, prefill = target + window + search * 2u;
+    static constexpr unsigned target = 4096u, prefill = target + window + search * 2u;
     static constexpr double slowest = 0.25, fastest = 1.25;
 
     StretchedPlayback() {
@@ -104,20 +104,26 @@ private:
             // The prefill arrives as one burst; it says nothing about the rate.
             arrived_ = 0;
         }
-        // Rate follows how fast the game produces audio, corrected by the
+        // Rate follows how fast the game produces audio, nudged gently by the
         // queued depth so latency returns to the target. Near full speed it
         // plays at exactly 1.0, where each window continues the previous one
-        // and the output is the input unchanged.
-        rate_ += (double(arrived_) / hop - rate_) * 0.02;
-        arrived_ = 0;
+        // and the output is the input unchanged. A slower game is followed
+        // smoothly: correcting by the whole fill error used to halve the
+        // tempo each time the queue drained, then snap back to full speed.
         const double fill = (double(frames()) - position_) / double(target + window);
+        // The estimate settles slowly, except when the queue is far from its
+        // target, as when a fight starts and the game slows down at once.
+        const bool far = fill < 0.4 || fill > 2.0;
+        rate_ += (double(arrived_) / hop - rate_) * (far ? 0.05 : 0.01);
+        arrived_ = 0;
         // Audio arrives in bursts, so the estimate wanders; once locked at
         // full speed a wider band keeps it there.
         const bool locked = speed_ == 1.0;
-        const bool steady = locked ? fill >= 0.5 && fill <= 2.0 && std::abs(rate_ - 1.0) < 0.15
-                                   : fill >= 0.75 && fill <= 1.5 && std::abs(rate_ - 1.0) < 0.08;
-        const double wanted = steady ? 1.0 : std::clamp(rate_ * std::clamp(fill, 0.5, 2.0), slowest, fastest);
-        speed_ += (wanted - speed_) * 0.25;
+        const bool steady = locked ? fill >= 0.4 && fill <= 2.5 && std::abs(rate_ - 1.0) < 0.03
+                                   : fill >= 0.8 && fill <= 1.3 && std::abs(rate_ - 1.0) < 0.015;
+        const double correction = far ? std::clamp(fill, 0.4, 1.5) : std::clamp(1.0 + 0.3 * (fill - 1.0), 0.6, 1.3);
+        const double wanted = steady ? 1.0 : std::clamp(rate_ * correction, slowest, fastest);
+        speed_ += (wanted - speed_) * (far ? 0.25 : 0.05);
         if (wanted == 1.0 && std::abs(speed_ - 1.0) < 0.002) {
             speed_ = 1.0;
             if (previous_ >= 0)

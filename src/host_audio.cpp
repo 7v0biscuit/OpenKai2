@@ -195,6 +195,32 @@ int test_host_audio() {
                     gaps += std::fabs(block[i * 2u]) + std::fabs(block[(i + 16u) * 2u]) + std::fabs(block[(i + 32u) * 2u]) < 1.0e-4f;
         }
         require(gaps == 0u, "PCM at 40% speed left silent gaps");
+        // A game held at 93% speed delivers audio in irregular bursts. The
+        // tempo must follow it steadily, never dropping towards half speed
+        // each time the queue runs low.
+        auto bursty = std::make_unique<Output>();
+        uint32_t seed = 1u;
+        double owed = 0.0, slowest = 1.0;
+        size_t played = 0;
+        std::vector<int16_t> chunk(1024u);
+        gaps = 0;
+        for (unsigned step = 0; step < 3000u; ++step) {
+            seed = seed * 1664525u + 1013904223u;
+            owed += 0.93 * 1024.0 * (0.6 + 0.8 * double(seed >> 8u) / double(1u << 24u));
+            for (; owed >= 512.0; owed -= 512.0) {
+                for (unsigned i = 0; i < 512u; ++i, ++played)
+                    chunk[i * 2u] = chunk[i * 2u + 1u] = tone[(played % 48000u) * 2u];
+                bursty->queues[0].push(chunk);
+            }
+            std::fill(block.begin(), block.end(), 0.0f);
+            render(*bursty, block.data(), 1024u);
+            if (step > 600u) {
+                slowest = std::min(slowest, bursty->playback[0].speed());
+                for (unsigned i = 0; i < 1024u; i += 64u)
+                    gaps += std::fabs(block[i * 2u]) + std::fabs(block[(i + 16u) * 2u]) + std::fabs(block[(i + 32u) * 2u]) < 1.0e-4f;
+            }
+        }
+        require(gaps == 0u && slowest > 0.7, "Audio at 93% speed lost its tempo or ran dry");
         // At full speed the stretcher is transparent: output equals input.
         auto steady = std::make_unique<Output>();
         steady->gain = 1.0f;
@@ -227,7 +253,7 @@ int test_host_audio() {
         std::fill(samples.begin(), samples.end(), 0.0f);
         render(*check, samples.data(), 1024u);
         require(std::fabs(samples[1023u * 2u]) < 1.0e-6f, "Stopped stream kept playing");
-        std::cout << "Host audio mixer passed: 48 kHz float stereo, both SPU2 cores, volume, limiter, transparent full-speed playback and stretching to 40% speed.\n"
+        std::cout << "Host audio mixer passed: 48 kHz float stereo, both SPU2 cores, volume, limiter, transparent full-speed playback, a steady tempo at 93% speed and stretching to 40% speed.\n"
                   << "Host audio output is " << (options.enabled ? "enabled" : "disabled")
                   << " in settings at " << options.volume << "% volume.\n";
         return 0;
