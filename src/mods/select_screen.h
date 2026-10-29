@@ -33,10 +33,10 @@ uint32_t select_icon(uint32_t cell);
 uint64_t select_random_bit();
 uint64_t select_extra_mask();
 uint32_t preview_id(uint32_t id);  // in place of the clamp to 36
-uint32_t preview_row(uint32_t id); // a pose-table row: the base's for filled IDs above 36
+uint32_t preview_row(uint32_t id); // a pose-table row: the base's for filled IDs
 
 // Adds a cell before Random for each character whose roster.ini asks for a
-// new spot, and points IDs above 36 at their base character's preview.
+// new spot, and points filled IDs at their base character's preview.
 // Writes the grid and the cell map; returns lines for the startup log.
 std::vector<std::string> configure_select_screen(uint8_t *memory, size_t bytes,
                                                  const std::vector<RosterCharacter> &characters);

@@ -283,6 +283,8 @@ int main() {
                     shapesReport.find("Goku, model 1, entry 264:\n    header: 4F4D4123") != std::string::npos &&
                     shapesReport.find("    part  4: 00000004") != std::string::npos,
                 "The disc report does not list the model shapes");
+        require(disc_report(gameDisc).find("Krillin, entry 213:\n    textures: 544D4123") != std::string::npos,
+                "The disc report does not show Krillin's textures");
         const auto converted = model_for_budokai2(budokai3, 264);
         auto expected = costume_model(5, 2);
         expected[0x40 + 0x70 + 5 * 32 + 12] = 1;
@@ -375,8 +377,9 @@ int main() {
                 "New spots do not borrow the right portraits");
         require(select_random_bit() == (uint64_t(1) << 31) && select_extra_mask() == ((uint64_t(1) << 29) | (uint64_t(1) << 30)),
                 "Unlock bits do not cover the new spots");
-        require(preview_id(44) == 0 && preview_row(44) == 0 && preview_id(45) == 36 && preview_row(13) == 13,
-                "A filled ID above 36 does not preview as its base");
+        require(preview_id(44) == 0 && preview_row(44) == 0 && preview_id(45) == 36 && preview_row(13) == 4 &&
+                    preview_row(14) == 14,
+                "A filled ID does not take its base's preview");
         reset_select_screen();
 
         // Bad input names the line; other executables are never patched.

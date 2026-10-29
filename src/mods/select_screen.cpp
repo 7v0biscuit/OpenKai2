@@ -10,7 +10,7 @@ namespace {
 struct Layout {
     uint32_t cells = select_cells_original;
     std::array<uint8_t, select_cells_max> icons{}; // portrait cell for each added cell
-    std::array<uint8_t, 64> preview{};             // base ID + 1 for IDs above 36
+    std::array<uint8_t, 64> preview{};             // base ID + 1 for filled IDs
 } layout;
 } // namespace
 
@@ -63,7 +63,10 @@ std::vector<std::string> configure_select_screen(uint8_t *memory, size_t bytes,
     Layout next;
     std::vector<const RosterCharacter *> added;
     for (const auto &character : characters) {
-        if (character.slot >= preview_ids && character.base)
+        // Every filled ID takes its base's preview pose and camera: the rows of
+        // the unused IDs below 37 hold a placeholder that frames the model far
+        // too close. IDs above 36 also show the base's model there.
+        if (character.slot < next.preview.size() && character.base)
             next.preview[character.slot] = uint8_t((*character.base < preview_ids ? *character.base : 36u) + 1u);
         if (character.new_cell &&
             std::none_of(added.begin(), added.end(), [&](const auto *other) { return other->slot == character.slot; }))
