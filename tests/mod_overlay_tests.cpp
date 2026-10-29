@@ -66,6 +66,8 @@ int main() {
         const auto root = fs::temp_directory_path() / "openkai2-mod-tests";
         fs::remove_all(root);
         fs::create_directories(root);
+        { // Close all disc streams before removing their files on Windows.
+
         const auto image = root / "game.iso";
         write(image, disc());
         const auto mods = root / "mods";
@@ -186,6 +188,7 @@ int main() {
                     slice(bytes, uint64_t(index.find("USR/DATA.BIN")->sector) * sector, 12) == "from scratch",
                 "Imported entries were not applied");
         DiscOverlay::global().clear();
+        }
         fs::remove_all(root);
         std::cout << "Mod overlay passed: in-place entries, relocated archives with added entries, file replacement, "
                      "patched directory records, invalid entries and load order.\n";

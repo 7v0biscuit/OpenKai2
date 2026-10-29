@@ -15,9 +15,9 @@ defaults** resets only display and graphics settings, preserving the ISO, saves
 and update preferences.
 
 The **Saves** page contains automatic session backups, imports and recovery.
-**Unlock all** unlocks all characters and stages in an existing USA progress
-save. It checks both save checksums and creates a backup before replacing the
-card. Story progress, skill inventory and other games' files are preserved.
+**Unlock all** unlocks characters, stages and all 404 supported capsules in an existing USA progress
+save, filling skill quantities to their supported capacity. It checks both save checksums and creates a backup before replacing the
+card. Story progress, equipped skills, preferences and other games' files are preserved. Existing quantities above the normal capacity are retained.
 Restore the backup from **Backup history** to undo the change. Create a save
 in the game first; the tool does not manufacture a new game save.
 
@@ -148,11 +148,21 @@ entire source and back up the current card before replacement. Damaged
 archives, unsafe paths, conflicting names, and links are rejected. Save tools
 are locked while a game is running.
 
-**Back up now** creates a ZIP snapshot. Automatic session backups are enabled
+Use the list selector to switch between **Backups** and **Game saves**. Click a
+backup and choose **Restore backup**, or double-click it. Confirming restores
+that snapshot and first retains a recovery copy of the current card. Load the
+restored save from the game's title menu to use its progress.
+
+**Select all** selects the visible list; click it again to clear the selection.
+Ctrl-click or Shift-click selects several rows. **Delete** shows the selection
+count and asks for confirmation. Game-save deletion first backs up the card;
+backup deletion permanently removes only the selected archives.
+
+**Back up now** creates a ZIP snapshot and verifies the written archive. Automatic session backups are enabled
 by default and run before launch and after the game closes. Imports and
 restores always retain a recovery backup, regardless of this preference.
 Backups live under `%LOCALAPPDATA%\OpenKai2\backups\<ISO hash>`; use
-**Open backups** to copy or archive them elsewhere. Existing backups are not
+**Open folder** in Backups view to copy or archive them elsewhere. Existing backups are not
 automatically deleted. Uninstalling preserves saves, backups, and preferences.
 
 ## Display frame limit
@@ -190,10 +200,15 @@ See [Vector execution](vector-runtime.md) for validation and developer settings.
 Game audio is synthesized by PCSX2's SPU2 core from the same register writes
 and transfers the console's sound chip receives: music, voices, sound effects
 and reverb. When the game runs below full speed, audio is time-stretched
-rather than interrupted. Settings → Display → Game audio turns it off or sets
+with SoundTouch's stereo, pitch-preserving processing. At full speed the PCM
+passes through unchanged, apart from volume, a short start/stop fade and the
+mixer's existing peak limiter. SoundTouch is built from the version pinned by
+PCSX2 v2.1.27. Settings → Display → Game audio turns it off or sets
 the volume (100, 75, 50 or 25%). The startup log reports `[audio:output]
 enabled=1` with the stream format, or the reason output is off, and
-`[audio:output] stopped` with underrun counts. `--audio-test` checks the mixer
+`[audio:output] stopped` with underrun counts. Per-core `[audio:core]` records
+include submitted frames, stop requests, queued frames and playback tempo to
+help distinguish game-side interruptions from device starvation. `--audio-test` checks the mixer
 without opening a playback device.
 
 ## Build requirements

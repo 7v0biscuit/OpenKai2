@@ -40,3 +40,6 @@ third_party/licenses/sources.json.
 Dragon Ball Z: Budokai 2 content and trademarks belong to their respective
 rights holders. Original game executables, disc images, and disc assets are
 not supplied. The native runtime requires the user's original USA ISO.
+
+Music time stretching uses SoundTouch by Olli Parviainen, licensed under
+LGPL-2.1-or-later. Its source and license are in third_party/soundtouch.

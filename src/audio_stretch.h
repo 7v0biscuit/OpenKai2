@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #pragma once
 #include "audio_queue.h"
+#include <SoundTouch.h>
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -10,187 +11,182 @@
 #include <vector>
 
 namespace openkai2 {
-// Plays one SPU2 stream at whatever rate the game produces it. When the game
-// runs below full speed the queue drains, so the playback rate follows the
-// queue level and WSOLA stretches the audio without changing its pitch;
-// overlapping windows are aligned on the best waveform match, which keeps
-// the stretched output free of the gaps and clicks an underrun would cause.
+// Full-speed PCM passes through unchanged. A genuinely slower producer uses
+// SoundTouch's stereo time stretching, retaining pitch and channel phase.
 class StretchedPlayback {
-public:
-    static constexpr unsigned window = 1024u, hop = window / 2u, search = 256u;
+  public:
+    static constexpr unsigned window = 1024u, hop = 512u, search = 256u;
     static constexpr unsigned target = 4096u, prefill = target + window + search * 2u;
     static constexpr double slowest = 0.25, fastest = 1.25;
 
     StretchedPlayback() {
-        for (unsigned i = 0; i < window; ++i)
-            weights_[i] = float(0.5 - 0.5 * std::cos(2.0 * 3.14159265358979323846 * i / window));
+        stretch_.setSampleRate(48000);
+        stretch_.setChannels(2);
+        stretch_.setSetting(SETTING_USE_QUICKSEEK, 0);
+        stretch_.setSetting(SETTING_USE_AA_FILTER, 1);
+        stretch_.setSetting(SETTING_SEQUENCE_MS, 32);
+        stretch_.setSetting(SETTING_SEEKWINDOW_MS, 12);
+        stretch_.setSetting(SETTING_OVERLAP_MS, 8);
+        raw_.reserve(32768);
+        input_.reserve(32768);
     }
     void reset() {
-        input_.clear();
-        tail_.fill(0.0f);
-        output_.clear();
-        outputRead_ = 0;
-        previous_ = -1;
-        position_ = 0.0;
-        speed_ = 1.0;
-        rate_ = 1.0;
-        arrived_ = 0;
-        playing_ = false;
+        clearStream();
+        speed_ = rate_ = shortRate_ = 1.0;
+        intervalInput_ = intervalOutput_ = longInput_ = longOutput_ = 0;
         boundary_ = 0;
+        last_.fill(0);
+        fadeLeft_ = fadeIn_ = 0;
     }
-    // Adds up to output.size()/2 stereo frames, scaled to +-1.0, into output.
     void render(StereoAudioQueue &queue, std::span<float> output) {
         const auto stop = queue.stopBoundary();
         if (stop != boundary_) {
             boundary_ = stop;
-            fadeTail();
-            input_.clear();
-            previous_ = -1;
-            position_ = 0.0;
-            playing_ = false;
+            clearStream();
+            fadeLeft_ = hop;
         }
-        pull(queue);
-        const size_t frames = output.size() / 2u;
-        for (size_t written = 0; written < frames;) {
-            if (outputRead_ == output_.size() / 2u) {
-                output_.clear();
-                outputRead_ = 0;
-                produce(queue);
-                if (output_.empty()) {
-                    silent_.fetch_add(frames - written, std::memory_order_relaxed);
-                    return;
-                }
+        const bool wasPlaying = playing_;
+        const size_t received = pull(queue);
+        const size_t requested = output.size() / 2u;
+        if (!wasPlaying) {
+            startupInput_ += received;
+            startupOutput_ += requested;
+        }
+        if (!playing_ && available() >= prefill) {
+            if (startupOutput_ >= prefill)
+                speed_ = rate_ = shortRate_ =
+                    std::clamp(double(startupInput_) / startupOutput_, slowest, 1.0);
+            playing_ = true;
+            fadeIn_ = hop;
+            intervalInput_ = intervalOutput_ = longInput_ = longOutput_ = 0;
+        }
+        if (wasPlaying)
+            updateRate(received, requested);
+        if (!playing_) {
+            fade(output);
+            silent_.fetch_add(requested, std::memory_order_relaxed);
+            return;
+        }
+        const double buffered =
+            double(available()) + stretch_.numUnprocessedSamples() + double(stretch_.numSamples()) * speed_;
+        const double fill = buffered / double(target + window);
+        const bool low = fill < 0.85;
+        const bool unity = std::abs(rate_ - 1.0) < 0.01 && fill >= 0.7 && fill <= 1.8;
+        double wanted = unity ? 1.0 : std::clamp(rate_ * (1.0 + 0.05 * (fill - 1.0)), slowest, fastest);
+        if (low)
+            wanted = std::clamp(std::min(std::max(shortRate_, rate_ * 0.8), wanted), slowest, fastest);
+        if (!stretched_ && rate_ == 1.0)
+            wanted = 1.0;
+        speed_ = low ? wanted : speed_ + (wanted - speed_) * 0.03;
+        if (unity && std::abs(speed_ - 1.0) < 0.002)
+            speed_ = 1.0;
+        if (!stretched_ && speed_ != 1.0)
+            stretched_ = true;
+        if (stretched_) {
+            stretch_.setTempo(speed_);
+            if (available()) {
+                stretch_.putSamples(input_.data() + read_ * 2u, unsigned(available()));
+                read_ = input_.size() / 2u;
             }
-            const size_t count = std::min(frames - written, output_.size() / 2u - outputRead_);
-            for (size_t i = 0; i < count * 2u; ++i)
-                output[written * 2u + i] += output_[outputRead_ * 2u + i];
-            outputRead_ += count;
-            written += count;
+            processed_.resize(requested * 2u);
+            const auto count = stretch_.receiveSamples(processed_.data(), unsigned(requested));
+            mix(output, processed_.data(), count);
+            if (count < requested)
+                underrun(output.subspan(size_t(count) * 2u));
+        } else {
+            const size_t count = std::min(requested, available());
+            mix(output, input_.data() + read_ * 2u, count);
+            read_ += count;
+            if (count < requested)
+                underrun(output.subspan(count * 2u));
+        }
+        if (read_ > 8192u || read_ == input_.size() / 2u) {
+            input_.erase(input_.begin(), input_.begin() + read_ * 2u);
+            read_ = 0;
         }
     }
     double speed() const { return speed_; }
     uint64_t underruns() const { return underruns_.load(std::memory_order_relaxed); }
     uint64_t silentFrames() const { return silent_.load(std::memory_order_relaxed); }
 
-private:
-    size_t frames() const { return input_.size() / 2u; }
-    void pull(StereoAudioQueue &queue) {
-        const auto available = queue.available();
-        if (!available)
-            return;
-        raw_.assign(size_t(std::min<uint64_t>(available, 16384u)) * 2u, 0);
-        const size_t got = queue.mix(raw_);
+  private:
+    size_t available() const { return input_.size() / 2u - read_; }
+    size_t pull(StereoAudioQueue &queue) {
+        const auto count = std::min<uint64_t>(queue.available(), 16384u);
+        if (!count)
+            return 0;
+        raw_.assign(size_t(count) * 2u, 0);
+        const auto got = queue.mix(raw_);
         for (size_t i = 0; i < got * 2u; ++i)
             input_.push_back(float(raw_[i]) / 32768.0f);
-        arrived_ += got;
+        return got;
     }
-    float sample(size_t frame, unsigned channel) const { return input_[frame * 2u + channel]; }
-    // Cross-correlation of a candidate window start against the natural
-    // continuation of the previous window, over the overlapping half.
-    double match(size_t candidate, size_t natural) const {
-        double sum = 0.0;
-        for (unsigned i = 0; i < hop; i += 2u)
-            sum += double(sample(candidate + i, 0) + sample(candidate + i, 1)) *
-                   double(sample(natural + i, 0) + sample(natural + i, 1));
-        return sum;
+    void updateRate(size_t input, size_t output) {
+        intervalInput_ += input;
+        intervalOutput_ += output;
+        longInput_ += input;
+        longOutput_ += output;
+        if (intervalOutput_ >= 4096u) {
+            shortRate_ = double(intervalInput_) / intervalOutput_;
+            intervalInput_ = intervalOutput_ = 0;
+        }
+        if (longOutput_ >= 16384u) {
+            const double measured = double(longInput_) / longOutput_;
+            rate_ += (measured - rate_) * 0.25;
+            longInput_ = longOutput_ = 0;
+        }
     }
-    bool produce(StereoAudioQueue &queue) {
-        pull(queue);
-        if (!playing_) {
-            if (frames() < prefill)
-                return false;
-            playing_ = true;
-            position_ = double(search);
-            // The prefill arrives as one burst; it says nothing about the rate.
-            arrived_ = 0;
-        }
-        // Rate follows how fast the game produces audio, nudged gently by the
-        // queued depth so latency returns to the target. Near full speed it
-        // plays at exactly 1.0, where each window continues the previous one
-        // and the output is the input unchanged. A slower game is followed
-        // smoothly: correcting by the whole fill error used to halve the
-        // tempo each time the queue drained, then snap back to full speed.
-        const double fill = (double(frames()) - position_) / double(target + window);
-        // The estimate settles slowly, except when the queue is far from its
-        // target, as when a fight starts and the game slows down at once.
-        const bool far = fill < 0.4 || fill > 2.0;
-        rate_ += (double(arrived_) / hop - rate_) * (far ? 0.05 : 0.01);
-        arrived_ = 0;
-        // Audio arrives in bursts, so the estimate wanders; once locked at
-        // full speed a wider band keeps it there.
-        const bool locked = speed_ == 1.0;
-        const bool steady = locked ? fill >= 0.4 && fill <= 2.5 && std::abs(rate_ - 1.0) < 0.03
-                                   : fill >= 0.8 && fill <= 1.3 && std::abs(rate_ - 1.0) < 0.015;
-        const double correction = far ? std::clamp(fill, 0.4, 1.5) : std::clamp(1.0 + 0.3 * (fill - 1.0), 0.6, 1.3);
-        const double wanted = steady ? 1.0 : std::clamp(rate_ * correction, slowest, fastest);
-        speed_ += (wanted - speed_) * (far ? 0.25 : 0.05);
-        if (wanted == 1.0 && std::abs(speed_ - 1.0) < 0.002) {
-            speed_ = 1.0;
-            if (previous_ >= 0)
-                position_ = double(previous_ + hop);
-        }
-        const auto nominal = size_t(position_);
-        if (nominal + search + window > frames()) {
-            underruns_.fetch_add(1u, std::memory_order_relaxed);
-            fadeTail();
-            playing_ = false;
-            input_.erase(input_.begin(), input_.begin() + std::min(input_.size(), nominal * 2u));
-            previous_ = -1;
-            return false;
-        }
-        size_t start = nominal;
-        if (previous_ >= 0) {
-            const size_t natural = size_t(previous_) + hop;
-            if (natural != nominal) {
-                double best = -1.0e300;
-                const size_t first = nominal > search ? nominal - search : 0u;
-                for (size_t candidate = first; candidate <= nominal + search; candidate += 2u) {
-                    const double score = match(candidate, natural);
-                    if (score > best) {
-                        best = score;
-                        start = candidate;
-                    }
-                }
+    void mix(std::span<float> destination, const float *source, size_t frames) {
+        for (size_t i = 0; i < frames; ++i) {
+            const float gain = fadeIn_ ? 1.0f - float(fadeIn_) / hop : 1.0f;
+            for (unsigned channel = 0; channel < 2u; ++channel) {
+                const float sample = source[i * 2u + channel] * gain;
+                destination[i * 2u + channel] += sample;
+                last_[channel] = sample;
             }
+            if (fadeIn_)
+                --fadeIn_;
         }
-        // Hann windows at half-window hops sum to one, so overlap-add keeps
-        // the level of the source.
-        output_.resize(size_t(hop) * 2u);
-        for (unsigned i = 0; i < hop; ++i)
-            for (unsigned c = 0; c < 2u; ++c)
-                output_[i * 2u + c] = tail_[i * 2u + c] + sample(start + i, c) * weights_[i];
-        for (unsigned i = 0; i < hop; ++i)
-            for (unsigned c = 0; c < 2u; ++c)
-                tail_[i * 2u + c] = sample(start + hop + i, c) * weights_[hop + i];
-        previous_ = int64_t(start);
-        position_ += double(hop) * speed_;
-        // Discard input no later window can reach.
-        const size_t keep = std::min<size_t>(size_t(previous_), size_t(position_) > search ? size_t(position_) - search : 0u);
-        if (keep > 4096u) {
-            input_.erase(input_.begin(), input_.begin() + keep * 2u);
-            previous_ -= int64_t(keep);
-            position_ -= double(keep);
+    }
+    void fade(std::span<float> destination) {
+        const auto start = last_;
+        for (size_t i = 0; i < destination.size() / 2u && fadeLeft_; ++i) {
+            const float gain = float(fadeLeft_ - 1u) / hop;
+            for (unsigned channel = 0; channel < 2u; ++channel)
+                destination[i * 2u + channel] += start[channel] * gain;
+            --fadeLeft_;
         }
-        return true;
+        if (!fadeLeft_)
+            last_.fill(0);
     }
-    // A stream that stops or runs dry ends on the decaying half of its last
-    // window rather than on a hard edge.
-    void fadeTail() {
-        output_.assign(tail_.begin(), tail_.end());
-        outputRead_ = 0;
-        tail_.fill(0.0f);
+    void clearStream() {
+        stretch_.clear();
+        stretch_.setTempo(1.0);
+        input_.clear();
+        read_ = 0;
+        playing_ = stretched_ = false;
+        speed_ = rate_ = shortRate_ = 1.0;
+        startupInput_ = startupOutput_ = 0;
+        intervalInput_ = intervalOutput_ = longInput_ = longOutput_ = 0;
     }
-
-    std::array<float, window> weights_{};
-    std::array<float, hop * 2u> tail_{};
-    std::vector<float> input_, output_;
+    void underrun(std::span<float> remaining) {
+        underruns_.fetch_add(1u, std::memory_order_relaxed);
+        silent_.fetch_add(remaining.size() / 2u, std::memory_order_relaxed);
+        clearStream();
+        fadeLeft_ = hop;
+        fade(remaining);
+    }
+    soundtouch::SoundTouch stretch_;
     std::vector<int32_t> raw_;
-    size_t outputRead_ = 0;
-    int64_t previous_ = -1;
-    double position_ = 0.0, speed_ = 1.0, rate_ = 1.0;
-    size_t arrived_ = 0;
-    bool playing_ = false;
+    std::vector<float> input_, processed_;
+    size_t read_ = 0;
+    bool playing_ = false, stretched_ = false;
+    double speed_ = 1.0, rate_ = 1.0, shortRate_ = 1.0;
+    uint64_t intervalInput_ = 0, intervalOutput_ = 0, longInput_ = 0, longOutput_ = 0;
+    uint64_t startupInput_ = 0, startupOutput_ = 0;
     uint64_t boundary_ = 0;
+    std::array<float, 2> last_{};
+    unsigned fadeLeft_ = 0, fadeIn_ = 0;
     std::atomic<uint64_t> underruns_{0}, silent_{0};
 };
 } // namespace openkai2

@@ -15,8 +15,8 @@ Native PC recompilation of **Dragon Ball Z: Budokai 2**, built with
 
 The launcher includes automatic GitHub updates with stable and prerelease channels,
 verified downloads and recovery during file replacement. ISO preferences, saves
-and backups are preserved. The Saves page includes reversible character and stage
-unlocks; optional [Discord activity](docs/discord.md) follows the launcher and game.
+and backups are preserved. The Saves page includes reversible character, stage and skill-capsule
+unlocks, plus multi-select save and backup management; optional [Discord activity](docs/discord.md) follows the launcher and game.
 The Mods page layers [mods](docs/modding.md) over the ISO without changing it, and
 its import tool copies characters, movesets and stages from a PS2 ISO or your own files.
 
@@ -59,7 +59,7 @@ Windows packaging; they do not establish that the full game is playable.
 Start with [Building OpenKai2](docs/building.md) for the native runtime, or the
 [Windows build guide](docs/windows.md) for Windows-specific setup.
 
-Component checks require Python 3.10+, CMake 3.16+, and a C++17 compiler:
+Component checks require Python 3.10+, CMake 3.16+, and a C++20 compiler:
 
 ```sh
 python -m unittest discover -s tests

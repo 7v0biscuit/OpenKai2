@@ -78,6 +78,7 @@ enum Id {
     OpenBackups,
     BackupList,
     UnlockAll,
+    DeleteSelected,
     Renderer = 140,
     Fps,
     Resolution,
@@ -97,6 +98,8 @@ enum Id {
     ResetGraphics = 170,
     ClearImage = 173,
     DiscordActivity = 174,
+    SaveListKind = 175,
+    SelectSaves = 176,
     ModList = 180,
     ModToggle,
     ModUp,
@@ -250,7 +253,7 @@ struct Progress {
 };
 enum class Job {
     verify, launch, backup, importSave, restore, afterExit, checkUpdate, downloadUpdate, unlock,
-    readGame, readSource, importMod, saveReport
+    deleteSaves, deleteBackups, readGame, readSource, importMod, saveReport
 };
 bool modJob(Job kind) { return kind >= Job::readGame; }
 struct Result {
@@ -274,6 +277,7 @@ struct Grid {
 LRESULT CALLBACK combo_procedure(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK button_procedure(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK edit_procedure(HWND, UINT, WPARAM, LPARAM);
+LRESULT CALLBACK save_list_procedure(HWND, UINT, WPARAM, LPARAM);
 struct Window {
     HWND hwnd{};
     Fonts fonts;
@@ -307,6 +311,7 @@ struct Window {
     mods::DiscIdentity sourceIdentity, gameIdentity;
     bool characterView = false; // characters from a disc whose tables are mapped
     std::vector<size_t> sourceRows;
+    std::vector<std::string> savedGames;
     HANDLE child{};
     std::future<Result> task, updateTask;
     std::shared_ptr<Progress> progress = std::make_shared<Progress>();
@@ -323,7 +328,7 @@ struct Window {
     bool dropdownOpen() const {
         for (auto [id, control] : controls)
             if ((id >= Renderer && id <= Audio) || id == UpdateChannel || id == AutomaticUpdates ||
-                id == DiscordActivity || id == TargetMod || id == SpotMode)
+                id == SaveListKind || id == DiscordActivity || id == TargetMod || id == SpotMode)
                 if (SendMessageW(control, CB_GETDROPPEDSTATE, 0, 0)) return true;
         return false;
     }
@@ -479,9 +484,11 @@ struct Window {
                                                           {ImportFile, L"Import file…"},
                                                           {Backup, L"Back up now"},
                                                           {UnlockAll,L"Unlock all"},
+                                                          {DeleteSelected,L"Delete selected"},
+                                                          {SelectSaves,L"Select all"},
                                                           {Restore, L"Restore backup"},
                                                           {OpenSaves, L"Open saves"},
-                                                          {OpenBackups, L"Open backup folder"}})
+                                                          {OpenBackups, L"Open folder"}})
             button(id, label);
         if (std::find(rates.begin(), rates.end(), settings.fps) == rates.end())
             rates.push_back(settings.fps);
@@ -509,6 +516,7 @@ struct Window {
         combo(Vsync, {L"Off", L"On"}, settings.vsync ? 1 : 0);
         combo(AutoBackup, {L"Off", L"On"}, settings.autoBackups ? 1 : 0);
         combo(DiscordActivity,{L"Off",L"On"},settings.discordPresence ? 1 : 0);
+        combo(SaveListKind,{L"Backups",L"Game saves"},0);
         combo(Aspect, {L"4:3 (original)", L"16:9 (widescreen)", L"Stretch to window", L"Native pixels"},
               int(settings.aspect));
         combo(Audio, {L"Off", L"On · 100% volume", L"On · 75% volume", L"On · 50% volume", L"On · 25% volume"},
@@ -517,7 +525,14 @@ struct Window {
         combo(AutomaticUpdates, {L"Off", L"On"}, settings.autoUpdates ? 1 : 0);
         combo(TargetMod, {}, 0);
         combo(SpotMode, {L"Share a spot (R2 switches)", L"Add a new spot (experimental)"}, 0);
-        list(BackupList, L"Save backups", 40, false);
+        controls[BackupList] = CreateWindowExW(
+            0, L"LISTBOX", L"Save backups",
+            WS_CHILD | WS_TABSTOP | WS_VSCROLL | LBS_NOTIFY | LBS_OWNERDRAWFIXED | LBS_HASSTRINGS | LBS_EXTENDEDSEL,
+            0, 0, 0, 0, hwnd, reinterpret_cast<HMENU>(intptr_t(BackupList)), nullptr, nullptr);
+        SendMessageW(controls[BackupList], LB_SETITEMHEIGHT, 0, p(40));
+        auto originalList = reinterpret_cast<WNDPROC>(SetWindowLongPtrW(controls[BackupList], GWLP_WNDPROC,
+            reinterpret_cast<LONG_PTR>(save_list_procedure)));
+        SetPropW(controls[BackupList], L"OpenKai2.SaveListProcedure", reinterpret_cast<HANDLE>(originalList));
         list(ModList, L"Mods", 40, false);
         list(SourceFiles, L"Source files", 30, false);
         list(TargetList, L"Import target", 30, false);
@@ -528,6 +543,16 @@ struct Window {
         SetTimer(hwnd, 1, 75, nullptr);
         layout();
     }
+    bool gameSaveList() const { return selected(SaveListKind) == 1; }
+    bool emptySaveList() const { return gameSaveList() ? savedGames.empty() : backups.empty(); }
+    std::vector<int> selectedSaveRows() const {
+        const auto list = controls.at(BackupList);
+        const auto count = SendMessageW(list, LB_GETSELCOUNT, 0, 0);
+        if (count <= 0) return {};
+        std::vector<int> rows(size_t(count), 0);
+        if (SendMessageW(list, LB_GETSELITEMS, WPARAM(count), LPARAM(rows.data())) != count) return {};
+        return rows;
+    }
     void refreshEnabled() {
         const bool active = disc.has_value() && !busy() && !running();
         for (int id : {ChooseIso, VerifyIso})
@@ -535,7 +560,15 @@ struct Window {
                          (id != VerifyIso || !candidateIso.empty()));
         for (int id : {Play, ImportFolder, ImportFile, Backup, OpenSaves, OpenBackups, UnlockAll})
             EnableWindow(controls[id], active);
-        EnableWindow(controls[Restore], active && !backups.empty());
+        const auto selections = selectedSaveRows().size();
+        EnableWindow(controls[Restore], active && !gameSaveList() && selections == 1u);
+        EnableWindow(controls[DeleteSelected], active && selections != 0u);
+        const auto deleteLabel = selections ? L"Delete (" + std::to_wstring(selections) + L")" : L"Delete selected";
+        SetWindowTextW(controls[DeleteSelected], deleteLabel.c_str());
+        EnableWindow(controls[SaveListKind], !busy());
+        EnableWindow(controls[SelectSaves], !busy() && !emptySaveList());
+        const auto rowCount = SendMessageW(controls[BackupList], LB_GETCOUNT, 0, 0);
+        SetWindowTextW(controls[SelectSaves], rowCount > 0 && selections == size_t(rowCount) ? L"Clear all" : L"Select all");
         EnableWindow(controls[BackupList], !busy() && !child);
         // Mods are read when the game starts, so they change only while it is closed.
         const bool modding = !busy() && !running();
@@ -582,18 +615,22 @@ struct Window {
         } else if (page == 1) {
             const int panelBottom = h - 64;
             position(AutoBackup, right - 20 - 160, 142, 160, 34);
-            const int gap = 12, action = (content - 40 - 4 * gap) / 5;
+            const int gap = 12, action = (content - 40 - 3 * gap) / 4;
             int x = contentLeft + 20;
-            for (int id : {ImportFile, ImportFolder, Backup, OpenSaves, UnlockAll}) {
+            for (int id : {ImportFile, ImportFolder, Backup, UnlockAll}) {
                 position(id, x, 246, action, 36);
                 x += action + gap;
             }
             position(BackupList, contentLeft + 20, 382, content - 40,
-                     std::max(80, panelBottom - 56 - 382 - 8));
-            if (backups.empty())
+                     std::max(60, panelBottom - 84 - 382));
+            if (emptySaveList())
                 ShowWindow(controls[BackupList], SW_HIDE);
-            position(Restore, contentLeft + 20, panelBottom - 52, 160, 36);
-            position(OpenBackups, contentLeft + 192, panelBottom - 52, 172, 36);
+            position(SaveListKind, right - 180, 342, 160, 32);
+            if (!gameSaveList())
+                position(Restore, contentLeft + 20, panelBottom - 52, 130, 36);
+            position(OpenBackups, contentLeft + (gameSaveList() ? 20 : 162), panelBottom - 52, 120, 36);
+            position(SelectSaves, right - 292, panelBottom - 52, 100, 36);
+            position(DeleteSelected, right - 180, panelBottom - 52, 160, 36);
         } else if (page == modsPage) {
             const int panelBottom = h - 64;
             position(OpenImporter, right - 20 - 140, 142, 140, 36);
@@ -821,21 +858,27 @@ struct Window {
 
         panelBox(dc, contentLeft, 206, right, 322);
         text(dc, L"Save tools", contentLeft + 20, 218, content - 40, 22, fonts.strong);
-        text(dc, L"Import saves or unlock every character and stage. A backup is made before changes.",
+        text(dc, L"Manage saves, characters, stages and skill capsules. Changes are backed up first.",
              contentLeft + 20, 290, content - 40, 18, fonts.caption, muted,
              DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
 
         panelBox(dc, contentLeft, 334, right, panelBottom);
-        text(dc, L"Backup history", contentLeft + 20, 348, content - 200, 22, fonts.strong);
+        text(dc, gameSaveList() ? L"Memory card" : L"Backup history", contentLeft + 20, 348, content - 390, 22, fonts.strong);
         if (disc)
-            text(dc, std::to_wstring(backups.size()) + (backups.size() == 1 ? L" backup" : L" backups"),
-                 right - 160, 350, 140, 20, fonts.caption, muted, DT_RIGHT | DT_SINGLELINE | DT_NOPREFIX);
-        if(backups.empty()) {
-            const int bottom=std::max(440,panelBottom-64),middle=(382+bottom)/2;
+            text(dc, std::to_wstring(gameSaveList() ? savedGames.size() : backups.size()) +
+                 (gameSaveList() ? L" saves" : L" backups"),
+                 right - 340, 350, 140, 20, fonts.caption, muted, DT_RIGHT | DT_SINGLELINE | DT_NOPREFIX);
+        if (!emptySaveList())
+            text(dc, gameSaveList() ? L"Select saves to delete. A recovery backup is created first."
+                                   : L"Select one to restore, or several to delete. Ctrl / Shift selects more.",
+                 contentLeft + 20, panelBottom - 78, content - 40, 18, fonts.caption, muted,
+                 DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        if(emptySaveList()) {
+            const int bottom=std::max(430,panelBottom-84),middle=(382+bottom)/2;
             box(dc,{p(contentLeft+20),p(382),p(right-20),p(bottom)},field,border,8);
-            text(dc,disc ? L"No backups yet" : L"Choose your game disc",contentLeft+36,middle-28,
+            text(dc,disc ? (gameSaveList() ? L"No game saves yet" : L"No backups yet") : L"Choose your game disc",contentLeft+36,middle-28,
                  content-72,24,fonts.strong,ink,DT_CENTER|DT_SINGLELINE|DT_NOPREFIX);
-            text(dc,disc ? L"Back up your save before importing or unlocking content."
+            text(dc,disc ? (gameSaveList() ? L"Create a save in the game, or import an existing save above." : L"Back up your save before importing or unlocking content.")
                          : L"Verify your ISO on the Play page to manage saves.",contentLeft+36,middle+4,
                  content-72,38,fonts.caption,muted,DT_CENTER|DT_WORDBREAK|DT_NOPREFIX);
         }
@@ -1146,6 +1189,7 @@ struct Window {
                 color = !enabled ? panel : pressed ? raised : hot ? hover : raised;
                 outline = enabled ? (hot ? RGB(66, 78, 104) : border) : RGB(34, 41, 57);
                 label = enabled ? ink : faint;
+                if (id == DeleteSelected && enabled) label = red;
             }
             box(dc, r, color, outline, primary ? 12 : 10);
             if (chosen)
@@ -1215,9 +1259,10 @@ struct Window {
         SelectObject(dc, old);
     }
     void refreshBackups() {
+        savedGames = disc ? list_card_saves(card()) : std::vector<std::string>{};
         backups = disc ? list_backups(backupPath()) : std::vector<std::filesystem::path>{};
         SendMessageW(controls[BackupList], LB_RESETCONTENT, 0, 0);
-        for (const auto &p : backups) {
+        if (!gameSaveList()) for (const auto &p : backups) {
             // Show the local modification time; the filename stays the stable ID.
             const auto time = std::filesystem::last_write_time(p);
             const auto system = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
@@ -1226,15 +1271,20 @@ struct Window {
             tm local{};
             localtime_s(&local, &seconds);
             wchar_t stamp[80]{};
-            wcsftime(stamp, 80, L"%b %d, %Y  at  %H:%M", &local);
+            wcsftime(stamp, 80, L"%b %d, %Y  at  %H:%M:%S", &local);
             const auto label = std::wstring(stamp) + L"     " +
                                std::to_wstring((std::filesystem::file_size(p) + 1023) / 1024) + L" KB";
             SendMessageW(controls[BackupList], LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
         }
-        if (!backups.empty())
-            SendMessageW(controls[BackupList], LB_SETCURSEL, 0, 0);
+        if (gameSaveList()) {
+            for (const auto &name : savedGames) {
+                const auto label = wide(name) == L"BASLUS-20779DBZ2" ? std::wstring(L"Budokai 2 · USA") : wide(name);
+                SendMessageW(controls[BackupList], LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
+            }
+        } else if (!backups.empty())
+            SendMessageW(controls[BackupList], LB_SETSEL, TRUE, 0);
         if (page == 1)
-            ShowWindow(controls[BackupList], backups.empty() ? SW_HIDE : SW_SHOWNA);
+            ShowWindow(controls[BackupList], emptySaveList() ? SW_HIDE : SW_SHOWNA);
     }
     static std::wstring bytesText(uint64_t bytes) {
         if (bytes < 1024)
@@ -1669,6 +1719,12 @@ struct Window {
         const auto prefs = settings;
         const auto save = card(), archive = backupPath();
         const auto availableRelease = release;
+        std::vector<std::string> selectedGames;
+        std::vector<std::filesystem::path> selectedBackups;
+        for (int row : selectedSaveRows()) {
+            if (gameSaveList() && size_t(row) < savedGames.size()) selectedGames.push_back(savedGames[size_t(row)]);
+            if (!gameSaveList() && size_t(row) < backups.size()) selectedBackups.push_back(backups[size_t(row)]);
+        }
         auto updates = background ? updateProgress : progress;
         {
             std::lock_guard lock(updates->mutex);
@@ -1678,7 +1734,7 @@ struct Window {
         }
         if (background) updateError = false; else error = false;
         std::cout << "[launcher] operation=" << int(kind) << " started" << std::endl;
-        auto work = std::async(std::launch::async, [kind, source, prefs, save, archive, updates, availableRelease]() {
+        auto work = std::async(std::launch::async, [kind, source, prefs, save, archive, updates, availableRelease, selectedGames, selectedBackups]() {
             Result result{kind, {}, {}, L""};
             if (kind == Job::checkUpdate || kind == Job::downloadUpdate) {
                 result.release = kind == Job::checkUpdate ? check_for_updates(prefs.updateChannel != 0)
@@ -1707,10 +1763,16 @@ struct Window {
                     backup_card(result.disc->root / "mc0",
                                 default_cache_directory().parent_path() / "backups" / result.disc->image_sha256);
                 result.message = L"Disc verified. You're ready to play.";
+            } else if (kind == Job::deleteSaves) {
+                delete_card_saves(save, archive, selectedGames);
+                result.message = std::to_wstring(selectedGames.size()) + L" game save(s) deleted. Your previous card is in Backups.";
+            } else if (kind == Job::deleteBackups) {
+                delete_backup_files(archive, selectedBackups);
+                result.message = std::to_wstring(selectedBackups.size()) + L" backup(s) deleted.";
             } else if(kind==Job::unlock) {
                 const bool changed=unlock_card_content(save,archive);
-                result.message=changed ? L"All characters and stages unlocked. Your previous card is in Backup history."
-                                       : L"All characters and stages are already unlocked.";
+                result.message=changed ? L"Characters, stages and skill capsules unlocked. Load your save in the game. The previous card is backed up."
+                                       : L"This save already has all characters, stages and skill capsules. Load it in the game.";
             } else if (kind == Job::backup || kind == Job::afterExit) {
                 auto p = backup_card(save, archive);
                 result.message = p.empty() ? L"There is no save data to back up yet." : L"Backup created.";
@@ -1795,6 +1857,7 @@ struct Window {
                     if (activeJob == Job::verify || activeJob == Job::launch) disc.reset();
                     status = wide(e.what());
                     error = true;
+                    if (activeJob == Job::deleteSaves || activeJob == Job::deleteBackups) refreshBackups();
                 }
                 std::cerr << (background ? "[launcher:update-error] " : "[launcher:error] ")
                           << e.what() << std::endl;
@@ -2001,6 +2064,29 @@ struct Window {
             SetFocus(controls[id]);
             return;
         }
+        if (id == SaveListKind && (notification == CBN_SELCHANGE || notification == CBN_CLOSEUP)) {
+            // Hiding or repositioning this native combo during an arrow-key
+            // selection closes its popup before Enter can confirm the choice.
+            if (!SendMessageW(controls[SaveListKind], CB_GETDROPPEDSTATE, 0, 0) || notification == CBN_CLOSEUP) {
+                refreshBackups(); layout();
+            }
+            return;
+        }
+        if (id == SelectSaves && notification == BN_CLICKED) {
+            const auto list = controls[BackupList];
+            const auto count = SendMessageW(list, LB_GETCOUNT, 0, 0);
+            if (count > 0) {
+                SendMessageW(list, LB_SETSEL, selectedSaveRows().size() != size_t(count), -1);
+                refreshEnabled();
+            }
+            return;
+        }
+        if (id == BackupList && notification == LBN_SELCHANGE) {
+            if (!busy() && !error)
+                status = std::to_wstring(selectedSaveRows().size()) +
+                    L" selected. Ctrl+click or Shift+click selects several; Ctrl+A selects all.";
+            refreshEnabled(); return;
+        }
         if (((id >= Renderer && id <= Audio) || id == DiscordActivity) && notification == CBN_SELCHANGE) {
             saveOptions();
             if (id == DiscordActivity) {
@@ -2138,6 +2224,7 @@ struct Window {
             if (!p.empty()) {
                 disc.reset();
                 backups.clear();
+                savedGames.clear();
                 start(Job::verify, p);
             }
         } else if (id == VerifyIso)
@@ -2156,10 +2243,22 @@ struct Window {
             start(Job::backup);
         else if(id==UnlockAll && disc)
             start(Job::unlock);
-        else if (id == Restore && disc) {
-            auto i = SendMessageW(controls[BackupList], LB_GETCURSEL, 0, 0);
-            if (i >= 0 && size_t(i) < backups.size())
-                start(Job::restore, backups[size_t(i)]);
+        else if ((id == Restore || (id == BackupList && notification == LBN_DBLCLK)) && disc) {
+            const auto rows = selectedSaveRows();
+            if (!gameSaveList() && rows.size() == 1u && size_t(rows.front()) < backups.size()) {
+                const auto prompt = L"Restore the selected backup? This replaces the current memory card. "
+                                    L"A recovery backup of the current card will be created first.";
+                if (MessageBoxW(hwnd, prompt, L"Restore backup", MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) == IDYES)
+                    start(Job::restore, backups[size_t(rows.front())]);
+            }
+        } else if (id == DeleteSelected && disc) {
+            const auto count = selectedSaveRows().size();
+            if (!count) return;
+            const auto message = L"Delete " + std::to_wstring(count) +
+                (gameSaveList() ? L" selected game save(s)? A backup of your current card will be created first."
+                                : L" selected backup(s) permanently? This cannot be undone.");
+            if (MessageBoxW(hwnd, message.c_str(), L"Delete selected saves", MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) == IDYES)
+                start(gameSaveList() ? Job::deleteSaves : Job::deleteBackups);
         } else if (id == ModToggle || id == ModUp || id == ModDown || (id == ModList && notification == LBN_DBLCLK)) {
             const auto row = SendMessageW(controls[ModList], LB_GETCURSEL, 0, 0);
             if (row < 0 || size_t(row) >= modList.size())
@@ -2209,7 +2308,7 @@ struct Window {
         } else if (id == ImportSelected)
             importCharacter();
         else if ((id == OpenSaves || id == OpenBackups) && disc) {
-            auto p = id == OpenSaves ? card() : backupPath();
+            auto p = id == OpenSaves || gameSaveList() ? card() : backupPath();
             std::filesystem::create_directories(p);
             ShellExecuteW(hwnd, L"open", p.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         }
@@ -2221,6 +2320,26 @@ struct Window {
             CloseHandle(child);
     }
 };
+LRESULT CALLBACK save_list_procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
+    auto original = reinterpret_cast<WNDPROC>(GetPropW(hwnd, L"OpenKai2.SaveListProcedure"));
+    auto *owner = reinterpret_cast<Window *>(GetWindowLongPtrW(GetParent(hwnd), GWLP_USERDATA));
+    if (owner && message == WM_KEYDOWN) {
+        if (wp == 'A' && (GetKeyState(VK_CONTROL) & 0x8000)) {
+            const auto count = SendMessageW(hwnd, LB_GETCOUNT, 0, 0);
+            if (count > 0) {
+                SendMessageW(hwnd, LB_SELITEMRANGE, TRUE, MAKELPARAM(0, count - 1));
+                SendMessageW(GetParent(hwnd), WM_COMMAND, MAKEWPARAM(BackupList, LBN_SELCHANGE), reinterpret_cast<LPARAM>(hwnd));
+            }
+            return 0;
+        }
+        if (wp == VK_DELETE && IsWindowEnabled(owner->controls[DeleteSelected])) {
+            SendMessageW(GetParent(hwnd), WM_COMMAND, MAKEWPARAM(DeleteSelected, BN_CLICKED), reinterpret_cast<LPARAM>(owner->controls[DeleteSelected]));
+            return 0;
+        }
+    }
+    if (message == WM_NCDESTROY) RemovePropW(hwnd, L"OpenKai2.SaveListProcedure");
+    return CallWindowProcW(original, hwnd, message, wp, lp);
+}
 LRESULT CALLBACK button_procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
     auto original = reinterpret_cast<WNDPROC>(GetPropW(hwnd, L"OpenKai2.ButtonProcedure"));
     auto *owner = reinterpret_cast<Window *>(GetWindowLongPtrW(GetParent(hwnd), GWLP_USERDATA));

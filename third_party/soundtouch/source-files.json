@@ -1,0 +1,157 @@
+{
+  "repository": "https://github.com/PCSX2/pcsx2",
+  "revision": "dcfd663c1903025864a865d3fcf508d0caab70c7",
+  "version": "v2.1.27",
+  "files": [
+    {
+      "path": "upstream/source/SoundTouch/AAFilter.cpp",
+      "upstream_path": "3rdparty/soundtouch/source/SoundTouch/AAFilter.cpp",
+      "sha256": "53c8e707bd083074e68184e89d545bd83c395dd95b6dd52cad4fb448893701ed"
+    },
+    {
+      "path": "upstream/source/SoundTouch/BPMDetect.cpp",
+      "upstream_path": "3rdparty/soundtouch/source/SoundTouch/BPMDetect.cpp",
+      "sha256": "8e3e8cfce468344693c33a73b64db9edc6817e18901bccda0775bcc35a938e85"
+    },
+    {
+      "path": "upstream/source/SoundTouch/cpu_detect_x86.cpp",
+      "upstream_path": "3rdparty/soundtouch/source/SoundTouch/cpu_detect_x86.cpp",
+      "sha256": "412d0d14704b2158bfeb1e9264a39c53b145006a0564064bc5f9bc34f742d397"
+    },
+    {
+      "path": "upstream/source/SoundTouch/FIFOSampleBuffer.cpp",
+      "upstream_path": "3rdparty/soundtouch/source/SoundTouch/FIFOSampleBuffer.cpp",
+      "sha256": "0942d82e64877a669a102af718272d44b413f7017b1c1360033f19ecb5a995af"
+    },
+    {
+      "path": "upstream/source/SoundTouch/FIRFilter.cpp",
+      "upstream_path": "3rdparty/soundtouch/source/SoundTouch/FIRFilter.cpp",
+      "sha256": "742041f73b1631b06196562ec25efcc54708cf905121781d7df70ad4b789a881"
+    },
+    {
+      "path": "upstream/source/SoundTouch/InterpolateCubic.cpp",
+      "upstream_path": "3rdparty/soundtouch/source/SoundTouch/InterpolateCubic.cpp",
+      "sha256": "6485200d52ac695f609cce0c9dacce9ee8fab065ee3d0936f246744fe0225ec2"
+    },
+    {
+      "path": "upstream/source/SoundTouch/InterpolateLinear.cpp",
+      "upstream_path": "3rdparty/soundtouch/source/SoundTouch/InterpolateLinear.cpp",
+      "sha256": "d5e43611908bc29a31ad19b28b1f2213c1ef8cd0b56675e5fb3977f73bcfb5ec"
+    },
+    {
+      "path": "upstream/source/SoundTouch/InterpolateShannon.cpp",
+      "upstream_path": "3rdparty/soundtouch/source/SoundTouch/InterpolateShannon.cpp",
+      "sha256": "a18c2ac39d7a4c8759eec0ace26ed70ea9f4cd3e4d37fde688ef3718abef5209"
+    },
+    {
+      "path": "upstream/source/SoundTouch/mmx_optimized.cpp",
+      "upstream_path": "3rdparty/soundtouch/source/SoundTouch/mmx_optimized.cpp",
+      "sha256": "856e27b22a2c5756214e0425d69f13d5e27cb2dbab9d19e63f0040b28744cebd"
+    },
+    {
+      "path": "upstream/source/SoundTouch/PeakFinder.cpp",
+      "upstream_path": "3rdparty/soundtouch/source/SoundTouch/PeakFinder.cpp",
+      "sha256": "72ac9e52235693e243b1d5b8bdf7658c73fd7e1d8c02b795a5bcee3ba3c7c3a0"
+    },
+    {
+      "path": "upstream/source/SoundTouch/RateTransposer.cpp",
+      "upstream_path": "3rdparty/soundtouch/source/SoundTouch/RateTransposer.cpp",
+      "sha256": "36e49f82ff6cb5e0f39a66b7dfb541e3088d5d04fa4542e718bcb137981d3986"
+    },
+    {
+      "path": "upstream/source/SoundTouch/SoundTouch.cpp",
+      "upstream_path": "3rdparty/soundtouch/source/SoundTouch/SoundTouch.cpp",
+      "sha256": "f66ddc60c6192b7c88322cfbfbc1b174f1deeb2c5c1afe5bf32f522cb2851a96"
+    },
+    {
+      "path": "upstream/source/SoundTouch/sse_optimized.cpp",
+      "upstream_path": "3rdparty/soundtouch/source/SoundTouch/sse_optimized.cpp",
+      "sha256": "1fdd8623d846ee66ab2e3bdcbfd8e91cf85553be544d4321e6045f25386f4bc2"
+    },
+    {
+      "path": "upstream/source/SoundTouch/TDStretch.cpp",
+      "upstream_path": "3rdparty/soundtouch/source/SoundTouch/TDStretch.cpp",
+      "sha256": "fb2567c4354e0033d94feee81803d3b69f978f9d7cfffb7556b9ba6fb7cda73d"
+    },
+    {
+      "path": "upstream/soundtouch/BPMDetect.h",
+      "upstream_path": "3rdparty/soundtouch/soundtouch/BPMDetect.h",
+      "sha256": "d1f1f0d3bb00737e0a1d9323acb3cd5f9201aa857c0395ad27768c1828b8c34b"
+    },
+    {
+      "path": "upstream/soundtouch/FIFOSampleBuffer.h",
+      "upstream_path": "3rdparty/soundtouch/soundtouch/FIFOSampleBuffer.h",
+      "sha256": "83a7275c5b1b56842c6a5ebb5819eb98940c62700d257cc2ff4f2156e5a6602d"
+    },
+    {
+      "path": "upstream/soundtouch/FIFOSamplePipe.h",
+      "upstream_path": "3rdparty/soundtouch/soundtouch/FIFOSamplePipe.h",
+      "sha256": "e1ef85905ac3b797eda5d8d7bd19a51b20936960142ad1d6be9b8c107ce20347"
+    },
+    {
+      "path": "upstream/soundtouch/SoundTouch.h",
+      "upstream_path": "3rdparty/soundtouch/soundtouch/SoundTouch.h",
+      "sha256": "32e93d6000cd3a9f5b16c88c26b30b9e27a574f560e1eb66ed4b615fdd816dcc"
+    },
+    {
+      "path": "upstream/soundtouch/STTypes.h",
+      "upstream_path": "3rdparty/soundtouch/soundtouch/STTypes.h",
+      "sha256": "d4146bc79439579edb99a89b28de11f4b0f7d810da98a3562738654db32d784f"
+    },
+    {
+      "path": "upstream/source/SoundTouch/AAFilter.h",
+      "upstream_path": "3rdparty/soundtouch/source/SoundTouch/AAFilter.h",
+      "sha256": "1b9e9e00b5a599c754e9f3d439dd87b4891ce6d051cda65b5674497b8bce75f5"
+    },
+    {
+      "path": "upstream/source/SoundTouch/cpu_detect.h",
+      "upstream_path": "3rdparty/soundtouch/source/SoundTouch/cpu_detect.h",
+      "sha256": "5871c83e16a22f86e61b305c570a545e8f2198ea5f0db9a0d12cf74ed1970f40"
+    },
+    {
+      "path": "upstream/source/SoundTouch/FIRFilter.h",
+      "upstream_path": "3rdparty/soundtouch/source/SoundTouch/FIRFilter.h",
+      "sha256": "4c33acb897248ff6d7f0d3a7a83b827529f7fe18c1a8911d5931142064c84905"
+    },
+    {
+      "path": "upstream/source/SoundTouch/InterpolateCubic.h",
+      "upstream_path": "3rdparty/soundtouch/source/SoundTouch/InterpolateCubic.h",
+      "sha256": "45f8fba270f92d40c735cbbde9bfa74bcf137fcae78442ccecefa6265c63441c"
+    },
+    {
+      "path": "upstream/source/SoundTouch/InterpolateLinear.h",
+      "upstream_path": "3rdparty/soundtouch/source/SoundTouch/InterpolateLinear.h",
+      "sha256": "df323b5f6410e08c1d0c8507fe69dccb1d58efeb06e6a08944376f17a4133ce3"
+    },
+    {
+      "path": "upstream/source/SoundTouch/InterpolateShannon.h",
+      "upstream_path": "3rdparty/soundtouch/source/SoundTouch/InterpolateShannon.h",
+      "sha256": "ba9617c935eafe3ebd672c44fdab1780c72bc27d0df3720192370eecee7f59c9"
+    },
+    {
+      "path": "upstream/source/SoundTouch/PeakFinder.h",
+      "upstream_path": "3rdparty/soundtouch/source/SoundTouch/PeakFinder.h",
+      "sha256": "fdd9ff812b9e265a12f9994db68375ba399d2a2b7bf584998a8b3f59af644e7f"
+    },
+    {
+      "path": "upstream/source/SoundTouch/RateTransposer.h",
+      "upstream_path": "3rdparty/soundtouch/source/SoundTouch/RateTransposer.h",
+      "sha256": "ee519bd2d64e77d632d3f37edbb075e5deca2c6b7aa791aa0d8349be7c74ef9f"
+    },
+    {
+      "path": "upstream/source/SoundTouch/TDStretch.h",
+      "upstream_path": "3rdparty/soundtouch/source/SoundTouch/TDStretch.h",
+      "sha256": "86e830bcb310f7f736001ddee5b2309d7dd6ca4cb84c2fbd03d0f84bf2da5d4c"
+    },
+    {
+      "path": "upstream/COPYING.TXT",
+      "upstream_path": "3rdparty/soundtouch/COPYING.TXT",
+      "sha256": "84c6d82dc7de80f5b73f231edfd3ddc5b53513908117452bfa37ea36bb4b7e0a"
+    },
+    {
+      "path": "upstream/README.html",
+      "upstream_path": "3rdparty/soundtouch/README.html",
+      "sha256": "7c5b083ccb3237b959fa318838455a00d0e9b34ec4b15c22e9b952a3adcdb626"
+    }
+  ]
+}

@@ -135,6 +135,7 @@ std::string unique() {
                               .count()) +
            "-" + std::to_string(serial.fetch_add(1));
 }
+SaveFiles zip(const Bytes &b);
 void write_zip(const fs::path &path, const SaveFiles &files) {
     validate(files);
     Bytes b, central;
@@ -190,7 +191,18 @@ void write_zip(const fs::path &path, const SaveFiles &files) {
     out.close();
     if (!out)
         fail("Cannot finish save backup");
-    fs::rename(tmp, path);
+    try {
+        // Validate the actual archive on disk before exposing it in the launcher.
+        const auto checked = zip(load(tmp));
+        if (checked.size() != files.size() || !std::equal(checked.begin(), checked.end(), files.begin(),
+                [](const SaveFile &a, const SaveFile &b) { return a.name == b.name && a.data == b.data; }))
+            fail("Backup verification failed; the memory card was kept");
+        fs::rename(tmp, path);
+    } catch (...) {
+        std::error_code error;
+        fs::remove(tmp, error);
+        throw;
+    }
 }
 SaveFiles zip(const Bytes &b) {
     if (b.size() < 22 || u32(b, b.size() - 22) != 0x06054b50)
@@ -335,7 +347,10 @@ std::vector<fs::path> list_backups(const fs::path &backups) {
     for (const auto &e : fs::directory_iterator(backups))
         if (!link(e.path()) && e.is_regular_file() && e.path().extension() == ".zip")
             result.push_back(e.path());
-    std::sort(result.rbegin(), result.rend());
+    std::sort(result.begin(), result.end(), [](const fs::path &a, const fs::path &b) {
+        const auto at = fs::last_write_time(a), bt = fs::last_write_time(b);
+        return at == bt ? a.filename() > b.filename() : at > bt;
+    });
     return result;
 }
 fs::path backup_card(const fs::path &card, const fs::path &backups) {
@@ -430,6 +445,75 @@ bool unlock_card_content(const fs::path& card,const fs::path& backups) {
     decode_progress_save(progress->data);
     commit_card(card,backups,files);
     return true;
+}
+
+std::vector<std::string> list_card_saves(const fs::path &card) {
+    std::map<std::string, std::string> directories;
+    for (const auto &file : read_card(card)) {
+        const auto slash = file.name.find('/');
+        if (slash != std::string::npos) {
+            const auto name = file.name.substr(0, slash);
+            directories.emplace(fold(name), name);
+        }
+    }
+    std::vector<std::string> result;
+    for (const auto &entry : directories)
+        result.push_back(entry.second);
+    return result;
+}
+void delete_card_saves(const fs::path &card, const fs::path &backups,
+                       const std::vector<std::string> &names) {
+    SessionLock session;
+    if (names.empty())
+        fail("Select a game save to delete");
+    std::set<std::string> selected;
+    for (const auto &name : names) {
+        valid_name(name);
+        if (name.find('/') != std::string::npos)
+            fail("Select complete game saves, not individual files");
+        selected.insert(fold(name));
+    }
+    auto files = read_card(card);
+    std::set<std::string> found;
+    SaveFiles kept;
+    for (auto &file : files) {
+        const auto slash = file.name.find('/');
+        const auto directory = slash == std::string::npos ? std::string{} : fold(file.name.substr(0, slash));
+        if (selected.count(directory))
+            found.insert(directory);
+        else
+            kept.push_back(std::move(file));
+    }
+    if (found != selected)
+        fail("A selected game save no longer exists; the memory card was kept");
+    validate(kept);
+    commit_card(card, backups, kept);
+}
+void delete_backup_files(const fs::path &backups, const std::vector<fs::path> &files) {
+    SessionLock session;
+    if (files.empty())
+        fail("Select a backup to delete");
+    safe_parents(backups);
+    const auto directory = fs::absolute(backups).lexically_normal();
+    std::set<fs::path> selected;
+    for (const auto &file : files) {
+        const auto path = fs::absolute(file).lexically_normal();
+        if (path.parent_path() != directory || fold(path.extension().string()) != ".zip")
+            fail("Only backups in the selected backup folder can be deleted");
+        safe_parents(path);
+        if (!fs::is_regular_file(path))
+            fail("A selected backup no longer exists");
+        selected.insert(path);
+    }
+    size_t failed = 0;
+    for (const auto &path : selected) {
+        std::error_code error;
+        if (!fs::remove(path, error) || error)
+            ++failed;
+    }
+    if (failed)
+        throw std::runtime_error("Could not delete " + std::to_string(failed) +
+                                 " selected backup(s). Those files were kept.");
 }
 
 } // namespace openkai2::launcher

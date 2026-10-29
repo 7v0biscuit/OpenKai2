@@ -159,6 +159,8 @@ int main() {
         const auto root = fs::temp_directory_path() / "openkai2-roster-tests";
         fs::remove_all(root);
         fs::create_directories(root);
+        { // Close all disc streams before removing their files on Windows.
+
 
         // The import tool reads characters, their files and the grid from a disc.
         const auto iso = root / "budokai2.iso";
@@ -407,6 +409,7 @@ int main() {
             rejected = true;
         }
         require(rejected, "A roster was written into an unknown executable");
+        }
         fs::remove_all(root);
         std::cout << "Roster passed: disc roster, character files, unused slots, roster.ini, add: entries, "
                      "select cells, shared spots, added spots and executable checks.\n";

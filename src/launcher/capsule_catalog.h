@@ -1,0 +1,22 @@
+// SPDX-License-Identifier: GPL-3.0-only
+#pragma once
+#include <array>
+namespace openkai2::launcher {
+struct CapsuleRange {
+    unsigned first, last, copies;
+};
+// USA capsule definitions: capacity byte +0x0d in each 32-byte record.
+// Zero-capacity entries, the null item and unused character capsules are omitted.
+inline constexpr std::array<CapsuleRange, 24> capsule_ranges{
+    {{0x1, 0x3, 9},     {0x4, 0x4, 1},     {0x5, 0x16, 9},    {0x17, 0x17, 1},   {0x18, 0x25, 9},
+     {0x27, 0x28, 9},   {0x2a, 0xc0, 9},   {0xc1, 0xc1, 1},   {0xc2, 0xc6, 9},   {0xd5, 0xdb, 9},
+     {0xdc, 0xdc, 1},   {0xed, 0xed, 1},   {0xfd, 0xfd, 1},   {0x10a, 0x10a, 1}, {0x117, 0x117, 1},
+     {0x122, 0x122, 1}, {0x12d, 0x12d, 1}, {0x13a, 0x156, 1}, {0x157, 0x186, 9}, {0x187, 0x187, 1},
+     {0x188, 0x1bd, 9}, {0x1bf, 0x1cc, 9}, {0x1cd, 0x1e9, 1}, {0x1f4, 0x206, 1}}};
+inline unsigned capsule_capacity(unsigned item) {
+    for (const auto &range : capsule_ranges)
+        if (item >= range.first && item <= range.last)
+            return range.copies;
+    return 0;
+}
+} // namespace openkai2::launcher

@@ -22,6 +22,7 @@ HostAudioOptions options;
 struct Output {
     std::array<StereoAudioQueue, 2> queues;
     std::array<StretchedPlayback, 2> playback;
+    std::array<std::atomic<uint64_t>, 2> submitted{}, stops{};
     float gain = 1.0f;
 };
 
@@ -122,6 +123,12 @@ void stop_host_audio(const void *owner) {
     for (unsigned core = 0; core < 2u; ++core) {
         dropped += output->queues[core].dropped();
         underruns += output->playback[core].underruns();
+        std::cerr << "[audio:core] core=" << core
+                  << " submitted_frames=" << output->submitted[core].load(std::memory_order_relaxed)
+                  << " stop_requests=" << output->stops[core].load(std::memory_order_relaxed)
+                  << " queued_frames=" << output->queues[core].queued()
+                  << " silent_frames=" << output->playback[core].silentFrames()
+                  << " tempo=" << output->playback[core].speed() << '\n';
     }
     std::cerr << "[audio:output] stopped dropped_frames=" << dropped << " underruns=" << underruns << '\n';
     output.reset();
@@ -133,10 +140,13 @@ void submit_host_audio(const void *owner, unsigned core, std::span<const int16_t
     auto *current = active.load(std::memory_order_acquire);
     if (!current || owner != activeOwner || core >= 2u || rate != outputRate)
         return;
-    if (samples.empty())
+    if (samples.empty()) {
+        current->stops[core].fetch_add(1, std::memory_order_relaxed);
         current->queues[core].discardPending();
-    else
+    } else {
+        current->submitted[core].fetch_add(samples.size() / 2u, std::memory_order_relaxed);
         current->queues[core].push(samples);
+    }
 }
 
 int test_host_audio() {

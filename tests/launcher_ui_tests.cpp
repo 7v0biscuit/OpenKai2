@@ -191,6 +191,13 @@ int main() {
                 keyboard_choice(GetDlgItem(w,145),2);
                 require(read_settings(settings_path()).textureFilter==2,"Texture filtering was not saved");
                 click(w,102);
+                auto saves = GetDlgItem(w,126);
+                require((GetWindowLongPtrW(saves,GWL_STYLE) & LBS_EXTENDEDSEL) != 0,
+                        "Save list does not allow multiple selections");
+                require(!IsWindowEnabled(GetDlgItem(w,128)), "Delete is enabled without any saves");
+                keyboard_choice(GetDlgItem(w,175),1);
+                require(!IsWindowVisible(GetDlgItem(w,123)), "Restore is visible in game-save view");
+                keyboard_choice(GetDlgItem(w,175),0);
                 keyboard_choice(GetDlgItem(w,148),0);
                 require(!read_settings(settings_path()).autoBackups,"Backup preference did not persist");
                 releaseUpdate = true;
@@ -257,7 +264,7 @@ int main() {
                 }
                 click(w,102);
                 RECT previous{};
-                for(int id : {121,120,122,124,127}) {
+                for(int id : {121,120,122,127}) {
                     RECT bounds{},client{};GetWindowRect(GetDlgItem(w,id),&bounds);GetClientRect(w,&client);
                     MapWindowPoints(nullptr,w,reinterpret_cast<POINT*>(&bounds),2);
                     require(IsWindowVisible(GetDlgItem(w,id)) && bounds.left>=previous.right &&

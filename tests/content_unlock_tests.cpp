@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "launcher/content_unlock.h"
+#include "launcher/capsule_catalog.h"
 #include "launcher/saves.h"
 #include <algorithm>
 #include <chrono>
@@ -86,10 +87,19 @@ int main() {
         for (unsigned i = 0; i < 9u; ++i)
             require(unlocked[0x89eu + 0x1feu + i] == std::max<uint8_t>(1u, decoded[0x89eu + 0x1feu + i]),
                     "Stage capsule quantity changed incorrectly");
+        unsigned capsules = 0;
+        for (unsigned item = 0; item < 520u; ++item) {
+            const auto capacity = capsule_capacity(item);
+            if (capacity) ++capsules;
+            require(unlocked[0x89eu + item] == std::max<uint8_t>(uint8_t(capacity), decoded[0x89eu + item]),
+                    "Capsule ownership differs from its supported capacity");
+        }
+        require(capsules == 404u && unlocked[0xb0u] == std::max<uint8_t>(2u, decoded[0xb0u]),
+                "The full capsule catalog or tournament level was not unlocked");
         for (size_t i = 0; i < plain.size(); ++i) {
             const bool allowed = (i >= 0x90u && i < 0x98u) || (i >= 0xb4u && i < 0xb6u) ||
-                                 (i >= 0x89eu + 0x1cdu && i < 0x89eu + 0x1eau) ||
-                                 (i >= 0x89eu + 0x1feu && i < 0x89eu + 0x207u);
+                                 i == 0xb0u ||
+                                 (i >= 0x89eu && i < 0x89eu + 520u && capsule_capacity(unsigned(i - 0x89eu)));
             if (!allowed)
                 require(unlocked[i] == decoded[i],
                         "Unlocks changed an unrelated story, inventory or preference byte");
@@ -130,7 +140,34 @@ int main() {
                 "Rejected save changed card or backups");
         fs::remove(progress);
         rejects([&] { unlock_card_content(card, backups); });
-        std::cout << "Content unlock checks passed: 29 character capsules, nine stages, two checksums, "
+        const auto deleteCard = root / "delete-card", deleteBackups = root / "delete-backups";
+        put(deleteCard / "game-a/progress", {1, 2});
+        put(deleteCard / "game-b/progress", {3, 4});
+        put(deleteCard / "game-c/progress", {5, 6});
+        put(deleteCard / "card-metadata", {7});
+        require(list_card_saves(deleteCard).size() == 3u, "Game-save listing included individual files");
+        rejects([&] { delete_card_saves(deleteCard, deleteBackups, {"game-a", "missing"}); });
+        rejects([&] { delete_card_saves(deleteCard, deleteBackups, {"../game-a"}); });
+        require(fs::exists(deleteCard / "game-a/progress") && list_backups(deleteBackups).empty(),
+                "Invalid deletion changed the card or created a backup");
+        delete_card_saves(deleteCard, deleteBackups, {"GAME-A", "game-b"});
+        require(!fs::exists(deleteCard / "game-a") && !fs::exists(deleteCard / "game-b") &&
+                    read(deleteCard / "game-c/progress") == std::vector<uint8_t>({5, 6}) &&
+                    read(deleteCard / "card-metadata") == std::vector<uint8_t>({7}),
+                "Multi-delete changed an unselected game save");
+        const auto deletedSnapshot = list_backups(deleteBackups);
+        require(deletedSnapshot.size() == 1u, "Multi-delete did not create one card backup");
+        import_save(deleteCard, deletedSnapshot.front(), root / "delete-restore-backups", true);
+        require(list_card_saves(deleteCard).size() == 3u, "Deleted saves were not recoverable from the backup");
+        const auto extraBackup = backup_card(deleteCard, deleteBackups);
+        const auto thirdBackup = backup_card(deleteCard, deleteBackups);
+        put(root / "outside.zip", {9});
+        rejects([&] { delete_backup_files(deleteBackups, {extraBackup, root / "outside.zip"}); });
+        require(fs::exists(extraBackup), "Invalid backup selection partially deleted valid selections");
+        delete_backup_files(deleteBackups, {extraBackup, thirdBackup});
+        require(list_backups(deleteBackups) == deletedSnapshot && fs::exists(root / "outside.zip"),
+                "Multi-delete removed an unselected backup");
+        std::cout << "Content unlock checks passed: 404 capsules, 29 characters, nine stages, two checksums, "
                      "unrelated-byte preservation, atomic card backup and exact restoration.\n";
         return 0;
     } catch (const std::exception &e) {

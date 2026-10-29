@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "launcher/content_unlock.h"
+#include "launcher/capsule_catalog.h"
 #include <algorithm>
 #include <array>
 #include <stdexcept>
@@ -73,13 +74,13 @@ std::vector<uint8_t> encode_progress_save(const std::vector<uint8_t> &decoded) {
 bool unlock_progress_content(std::vector<uint8_t> &data) {
     validate(data);
     bool changed = false;
-    const auto own = [&](unsigned item) {
-        auto &count = data[0x89eu + item];
-        if (!count) {
-            count = 1u;
-            changed = true;
+    for (const auto &range : capsule_ranges)
+        for (unsigned item = range.first; item <= range.last; ++item) {
+            auto &count = data[0x89eu + item];
+            if (count < range.copies) { count = uint8_t(range.copies); changed = true; }
         }
-    };
+    // The original handler raises the tournament level for its three capsules.
+    if (data[0xb0u] < 2u) { data[0xb0u] = 2u; changed = true; }
     for (unsigned i = 0; i < characterBits.size(); ++i) {
         const auto bit = characterBits[i];
         auto &flags = data[0x90u + bit / 8u];
@@ -88,7 +89,6 @@ bool unlock_progress_content(std::vector<uint8_t> &data) {
             flags |= mask;
             changed = true;
         }
-        own(0x1cdu + i);
     }
     for (unsigned bit = 0; bit < 9u; ++bit) {
         auto &flags = data[0xb4u + bit / 8u];
@@ -97,7 +97,6 @@ bool unlock_progress_content(std::vector<uint8_t> &data) {
             flags |= mask;
             changed = true;
         }
-        own(0x1feu + bit);
     }
     return changed;
 }

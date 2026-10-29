@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "content_unlock_checks.h"
 #include "launcher/content_unlock.h"
+#include "launcher/capsule_catalog.h"
 #include "ps2_runtime.h"
 #include "runtime/ee_scheduler.h"
 #include <algorithm>
@@ -152,8 +153,15 @@ void verify_original_save_codec(PS2Runtime &runtime, uint8_t *ram) {
     std::vector<uint8_t> expected(bytes);
     std::memcpy(expected.data(), signature, 8u);
     launcher::unlock_progress_content(expected);
+    for (unsigned item = 0; item < 520u; ++item)
+        memory.write8(object + 0x984u + item, expected[0x89eu + item]);
+    // Rebuild availability exactly as the game does after loading inventory.
+    call(0x2837f0u, 0u, object, object + 0x984u);
     place(std::vector<uint8_t>(bytes));
     call(0x233810u, 0u, buffer, object);
+    require(ram[buffer + 0xb0u] == expected[0xb0u] &&
+                std::equal(expected.begin() + 0x89eu, expected.begin() + 0x89eu + 520u, ram + buffer + 0x89eu),
+            "Launcher capsules or tournament level differ from original inventory loading and serialization");
     require(std::equal(expected.begin() + 0x90u, expected.begin() + 0x98u, ram + buffer + 0x90u) &&
                 std::equal(expected.begin() + 0xb4u, expected.begin() + 0xb6u, ram + buffer + 0xb4u),
             "Launcher unlock flags differ from original capsule handling and save serialization");
