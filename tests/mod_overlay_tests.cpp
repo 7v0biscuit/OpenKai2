@@ -164,10 +164,17 @@ int main() {
         ImportTarget extra{ImportTarget::Mode::NewEntry, "USR/DATA.AFS", 0, "stage.bin", ContentKind::Stage, "B3"};
         for (int i = 0; i < 3; ++i)
             import_bytes(port, extra, std::vector<uint8_t>(size_t(10 + i), uint8_t('0' + i)));
+        // Streamed imports report every byte and leave no temporary file behind.
+        uint64_t streamed = 0;
+        ImportTarget copy{ImportTarget::Mode::NewEntry, "USR/DATA.AFS", 0, "vegeta.bin", ContentKind::Character, "B3"};
+        const auto copied = import_from_disc(source, "USR/DATA.AFS", 1, port, copy, [&](uint64_t bytes) { streamed += bytes; });
+        require(streamed == 3000 && fs::file_size(copied) == 3000 && !fs::exists(fs::path(copied).concat(".tmp")),
+                "A streamed import was incomplete");
+        fs::remove(copied);
         file(root / "scratch.bin", "from scratch");
         ImportTarget whole{ImportTarget::Mode::File, "USR/DATA.BIN", 0, "", ContentKind::Moveset, ""};
         import_host_file(port, whole, root / "scratch.bin");
-        require(read_imports(port).size() == 6 && read_imports(port)[5].kind == "moveset" &&
+        require(read_imports(port).size() == 7 && read_imports(port)[6].kind == "moveset" &&
                     !fs::exists(port / "afs" / "USR" / "DATA.AFS" / "0000_goku.bin.tmp"),
                 "The imports were not recorded");
         DiscOverlay::global().configure(image, {port});

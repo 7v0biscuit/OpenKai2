@@ -242,8 +242,13 @@ struct Fonts {
 struct Progress {
     std::mutex mutex;
     std::wstring text;
+    uint64_t done = 0, total = 0; // bytes, for the import tool's progress bar
 };
-enum class Job { verify, launch, backup, importSave, restore, afterExit, checkUpdate, downloadUpdate, unlock };
+enum class Job {
+    verify, launch, backup, importSave, restore, afterExit, checkUpdate, downloadUpdate, unlock,
+    readGame, readSource, importMod, extractMod
+};
+bool modJob(Job kind) { return kind >= Job::readGame; }
 struct Result {
     Job kind;
     std::optional<DiscMount> disc;
@@ -251,6 +256,7 @@ struct Result {
     std::wstring message;
     std::optional<UpdateRelease> release;
     std::optional<StagedUpdate> staged;
+    std::shared_ptr<mods::SourceDisc> loaded;
 };
 struct Grid {
     int column;
@@ -286,7 +292,7 @@ struct Window {
     std::vector<mods::ModInfo> modList;
     // The import tool reads a source disc and writes into a mod; the game
     // disc supplies the archives and entries an import can target.
-    std::unique_ptr<mods::SourceDisc> source, game;
+    std::shared_ptr<mods::SourceDisc> source, game;
     std::vector<size_t> sourceRows, entryRows;
     std::vector<std::string> targetFiles;
     HANDLE child{};
@@ -528,6 +534,8 @@ struct Window {
                                            (id != ModDown || size_t(chosenMod) + 1 < modList.size()));
         for (int id : {ModCreate, OpenImporter, SourceGame, SourceIso, ImportDiskFile})
             EnableWindow(controls[id], modding && (id != SourceGame || !settings.iso.empty()));
+        for (int id : {SourceFiles, SourceEntries, EntryFilter, TargetMod, TargetKind, TargetMode, TargetFile, TargetEntry})
+            EnableWindow(controls[id], !busy());
         const bool picked = source && SendMessageW(controls[SourceEntries], LB_GETSELCOUNT, 0, 0) > 0;
         EnableWindow(controls[ImportSelected], modding && picked && game);
         EnableWindow(controls[ExtractSelected], !busy() && picked);
@@ -872,10 +880,35 @@ struct Window {
             editFrame(dc, EntryFilter);
         panelBox(dc, contentLeft, targetTop, right, h - 64);
         text(dc, L"Import into", contentLeft + 20, targetTop + 10, 160, 22, fonts.strong);
-        text(dc, game ? L"Targets come from your game disc. Data from another game may need edits to work."
-                      : L"Verify your Budokai 2 ISO on the Play page to choose what an import replaces.",
-             contentLeft + 130, targetTop + 13, content - 150, 18, fonts.caption, game ? muted : gold,
-             DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        uint64_t done = 0, total = 0;
+        if (busy() && modJob(activeJob)) {
+            std::lock_guard lock(progress->mutex);
+            done = progress->done;
+            total = progress->total;
+        }
+        if (busy() && modJob(activeJob)) {
+            // A bar fills with the bytes copied; reading a disc has no total, so
+            // a short segment sweeps across instead.
+            const int left = contentLeft + 130, width = content - 150 - 52, top = targetTop + 17;
+            box(dc, {p(left), p(top), p(left + width), p(top + 8)}, field, border, 8);
+            int from = 0, to = 0;
+            if (total) {
+                to = int(uint64_t(width) * std::min(done, total) / total);
+            } else {
+                const auto now = std::chrono::steady_clock::now().time_since_epoch();
+                from = int(std::chrono::duration_cast<std::chrono::milliseconds>(now).count() / 4 % (width + 80)) - 80;
+                to = std::min(width, from + 80);
+                from = std::max(0, from);
+            }
+            if (to > from)
+                box(dc, {p(left + from), p(top), p(left + to), p(top + 8)}, orange, orange, 8);
+            text(dc, total ? std::to_wstring(std::min<uint64_t>(100, done * 100 / total)) + L"%" : L"…", left + width + 8,
+                 targetTop + 10, 44, 22, fonts.strong, ink, DT_LEFT | DT_SINGLELINE | DT_NOPREFIX);
+        } else
+            text(dc, game ? L"Targets come from your game disc. Data from another game may need edits to work."
+                          : L"Verify your Budokai 2 ISO on the Play page to choose what an import replaces.",
+                 contentLeft + 130, targetTop + 13, content - 150, 18, fonts.caption, game ? muted : gold,
+                 DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
         const int gap = 12, field = (content - 40 - 4 * gap) / 5;
         const wchar_t *labels[] = {L"MOD", L"CONTENT", L"ACTION", L"GAME FILE", L"FIRST ENTRY"};
         for (int i = 0; i < 5; ++i)
@@ -1184,8 +1217,46 @@ struct Window {
                 entries.push_back(entryRows[size_t(row)]);
         return entries;
     }
+    // Import tool work runs on a worker thread so the window keeps
+    // responding; it reports through `progress` and finishes in timer().
+    void startModJob(Job kind, const std::wstring &label, std::function<Result(const std::shared_ptr<Progress> &)> work) {
+        if (busy() || child)
+            return;
+        activeJob = kind;
+        error = false;
+        {
+            std::lock_guard lock(progress->mutex);
+            progress->text = label;
+            progress->done = progress->total = 0;
+        }
+        std::cout << "[launcher] operation=" << int(kind) << " started" << std::endl;
+        auto updates = progress;
+        task = std::async(std::launch::async, [kind, work = std::move(work), updates] {
+            auto result = work(updates);
+            result.kind = kind;
+            return result;
+        });
+        refreshEnabled();
+    }
+    static void report(const std::shared_ptr<Progress> &progress, const std::wstring &text, uint64_t done,
+                       uint64_t total) {
+        std::lock_guard lock(progress->mutex);
+        progress->done = done;
+        progress->total = total;
+        const auto percent = total ? done * 100 / total : 100;
+        progress->text = text + L"   " + std::to_wstring(percent) + L"%";
+    }
     void loadSource(const std::filesystem::path &image) {
-        auto disc = std::make_unique<mods::SourceDisc>(image);
+        startModJob(Job::readSource, L"Reading " + image.filename().wstring() + L"…",
+                    [image](const std::shared_ptr<Progress> &) {
+                        Result result{Job::readSource};
+                        result.loaded = std::make_shared<mods::SourceDisc>(image);
+                        result.message = L"Read " + std::to_wstring(result.loaded->files().size()) +
+                                         L" files from " + image.filename().wstring() + L".";
+                        return result;
+                    });
+    }
+    void showSource(std::shared_ptr<mods::SourceDisc> disc) {
         source = std::move(disc);
         sourceRows.clear();
         auto list = controls[SourceFiles];
@@ -1201,9 +1272,7 @@ struct Window {
             sourceRows.push_back(i);
         }
         SendMessageW(list, LB_SETCURSEL, WPARAM(std::max(0, first)), 0);
-        status = L"Read " + std::to_wstring(source->files().size()) + L" files from " +
-                 image.filename().wstring() + L".";
-        error = false;
+        SetWindowTextW(controls[EntryFilter], L"");
         layout();
         fillEntries();
     }
@@ -1252,24 +1321,35 @@ struct Window {
         refreshEnabled();
     }
     void openImporter() {
-        if (!game && disc && !settings.iso.empty()) {
-            game = std::make_unique<mods::SourceDisc>(settings.iso);
-            targetFiles.clear();
-            auto files = controls[TargetFile];
-            SendMessageW(files, CB_RESETCONTENT, 0, 0);
-            for (const auto &file : game->files()) {
-                targetFiles.push_back(file.path);
-                SendMessageW(files, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(wide(file.path).c_str()));
-            }
-            const auto archive = std::find_if(game->files().begin(), game->files().end(),
-                                              [](const auto &file) { return file.archive; });
-            SendMessageW(files, CB_SETCURSEL,
-                         archive == game->files().end() ? 0 : WPARAM(archive - game->files().begin()), 0);
-            fillTargetEntries();
-        }
         page = importPage;
         refreshMods();
         layout();
+        if (game || !disc || settings.iso.empty())
+            return;
+        const auto image = settings.iso;
+        startModJob(Job::readGame, L"Reading your game disc…", [image](const std::shared_ptr<Progress> &) {
+            Result result{Job::readGame};
+            result.loaded = std::make_shared<mods::SourceDisc>(image);
+            result.message = L"Your game disc is ready. Choose a source disc to import from.";
+            return result;
+        });
+    }
+    void showGame(std::shared_ptr<mods::SourceDisc> disc) {
+        game = std::move(disc);
+        targetFiles.clear();
+        auto files = controls[TargetFile];
+        SendMessageW(files, CB_RESETCONTENT, 0, 0);
+        for (const auto &file : game->files()) {
+            targetFiles.push_back(file.path);
+            SendMessageW(files, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(wide(file.path).c_str()));
+        }
+        const auto archive =
+            std::find_if(game->files().begin(), game->files().end(), [](const auto &file) { return file.archive; });
+        SendMessageW(files, CB_SETCURSEL, archive == game->files().end() ? 0 : WPARAM(archive - game->files().begin()),
+                     0);
+        fillTargetEntries();
+        if (source)
+            fillEntries();
     }
     void fillTargetEntries() {
         auto list = controls[TargetEntry];
@@ -1324,71 +1404,120 @@ struct Window {
                                      " runs past the end. Use Add as new entries instead");
         return target;
     }
+    struct ImportItem {
+        std::optional<size_t> entry;
+        mods::ImportTarget target;
+        std::wstring name;
+    };
+    // The chosen entries with the names they keep; whole files have no entry.
+    std::vector<ImportItem> chosenItems(const mods::ImportTarget &target) {
+        std::vector<ImportItem> items;
+        const auto *file = sourceFile();
+        if (!file)
+            return items;
+        const auto &names = source->entries(file->path);
+        const auto disc = utf8(source->image().filename().wstring());
+        for (const auto entry : chosenEntries()) {
+            ImportItem item;
+            item.target = target;
+            item.target.entry = target.entry + items.size();
+            if (entry == SIZE_MAX) {
+                item.target.name = std::filesystem::path(file->path).filename().generic_string();
+                item.target.source = disc + ":" + file->path;
+            } else {
+                item.entry = entry;
+                item.target.name = names[entry].name.empty() ? "entry_" + std::to_string(entry) + ".bin" : names[entry].name;
+                item.target.source = disc + ":" + file->path + "#" + std::to_string(entry);
+            }
+            item.name = wide(item.target.name);
+            items.push_back(std::move(item));
+        }
+        return items;
+    }
     void importChosen() {
         const auto *file = sourceFile();
-        const auto entries = chosenEntries();
-        if (!file || entries.empty())
+        if (!file || chosenEntries().empty())
             return;
         const auto path = file->path;
-        auto target = importTarget(entries.size());
+        auto items = chosenItems(importTarget(chosenEntries().size()));
+        uint64_t total = 0;
+        for (const auto &item : items)
+            total += source->range(path, item.entry).size;
         const auto mod = importMod();
-        const auto &names = source->entries(path);
-        size_t n = 0;
-        for (const auto entry : entries) {
-            auto item = target;
-            if (entry == SIZE_MAX) {
-                item.name = std::filesystem::path(path).filename().string();
-                item.source = utf8(source->image().filename().wstring()) + ":" + path;
-            } else {
-                item.name = names[entry].name.empty() ? "entry_" + std::to_string(entry) + ".bin" : names[entry].name;
-                item.source = utf8(source->image().filename().wstring()) + ":" + path + "#" + std::to_string(entry);
-            }
-            item.entry = target.entry + n++;
-            mods::import_bytes(mod, item, entry == SIZE_MAX ? source->read_file(path) : source->read_entry(path, entry));
-        }
-        refreshMods();
-        status = L"Imported " + std::to_wstring(n) + (n == 1 ? L" item into " : L" items into ") +
-                 mod.filename().wstring() + L". It loads the next time the game starts.";
-        error = false;
+        startModJob(Job::importMod, L"Importing…",
+                    [disc = source, path, items, total, mod](const std::shared_ptr<Progress> &progress) {
+                        uint64_t done = 0;
+                        for (size_t i = 0; i < items.size(); ++i) {
+                            const auto text = L"Importing " + items[i].name + L" (" + std::to_wstring(i + 1) +
+                                              L" of " + std::to_wstring(items.size()) + L")";
+                            report(progress, text, done, total);
+                            mods::import_from_disc(*disc, path, items[i].entry, mod, items[i].target,
+                                                   [&](uint64_t bytes) { report(progress, text, done += bytes, total); });
+                        }
+                        Result result{Job::importMod};
+                        result.message = L"Imported " + std::to_wstring(items.size()) +
+                                         (items.size() == 1 ? L" item into " : L" items into ") +
+                                         mod.filename().wstring() + L". It loads the next time the game starts.";
+                        return result;
+                    });
     }
     void importDiskFile() {
         const auto file = choose(false, false, L"Choose a file to import");
         if (file.empty())
             return;
         auto target = importTarget(1);
+        const auto total = uint64_t(std::filesystem::file_size(file));
         const auto mod = importMod();
-        const auto written = mods::import_host_file(mod, target, file);
-        refreshMods();
-        status = L"Imported " + file.filename().wstring() + L" into " + mod.filename().wstring() + L" as " +
-                 written.filename().wstring() + L".";
-        error = false;
+        startModJob(Job::importMod, L"Importing…", [file, target, total, mod](const std::shared_ptr<Progress> &progress) {
+            const auto text = L"Importing " + file.filename().wstring();
+            uint64_t done = 0;
+            report(progress, text, 0, total);
+            const auto written = mods::import_host_file(mod, target, file,
+                                                        [&](uint64_t bytes) { report(progress, text, done += bytes, total); });
+            Result result{Job::importMod};
+            result.message = L"Imported " + file.filename().wstring() + L" into " + mod.filename().wstring() + L" as " +
+                             written.filename().wstring() + L".";
+            return result;
+        });
     }
     void extractChosen() {
         const auto *file = sourceFile();
-        const auto entries = chosenEntries();
-        if (!file || entries.empty())
+        if (!file || chosenEntries().empty())
             return;
         const auto folder = choose(true, false, L"Choose where to save the extracted files");
         if (folder.empty())
             return;
         const auto path = file->path;
-        const auto &names = source->entries(path);
-        for (const auto entry : entries) {
-            const auto bytes = entry == SIZE_MAX ? source->read_file(path) : source->read_entry(path, entry);
-            const auto name = entry == SIZE_MAX ? std::filesystem::path(path).filename().wstring()
-                                                : number(entry) + L"_" + (names[entry].name.empty() ? L"entry.bin"
-                                                                                                    : wide(names[entry].name));
-            auto safe = name;
-            for (auto &c : safe)
+        auto items = chosenItems({});
+        uint64_t total = 0;
+        for (auto &item : items) {
+            total += source->range(path, item.entry).size;
+            if (item.entry)
+                item.name = number(*item.entry) + L"_" + item.name;
+            for (auto &c : item.name)
                 if (c < 32 || std::wcschr(L"<>:\"/\\|?*", c))
                     c = L'_';
-            std::ofstream out(folder / safe, std::ios::binary | std::ios::trunc);
-            out.write(reinterpret_cast<const char *>(bytes.data()), std::streamsize(bytes.size()));
-            if (!out)
-                throw std::runtime_error("Cannot write " + utf8((folder / safe).wstring()));
         }
-        status = L"Extracted " + std::to_wstring(entries.size()) + L" items to " + folder.wstring() + L".";
-        error = false;
+        startModJob(Job::extractMod, L"Extracting…",
+                    [disc = source, path, items, total, folder](const std::shared_ptr<Progress> &progress) {
+                        uint64_t done = 0;
+                        for (size_t i = 0; i < items.size(); ++i) {
+                            const auto text = L"Extracting " + items[i].name + L" (" + std::to_wstring(i + 1) +
+                                              L" of " + std::to_wstring(items.size()) + L")";
+                            const auto output = folder / items[i].name;
+                            std::ofstream out(output, std::ios::binary | std::ios::trunc);
+                            if (!out)
+                                throw std::runtime_error("Cannot write " + utf8(output.wstring()));
+                            disc->copy(disc->range(path, items[i].entry), out,
+                                       [&](uint64_t bytes) { report(progress, text, done += bytes, total); });
+                            out.close();
+                            if (!out)
+                                throw std::runtime_error("Cannot write " + utf8(output.wstring()) + "; the disk may be full");
+                        }
+                        Result result{Job::extractMod};
+                        result.message = L"Extracted " + std::to_wstring(items.size()) + L" items to " + folder.wstring() + L".";
+                        return result;
+                    });
     }
     void start(Job kind, std::filesystem::path source = {}) {
         const bool background = kind == Job::checkUpdate || kind == Job::downloadUpdate;
@@ -1508,6 +1637,9 @@ struct Window {
                         write_settings(settings_path(), settings);
                     }
                     refreshBackups();
+                    if (result.kind == Job::readGame && result.loaded) showGame(std::move(result.loaded));
+                    if (result.kind == Job::readSource && result.loaded) showSource(std::move(result.loaded));
+                    if (result.kind == Job::importMod) refreshMods();
                     if (!closing && result.kind == Job::launch) launch();
                 }
             } catch (const std::exception &e) {
@@ -1521,6 +1653,12 @@ struct Window {
                 }
                 std::cerr << (background ? "[launcher:update-error] " : "[launcher:error] ")
                           << e.what() << std::endl;
+                if (!background && modJob(activeJob)) refreshMods();
+            } catch (...) {
+                (background ? updateStatus : status) = L"The operation failed unexpectedly. Details are in launcher.log.";
+                (background ? updateError : error) = true;
+                std::cerr << "[launcher:error] operation=" << int(background ? activeUpdateJob : activeJob)
+                          << " failed with an unknown error" << std::endl;
             }
             refreshEnabled();
         }
@@ -2125,6 +2263,14 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
     } catch (const std::exception &e) {
         self->status = wide(e.what());
         self->error = true;
+        std::cerr << "[launcher:error] " << e.what() << std::endl;
+        InvalidateRect(hwnd, nullptr, FALSE);
+        return 0;
+    } catch (...) {
+        // Nothing may escape into Windows' message dispatch, which would end the process.
+        self->status = L"The action failed unexpectedly. Details are in launcher.log.";
+        self->error = true;
+        std::cerr << "[launcher:error] message=" << message << " failed with an unknown error" << std::endl;
         InvalidateRect(hwnd, nullptr, FALSE);
         return 0;
     }

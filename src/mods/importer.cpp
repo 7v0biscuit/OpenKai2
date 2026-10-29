@@ -146,11 +146,18 @@ std::vector<uint8_t> SourceDisc::read_entry(const std::string &path, size_t inde
     return bytes;
 }
 
-fs::path import_bytes(const fs::path &mod, const ImportTarget &target, const std::vector<uint8_t> &bytes) {
+namespace {
+constexpr size_t chunk = 1u << 20;
+
+// Writes the import to a temporary file through `write`, then moves it into
+// place, so a failed or cancelled import leaves the mod as it was.
+fs::path store(const fs::path &mod, const ImportTarget &target,
+               const std::function<void(std::ostream &, const std::string &)> &write) {
     if (!fs::is_directory(mod))
         throw std::runtime_error("The mod folder does not exist: " + mod.string());
     fs::path destination;
     std::error_code error;
+    std::vector<fs::path> replaced;
     switch (target.mode) {
     case ImportTarget::Mode::File:
         destination = disc_folder(mod / "files", target.file);
@@ -161,7 +168,7 @@ fs::path import_bytes(const fs::path &mod, const ImportTarget &target, const std
             for (const auto &item : fs::directory_iterator(folder, error)) {
                 size_t index = 0;
                 if (item.is_regular_file(error) && entry_file(item.path(), index) && index == target.entry)
-                    fs::remove(item.path(), error);
+                    replaced.push_back(item.path());
             }
         destination = folder / from_utf8(pad(target.entry) + "_" + safe_name(target.name));
         break;
@@ -186,29 +193,97 @@ fs::path import_bytes(const fs::path &mod, const ImportTarget &target, const std
     }
     fs::create_directories(destination.parent_path());
     const auto temporary = fs::path(destination).concat(".tmp");
-    {
+    try {
         std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
-        out.write(reinterpret_cast<const char *>(bytes.data()), std::streamsize(bytes.size()));
         if (!out)
             throw std::runtime_error("Cannot write " + destination.string());
+        write(out, destination.string());
+        out.close();
+        if (!out)
+            throw std::runtime_error("Cannot write " + destination.string() + "; the disk may be full");
+    } catch (...) {
+        fs::remove(temporary, error);
+        throw;
     }
+    for (const auto &old : replaced)
+        if (old != destination)
+            fs::remove(old, error);
     fs::rename(temporary, destination);
     std::ofstream log(mod / "imports.txt", std::ios::app);
     log << content_name(target.kind) << '\t' << utf8(fs::relative(destination, mod)) << '\t' << target.source << '\n';
     return destination;
 }
+void check(std::ostream &out, const std::string &name) {
+    if (!out)
+        throw std::runtime_error("Cannot write " + name + "; the disk may be full");
+}
+} // namespace
 
-fs::path import_host_file(const fs::path &mod, const ImportTarget &target, const fs::path &source) {
+SourceDisc::Range SourceDisc::range(const std::string &path, std::optional<size_t> index) {
+    const auto location = locate(path);
+    if (!index)
+        return {location.offset, location.size};
+    const auto &list = entries(path);
+    if (*index >= list.size())
+        throw std::runtime_error(path + " has no entry " + std::to_string(*index));
+    const auto &entry = list[*index];
+    if (entry.offset > location.size || entry.size > location.size - entry.offset)
+        throw std::runtime_error(path + " entry " + std::to_string(*index) + " lies outside the archive");
+    return {location.offset + entry.offset, entry.size};
+}
+
+void SourceDisc::copy(const Range &range, std::ostream &out, const Progress &progress) {
+    std::vector<uint8_t> buffer(size_t(std::min<uint64_t>(range.size, chunk)));
+    for (uint64_t done = 0; done < range.size;) {
+        const auto bytes = size_t(std::min<uint64_t>(chunk, range.size - done));
+        read(range.offset + done, buffer.data(), bytes);
+        out.write(reinterpret_cast<const char *>(buffer.data()), std::streamsize(bytes));
+        if (!out)
+            throw std::runtime_error("Cannot write the copy; the disk may be full");
+        done += bytes;
+        if (progress)
+            progress(bytes);
+    }
+}
+
+fs::path import_bytes(const fs::path &mod, const ImportTarget &target, const std::vector<uint8_t> &bytes) {
+    return store(mod, target, [&](std::ostream &out, const std::string &name) {
+        out.write(reinterpret_cast<const char *>(bytes.data()), std::streamsize(bytes.size()));
+        check(out, name);
+    });
+}
+
+fs::path import_from_disc(SourceDisc &disc, const std::string &path, std::optional<size_t> entry, const fs::path &mod,
+                          const ImportTarget &target, const Progress &progress) {
+    const auto range = disc.range(path, entry);
+    return store(mod, target, [&](std::ostream &out, const std::string &) { disc.copy(range, out, progress); });
+}
+
+fs::path import_host_file(const fs::path &mod, const ImportTarget &target, const fs::path &source,
+                          const Progress &progress) {
     std::ifstream in(source, std::ios::binary);
     if (!in)
         throw std::runtime_error("Cannot open " + source.string());
-    std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     auto named = target;
     if (named.name.empty())
         named.name = utf8(source.filename());
     if (named.source.empty())
         named.source = utf8(source);
-    return import_bytes(mod, named, bytes);
+    return store(mod, named, [&](std::ostream &out, const std::string &name) {
+        std::vector<char> buffer(chunk);
+        while (in) {
+            in.read(buffer.data(), std::streamsize(buffer.size()));
+            const auto bytes = size_t(in.gcount());
+            if (!bytes)
+                break;
+            out.write(buffer.data(), std::streamsize(bytes));
+            check(out, name);
+            if (progress)
+                progress(bytes);
+        }
+        if (in.bad())
+            throw std::runtime_error("Cannot read " + source.string());
+    });
 }
 
 std::vector<ImportRecord> read_imports(const fs::path &mod) {
