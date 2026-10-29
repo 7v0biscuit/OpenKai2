@@ -26,37 +26,42 @@ read-only. The startup log lists the mods it applied, in `[mods]` lines.
 
 ## Import tool
 
-The import tool copies data from a PS2 disc, or from files of your own, into a
-mod. Reading discs, importing and extracting run in the background, with a
+The import tool copies characters from a PS2 disc, or files of your own, into
+a mod. Verify your Budokai 2 ISO on the **Play** page first: the tool opens
+with it as the source. Use **Choose ISO…** to read another disc and **Game
+disc** to go back.
+
+At the top, choose what to do: **Add a character**, **Replace a character** or
+**Copy files**. Reading discs and importing run in the background, with a
 progress bar and percentage.
 
-### Characters
+### Add or replace a character
 
-For a Budokai 2 USA disc, the tool reads the disc's own character tables and
-lists characters by name. Choosing one selects every file its record names,
-so they travel together. Then pick an action:
+1. **Choose a character** from the list on the left. The search box filters it
+   by name.
+2. On the right, choose where it goes:
+   - **Add a character**: a spot on the select screen. The character gets an
+     unused character ID and takes that spot; the screen has 29 spots, so it
+     replaces the character shown there.
+   - **Replace a character**: the character whose files it replaces, file for
+     file.
+3. Under **Save to**, keep **New mod** or pick an existing mod. A new mod is
+   named after the character.
+4. Read the sentence beside **Import**, which says what will happen, then
+   press **Import**.
 
-- **Add as new character** copies the files as new entries and fills an unused
-  character ID with them. Choose the **Select cell** the character appears in;
-  the screen has 29 cells, so it takes over that cell from the character shown
-  there. **Roster slot** shows the ID it will use.
-- **Replace a character** writes the files over another character's, file for
-  file. Files that have no counterpart are left out and counted in the result.
+Characters are read from Budokai 2 USA discs. Other discs, including Budokai
+3, can only use **Copy files**, because their character tables are not mapped
+yet.
 
-Switch the list to **All files** to work with raw archive entries instead.
-Other discs, including Budokai 3, open in the file view: their character
-tables are not mapped yet.
+### Copy files
 
-### Files
+For archives and files of any disc:
 
-Steps for the file view:
-
-1. Pick the source. **Game disc** reads your verified Budokai 2 ISO and
-   **Choose ISO…** reads any other PS2 ISO, such as Budokai 3.
-2. Pick a file on the left. For an archive, its entries are listed on the
+1. Pick a file on the left. For an archive, its entries are listed on the
    right with their numbers, names and sizes; type in the filter box to search
    them. Ctrl-click or Shift-click to choose several entries.
-3. Choose where the data goes:
+2. Choose where the data goes:
    - **Mod**: an existing mod, or **New mod** to create one named after the
      source disc.
    - **Content**: character, moveset, stage or other. This is recorded in the
@@ -68,14 +73,11 @@ Steps for the file view:
      - **Replace whole file** swaps the game file.
    - **Game file**: the archive or file on your Budokai 2 disc. When the
      source disc has a file at the same path, it is chosen for you.
-4. Click **Import selected**.
+3. Press **Import**.
 
 **Import file from disk…** imports a file you made or edited yourself, using
 the same targets. **Extract selected…** saves the chosen entries as files, so
 you can edit them in other tools and import them back.
-
-The game disc must be verified on the **Play** page before importing, because
-the targets come from it.
 
 ## Characters and the roster
 
