@@ -54,11 +54,35 @@ At the top, choose what to add: **Characters**, **Stages**, **Movesets** or
 4. Read the sentence beside **Import**, which says what will happen, then
    press **Import**. The character fills an unused character ID.
 
+### Budokai 3 models
+
+With a Budokai 3 USA disc (SLUS-20998) as the source, the list on the left
+holds Budokai 3's character models, one row per form or costume, such as
+"Goku, model 3". A model is worn by a Budokai 2 character:
+
+1. **Choose a model** on the left.
+2. On the right, **choose who wears it**: a spot whose character has the same
+   body. The new character is a copy of that character, with its moves,
+   animations and voice, wearing the Budokai 3 model in every costume.
+3. Choose **Share a spot** or **Add a new spot**, and where to save, as for
+   characters, then press **Import**.
+
+The tool compares the two models before it imports: their parts must link the
+same way, or the Budokai 2 character's animations cannot move the model. When
+they don't, the sentence beside **Import** says so and Import stays off.
+Usually the same character in both games fits, such as Budokai 3's Goku on
+Budokai 2's Goku.
+
+The model's mesh is copied as it is. Its textures are marked version 1, the
+version Budokai 2 uses; their headers match Budokai 2's exactly in every
+report so far. Budokai 3 models have not been tried in game yet: if one shows
+wrongly or the game stops, report it with `startup.log`.
+
 ### What can be imported so far
 
 | Content    | Budokai 2 | Budokai | Budokai 3 | Infinite World |
 |------------|-----------|---------|-----------|----------------|
-| Characters | Yes       | Not yet | Not yet   | Not yet        |
+| Characters | Yes       | Not yet | Models    | Not yet        |
 | Stages     | Not yet   | Not yet | Not yet   | Not yet        |
 | Movesets   | Not yet   | Not yet | Not yet   | Not yet        |
 | Capsules   | Not yet   | Not yet | Not yet   | Not yet        |
@@ -217,6 +241,8 @@ The mod system lives in `src/mods`:
 - `roster.*` reads and applies `roster.ini` and reads a disc's characters.
 - `disc_identity.*` tells which Dragon Ball game a disc holds and writes disc
   reports.
+- `budokai3.*` reads Budokai 3's character models and checks that a model fits
+  a Budokai 2 character.
 - `select_alternates.*` switches shared spots with R2.
 - `select_screen.*` holds the select-screen layout the patched code reads.
 
