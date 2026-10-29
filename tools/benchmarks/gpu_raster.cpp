@@ -4,5 +4,6 @@
 int main(int argc,char** argv){
     if(argc>1 && std::string(argv[1])=="--footprints")return openkai2::benchmark_gpu_footprints(argc>2 ? unsigned(std::stoul(argv[2])) : 10000u);
     if(argc>1 && std::string(argv[1])=="--submission")return openkai2::benchmark_gpu_submission(argc>2 ? unsigned(std::stoul(argv[2])) : 10000u);
+    if(argc>1 && std::string(argv[1])=="--gif")return openkai2::benchmark_gif_submission(argc>2 ? unsigned(std::stoul(argv[2])) : 20000u);
     return openkai2::benchmark_gpu_renderer(argc>1 ? unsigned(std::stoul(argv[1])) : 256u);
 }

@@ -116,6 +116,10 @@ struct GpuRasterBackend::Impl {
     std::array<std::vector<uint32_t>,65536> tileCommands;
     std::map<std::array<uint32_t,3>,uint32_t> paletteOffsets;
     std::array<uint32_t,5> target{},sourceKey{};Pages sourcePages;bool sourceValid=false;size_t references=0;
+    // Pages already merged into the current batch for one target and texture
+    // state, as a page-aligned pixel rectangle. A draw inside it adds no pages
+    // and raises no new hazards, so its footprint work is skipped.
+    std::array<uint32_t,12> footprintKey{};int covered[4]{};bool footprintValid=false;
     bool ready(){
         if(disabled || size!=gpu::VramBytes)return false;
         if(resources)return true;
@@ -140,6 +144,7 @@ struct GpuRasterBackend::Impl {
         });cpuDirty.reset();
     }
     void submit(){
+        footprintValid=false;
         if(commands.empty())return;
         std::vector<uint32_t> bins,refs;bins.reserve(activeTiles.size()*4u);refs.reserve(references);
         for(auto id:activeTiles){auto& list=tileCommands[id];bins.insert(bins.end(),{id&255u,id>>8u,uint32_t(refs.size()),uint32_t(list.size())});refs.insert(refs.end(),list.begin(),list.end());list.clear();}
@@ -153,6 +158,7 @@ struct GpuRasterBackend::Impl {
         });commands.clear();palette.clear();activeTiles.clear();paletteOffsets.clear();references=0u;batchWrites.reset();batchSources.reset();
     }
     void materialize(const Pages& requested){
+        footprintValid=false;
         const auto pages=gpuDirty&requested;
         if(!resources || !pages.any())return;submit();
         statistics.readbacks+=pages.count()*gpu::PageBytes;totalReadbacks.fetch_add(pages.count()*gpu::PageBytes,std::memory_order_relaxed);
@@ -200,7 +206,9 @@ struct GpuRasterBackend::Impl {
             if(t.cpsm==1u)raw&=0xffffffu;palette.push_back(textureAlpha(state.texa,t.cpsm,raw));
         }return start;
     }
-    bool encode(const GSPrimitiveBatch& batch,gpu::Command& cmd,Pages& writes,Pages& sources){
+    // Encodes into cmd, which arrives zeroed. footprint is set when the draw's
+    // pages are already part of the batch; writes and sources are then unset.
+    bool encode(const GSPrimitiveBatch& batch,uint32_t* cmd,Pages& writes,Pages& sources,bool& footprint){
         const auto& s=batch.state;const auto& c=s.context;const auto& t=c.tex0;
         const bool sprite=s.prim.type==GS_PRIM_SPRITE,point=s.prim.type==GS_PRIM_POINT;
         const bool line=s.prim.type==GS_PRIM_LINE || s.prim.type==GS_PRIM_LINESTRIP;
@@ -248,20 +256,43 @@ struct GpuRasterBackend::Impl {
         cmd[16]=t.psm;cmd[17]=t.tbp0;cmd[18]=t.tbw;cmd[19]=s.textureWidth;cmd[20]=s.textureHeight;cmd[21]=uint32_t(c.clamp);cmd[22]=uint32_t(c.clamp>>32u);cmd[23]=t.tfx;cmd[24]=t.tcc;
         cmd[25]=s.texa.ta0;cmd[26]=s.texa.ta1;cmd[27]=s.texa.aem;cmd[29]=uint32_t(s.fogR)|(uint32_t(s.fogG)<<8u)|(uint32_t(s.fogB)<<16u);
         cmd[38]=c.frame.psm;cmd[39]=flatDepth;
-        const auto frame=rectanglePages(c.frame.psm,cmd[6],width,x0,y0,unsigned(x1-x0+1),unsigned(y1-y0+1));
         const bool usesDepth=((c.test>>17u)&3u)>=2u || !c.zbuf.zmask;
+        unsigned mx=0u,my=0u;
+        if(textured){
+            const auto maximum=[](unsigned size,unsigned mode,unsigned low,unsigned high){return mode==0u || mode==1u ? size-1u : mode==2u ? std::max(low,high) : low|high;};
+            mx=maximum(s.textureWidth,c.clamp&3u,(c.clamp>>4u)&1023u,(c.clamp>>14u)&1023u);
+            my=maximum(s.textureHeight,(c.clamp>>2u)&3u,(c.clamp>>24u)&1023u,(c.clamp>>34u)&1023u);
+        }
+        const std::array<uint32_t,12> key={cmd[6],cmd[7],width,c.frame.psm,c.zbuf.psm,unsigned(usesDepth)|(unsigned(c.zbuf.zmask)<<1u)|(unsigned(textured)<<2u),
+            textured ? t.psm : 0u,textured ? t.tbp0 : 0u,textured ? t.tbw : 0u,mx,my,0u};
+        footprint=footprintValid && key==footprintKey && x0>=covered[0] && y0>=covered[1] && x1<=covered[2] && y1<=covered[3];
+        if(footprint){
+            if(sprite){
+                const auto& a=batch.vertices[0];const auto& b=batch.vertices[1];const auto q=[](float q){return std::fabs(q)>1.0e-8f ? q : 1.0f;};
+                cmd[30]=bits(s.prim.fst ? float(a.u)/16.0f : (a.s/q(a.q))*s.textureWidth);cmd[31]=bits(s.prim.fst ? float(a.v)/16.0f : (a.t/q(a.q))*s.textureHeight);
+                cmd[32]=bits(s.prim.fst ? float(b.u)/16.0f : (b.s/q(b.q))*s.textureWidth);cmd[33]=bits(s.prim.fst ? float(b.v)/16.0f : (b.t/q(b.q))*s.textureHeight);
+                cmd[34]=bits(minX);cmd[35]=bits(minY);cmd[36]=bits(maxX-minX);cmd[37]=bits(maxY-minY);
+            }return true;
+        }
+        const auto frame=rectanglePages(c.frame.psm,cmd[6],width,x0,y0,unsigned(x1-x0+1),unsigned(y1-y0+1));
         const auto depth=usesDepth ? rectanglePages(c.zbuf.psm,cmd[7],width,x0,y0,unsigned(x1-x0+1),unsigned(y1-y0+1)) : Pages{};
         if(usesDepth && (frame&depth).any())return false;writes=frame;if(!c.zbuf.zmask)writes|=depth;
         if(textured){
-            const auto maximum=[](unsigned size,unsigned mode,unsigned low,unsigned high){return mode==0u || mode==1u ? size-1u : mode==2u ? std::max(low,high) : low|high;};
-            const unsigned mx=maximum(s.textureWidth,c.clamp&3u,(c.clamp>>4u)&1023u,(c.clamp>>14u)&1023u);
-            const unsigned my=maximum(s.textureHeight,(c.clamp>>2u)&3u,(c.clamp>>24u)&1023u,(c.clamp>>34u)&1023u);
             // This footprint depends on addressing state, never texture bytes.
             // Uploads and TEXFLUSH must retain their usual data ordering.
             const std::array<uint32_t,5> key={t.psm,t.tbp0,t.tbw,mx,my};
             if(!sourceValid || sourceKey!=key){sourcePages=rectanglePages(t.psm,t.tbp0,t.tbw,0u,0u,mx+1u,my+1u);sourceKey=key;sourceValid=true;}
             sources=sourcePages;
             if((sources&writes).any())return false;
+        }
+        // Remember the page-aligned area this draw's pages cover. Unaligned
+        // bases do not map pixels to pages on a grid, so they are not cached.
+        footprintKey=key;footprintValid=(cmd[6]&31u)==0u && (!usesDepth || (cmd[7]&31u)==0u);
+        if(footprintValid){
+            const auto align=[&](unsigned psm,int* r){const int pw=int(lut[(psm&63u)*8u]),ph=int(lut[(psm&63u)*8u+1u]);
+                r[0]=std::max(r[0],x0/pw*pw);r[1]=std::max(r[1],y0/ph*ph);r[2]=std::min(r[2],(x1/pw+1)*pw-1);r[3]=std::min(r[3],(y1/ph+1)*ph-1);};
+            covered[0]=covered[1]=std::numeric_limits<int>::min();covered[2]=covered[3]=std::numeric_limits<int>::max();
+            align(c.frame.psm,covered);if(usesDepth)align(c.zbuf.psm,covered);
         }
         if(sprite){
             const auto& a=batch.vertices[0];const auto& b=batch.vertices[1];const auto q=[](float q){return std::fabs(q)>1.0e-8f ? q : 1.0f;};
@@ -283,19 +314,33 @@ void GpuRasterBackend::Initialize(uint8_t* vram,uint32_t size){
 }
 void GpuRasterBackend::Reset(){std::lock_guard lock(m->mutex);m->materialize();m->cpu.Reset();m->clut.fill(0u);m->cbp.fill(0u);++m->clutGeneration;m->cpuFrame=false;m->loadedPaletteValid=false;}
 void GpuRasterBackend::Submit(const GSPrimitiveBatch& batch){
-    std::lock_guard lock(m->mutex);gpu::Command command{};Pages writes,sources;
+    std::lock_guard lock(m->mutex);Pages writes,sources;bool footprint=false;
     if(!m->vram || !batch.vertexCount)return;
-    if(m->cpuFrame || !m->encode(batch,command,writes,sources) || !m->ready()){
-        m->loadedPaletteValid=false;
+    // Draws are encoded in place at the end of the batch.
+    const size_t at=m->commands.size();m->commands.resize(at+gpu::CommandWords);
+    if(m->cpuFrame || !m->encode(batch,m->commands.data()+at,writes,sources,footprint) || !m->ready()){
+        m->commands.resize(at);m->footprintValid=false;m->loadedPaletteValid=false;
         m->materialize();m->cpu.Submit(batch);m->cpuDirty.set();m->cpuFrame=true;++m->statistics.cpuDraws;totalCpuDraws.fetch_add(1u,std::memory_order_relaxed);return;
     }
-    ++m->statistics.gpuDraws;totalGpuDraws.fetch_add(1u,std::memory_order_relaxed);if(command[2u]>command[4u]){++m->statistics.culled;totalCulled.fetch_add(1u,std::memory_order_relaxed);return;}
-    if((writes&m->loadedPalettePages).any())m->loadedPaletteValid=false;
-    const std::array<uint32_t,5> target={command[6],command[7],command[8],command[13],command[38]};
-    if(!m->commands.empty() && (m->target!=target || (sources&m->batchWrites).any() || (writes&m->batchSources).any()))m->submit();
-    m->upload();m->target=target;
-    if((command[1]&1u) && indexed(batch.state.context.tex0.psm))command[28]=m->paletteFor(batch.state);
-    const auto index=uint32_t(m->commands.size()/gpu::CommandWords);m->commands.insert(m->commands.end(),command.begin(),command.end());
+    ++m->statistics.gpuDraws;totalGpuDraws.fetch_add(1u,std::memory_order_relaxed);
+    if(m->commands[at+2u]>m->commands[at+4u]){m->commands.resize(at);++m->statistics.culled;totalCulled.fetch_add(1u,std::memory_order_relaxed);return;}
+    if(!footprint){
+        if((writes&m->loadedPalettePages).any())m->loadedPaletteValid=false;
+        const uint32_t* encoded=m->commands.data()+at;
+        const std::array<uint32_t,5> target={encoded[6],encoded[7],encoded[8],encoded[13],encoded[38]};
+        if(at && (m->target!=target || (sources&m->batchWrites).any() || (writes&m->batchSources).any())){
+            gpu::Command pending;std::copy_n(encoded,gpu::CommandWords,pending.begin());m->commands.resize(at);
+            const auto key=m->footprintKey;const bool valid=m->footprintValid;int area[4];std::copy_n(m->covered,4,area);
+            m->submit();m->commands.insert(m->commands.end(),pending.begin(),pending.end());
+            m->footprintKey=key;m->footprintValid=valid;std::copy_n(area,4,m->covered);
+        }
+        m->target=target;
+    }
+    m->upload();
+    const size_t base=m->commands.size()-gpu::CommandWords;
+    if((m->commands[base+1u]&1u) && indexed(batch.state.context.tex0.psm))m->commands[base+28u]=m->paletteFor(batch.state);
+    const uint32_t* command=m->commands.data()+base;
+    const auto index=uint32_t(base/gpu::CommandWords);
     const auto addTile=[&](unsigned tile){auto& list=m->tileCommands[tile];if(list.empty())m->activeTiles.push_back(tile);list.push_back(index);++m->references;};
     if(command[0]==1u){
         int x=int(batch.vertices[0].x)-int(batch.state.context.xyoffset.ofx>>4u),y=int(batch.vertices[0].y)-int(batch.state.context.xyoffset.ofy>>4u);
@@ -310,11 +355,11 @@ void GpuRasterBackend::Submit(const GSPrimitiveBatch& batch){
             if(twice>=dy){error+=dy;x+=sx;}if(twice<=dx){error+=dx;y+=sy;}
         }
     }else for(unsigned y=command[3]/8u;y<=command[5]/8u;++y)for(unsigned x=command[2]/8u;x<=command[4]/8u;++x)addTile(y*256u+x);
-    m->gpuDirty|=writes;m->batchWrites|=writes;m->batchSources|=sources;
+    if(!footprint){m->gpuDirty|=writes;m->batchWrites|=writes;m->batchSources|=sources;}
     if(index>=511u || m->references>=65536u)m->submit();
 }
 void GpuRasterBackend::LoadClut(const GSTex0Reg& t,const GSTexClutReg& tc){
-    std::lock_guard lock(m->mutex);if(!m->vram)return;bool load=indexed(t.psm);
+    std::lock_guard lock(m->mutex);m->footprintValid=false;if(!m->vram)return;bool load=indexed(t.psm);
     if(t.cld==0u || t.cld>=6u)load=false;
     if(t.cld==2u)m->cbp[0]=t.cbp;if(t.cld==3u)m->cbp[1]=t.cbp;
     if(t.cld==4u || t.cld==5u){const unsigned slot=t.cld-4u;load=load && m->cbp[slot]!=t.cbp;m->cbp[slot]=t.cbp;}
@@ -399,8 +444,10 @@ bool GpuRasterBackend::ClearFramebuffer(const GSContext& c,uint32_t rgba){
         batch.vertices[0].x=float(c.scissor.x0);batch.vertices[0].y=float(c.scissor.y0);
         auto& v=batch.vertices[1];v.x=float(s.context.scissor.x1+1u);v.y=float(s.context.scissor.y1+1u);
         v.r=uint8_t(rgba);v.g=uint8_t(rgba>>8u);v.b=uint8_t(rgba>>16u);v.a=uint8_t(rgba>>24u);
-        gpu::Command command{};Pages writes,sources;
-        if(m->encode(batch,command,writes,sources) && m->ready()){Submit(batch);return true;}
+        gpu::Command command{};Pages writes,sources;bool footprint=false;
+        // This encode only probes; the probe's footprint was never merged.
+        const bool encodable=m->encode(batch,command.data(),writes,sources,footprint);m->footprintValid=false;
+        if(encodable && m->ready()){Submit(batch);return true;}
     }
     m->materialize();const bool result=m->cpu.ClearFramebuffer(c,rgba);if(result){m->cpuDirty.set();m->loadedPaletteValid=false;}return result;
 }
