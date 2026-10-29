@@ -256,7 +256,7 @@ DiscIdentity identify_disc(SourceDisc &disc) {
 std::string disc_report(SourceDisc &disc) {
     std::ostringstream out;
     const auto identity = identify_disc(disc);
-    out << "OpenKai2 disc report, version 6\n\nGame: " << game_name(identity.game) << "\nSerial: " << identity.serial
+    out << "OpenKai2 disc report, version 7\n\nGame: " << game_name(identity.game) << "\nSerial: " << identity.serial
         << "\nExecutable: " << identity.executable << "\n\nFiles:\n";
     char line[160];
     const auto hex = [&](const uint8_t *bytes, size_t count) {
@@ -379,6 +379,20 @@ std::string disc_report(SourceDisc &disc) {
                 shown.push_back(*shape);
                 out << "\n  " << character.name << ", entry " << entry << ":\n" << model_structure(disc, entry);
             }
+        }
+        // Krillin's model fits across the games; his textures and mesh blocks
+        // show how the two games' models differ inside.
+        out << "\nTextures and mesh blocks of Krillin's first models:\n";
+        unsigned listed = 0;
+        for (const auto &character : roster->characters) {
+            if (character.internal != "KULILIN" || listed >= 2)
+                continue;
+            const auto fields = roster->models ? character.files : costume_fields(disc, character);
+            for (const auto &[offset, entry] : fields)
+                if (listed < 2) {
+                    ++listed;
+                    out << "\n  " << character.name << ", entry " << entry << ":\n" << model_contents(disc, entry);
+                }
         }
     }
     std::vector<uint8_t> elf;

@@ -191,6 +191,54 @@ std::string model_structure(SourceDisc &disc, size_t entry) {
     return text;
 }
 
+std::string model_contents(SourceDisc &disc, size_t entry) {
+    const auto range = disc.range(roster_archive, entry);
+    const auto parts = model_parts(disc, range);
+    if (!parts)
+        return {};
+    std::string text;
+    char line[160];
+    const auto words = [&](const std::vector<uint8_t> &bytes) {
+        for (size_t at = 0; at + 4 <= bytes.size(); at += 4) {
+            std::snprintf(line, sizeof line, " %08X", read32(bytes, at));
+            text += line;
+        }
+    };
+    // Textures: a 32-byte header counting them at 16, offsets from 20, then a
+    // 48-byte header each whose pixels are at 20 and palette at 36, both from
+    // the start of the pack.
+    const uint64_t pack = parts->second;
+    const auto head = read_bytes(disc, range, pack, 32);
+    text += "    textures:";
+    words(head);
+    text += '\n';
+    const uint32_t count = std::min<uint32_t>(read32(head, 16), 64);
+    const auto offsets = read_bytes(disc, range, pack + read32(head, 20), size_t(count) * 4);
+    for (uint32_t i = 0; i < count && (i + 1) * 4 <= offsets.size(); ++i) {
+        const auto texture = read_bytes(disc, range, pack + read32(offsets, i * 4), 48);
+        std::snprintf(line, sizeof line, "    texture %2u:", i);
+        text += line;
+        words(texture);
+        text += "  pixels:";
+        words(read_bytes(disc, range, pack + read32(texture, 20), 32));
+        text += "  palette:";
+        words(read_bytes(disc, range, pack + read32(texture, 36), 64));
+        text += '\n';
+    }
+    // Mesh blocks: the mesh header counts them at 32 and lists their offsets
+    // from 48.
+    const auto mesh = read_bytes(disc, range, parts->first, 48);
+    const uint32_t blocks = std::min<uint32_t>(read32(mesh, 32), 64);
+    const auto list = read_bytes(disc, range, parts->first + 48, size_t(blocks) * 4);
+    for (uint32_t i = 0; i < blocks && (i + 1) * 4 <= list.size(); ++i) {
+        std::snprintf(line, sizeof line, "    block %2u at %08X:", i, read32(list, i * 4));
+        text += line;
+        words(read_bytes(disc, range, parts->first + read32(list, i * 4), 96));
+        text += '\n';
+    }
+    return text;
+}
+
 void read_model_shapes(SourceDisc &game, DiscRoster &roster) {
     for (const auto &character : roster.characters) {
         const auto costumes = costume_fields(game, character);

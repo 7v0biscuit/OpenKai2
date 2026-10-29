@@ -48,6 +48,11 @@ std::vector<uint32_t> fitting_wearers(const DiscRoster &models, uint32_t model, 
 // to the skeleton.
 std::string model_structure(SourceDisc &disc, size_t entry);
 
+// A plain-text dump of a costume model's textures and mesh blocks: each
+// texture's header with the first bytes of its pixels and palette, and the
+// first bytes of each block the mesh header lists.
+std::string model_contents(SourceDisc &disc, size_t entry);
+
 // A model entry's bytes, with Budokai 3 texture packs marked as Budokai 2's.
 std::vector<uint8_t> model_for_budokai2(SourceDisc &disc, size_t entry);
 
