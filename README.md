@@ -9,6 +9,7 @@ Native PC recompilation of **Dragon Ball Z: Budokai 2**, built with
 
 [Download for Windows](https://github.com/7v0biscuit/OpenKai2/releases)
 · [Setup and controls](docs/windows.md)
+· [Modding](docs/modding.md)
 · [Development status](docs/status.md)
 · [Report an issue](https://github.com/7v0biscuit/OpenKai2/issues/new/choose)
 
@@ -16,6 +17,8 @@ The launcher includes automatic GitHub updates with stable and prerelease channe
 verified downloads and recovery during file replacement. ISO preferences, saves
 and backups are preserved. The Saves page includes reversible character and stage
 unlocks; optional [Discord activity](docs/discord.md) follows the launcher and game.
+The Mods page layers [mods](docs/modding.md) over the ISO without changing it, and
+its import tool copies characters, movesets and stages from a PS2 ISO or your own files.
 
 ## Windows downloads
 

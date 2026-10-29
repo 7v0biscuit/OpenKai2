@@ -5,8 +5,8 @@ story sequences. Progression, performance and complete matches need validation.
 
 ## Launcher preferences
 
-The launcher has three pages: **Play**, **Saves** and **Settings**
-(Ctrl+1 to Ctrl+3). **Settings** groups display mode, resolution, aspect ratio,
+The launcher has four pages: **Play**, **Saves**, **Mods** and **Settings**
+(Ctrl+1 to Ctrl+4). **Settings** groups display mode, resolution, aspect ratio,
 frame rate cap and VSync; renderer, FXAA, texture filtering and upscaling; and
 update preferences. Lists support mouse and keyboard selection. Changes save
 automatically and apply to the next game session; an already running game keeps
@@ -20,6 +20,10 @@ save. It checks both save checksums and creates a backup before replacing the
 card. Story progress, skill inventory and other games' files are preserved.
 Restore the backup from **Backup history** to undo the change. Create a save
 in the game first; the tool does not manufacture a new game save.
+
+The **Mods** page lists installed mods in load order and opens the import
+tool, which copies characters, movesets and stages from a PS2 ISO or your own
+files into a mod. See [Modding](modding.md).
 
 **Discord activity** in the sidebar controls Rich Presence for the launcher and
 game, including a running session. It uses the Discord desktop client and the
