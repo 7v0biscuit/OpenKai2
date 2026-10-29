@@ -111,6 +111,7 @@ function(openkai2_attach_generated_sources)
         "${project_root}/tools/native/patches/iop-unaligned-loads.patch"
         "${project_root}/tools/native/patches/gs-worker-thread.patch"
         "${project_root}/tools/native/patches/vif-fill-writes.patch"
+        "${project_root}/tools/native/patches/spu2-dma-progress.patch"
         "${project_root}/tools/native/patches/simulation-pacing.patch"
         "${project_root}/tools/native/patches/vector-native-backend.patch"
         "${project_root}/tools/native/patches/guest-timing.patch"

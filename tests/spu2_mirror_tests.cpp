@@ -117,7 +117,45 @@ int main() {
         }
         const double tone = (s1 * s1 + s2 * s2 - k * s1 * s2) * 2.0 / double(left.size());
         require(total > 0.0 && tone / total > 0.95, "AutoDMA music did not play back as a clean tone");
-        std::cout << "SPU2 mirror passed: 48 kHz mixing, DMA upload, ADPCM voice key on and release, clean AutoDMA streaming.\n";
+
+        // A driver may write each block just ahead of the read position within
+        // one long transfer; the SPU2 must play what is there when it reads.
+        const auto clean = [](const std::vector<int16_t> &stereo, double hz) {
+            const double k = 2.0 * std::cos(2.0 * 3.14159265358979323846 * hz / 48000.0);
+            double s1 = 0.0, s2 = 0.0, sum = 0.0;
+            size_t count = 0;
+            for (size_t i = stereo.size() / 2u & ~size_t(1); i < stereo.size(); i += 2u, ++count) {
+                const double s = stereo[i] + k * s1 - s2;
+                s2 = s1;
+                s1 = s;
+                sum += double(stereo[i]) * stereo[i];
+            }
+            return sum > 0.0 ? (s1 * s1 + s2 * s2 - k * s1 * s2) * 2.0 / double(count) / sum : 0.0;
+        };
+        constexpr unsigned longBlocks = 32u;
+        auto *ring = reinterpret_cast<int16_t *>(iop.data() + 0x40000u);
+        std::memset(ring, 0x55, longBlocks * 1024u);
+        unsigned written = 0;
+        const auto fillBlock = [&](unsigned b) {
+            for (unsigned i = 0; i < 256u; ++i) {
+                const auto value = int16_t(12000.0 * std::sin(2.0 * 3.14159265358979323846 * 750.0 * (b * 256u + i) / 48000.0));
+                ring[b * 512u + i] = ring[b * 512u + 256u + i] = value;
+            }
+            ++written;
+        };
+        fillBlock(0);
+        fillBlock(1);
+        std::vector<int16_t> streamed;
+        openkai2::spu2::dma_write(0, 0x40000u, longBlocks * 1024u, now);
+        for (unsigned b = 0; b < longBlocks; ++b) {
+            run(256u);
+            streamed.insert(streamed.end(), out.begin(), out.end());
+            if (written < longBlocks)
+                fillBlock(written);
+        }
+        openkai2::spu2::dma_complete(0, now);
+        require(clean(streamed, 750.0) > 0.95, "AutoDMA did not play blocks written during the transfer");
+        std::cout << "SPU2 mirror passed: 48 kHz mixing, DMA upload, ADPCM voice key on and release, clean AutoDMA streaming, blocks written during a transfer.\n";
         return 0;
     } catch (const std::exception &error) {
         std::cerr << error.what() << '\n';

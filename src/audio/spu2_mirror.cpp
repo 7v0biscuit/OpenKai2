@@ -22,10 +22,11 @@ const StereoOut32 StereoOut32::Empty(0, 0);
 namespace {
 u8 *iopMemory = nullptr;
 std::vector<int16_t> mixed;
-// AutoDMA streams are read as they play, while the IOP may already refill
-// its buffer once the transfer completes. Each stream plays from a copy.
-std::array<std::array<std::vector<u16>, 4>, 2> streams;
-std::array<unsigned, 2> nextStream{};
+// AutoDMA streams are read from IOP memory as they play, as on the console,
+// so a driver may still be writing ahead of the read position. Whatever is
+// unread when the transfer completes is kept, since the driver may then
+// reuse its buffer.
+std::array<std::vector<u16>, 2> remainders;
 } // namespace
 
 u8 *iopPhysMem(u32 address) { return iopMemory ? iopMemory + (address & 0x1fffffu) : nullptr; }
@@ -77,13 +78,7 @@ void dma_write(unsigned core, uint32_t address, uint32_t bytes, uint64_t now) {
     clock(now);
     TimeUpdate(psxRegs.cycle);
     spu2DmaRegisters[core][0] = address;
-    u16 *source = reinterpret_cast<u16 *>(iopPhysMem(address));
-    if ((Cores[core].AutoDMACtrl & (core + 1u)) == core + 1u) {
-        auto &copy = streams[core][nextStream[core]++ % streams[core].size()];
-        copy.assign(source, source + bytes / 2u);
-        source = copy.data();
-    }
-    Cores[core].DoDMAwrite(source, bytes / 2u);
+    Cores[core].DoDMAwrite(reinterpret_cast<u16 *>(iopPhysMem(address)), bytes / 2u);
 }
 
 void dma_complete(unsigned core, uint64_t now) {
@@ -91,6 +86,12 @@ void dma_complete(unsigned core, uint64_t now) {
         return;
     clock(now);
     TimeUpdate(psxRegs.cycle);
+    auto &state = Cores[core];
+    if (state.AdmaInProgress && state.DMAPtr && state.InputDataLeft > 0u) {
+        auto &kept = remainders[core];
+        kept.assign(state.DMAPtr, state.DMAPtr + state.InputDataProgress + state.InputDataLeft);
+        state.DMAPtr = kept.data();
+    }
     if (Cores[core].DmaMode)
         Cores[core].Regs.STATX |= 0x80;
     Cores[core].Regs.STATX &= ~0x400;

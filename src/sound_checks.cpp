@@ -132,6 +132,17 @@ void verify_sound_registers() {
         require(memory.takeAudio().empty(),"AutoDMA read outside IOP RAM");
         memory.reset();require(memory.takeAudio().empty(),"SPU2 reset retained pending PCM");
     }
+    // While AutoDMA plays, the channel reads busy and its address advances one
+    // 1 KiB block per 256 frames, as libsd's transfer status reports it.
+    uint64_t cycles=0u;memory.setClock(&cycles);memory.reset();
+    memory.write16(0x1f9001b0u,1u);memory.write32(0x1f8010c0u,0x4000u);memory.write32(0x1f8010c4u,0x00200010u);
+    memory.write32(0x1f8010c8u,0x01000201u);(void)memory.takeDmaStart();
+    require((memory.read32(0x1f8010c8u)&0x01000000u) && memory.read32(0x1f8010c0u)==0x4400u,"AutoDMA did not read busy at its first block");
+    cycles=256u*768u;require(memory.read32(0x1f8010c0u)==0x4800u,"AutoDMA address did not advance with playback");
+    cycles=512u*768u;require(!(memory.read32(0x1f8010c8u)&0x01000000u),"AutoDMA stayed busy after its last frame");
+    memory.write32(0x1f8010c8u,0x01000201u);memory.write32(0x1f8010c8u,0u);
+    require(!(memory.read32(0x1f8010c8u)&0x01000000u),"Stopping AutoDMA left the channel busy");
+    memory.setClock(nullptr);memory.reset();
 
     auto queue=std::make_unique<StereoAudioQueue>();
     std::vector<int16_t> full((StereoAudioQueue::capacity+2u)*2u,123);
