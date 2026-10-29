@@ -10,6 +10,7 @@
 #include "launcher/version.h"
 #include "mods/importer.h"
 #include "mods/mod_library.h"
+#include "mods/roster.h"
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -35,6 +36,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <shellapi.h>
 #include <shlobj.h>
 #include <shobjidl.h>
@@ -115,7 +117,8 @@ enum Id {
     ImportSelected,
     ImportDiskFile,
     ExtractSelected,
-    CloseImporter
+    CloseImporter,
+    SourceView
 };
 // Sidebar pages, then the import tool, which opens from the Mods page.
 constexpr int pageCount = 4, modsPage = 2, settingsPage = 3, importPage = 4;
@@ -257,6 +260,7 @@ struct Result {
     std::optional<UpdateRelease> release;
     std::optional<StagedUpdate> staged;
     std::shared_ptr<mods::SourceDisc> loaded;
+    std::optional<mods::DiscRoster> roster;
 };
 struct Grid {
     int column;
@@ -293,6 +297,9 @@ struct Window {
     // The import tool reads a source disc and writes into a mod; the game
     // disc supplies the archives and entries an import can target.
     std::shared_ptr<mods::SourceDisc> source, game;
+    // Budokai 2 discs list their characters, each with its files grouped.
+    std::optional<mods::DiscRoster> sourceRoster, gameRoster;
+    bool characterView = false;
     std::vector<size_t> sourceRows, entryRows;
     std::vector<std::string> targetFiles;
     HANDLE child{};
@@ -311,7 +318,7 @@ struct Window {
     bool dropdownOpen() const {
         for (auto [id, control] : controls)
             if ((id >= Renderer && id <= Audio) || id == UpdateChannel || id == AutomaticUpdates ||
-                id == DiscordActivity || (id >= TargetMod && id <= TargetEntry))
+                id == DiscordActivity || (id >= TargetMod && id <= TargetEntry) || id == SourceView)
                 if (SendMessageW(control, CB_GETDROPPEDSTATE, 0, 0)) return true;
         return false;
     }
@@ -505,6 +512,7 @@ struct Window {
         combo(TargetMode, {L"Add as new entries", L"Replace entries", L"Replace whole file"}, 0);
         combo(TargetFile, {}, 0);
         combo(TargetEntry, {}, 0);
+        combo(SourceView, {L"Characters", L"All files"}, 0);
         list(BackupList, L"Save backups", 40, false);
         list(ModList, L"Mods", 40, false);
         list(SourceFiles, L"Source files", 30, false);
@@ -534,8 +542,9 @@ struct Window {
                                            (id != ModDown || size_t(chosenMod) + 1 < modList.size()));
         for (int id : {ModCreate, OpenImporter, SourceGame, SourceIso, ImportDiskFile})
             EnableWindow(controls[id], modding && (id != SourceGame || !settings.iso.empty()));
-        for (int id : {SourceFiles, SourceEntries, EntryFilter, TargetMod, TargetKind, TargetMode, TargetFile, TargetEntry})
-            EnableWindow(controls[id], !busy());
+        for (int id : {SourceFiles, SourceEntries, EntryFilter, SourceView, TargetMod, TargetKind, TargetMode, TargetFile,
+                       TargetEntry})
+            EnableWindow(controls[id], !busy() && (!characterView || (id != TargetKind && id != TargetEntry)));
         const bool picked = source && SendMessageW(controls[SourceEntries], LB_GETSELCOUNT, 0, 0) > 0;
         EnableWindow(controls[ImportSelected], modding && picked && game);
         EnableWindow(controls[ExtractSelected], !busy() && picked);
@@ -604,9 +613,12 @@ struct Window {
             const int entriesLeft = contentLeft + 32 + files;
             position(SourceFiles, contentLeft + 20, 248, files, listsBottom - 14 - 248);
             position(EntryFilter, entriesLeft + entries - 220 + 10, 218, 200, 20);
+            position(SourceView, contentLeft + 20 + files - 150, 212, 150, 30);
+            if (!sourceRoster)
+                ShowWindow(controls[SourceView], SW_HIDE);
             position(SourceEntries, entriesLeft, 248, entries, listsBottom - 14 - 248);
             if (!source)
-                for (int id : {SourceFiles, EntryFilter, SourceEntries})
+                for (int id : {SourceFiles, EntryFilter, SourceEntries, SourceView})
                     ShowWindow(controls[id], SW_HIDE);
             const int gap = 12, field = (content - 40 - 4 * gap) / 5;
             int x = contentLeft + 20;
@@ -869,8 +881,8 @@ struct Window {
              DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
         panelBox(dc, contentLeft, 208, right, listsBottom);
         const int files = (content - 52) * 2 / 5;
-        caps(dc, L"FILES", contentLeft + 20, 222, files);
-        caps(dc, L"ENTRIES", contentLeft + 32 + files, 222, 200);
+        caps(dc, characterView ? L"CHARACTERS" : L"FILES", contentLeft + 20, 222, files - 160);
+        caps(dc, characterView ? L"FILES" : L"ENTRIES", contentLeft + 32 + files, 222, 200);
         if (!source) {
             box(dc, {p(contentLeft + 20), p(248), p(right - 20), p(listsBottom - 14)}, field, border, 8);
             text(dc, L"Archives hold the game's characters, movesets and stages as numbered entries.",
@@ -910,7 +922,10 @@ struct Window {
                  contentLeft + 130, targetTop + 13, content - 150, 18, fonts.caption, game ? muted : gold,
                  DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
         const int gap = 12, field = (content - 40 - 4 * gap) / 5;
-        const wchar_t *labels[] = {L"MOD", L"CONTENT", L"ACTION", L"GAME FILE", L"FIRST ENTRY"};
+        const bool adding = selected(TargetMode) == 0;
+        const wchar_t *labels[] = {L"MOD", L"CONTENT", L"ACTION",
+                                   characterView ? (adding ? L"SELECT CELL" : L"CHARACTER") : L"GAME FILE",
+                                   characterView ? L"ROSTER SLOT" : L"FIRST ENTRY"};
         for (int i = 0; i < 5; ++i)
             caps(dc, labels[i], contentLeft + 20 + i * (field + gap), targetTop + 34, field);
     }
@@ -1200,6 +1215,8 @@ struct Window {
         refreshEnabled();
     }
     const mods::SourceFile *sourceFile() const {
+        if (characterView)
+            return nullptr;
         const auto row = SendMessageW(controls.at(SourceFiles), LB_GETCURSEL, 0, 0);
         return source && row >= 0 && size_t(row) < sourceRows.size() ? &source->files()[sourceRows[size_t(row)]]
                                                                       : nullptr;
@@ -1251,30 +1268,122 @@ struct Window {
                     [image](const std::shared_ptr<Progress> &) {
                         Result result{Job::readSource};
                         result.loaded = std::make_shared<mods::SourceDisc>(image);
+                        result.roster = mods::read_disc_roster(*result.loaded);
                         result.message = L"Read " + std::to_wstring(result.loaded->files().size()) +
                                          L" files from " + image.filename().wstring() + L".";
                         return result;
                     });
     }
-    void showSource(std::shared_ptr<mods::SourceDisc> disc) {
+    void showSource(std::shared_ptr<mods::SourceDisc> disc, std::optional<mods::DiscRoster> roster) {
         source = std::move(disc);
+        sourceRoster = std::move(roster);
+        characterView = sourceRoster.has_value();
+        SendMessageW(controls[SourceView], CB_SETCURSEL, characterView ? 0 : 1, 0);
+        if (!sourceRoster)
+            status += L" Characters are listed by name for Budokai 2 USA discs; this one is shown as files.";
+        SetWindowTextW(controls[EntryFilter], L"");
+        layout();
+        fillSourceList();
+    }
+    // The left list: characters by name, or the disc's files.
+    void fillSourceList() {
         sourceRows.clear();
         auto list = controls[SourceFiles];
         SendMessageW(list, LB_RESETCONTENT, 0, 0);
         int first = -1;
-        for (size_t i = 0; i < source->files().size(); ++i) {
-            const auto &file = source->files()[i];
-            const auto label = wide(file.path) + L"   ·   " +
-                               (file.archive ? std::to_wstring(file.entries) + L" entries" : bytesText(file.size));
-            SendMessageW(list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
-            if (file.archive && first < 0)
-                first = int(i);
-            sourceRows.push_back(i);
-        }
+        if (characterView) {
+            for (const auto &character : sourceRoster->characters) {
+                std::set<uint32_t> unique;
+                for (const auto &file : character.files)
+                    unique.insert(file.second);
+                const auto label = wide(character.name) + L"   ·   " + std::to_wstring(unique.size()) + L" files";
+                SendMessageW(list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
+            }
+            first = 0;
+        } else
+            for (size_t i = 0; i < source->files().size(); ++i) {
+                const auto &file = source->files()[i];
+                const auto label = wide(file.path) + L"   ·   " +
+                                   (file.archive ? std::to_wstring(file.entries) + L" entries" : bytesText(file.size));
+                SendMessageW(list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
+                if (file.archive && first < 0)
+                    first = int(i);
+                sourceRows.push_back(i);
+            }
         SendMessageW(list, LB_SETCURSEL, WPARAM(std::max(0, first)), 0);
-        SetWindowTextW(controls[EntryFilter], L"");
-        layout();
+        fillModes();
         fillEntries();
+    }
+    const mods::DiscCharacter *sourceCharacter() const {
+        const auto row = SendMessageW(controls.at(SourceFiles), LB_GETCURSEL, 0, 0);
+        return characterView && row >= 0 && size_t(row) < sourceRoster->characters.size()
+                   ? &sourceRoster->characters[size_t(row)]
+                   : nullptr;
+    }
+    // Actions depend on the view: characters are added or swapped as a whole.
+    void fillModes() {
+        auto modes = controls[TargetMode];
+        SendMessageW(modes, CB_RESETCONTENT, 0, 0);
+        for (const auto *label : characterView
+                                     ? std::vector<const wchar_t *>{L"Add as new character", L"Replace a character"}
+                                     : std::vector<const wchar_t *>{L"Add as new entries", L"Replace entries",
+                                                                    L"Replace whole file"})
+            SendMessageW(modes, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label));
+        SendMessageW(modes, CB_SETCURSEL, 0, 0);
+        if (characterView)
+            SendMessageW(controls[TargetKind], CB_SETCURSEL, 0, 0);
+        fillTargets();
+    }
+    void fillTargets() {
+        if (!characterView) {
+            auto files = controls[TargetFile];
+            const auto keep = SendMessageW(files, CB_GETCURSEL, 0, 0);
+            SendMessageW(files, CB_RESETCONTENT, 0, 0);
+            for (const auto &file : targetFiles)
+                SendMessageW(files, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(wide(file).c_str()));
+            int choice = keep >= 0 && size_t(keep) < targetFiles.size() ? int(keep) : -1;
+            if (choice < 0 && game)
+                for (size_t i = 0; i < game->files().size() && choice < 0; ++i)
+                    if (game->files()[i].archive)
+                        choice = int(i);
+            SendMessageW(files, CB_SETCURSEL, std::max(0, choice), 0);
+            fillTargetEntries();
+            return;
+        }
+        auto targets = controls[TargetFile];
+        SendMessageW(targets, CB_RESETCONTENT, 0, 0);
+        const auto *character = sourceCharacter();
+        int choice = 0;
+        if (gameRoster && selected(TargetMode) == 0) {
+            // The grid has 29 cells; a new character takes one over.
+            for (uint32_t cell = 0; cell < mods::roster_select_cells; ++cell) {
+                const auto *occupant = gameRoster->find(gameRoster->grid[cell]);
+                const auto label = L"Cell " + std::to_wstring(cell + 1) + L"   ·   " +
+                                   (occupant ? wide(occupant->name) : std::wstring(L"empty"));
+                SendMessageW(targets, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
+            }
+        } else if (gameRoster) {
+            for (size_t i = 0; i < gameRoster->characters.size(); ++i) {
+                SendMessageW(targets, CB_ADDSTRING, 0,
+                             reinterpret_cast<LPARAM>(wide(gameRoster->characters[i].name).c_str()));
+                if (character && gameRoster->characters[i].id == character->id)
+                    choice = int(i);
+            }
+        }
+        SendMessageW(targets, CB_SETCURSEL, choice, 0);
+        auto slot = controls[TargetEntry];
+        SendMessageW(slot, CB_RESETCONTENT, 0, 0);
+        std::wstring label = L"Its own";
+        if (selected(TargetMode) == 0) {
+            std::vector<std::filesystem::path> folders;
+            for (const auto &mod : modList)
+                folders.push_back(mod.folder);
+            const auto free = mods::free_roster_slot(mods::roster_slots_in_use(folders));
+            label = free ? L"ID " + std::to_wstring(*free) + L" (unused)" : L"None left";
+        }
+        SendMessageW(slot, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
+        SendMessageW(slot, CB_SETCURSEL, 0, 0);
+        InvalidateRect(hwnd, nullptr, FALSE);
     }
     void fillEntries() {
         entryRows.clear();
@@ -1284,6 +1393,27 @@ struct Window {
         const auto *file = sourceFile();
         std::wstring filter = textOf(EntryFilter);
         std::transform(filter.begin(), filter.end(), filter.begin(), ::towlower);
+        if (const auto *character = sourceCharacter()) {
+            // Every file the character's record names, all chosen, so they
+            // travel together.
+            const auto &entries = source->entries(mods::roster_archive);
+            std::set<uint32_t> seen;
+            for (const auto &[offset, entry] : character->files) {
+                if (!seen.insert(entry).second || entry >= entries.size())
+                    continue;
+                const auto label = number(entry) + L"   " +
+                                   (entries[entry].name.empty() ? L"DATA_CMN entry" : wide(entries[entry].name)) +
+                                   L"   ·   " + bytesText(entries[entry].size);
+                entryRows.push_back(entry);
+                SendMessageW(list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
+            }
+            SendMessageW(list, LB_SETSEL, TRUE, -1);
+            SendMessageW(list, WM_SETREDRAW, TRUE, 0);
+            InvalidateRect(list, nullptr, TRUE);
+            fillTargets();
+            refreshEnabled();
+            return;
+        }
         if (file && !file->archive) {
             entryRows.push_back(SIZE_MAX);
             const auto label = L"Whole file   ·   " + bytesText(file->size);
@@ -1330,24 +1460,18 @@ struct Window {
         startModJob(Job::readGame, L"Reading your game disc…", [image](const std::shared_ptr<Progress> &) {
             Result result{Job::readGame};
             result.loaded = std::make_shared<mods::SourceDisc>(image);
+            result.roster = mods::read_disc_roster(*result.loaded);
             result.message = L"Your game disc is ready. Choose a source disc to import from.";
             return result;
         });
     }
-    void showGame(std::shared_ptr<mods::SourceDisc> disc) {
+    void showGame(std::shared_ptr<mods::SourceDisc> disc, std::optional<mods::DiscRoster> roster) {
         game = std::move(disc);
+        gameRoster = std::move(roster);
         targetFiles.clear();
-        auto files = controls[TargetFile];
-        SendMessageW(files, CB_RESETCONTENT, 0, 0);
-        for (const auto &file : game->files()) {
+        for (const auto &file : game->files())
             targetFiles.push_back(file.path);
-            SendMessageW(files, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(wide(file.path).c_str()));
-        }
-        const auto archive =
-            std::find_if(game->files().begin(), game->files().end(), [](const auto &file) { return file.archive; });
-        SendMessageW(files, CB_SETCURSEL, archive == game->files().end() ? 0 : WPARAM(archive - game->files().begin()),
-                     0);
-        fillTargetEntries();
+        fillTargets();
         if (source)
             fillEntries();
     }
@@ -1434,7 +1558,128 @@ struct Window {
         }
         return items;
     }
+    // Adds the chosen files as new DATA_CMN entries and a roster.ini section
+    // that fills an unused character ID with them, or swaps them into an
+    // existing character field by field.
+    void importCharacter() {
+        const auto *character = sourceCharacter();
+        const auto chosen = chosenEntries();
+        if (!character || chosen.empty())
+            return;
+        if (!game || !gameRoster)
+            throw std::runtime_error("Verify your Budokai 2 ISO on the Play page before importing characters");
+        const bool adding = selected(TargetMode) == 0;
+        const int pick = std::max(0, selected(TargetFile));
+        const std::set<size_t> wanted(chosen.begin(), chosen.end());
+        const auto &names = source->entries(mods::roster_archive);
+        const auto disc = utf8(source->image().filename().wstring());
+        std::string stem = character->name;
+        for (auto &c : stem)
+            c = std::isalnum(static_cast<unsigned char>(c)) ? char(std::tolower(static_cast<unsigned char>(c))) : '_';
+        std::vector<ImportItem> items;
+        std::map<uint32_t, size_t> itemFor; // source entry -> item
+        std::wstring summary;
+        size_t skipped = 0;
+        mods::RosterCharacter added;
+        if (adding) {
+            std::vector<std::filesystem::path> folders;
+            for (const auto &mod : modList)
+                folders.push_back(mod.folder);
+            const auto slot = mods::free_roster_slot(mods::roster_slots_in_use(folders));
+            if (!slot)
+                throw std::runtime_error("Every unused character ID is already filled by a mod");
+            added.slot = *slot;
+            added.base = character->id;
+            added.name = character->internal;
+            added.select_cell = uint32_t(pick);
+            for (const auto entry : chosen) {
+                ImportItem item;
+                item.entry = entry;
+                item.target.mode = mods::ImportTarget::Mode::NewEntry;
+                item.target.file = mods::roster_archive;
+                item.target.kind = mods::ContentKind::Character;
+                item.target.name = stem + "_" + std::to_string(entry) + ".bin";
+                item.target.source = disc + ":" + mods::roster_archive + "#" + std::to_string(entry);
+                item.name = wide(names[entry].name.empty() ? item.target.name : names[entry].name);
+                itemFor[uint32_t(entry)] = items.size();
+                items.push_back(std::move(item));
+            }
+            const auto *occupant = gameRoster->find(gameRoster->grid[size_t(pick)]);
+            summary = L"Added " + wide(character->name) + L" as character ID " + std::to_wstring(added.slot) +
+                      L" in select cell " + std::to_wstring(pick + 1) +
+                      (occupant ? L", which showed " + wide(occupant->name) : std::wstring()) + L".";
+        } else {
+            if (size_t(pick) >= gameRoster->characters.size())
+                throw std::runtime_error("Choose the character to replace");
+            const auto &target = gameRoster->characters[size_t(pick)];
+            std::map<uint32_t, uint32_t> destination; // target entry -> source entry
+            for (const auto &[offset, entry] : character->files) {
+                if (!wanted.count(entry))
+                    continue;
+                const auto match = std::find_if(target.files.begin(), target.files.end(),
+                                                [&](const auto &file) { return file.first == offset; });
+                if (match == target.files.end())
+                    ++skipped;
+                else
+                    destination.emplace(match->second, entry);
+            }
+            if (destination.empty())
+                throw std::runtime_error(target.name + " has no files in the places " + character->name + "'s use");
+            for (const auto &[to, from] : destination) {
+                ImportItem item;
+                item.entry = from;
+                item.target.mode = mods::ImportTarget::Mode::Entry;
+                item.target.file = mods::roster_archive;
+                item.target.entry = to;
+                item.target.kind = mods::ContentKind::Character;
+                item.target.name = stem + "_" + std::to_string(from) + ".bin";
+                item.target.source = disc + ":" + mods::roster_archive + "#" + std::to_string(from);
+                item.name = wide(names[from].name.empty() ? item.target.name : names[from].name);
+                items.push_back(std::move(item));
+            }
+            summary = L"Replaced " + wide(target.name) + L" with " + wide(character->name) + L"'s files (" +
+                      std::to_wstring(items.size()) + L" files" +
+                      (skipped ? L"; " + std::to_wstring(skipped) + L" had no matching place and were left out" : L"") +
+                      L").";
+        }
+        uint64_t total = 0;
+        for (const auto &item : items)
+            total += source->range(mods::roster_archive, item.entry).size;
+        const auto mod = importMod();
+        const auto files = character->files;
+        startModJob(Job::importMod, L"Importing…",
+                    [disc = source, items, itemFor, total, mod, adding, added, files, wanted,
+                     summary](const std::shared_ptr<Progress> &progress) {
+                        uint64_t done = 0;
+                        std::vector<std::string> written(items.size());
+                        for (size_t i = 0; i < items.size(); ++i) {
+                            const auto text = L"Importing " + items[i].name + L" (" + std::to_wstring(i + 1) +
+                                              L" of " + std::to_wstring(items.size()) + L")";
+                            report(progress, text, done, total);
+                            written[i] = mods::import_from_disc(*disc, mods::roster_archive, items[i].entry, mod,
+                                                                items[i].target,
+                                                                [&](uint64_t bytes) { report(progress, text, done += bytes, total); })
+                                             .filename()
+                                             .string();
+                        }
+                        if (adding) {
+                            // Fields keep the base character's files unless a chosen file replaces them.
+                            std::vector<std::pair<uint32_t, std::string>> fields;
+                            for (const auto &[offset, entry] : files)
+                                if (wanted.count(entry))
+                                    fields.push_back({offset, "add:" + written[itemFor.at(entry)]});
+                            mods::append_roster(mod, added, fields);
+                        }
+                        Result result{Job::importMod};
+                        result.message = summary + L" It loads the next time the game starts.";
+                        return result;
+                    });
+    }
     void importChosen() {
+        if (characterView) {
+            importCharacter();
+            return;
+        }
         const auto *file = sourceFile();
         if (!file || chosenEntries().empty())
             return;
@@ -1637,8 +1882,8 @@ struct Window {
                         write_settings(settings_path(), settings);
                     }
                     refreshBackups();
-                    if (result.kind == Job::readGame && result.loaded) showGame(std::move(result.loaded));
-                    if (result.kind == Job::readSource && result.loaded) showSource(std::move(result.loaded));
+                    if (result.kind == Job::readGame && result.loaded) showGame(std::move(result.loaded), std::move(result.roster));
+                    if (result.kind == Job::readSource && result.loaded) showSource(std::move(result.loaded), std::move(result.roster));
                     if (result.kind == Job::importMod) refreshMods();
                     if (!closing && result.kind == Job::launch) launch();
                 }
@@ -1931,6 +2176,19 @@ struct Window {
         if (id == SourceFiles && notification == LBN_SELCHANGE) {
             SetWindowTextW(controls[EntryFilter], L"");
             fillEntries();
+            return;
+        }
+        if (id == SourceView && notification == CBN_SELCHANGE) {
+            characterView = sourceRoster && selected(SourceView) == 0;
+            SetWindowTextW(controls[EntryFilter], L"");
+            fillSourceList();
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return;
+        }
+        if (id == TargetMode && notification == CBN_SELCHANGE) {
+            if (characterView)
+                fillTargets();
+            InvalidateRect(hwnd, nullptr, FALSE);
             return;
         }
         if (id == SourceEntries && notification == LBN_SELCHANGE) {

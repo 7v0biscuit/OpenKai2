@@ -124,10 +124,26 @@ std::optional<DiscRoster> read_disc_roster(SourceDisc &disc) {
     return roster;
 }
 
-std::optional<uint32_t> free_roster_slot(const std::vector<RosterCharacter> &taken) {
+std::vector<uint32_t> roster_slots_in_use(const std::vector<fs::path> &mods) {
+    std::vector<uint32_t> slots;
+    for (const auto &mod : mods) {
+        std::ifstream in(mod / "roster.ini");
+        for (std::string line; std::getline(in, line);) {
+            const auto equals = line.find('=');
+            if (equals == std::string::npos || lower(trim(line.substr(0, equals))) != "slot")
+                continue;
+            try {
+                slots.push_back(uint32_t(std::stoul(trim(line.substr(equals + 1)), nullptr, 0)));
+            } catch (const std::exception &) {
+            }
+        }
+    }
+    return slots;
+}
+
+std::optional<uint32_t> free_roster_slot(const std::vector<uint32_t> &taken) {
     for (uint32_t id = 0; id < roster_count; ++id)
-        if (roster_slot_unused(id) &&
-            std::none_of(taken.begin(), taken.end(), [&](const auto &character) { return character.slot == id; }))
+        if (roster_slot_unused(id) && std::find(taken.begin(), taken.end(), id) == taken.end())
             return id;
     return std::nullopt;
 }

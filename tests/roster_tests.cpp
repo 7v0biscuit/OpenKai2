@@ -112,7 +112,7 @@ int main() {
         auto characters = load_roster({mod}, overlay);
         require(characters.size() == 1 && characters[0].fields.size() == 2 && characters[0].fields[0].value == 300,
                 "add: was not resolved to the added entry");
-        require(free_roster_slot(characters) == 13u, "A filled slot was offered again");
+        require(free_roster_slot(roster_slots_in_use({mod})) == 13u, "A filled slot was offered again");
 
         auto memory = memory_image();
         const auto log = apply_roster(memory.data(), memory.size(), characters);

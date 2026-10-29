@@ -12,9 +12,8 @@
 // The USA executable keeps the roster in its data segment:
 //
 //   0x389D40  53 character records of 712 bytes, indexed by character ID. A
-//             record starts with a 32-byte name; several u32 fields hold the
-//             DATA_CMN.AFS entries of the character's models, animations and
-//             select-screen art (see docs/modding.md for the offsets).
+//             record starts with a 32-byte name; u32 fields from 0x74 to
+//             0x1E0 hold the character's DATA_CMN.AFS entries.
 //   0x3A4140  the character select grid: one character ID per cell. The
 //             screen has 30 cells; cell 29 is Random (ID 0x3F).
 //
@@ -51,8 +50,7 @@ struct RosterCharacter {
     std::optional<uint32_t> select_cell;
 };
 
-// Record fields that hold DATA_CMN entries: models, animations and
-// select-screen art. Unused fields hold 0 or -1.
+// Record fields that hold DATA_CMN entries; unused ones hold 0 or -1.
 inline constexpr uint32_t roster_files_begin = 0x74u, roster_files_end = 0x1E4u;
 
 struct DiscCharacter {
@@ -73,8 +71,11 @@ std::string roster_display_name(const std::string &internal);
 // Reads the roster from a disc's own executable. Nothing when the disc is
 // not Budokai 2 USA, whose table layout is the only one mapped so far.
 std::optional<DiscRoster> read_disc_roster(SourceDisc &disc);
-// The lowest unused ID that no character in `taken` already fills.
-std::optional<uint32_t> free_roster_slot(const std::vector<RosterCharacter> &taken);
+// The slots that the mods' roster.ini files fill, read without resolving
+// their values, so a broken file elsewhere does not hide a slot.
+std::vector<uint32_t> roster_slots_in_use(const std::vector<std::filesystem::path> &mods);
+// The lowest unused ID that is not in `taken`.
+std::optional<uint32_t> free_roster_slot(const std::vector<uint32_t> &taken);
 // Adds a [character] section to the mod's roster.ini.
 void append_roster(const std::filesystem::path &mod, const RosterCharacter &character,
                    const std::vector<std::pair<uint32_t, std::string>> &files);
