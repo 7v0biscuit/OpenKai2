@@ -285,10 +285,17 @@ int main() {
                 };
                 for(int id=181;id<=188;++id) inside(id,"A mods control is clipped at the minimum window size");
                 click(w,188);
-                for(int id : {200,201,205,206,207,208,209,210,211,212,213})
+                // Character tasks show only the task, source, save target and Import.
+                for(int id : {200,201,205,210,213,214,215,216})
                     inside(id,"An import tool control is clipped at the minimum window size");
+                require(!IsWindowVisible(GetDlgItem(w,207)) && !IsWindowVisible(GetDlgItem(w,203)),
+                        "Archive controls were shown for a character task");
                 require(!IsWindowEnabled(GetDlgItem(w,210)) && !IsWindowEnabled(GetDlgItem(w,200)),
                         "Importing was enabled without a source and a verified disc");
+                click(w,216);
+                for(int id : {205,206,207,208,209,210,211,212})
+                    inside(id,"A Copy files control is clipped at the minimum window size");
+                click(w,214);
                 click(w,213);
                 require(IsWindowVisible(GetDlgItem(w,180))!=FALSE,"Back to mods did not return to the mods page");
             } catch (...) { failure=std::current_exception(); }
