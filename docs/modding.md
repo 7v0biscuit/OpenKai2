@@ -68,10 +68,19 @@ executable, and those tables have to be mapped before the tool can read them.
 Budokai 2's character table is mapped. For the rest, **Save disc report…**
 writes `%LOCALAPPDATA%\OpenKai2\mods\reports\<serial>.txt`. The report lists
 the disc's files and archives, the character tables found in its executable
-with the fields that look like file numbers, and the first 16 bytes of archive
-entries, so the file formats can be compared with Budokai 2's. It holds no game
-data beyond names, numbers and those first bytes. Send it to have that game
-mapped.
+with the fields that look like file numbers, every character name with its
+address, and the first 32 bytes of every archive entry (24 entries for sound
+archives), so the file formats can be compared with Budokai 2's. It holds no
+game data beyond names, numbers and those first bytes. Send it to have that
+game mapped.
+
+Budokai 3 keeps its character names in a list of their own, not in each
+record, so the report also follows the words that point at each name to find
+the records. A Budokai 3 report showed that its archives are the same AFS
+format as Budokai 2's (`DATA_CMN.AFS`, `DATA_USA.AFS`, `ADX_USA.AFS`), that its
+sound is CRI ADX like Budokai 2's, and that its data files are packed in
+`#AMB`, `#AMK` and `#SKA` containers. A report from a Budokai 2 disc shows
+whether Budokai 2's files use the same containers.
 
 Data from another game is not converted. Budokai 3 and Infinite World use a
 newer version of the engine, and their files may need converting before
