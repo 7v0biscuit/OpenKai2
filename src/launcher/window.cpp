@@ -522,7 +522,7 @@ struct Window {
         combo(TargetMode, {L"Add as new entries", L"Replace entries", L"Replace whole file"}, 0);
         combo(TargetFile, {}, 0);
         combo(TargetEntry, {}, 0);
-        combo(SpotMode, {L"Share the spot (R2 switches)", L"Take over the spot"}, 0);
+        combo(SpotMode, {L"Share the spot (R2 switches)", L"Take over the spot", L"Add a new spot (experimental)"}, 0);
         list(BackupList, L"Save backups", 40, false);
         list(ModList, L"Mods", 40, false);
         list(SourceFiles, L"Source files", 30, false);
@@ -919,7 +919,9 @@ struct Window {
         if (characterTask()) {
             const int half = (content - 52) / 2;
             caps(dc, L"1   CHOOSE A CHARACTER", contentLeft + 20, 278, half - 200, orange);
-            caps(dc, importTask == Task::add ? L"2   CHOOSE A SPOT ON THE SELECT SCREEN" : L"2   CHOOSE WHO TO REPLACE",
+            caps(dc, importTask == Task::replace   ? L"2   CHOOSE WHO TO REPLACE"
+                     : selected(SpotMode) == 2 ? L"2   CHOOSE WHOSE PORTRAIT THE NEW SPOT USES"
+                                               : L"2   CHOOSE A SPOT ON THE SELECT SCREEN",
                  contentLeft + 32 + half, 278, content - 52 - half, orange);
             if (!disc)
                 placeholder(L"Verify your Budokai 2 ISO on the Play page first. The import tool needs it.");
@@ -994,6 +996,10 @@ struct Window {
                                                                          : std::wstring(L"Saved as a new mod.");
         if (importTask == Task::add) {
             const auto *occupant = gameRoster->find(gameRoster->grid[size_t(row)]);
+            if (selected(SpotMode) == 2)
+                return wide(character->name) + L" gets a new character slot and a new spot of its own before Random, "
+                       L"showing " + (occupant ? wide(occupant->name) + L"'s" : std::wstring(L"spot ") + std::to_wstring(row + 1) + L"'s") +
+                       L" portrait. This changes the select screen's code; report anything odd. " + into;
             if (selected(SpotMode) == 0)
                 return wide(character->name) + L" gets a new character slot and shares spot " + std::to_wstring(row + 1) +
                        (occupant ? L" with " + wide(occupant->name) : L"") +
@@ -1679,8 +1685,11 @@ struct Window {
             added.slot = *slot;
             added.base = character->id;
             added.name = character->internal;
-            const bool sharing = selected(SpotMode) == 0;
-            if (sharing)
+            const bool sharing = selected(SpotMode) == 0, newSpot = selected(SpotMode) == 2;
+            if (newSpot) {
+                added.new_cell = true;
+                added.icon_cell = uint32_t(pick);
+            } else if (sharing)
                 added.alternate_cells.push_back(uint32_t(pick));
             else
                 added.select_cell = uint32_t(pick);
@@ -1697,11 +1706,15 @@ struct Window {
                 items.push_back(std::move(item));
             }
             const auto *occupant = gameRoster->find(gameRoster->grid[size_t(pick)]);
-            summary = L"Added " + wide(character->name) + (sharing ? L", sharing spot " : L" to spot ") +
-                      std::to_wstring(pick + 1) +
-                      (occupant ? (sharing ? L" with " : L" in place of ") + wide(occupant->name) : std::wstring()) +
-                      L" (character ID " + std::to_wstring(added.slot) + L")." +
-                      (sharing ? L" Press R2 on that spot to switch." : L"");
+            if (newSpot)
+                summary = L"Added " + wide(character->name) + L" with a new spot of its own (character ID " +
+                          std::to_wstring(added.slot) + L").";
+            else
+                summary = L"Added " + wide(character->name) + (sharing ? L", sharing spot " : L" to spot ") +
+                          std::to_wstring(pick + 1) +
+                          (occupant ? (sharing ? L" with " : L" in place of ") + wide(occupant->name) : std::wstring()) +
+                          L" (character ID " + std::to_wstring(added.slot) + L")." +
+                          (sharing ? L" Press R2 on that spot to switch." : L"");
         } else {
             if (size_t(pick) >= gameRoster->characters.size())
                 throw std::runtime_error("Choose the character to replace");
