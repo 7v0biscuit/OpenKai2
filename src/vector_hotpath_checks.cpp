@@ -370,11 +370,30 @@ void verify_vif_unpack_lanes(){
             throw std::runtime_error("V3 unpack did not take W from the next element");
         if(c!=std::array<uint32_t,4>{8u,16u,248u,128u})throw std::runtime_error("V4-5 unpack did not widen its fields");
     }
+    // CL=1, WL=2 without a mask: each fill cycle repeats the next source vector,
+    // and the last one, with no source left, takes the row.
+    std::vector<uint8_t> fill;
+    append(fill,0x30000000u);for(uint32_t v:{90u,91u,92u,93u})append(fill,v); // STROW
+    append(fill,0x01000201u);append(fill,(0x6cu<<24u)|(4u<<16u)|40u); // STCYCL 1,2; V4-32 x4 at 40
+    for(uint32_t v:{1u,2u,3u,4u,5u,6u,7u,8u})append(fill,v);
+    // MODE 3 latches the data as the row, which MODE 1 then adds.
+    append(fill,0x01000101u);append(fill,0x05000003u);append(fill,(0x6cu<<24u)|(1u<<16u)|50u);
+    for(uint32_t v:{9u,9u,9u,9u})append(fill,v);
+    append(fill,0x05000001u);append(fill,(0x6cu<<24u)|(1u<<16u)|51u);
+    for(uint32_t v:{1u,2u,3u,4u})append(fill,v);
+    append(fill,0x05000000u);
+    m->processVIF1Data(fill.data(),unsigned(fill.size()));
+    const std::array<uint32_t,4> first{1u,2u,3u,4u},second{5u,6u,7u,8u};
+    if(lanes(40u)!=first || lanes(41u)!=second || lanes(42u)!=second || lanes(43u)!=std::array<uint32_t,4>{90u,91u,92u,93u})
+        throw std::runtime_error("Fill-mode unpack did not repeat the next source vector");
+    if(lanes(50u)!=std::array<uint32_t,4>{9u,9u,9u,9u} || lanes(51u)!=std::array<uint32_t,4>{10u,11u,12u,13u})
+        throw std::runtime_error("MODE 3 unpack did not latch its data as the row");
 }
 void verify_vif_unpack(){
     verify_vif_unpack_lanes();
-    // Recorded after V2, V3 and V4-5 unpacks gained their console lane values.
-    constexpr uint64_t expected[8]={0x8e8827894e9ecd8dull,0x5d63ebe44d7b58a9ull,0x0d7358bc27679521ull,0xb4f4a0be8aaa9c32ull,0x9ff9c9c7816202d0ull,0x1fb904fd9ef2055dull,0x18f4348b003bfe6dull,0x781863fc6ff3da05ull};
+    // Recorded after V2, V3 and V4-5 unpacks gained their console lane values,
+    // and MODE 3 (group 1) and fill cycles (group 5) followed PCSX2.
+    constexpr uint64_t expected[8]={0x8e8827894e9ecd8dull,0x62aa12fcebce8d21ull,0x0d7358bc27679521ull,0xb4f4a0be8aaa9c32ull,0x9ff9c9c7816202d0ull,0xd695de83a68d9839ull,0x18f4348b003bfe6dull,0x781863fc6ff3da05ull};
     for(unsigned group=0;group<8u;++group)if(unpack_workload(group,1u).hash!=expected[group])throw std::runtime_error("VIF unpack reference mismatch: "+std::to_string(group));
 }
 }

@@ -1,0 +1,37 @@
+--- a/runtime/ps2_vif1_interpreter.cpp
++++ b/runtime/ps2_vif1_interpreter.cpp
+@@ -662,7 +662,7 @@
+                 const auto sourceAddress = reinterpret_cast<uintptr_t>(srcBase);
+                 const auto dataAddress = reinterpret_cast<uintptr_t>(m_vu1Data);
+                 const bool separate = sourceAddress + totalBytes <= dataAddress || dataAddress + PS2_VU1_DATA_SIZE <= sourceAddress;
+-                if (!maskEnable && (vif1_regs.mode == 0u || vif1_regs.mode == 3u) && cl == wl && vl < 3u && separate)
++                if (!maskEnable && vif1_regs.mode == 0u && cl == wl && vl < 3u && separate)
+                 {
+                     if (zeroExtend) unpackContiguousFormat<true>(m_vu1Data, srcBase, vuAddr, writeVectorCount, (vn << 2u) | vl, data + sizeBytes);
+                     else unpackContiguousFormat<false>(m_vu1Data, srcBase, vuAddr, writeVectorCount, (vn << 2u) | vl, data + sizeBytes);
+@@ -705,6 +705,13 @@
+                         ++srcIndex;
+                         decoded = true;
+                     }
++                    else if (!sourceAvailable && srcIndex < sourceVectorCount)
++                    {
++                        // Fill cycles read no input; fields that select data
++                        // repeat the next source vector, as PCSX2 does.
++                        srcVec = srcBase + srcIndex * bytesPerVector;
++                        decoded = true;
++                    }
+ 
+                     auto extend16 = [&](uint16_t raw) -> uint32_t
+                     {
+@@ -859,6 +866,11 @@
+                                     if (mode == 2u)
+                                         vif1_regs.row[field] = writeVal;
+                                 }
++                                else if (canAdd && mode == 3u)
++                                {
++                                    // MODE 3 writes the data and also latches it as the row.
++                                    vif1_regs.row[field] = writeVal;
++                                }
+                             }
+                         }
+                         else if (maskSpec == 1u)

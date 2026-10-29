@@ -157,7 +157,8 @@ def main():
                       patches / 'spu2-mirror.patch',
                       patches / 'vif-unpack-lanes.patch',
                       patches / 'iop-unaligned-loads.patch',
-                      patches / 'gs-worker-thread.patch'):
+                      patches / 'gs-worker-thread.patch',
+                      patches / 'vif-fill-writes.patch'):
             apply_overlay_patch(temporary, patch)
         for source in temporary.rglob('*'):
             if source.is_file():
