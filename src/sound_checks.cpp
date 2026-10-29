@@ -77,6 +77,28 @@ void verify_sound_registers() {
         require(cpu.executeInstruction(state) && !state.exception, "SPU2 guest regression raised an exception");
     require(state.pc == 0x4000u && state.gpr[3] == 1u, "IOP sound initialization did not leave its status poll");
 
+    // Sound drivers read packed stream data with LWL/LWR pairs; the second
+    // load merges into the first while it is still in its delay slot.
+    const uint8_t packed[] = {0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18};
+    const uint32_t unaligned[] = {
+        0x34083000u, // ori t0, zero, 0x3000
+        0x89090004u, // lwl t1, 4(t0)
+        0x99090001u, // lwr t1, 1(t0)
+        0x00000000u, // load delay
+        0x01205021u, // addu t2, t1, zero
+        0x03E00008u, // jr ra
+        0x00000000u,
+    };
+    require(memory.writeRam(0x3000u, packed, sizeof(packed)) && memory.writeRam(0x2000u, unaligned, sizeof(unaligned)),
+            "Cannot write unaligned load regression");
+    state = {};
+    state.pc = 0x2000u;
+    state.gpr[9] = 0xDEADBEEFu;
+    state.gpr[31] = 0x4000u;
+    for (unsigned steps = 0; steps < 20u && state.pc != 0x4000u; ++steps)
+        require(cpu.executeInstruction(state) && !state.exception, "Unaligned load regression raised an exception");
+    require(state.gpr[10] == 0x15141312u, "IOP LWL/LWR pair did not assemble the unaligned word");
+
     // Exercise the actual SPU2 register/DMA boundary with decoded planar PCM.
     std::array<uint8_t,1024> planar{};
     for(unsigned i=0;i<256u;++i){

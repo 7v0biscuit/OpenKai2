@@ -1,0 +1,330 @@
+--- a/Kernel/EeScheduler.cpp
++++ b/Kernel/EeScheduler.cpp
+@@ -1898,6 +1898,8 @@
+         requestStop();
+         break;
+     case EeEventType::VBlankStart:
++        // A field is presented from what the GS has drawn by its start.
++        m_runtime.gs().fence();
+         ++m_vsyncTick;
+         m_runtime.memory().gs().vsyncTick.store(m_vsyncTick, std::memory_order_release);
+         if ((m_vsyncTick & 1u) != 0u)
+--- a/include/runtime/gs/gs_frontend.h
++++ b/include/runtime/gs/gs_frontend.h
+@@ -2,10 +2,12 @@
+ #define PS2_GS_FRONTEND_H
+ 
+ #include <array>
++#include <condition_variable>
+ #include <cstddef>
+ #include <cstdint>
+ #include <memory>
+ #include <mutex>
++#include <thread>
+ #include <vector>
+ 
+ #include "runtime/gs/gs_backend.h"
+@@ -100,13 +102,18 @@
+ {
+ public:
+     GS();
+-    ~GS() = default;
++    ~GS();
+ 
+     void init(uint8_t *vram, uint32_t vramSize, struct GSRegisters *privRegs = nullptr);
+     void reset();
+     void setRasterBackend(std::unique_ptr<GSRasterBackend> backend);
+ 
++    // Packets are queued for the GS thread once startWorker() runs; every other
++    // entry point first waits for the queue to drain, so callers observe the
++    // GS exactly as if each packet had been processed when it was submitted.
+     void processGIFPacket(const uint8_t *data, uint32_t sizeBytes);
++    void fence();
++    void startWorker();
+     bool processNativePackedGIFPacket(const uint8_t *data, uint32_t sizeBytes);
+     void uploadImageNative(uint64_t bitbltbuf,
+                            uint64_t trxpos,
+@@ -151,6 +158,10 @@
+ private:
+     void snapshotVRAM();
+     void writeRegisterUnlocked(uint8_t regAddr, uint64_t value);
++    void processGIFPacketNow(const uint8_t *data, uint32_t sizeBytes);
++    void stopWorker();
++    void workerLoop();
++    bool onWorker() const { return std::this_thread::get_id() == m_workerId; }
+     void writeRegisterPacked(uint8_t regDesc, uint64_t lo, uint64_t hi);
+     void uploadImageNativeUnlocked(uint64_t bitbltbuf,
+                                    uint64_t trxpos,
+@@ -242,6 +253,15 @@
+     bool m_debugHistoryPaused = true;
+ 
+     std::unique_ptr<GSRasterBackend> m_backend;
++
++    // Each queued packet is a 16-byte header holding its size, then its data
++    // padded to 16 bytes. The worker swaps out the whole pending batch.
++    std::thread m_worker;
++    std::thread::id m_workerId{};
++    std::mutex m_queueMutex;
++    std::condition_variable m_queueReady, m_queueDrained;
++    std::vector<uint8_t> m_pending, m_working;
++    bool m_workerBusy = false, m_workerWake = false, m_stopWorker = false;
+ };
+ 
+ #endif
+--- a/include/runtime/ps2_memory.h
++++ b/include/runtime/ps2_memory.h
+@@ -316,6 +316,8 @@
+     using GifPacketCallback = std::function<void(const uint8_t *, uint32_t)>;
+     void setGifPacketCallback(GifPacketCallback cb) { m_gifPacketCallback = std::move(cb); }
+     void setGifArbiter(GifArbiter *arbiter) { m_gifArbiter = arbiter; }
++    // Reads of GS registers first let queued GS work finish.
++    void setGsFence(std::function<void()> fence) { m_gsFence = std::move(fence); }
+ 
+     using Vu1MscalCallback = std::function<void(uint32_t startPC, uint32_t top, uint32_t itop)>;
+     void setVu1MscalCallback(Vu1MscalCallback cb) { m_vu1MscalCallback = std::move(cb); }
+@@ -399,6 +401,7 @@
+ 
+     GifPacketCallback m_gifPacketCallback;
+     GifArbiter *m_gifArbiter = nullptr;
++    std::function<void()> m_gsFence;
+     Vu1MscalCallback m_vu1MscalCallback;
+     Vu1MscntCallback m_vu1MscntCallback;
+ 
+--- a/runtime/gs/gs_frontend.cpp
++++ b/runtime/gs/gs_frontend.cpp
+@@ -5,10 +5,12 @@
+ #include "render/gpu_backend.h"
+ #include "ps2_log.h"
+ #include "runtime/ps2_memory.h"
++#include "work_timings.h"
+ #include <atomic>
+ #include <algorithm>
+ #include <cmath>
+ #include <cstdio>
++#include <cstdlib>
+ #include <cstring>
+ #include <iostream>
+ #include <sstream>
+@@ -140,8 +142,78 @@
+     reset();
+ }
+ 
++GS::~GS()
++{
++    stopWorker();
++}
++
++void GS::startWorker()
++{
++    if (m_worker.joinable())
++        return;
++    if (const char *mode = std::getenv("OPENKAI2_GS_THREAD"); mode && mode[0] == '0')
++        return;
++    m_stopWorker = false;
++    // Packets are queued only after this returns, so the worker never needs
++    // its id before it is published here.
++    m_worker = std::thread([this]() { workerLoop(); });
++    m_workerId = m_worker.get_id();
++}
++
++void GS::stopWorker()
++{
++    if (!m_worker.joinable())
++        return;
++    {
++        std::lock_guard<std::mutex> lock(m_queueMutex);
++        m_stopWorker = true;
++    }
++    m_queueReady.notify_one();
++    m_worker.join();
++    m_workerId = {};
++}
++
++void GS::workerLoop()
++{
++    std::unique_lock<std::mutex> lock(m_queueMutex);
++    for (;;)
++    {
++        m_queueReady.wait(lock, [this]() { return m_stopWorker || !m_pending.empty(); });
++        if (m_pending.empty())
++            return;
++        m_working.swap(m_pending);
++        m_workerBusy = true;
++        m_workerWake = false;
++        lock.unlock();
++        for (size_t offset = 0; offset + 16u <= m_working.size();)
++        {
++            uint32_t size = 0;
++            std::memcpy(&size, m_working.data() + offset, sizeof(size));
++            processGIFPacketNow(m_working.data() + offset + 16u, size);
++            offset += 16u + ((size + 15u) & ~15u);
++        }
++        m_working.clear();
++        lock.lock();
++        m_workerBusy = false;
++        if (m_pending.empty())
++            m_queueDrained.notify_all();
++    }
++}
++
++void GS::fence()
++{
++    if (!m_worker.joinable() || onWorker())
++        return;
++    std::unique_lock<std::mutex> lock(m_queueMutex);
++    if (m_pending.empty() && !m_workerBusy)
++        return;
++    openkai2::RuntimeWorkTimer wait(openkai2::RuntimeWork::gsFence);
++    m_queueDrained.wait(lock, [this]() { return m_pending.empty() && !m_workerBusy; });
++}
++
+ void GS::reset()
+ {
++    fence();
+     std::lock_guard<std::recursive_mutex> lock(m_stateMutex);
+     std::memset(m_ctx, 0, sizeof(m_ctx));
+     m_prim = {};
+@@ -661,6 +733,34 @@
+ 
+ void GS::processGIFPacket(const uint8_t *data, uint32_t sizeBytes)
+ {
++    if (!m_worker.joinable() || onWorker())
++    {
++        processGIFPacketNow(data, sizeBytes);
++        return;
++    }
++    if (!data || sizeBytes < 16)
++        return;
++    std::unique_lock<std::mutex> lock(m_queueMutex);
++    // A producer far ahead of the GS waits rather than queueing without bound.
++    constexpr size_t kQueueLimit = size_t(32) << 20;
++    if (m_pending.size() >= kQueueLimit)
++    {
++        openkai2::RuntimeWorkTimer wait(openkai2::RuntimeWork::gsFence);
++        m_queueDrained.wait(lock, [this]() { return m_pending.empty() && !m_workerBusy; });
++    }
++    const size_t at = m_pending.size();
++    m_pending.resize(at + 16u + ((sizeBytes + 15u) & ~15u));
++    std::memcpy(m_pending.data() + at, &sizeBytes, sizeof(sizeBytes));
++    std::memcpy(m_pending.data() + at + 16u, data, sizeBytes);
++    if (!m_workerBusy && !m_workerWake)
++    {
++        m_workerWake = true;
++        m_queueReady.notify_one();
++    }
++}
++
++void GS::processGIFPacketNow(const uint8_t *data, uint32_t sizeBytes)
++{
+     std::lock_guard<std::recursive_mutex> lock(m_stateMutex);
+     if (!data || sizeBytes < 16 || !m_backend)
+         return;
+@@ -762,6 +862,7 @@
+ 
+ bool GS::processNativePackedGIFPacket(const uint8_t *data, uint32_t sizeBytes)
+ {
++    fence();
+     std::lock_guard<std::recursive_mutex> lock(m_stateMutex);
+     if (!data || sizeBytes < 16u || !m_backend)
+         return false;
+@@ -808,6 +909,7 @@
+                            const uint8_t *data,
+                            uint32_t sizeBytes)
+ {
++    fence();
+     std::lock_guard<std::recursive_mutex> lock(m_stateMutex);
+     uploadImageNativeUnlocked(bitbltbuf, trxpos, trxreg, trxdir, data, sizeBytes);
+ }
+@@ -1082,6 +1184,7 @@
+ 
+ void GS::writeRegister(uint8_t regAddr, uint64_t value)
+ {
++    fence();
+     std::lock_guard<std::recursive_mutex> lock(m_stateMutex);
+     writeRegisterUnlocked(regAddr, value);
+ }
+@@ -1637,18 +1740,21 @@
+ 
+ bool GS::clearFramebufferContext(uint32_t contextIndex, uint32_t rgba)
+ {
++    fence();
+     std::lock_guard<std::recursive_mutex> lock(m_stateMutex);
+     return m_backend && m_backend->ClearFramebuffer(m_ctx[(contextIndex != 0u) ? 1 : 0], rgba);
+ }
+ 
+ bool GS::clearActiveFramebuffer(uint32_t rgba)
+ {
++    fence();
+     std::lock_guard<std::recursive_mutex> lock(m_stateMutex);
+     return m_backend && m_backend->ClearFramebuffer(activeContext(), rgba);
+ }
+ 
+ uint32_t GS::consumeLocalToHostBytes(uint8_t *dst, uint32_t maxBytes)
+ {
++    fence();
+     std::lock_guard<std::recursive_mutex> lock(m_stateMutex);
+     return m_backend ? m_backend->ConsumeLocalToHostBytes(dst, maxBytes) : 0u;
+ }
+@@ -1658,6 +1764,7 @@
+     if (!backend)
+         backend = openkai2::make_raster_backend();
+ 
++    fence();
+     std::lock_guard<std::recursive_mutex> lock(m_stateMutex);
+     std::lock_guard<std::mutex> backendLock(m_backendLifetimeMutex);
+     if (m_backend)
+@@ -1684,12 +1791,14 @@
+ 
+ uint32_t GS::ReadVram(uint32_t psm, uint32_t base, uint32_t bw, uint32_t x, uint32_t y) const
+ {
++    const_cast<GS *>(this)->fence();
+     std::lock_guard<std::recursive_mutex> lock(m_stateMutex);
+     return m_backend ? m_backend->ReadVram(psm, base, bw, x, y) : 0u;
+ }
+ 
+ void GS::WriteVram(uint32_t psm, uint32_t base, uint32_t bw, uint32_t x, uint32_t y, uint32_t value)
+ {
++    fence();
+     std::lock_guard<std::recursive_mutex> lock(m_stateMutex);
+     if (m_backend)
+         m_backend->WriteVram(psm, base, bw, x, y, value);
+--- a/runtime/ps2_memory.cpp
++++ b/runtime/ps2_memory.cpp
+@@ -747,6 +747,8 @@
+ 
+     if (isGsPrivReg(address))
+     {
++        if (m_gsFence)
++            m_gsFence();
+         uint32_t off = address & 7;
+         const uint32_t regOff = (address - PS2_GS_PRIV_REG_BASE) & ~0x7u;
+         if (regOff == kGsCsrRegOffset)
+@@ -795,6 +797,8 @@
+ 
+     if (isGsPrivReg(address))
+     {
++        if (m_gsFence)
++            m_gsFence();
+         const uint32_t regOff = (address - PS2_GS_PRIV_REG_BASE) & ~0x7u;
+         if (regOff == kGsCsrRegOffset)
+         {
+@@ -2397,6 +2401,8 @@
+ 
+     if (isGsPrivReg(address))
+     {
++        if (m_gsFence)
++            m_gsFence();
+         // NB: unreachable from read8/16/32/64 today, same reasoning as the write
+         // path above; kept correct for direct callers.
+         const uint32_t off = address & 7u;
+--- a/runtime/ps2_runtime.cpp
++++ b/runtime/ps2_runtime.cpp
+@@ -672,6 +672,8 @@
+     m_gifArbiter.setProcessPacketFn([this](const uint8_t *data, uint32_t size)
+                                     { m_gs.processGIFPacket(data, size); });
+     m_memory.setGifArbiter(&m_gifArbiter);
++    m_memory.setGsFence([this]() { m_gs.fence(); });
++    m_gs.startWorker();
+     m_memory.setVu1MscalCallback([this](uint32_t startPC, uint32_t top, uint32_t itop)
+                                  {
+                                      R5900Context *cpuContext = m_eeScheduler ? m_eeScheduler->currentContext() : nullptr;

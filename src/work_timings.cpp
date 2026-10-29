@@ -8,7 +8,7 @@ namespace openkai2 {
 namespace {
 struct Total {std::atomic<uint64_t> calls{0},nanoseconds{0};};
 std::array<Total,unsigned(RuntimeWork::count)> totals;
-constexpr const char* names[]={"guest-executor","dma-submit","dma-pending","vu0","vu1","path1-submit","gif-path23","gpu-wait"};
+constexpr const char* names[]={"guest-executor","dma-submit","dma-pending","vu0","vu1","path1-submit","gif-path23","gpu-wait","gs-fence"};
 void report(unsigned index) noexcept {
     try {
         const auto& total=totals[index];const auto calls=total.calls.load(std::memory_order_relaxed);

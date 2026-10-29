@@ -3,7 +3,7 @@
 #include <chrono>
 #include <cstdint>
 namespace openkai2 {
-enum class RuntimeWork : unsigned { guest,dmaSubmit,dmaPending,vu0,vu1,path1,gifPath23,gpuWait,count };
+enum class RuntimeWork : unsigned { guest,dmaSubmit,dmaPending,vu0,vu1,path1,gifPath23,gpuWait,gsFence,count };
 void record_runtime_work(RuntimeWork,uint64_t) noexcept;
 void flush_runtime_work() noexcept;
 class RuntimeWorkTimer {

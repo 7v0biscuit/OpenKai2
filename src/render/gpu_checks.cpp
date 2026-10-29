@@ -429,6 +429,53 @@ void checkDepthPlanes(){
 }
 
 }
+// Strips at varying places and states, submitted as GIF packets.
+std::vector<std::vector<uint64_t>> gifStrips(unsigned count){
+    std::vector<std::vector<uint64_t>> packets;
+    for(unsigned k=0;k<count;++k){
+        constexpr unsigned strip=12u;
+        const uint64_t prim=4u|(1u<<3u)|(uint64_t(k&1u)<<4u);
+        std::vector<uint64_t> packet{uint64_t(strip)|0x8000u|(1ull<<46u)|(prim<<47u)|(3ull<<60u),0x512u};
+        const unsigned left=40u+(k*37u)%400u,top=30u+(k*53u)%380u;
+        for(unsigned i=0;i<strip;++i){
+            const unsigned x=left+(i/2u)*7u,y=top+(i&1u)*11u;
+            packet.push_back(uint64_t((i*7u+k)&255u)|(uint64_t((i*13u+k*5u)&255u)<<32u));packet.push_back(uint64_t((k*29u)&255u)|(128ull<<32u));
+            packet.push_back(uint64_t(0x3e000000u)|(uint64_t(0x3e800000u)<<32u));packet.push_back(0x3f800000u);
+            packet.push_back(uint64_t(x*16u)|(uint64_t(y*16u)<<32u));packet.push_back(1000u+k*3u+i);
+        }
+        packets.push_back(std::move(packet));
+    }
+    return packets;
+}
+std::unique_ptr<GS> gifTarget(std::vector<uint8_t>& vram){
+    auto gs=std::make_unique<GS>();
+    gs->init(vram.data(),uint32_t(vram.size()));gs->setRasterBackend(std::make_unique<GpuRasterBackend>());
+    gs->writeRegister(0x4cu,56u|(uint64_t(8u)<<16u));gs->writeRegister(0x4eu,168u|(1ull<<32u));
+    gs->writeRegister(0x40u,(511ull<<16u)|(447ull<<48u));gs->writeRegister(0x47u,0x30000u);
+    gs->writeRegister(0x06u,uint64_t(10240u)|(uint64_t(2u)<<14u)|(uint64_t(7u)<<26u)|(uint64_t(7u)<<30u)|(1ull<<34u));
+    return gs;
+}
+// The GS thread must leave VRAM exactly as processing each packet on submission does.
+void checkGsWorker(){
+    const auto packets=gifStrips(600u);
+    std::vector<uint8_t> direct(gpu::VramBytes,0x35u),threaded(gpu::VramBytes,0x35u);
+    auto reference=gifTarget(direct),worker=gifTarget(threaded);worker->startWorker();
+    // The worker's packets are queued in a burst, so the register write in the
+    // middle must wait for the queue to drain before it applies.
+    for(GS* gs:{worker.get(),reference.get()})for(unsigned i=0;i<packets.size();++i){
+        const auto& packet=packets[i];
+        gs->processGIFPacket(reinterpret_cast<const uint8_t*>(packet.data()),uint32_t(packet.size()*8u));
+        if(i==300u)gs->writeRegister(0x47u,0x50000u);
+    }
+    worker->fence();
+    unsigned differing=0,drawn=0;
+    for(uint32_t y=0;y<448u;y+=3u)for(uint32_t x=0;x<512u;x+=3u){
+        const auto expected=reference->ReadVram(0u,56u*32u,8u,x,y);
+        differing+=worker->ReadVram(0u,56u*32u,8u,x,y)!=expected;drawn+=expected!=0x35353535u;
+    }
+    if(!drawn)throw std::runtime_error("GS thread fixture drew nothing");
+    if(differing)throw std::runtime_error("GS thread changed "+std::to_string(differing)+" sampled pixels");
+}
 int run_gpu_checks(bool required){
     try{
         gpu::verify_address_tables();checkFootprints();std::cout<<"GPU swizzle address references passed.\n";
@@ -440,7 +487,7 @@ int run_gpu_checks(bool required){
         const bool initialized=gpu::initialize_headless(error);
 #endif
         if(!initialized){std::cout<<"GPU checks unavailable: "<<error<<'\n';return required ? 1 : 77;}
-        checkFlatDepth();checkDepthPlanes();checkPaletteReuse();checkPresentationReadbacks();checkEmptyTriangles();checkMaterials();checkIntegerPipeline();checkFormats();checkLines();checkCoherence();checkTransferPages();checkGpuTransfers();checkRebind();checkClears();checkSourceChanges();checkPartialReadbacks();
+        checkFlatDepth();checkDepthPlanes();checkPaletteReuse();checkPresentationReadbacks();checkEmptyTriangles();checkMaterials();checkIntegerPipeline();checkFormats();checkLines();checkCoherence();checkTransferPages();checkGpuTransfers();checkRebind();checkClears();checkSourceChanges();checkPartialReadbacks();checkGsWorker();
         const auto before=gpu_render_statistics().gpuDraws;verify_vector_runtime_gpu();
         if(gpu_render_statistics().gpuDraws-before!=8u)throw std::runtime_error("VIF/PATH1 integration did not execute eight GPU triangles");
         // A failed asynchronous submission must propagate to its caller and
@@ -451,7 +498,7 @@ int run_gpu_checks(bool required){
         try{device->invoke([](gpu::Api&){});}catch(const std::exception& e){propagated=std::string(e.what())=="GPU failure propagation fixture";}
         if(!propagated)throw std::runtime_error("GPU asynchronous failure did not propagate");
         gpu::shutdown_device();
-        std::cout<<"GPU renderer comparisons passed: 10 constant-depth and 8 overlapping depth-plane cases, 256 material states, 104 format states, 65536 integer pipeline draws, 576 point/line draws, 128 source-state draws, 19 presentation readback cases, selective readbacks, writebacks, uploads, target transitions, feedback fallback, VRAM replacement, eight VIF/PATH1 GPU triangles and asynchronous failure propagation.\n";return 0;
+        std::cout<<"GPU renderer comparisons passed: 10 constant-depth and 8 overlapping depth-plane cases, 256 material states, 104 format states, 65536 integer pipeline draws, 576 point/line draws, 128 source-state draws, 19 presentation readback cases, selective readbacks, writebacks, uploads, target transitions, feedback fallback, VRAM replacement, eight VIF/PATH1 GPU triangles, 600 GIF strips through the GS thread and asynchronous failure propagation.\n";return 0;
     }catch(const std::exception& e){std::cerr<<"GPU regression failed: "<<e.what()<<'\n';gpu::shutdown_device();return 1;}
 }
 int benchmark_gpu_footprints(unsigned iterations){
