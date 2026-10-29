@@ -112,6 +112,7 @@ function(openkai2_attach_generated_sources)
         "${project_root}/tools/native/patches/gs-worker-thread.patch"
         "${project_root}/tools/native/patches/vif-fill-writes.patch"
         "${project_root}/tools/native/patches/spu2-dma-progress.patch"
+        "${project_root}/tools/native/patches/guest-varargs.patch"
         "${project_root}/tools/native/patches/simulation-pacing.patch"
         "${project_root}/tools/native/patches/vector-native-backend.patch"
         "${project_root}/tools/native/patches/guest-timing.patch"
@@ -556,6 +557,13 @@ function(openkai2_attach_generated_sources)
         target_link_options(openkai2_soft_double_tests PRIVATE /FORCE:MULTIPLE)
     endif()
     add_test(NAME soft_double_math COMMAND openkai2_soft_double_tests)
+    add_executable(openkai2_guest_varargs_tests "${project_root}/tests/guest_varargs_tests.cpp"
+        "${CMAKE_SOURCE_DIR}/ps2xRuntime/src/runner/register_functions.cpp")
+    target_link_libraries(openkai2_guest_varargs_tests PRIVATE ps2_runtime)
+    if(MSVC)
+        target_link_options(openkai2_guest_varargs_tests PRIVATE /FORCE:MULTIPLE)
+    endif()
+    add_test(NAME guest_varargs COMMAND openkai2_guest_varargs_tests)
     if(OPENKAI2_RUNTIME_TESTS_ONLY)
         add_test(NAME launcher_help COMMAND ps2EntryRunner --help)
         set_tests_properties(launcher_help PROPERTIES

@@ -1,0 +1,130 @@
+--- a/Kernel/Stubs/Helpers/Support.h
++++ b/Kernel/Stubs/Helpers/Support.h
+@@ -812,7 +812,7 @@
+               m_ctx(ctx),
+               m_runtime(runtime),
+               m_fixedArgs(fixedArgs),
+-              m_stackBase(getRegU32(ctx, 29) + 0x10)
++              m_stackBase(getRegU32(ctx, 29))
+         {
+             if (m_fixedArgs < 0)
+             {
+@@ -828,33 +828,31 @@
+             return value;
+         }
+ 
++        // EE calls pass every argument, 64-bit ones included, in one 64-bit
++        // slot: eight registers (a0-a3, t0-t3), then 8-byte stack slots from
++        // the caller's $sp.
+         uint64_t nextU64()
+         {
+-            // O32 ABI aligns 64-bit variadic values on even 32-bit slots.
+-            if ((m_slotIndex & 1u) != 0u)
+-            {
+-                ++m_slotIndex;
+-            }
+-            const uint64_t low = readWordAtSlot(m_slotIndex);
+-            const uint64_t high = readWordAtSlot(m_slotIndex + 1u);
+-            m_slotIndex += 2u;
+-            return low | (high << 32);
++            const uint64_t value = readSlot(m_slotIndex);
++            ++m_slotIndex;
++            return value;
+         }
+ 
+     private:
+         uint32_t readWordAtSlot(uint32_t slotIndex) const
+         {
+-            if (slotIndex < 8u)
+-            {
+-                // EE calls use eight integer argument registers (a0-a3, t0-t3 / r4-r11).
+-                return getRegU32(m_ctx, 4 + static_cast<int>(slotIndex));
+-            }
++            return static_cast<uint32_t>(readSlot(slotIndex));
++        }
+ 
+-            const uint32_t stackIndex = slotIndex - 8u;
+-            const uint32_t stackAddr = m_stackBase + stackIndex * 4u;
+-            uint32_t value = 0;
+-            (void)tryReadWordFromGuest(m_rdram, m_runtime, stackAddr, value);
+-            return value;
++        uint64_t readSlot(uint32_t slotIndex) const
++        {
++            if (slotIndex < 8u)
++                return GPR_U64(m_ctx, 4 + static_cast<int>(slotIndex));
++            const uint32_t stackAddr = m_stackBase + (slotIndex - 8u) * 8u;
++            uint32_t low = 0, high = 0;
++            (void)tryReadWordFromGuest(m_rdram, m_runtime, stackAddr, low);
++            (void)tryReadWordFromGuest(m_rdram, m_runtime, stackAddr + 4u, high);
++            return uint64_t(low) | (uint64_t(high) << 32);
+         }
+ 
+         uint8_t *m_rdram;
+@@ -873,20 +871,21 @@
+         {
+         }
+ 
++        // An EE va_list points at the 8-byte slots the variadic function
++        // stored its argument registers in, followed by the caller's stack
++        // slots; every argument takes one slot.
+         uint32_t nextU32()
+         {
+-            uint32_t value = 0;
+-            (void)tryReadWordFromGuest(m_rdram, m_runtime, m_curr, value);
+-            m_curr += 4;
+-            return value;
++            return static_cast<uint32_t>(nextU64());
+         }
+ 
+         uint64_t nextU64()
+         {
+-            m_curr = (m_curr + 7u) & ~7u;
+-            const uint64_t low = nextU32();
+-            const uint64_t high = nextU32();
+-            return low | (high << 32);
++            uint32_t low = 0, high = 0;
++            (void)tryReadWordFromGuest(m_rdram, m_runtime, m_curr, low);
++            (void)tryReadWordFromGuest(m_rdram, m_runtime, m_curr + 4u, high);
++            m_curr += 8;
++            return uint64_t(low) | (uint64_t(high) << 32);
+         }
+ 
+     private:
+@@ -1230,7 +1229,7 @@
+             [&cursor]()
+             { return cursor.nextU64(); },
+             [rdram, runtime](uint32_t addr)
+-            { return readPs2CStringBounded(rdram, runtime, addr); });
++            { return readPs2CStringBounded(rdram, runtime, addr, 4096); });
+     }
+ 
+     std::string formatPs2StringWithVaList(uint8_t *rdram, PS2Runtime *runtime, const char *format, uint32_t vaListAddr)
+@@ -1244,7 +1243,7 @@
+             [&cursor]()
+             { return cursor.nextU64(); },
+             [rdram, runtime](uint32_t addr)
+-            { return readPs2CStringBounded(rdram, runtime, addr); });
++            { return readPs2CStringBounded(rdram, runtime, addr, 4096); });
+     }
+ 
+     constexpr uint32_t kMaxStubWarningsPerName = 8;
+--- a/Kernel/Stubs/LibC.cpp
++++ b/Kernel/Stubs/LibC.cpp
+@@ -567,7 +567,7 @@
+     {
+         uint32_t str_addr = getRegU32(ctx, 4);     // $a0
+         uint32_t format_addr = getRegU32(ctx, 5);  // $a1
+-        constexpr size_t kSafeSprintfBytes = 256u; // Keep guest stack temporaries from being overwritten.
++        constexpr size_t kSafeSprintfBytes = 4096u; // Bounds a runaway format; game strings are far shorter.
+ 
+         const std::string formatOwned = readPs2CStringBounded(rdram, runtime, format_addr, 1024);
+         int ret = -1;
+@@ -1140,7 +1140,7 @@
+         uint32_t str_addr = getRegU32(ctx, 4);      // $a0
+         uint32_t format_addr = getRegU32(ctx, 5);   // $a1
+         uint32_t va_list_addr = getRegU32(ctx, 6);  // $a2
+-        constexpr size_t kSafeVsprintfBytes = 256u; // Keep guest stack temporaries from being overwritten.
++        constexpr size_t kSafeVsprintfBytes = 4096u; // Bounds a runaway format; game strings are far shorter.
+         const std::string formatOwned = readPs2CStringBounded(rdram, runtime, format_addr, 1024);
+         int ret = -1;
+ 
