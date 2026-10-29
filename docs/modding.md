@@ -92,9 +92,21 @@ What the reports have shown so far about Budokai 3:
   file and a 1.4 MB `#AMB` of two; Budokai 3's are a 40 to 80 KB `#AMB` of four,
   a 5 KB file and a 1.5 to 2.4 MB `#AMB` of four.
 - Budokai 3 keeps its character names in a list of 32-byte slots at
-  `0x4314B0`. Its character records are 96 bytes; each holds a pointer to its
-  name, four flag bytes, two pointers to smaller blocks of data and the
-  record's number, which is also the name's slot.
+  `0x4314B0`. Its character records start at `0x447440` and are 96 bytes;
+  each holds a pointer to its name, four flag bytes, two pointers to lists of
+  entries and the record's number, which is also the name's slot. The first
+  list holds the character's models, one per form or costume, as 12-byte
+  items starting with a `DATA_CMN.AFS` entry number (Goku: 264 to 268).
+- A costume model is an `#AMB` of a mesh (`#AMO`) and its textures (`#AMT`).
+  The mesh has the same version in both games; Budokai 3's textures are
+  version 2, which Budokai 2 never uses (it uses 0 and 1). Animations (`#AMM`)
+  match; skeletons (`#BSK`) are version 3 in Budokai 2 and 4 in Budokai 3.
+- An `#AMT` starts with a 32-byte header (version at 12, texture count at 16,
+  offset table at 20), then one offset per texture and a 48-byte header for
+  each texture.
+
+The report includes up to three samples of each file format and version so
+the differences can be worked out.
 
 Data from another game is not converted. Budokai 3 and Infinite World use a
 newer version of the engine, and their files may need converting before
