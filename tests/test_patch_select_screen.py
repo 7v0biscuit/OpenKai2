@@ -44,6 +44,17 @@ class PatchSelectScreen(unittest.TestCase):
                 for _, _, _, replacement in edits:
                     self.assertIn(replacement, text)
 
+    def test_a_file_patched_by_an_earlier_version_gains_the_new_edits(self):
+        # An older version made only the first edit in this file.
+        edits = self.files()['sub_002AF000_0x2af000']
+        text = translated(edits).replace(edits[0][2], edits[0][3], 1)
+        text = module.INCLUDE + module.MARKER + '\n' + text
+        patched = module.patch(text, edits)
+        self.assertEqual(patched.count(module.MARKER), 1)
+        for _, _, _, replacement in edits:
+            self.assertIn(replacement, patched)
+        self.assertEqual(patched.count('preview_row(GPR_U32(ctx, 18))'), 4)
+
     def test_the_offset_edits_cover_the_fields_after_the_cells(self):
         offsets = [edit for edit in module.EDITS if 'select_offset' in edit[3]]
         self.assertEqual(len(offsets), 19)

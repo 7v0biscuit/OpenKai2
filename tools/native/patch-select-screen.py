@@ -56,11 +56,20 @@ for address, name, register in [(0x2af114, 'sub_002AF000_0x2af000', 18), (0x2af5
 for address in (0x2aec08, 0x2aec0c, 0x2aec14):
     EDITS.append(('sub_002AEBC0_0x2aebc0', address, 'GPR_U32(ctx, 6)',
                   'openkai2::mods::preview_row(GPR_U32(ctx, 6))'))                    # preview pose rows
+for name, register, table, scale, adds in [('sub_002AF000_0x2af000', 18, 0x2af144, 0x2af14c, (0x2af154, 0x2af164)),
+                                           ('sub_002AF4E0_0x2af4e0', 16, 0x2af5d8, 0x2af5e8, (0x2af5ec, 0x2af5fc))]:
+    row = f'openkai2::mods::preview_row(GPR_U32(ctx, {register}))'
+    EDITS.append((name, table, f'ADD32(GPR_U32(ctx, {register}), GPR_U32(ctx, 2))',
+                  f'ADD32({row}, GPR_U32(ctx, 2))'))                                  # preview byte per ID
+    EDITS.append((name, scale, f'SLL32(GPR_U32(ctx, {register}), 2)', f'SLL32({row}, 2)'))  # preview camera rows
+    for address in adds:
+        EDITS.append((name, address, f'ADD32(GPR_U32(ctx, 2), GPR_U32(ctx, {register}))',
+                      f'ADD32(GPR_U32(ctx, 2), {row})'))
 
 
 def patch(text, edits):
-    """Applies the edits for one file; text that is already patched is checked, not changed."""
-    patched = MARKER in text
+    """Applies the edits for one file. Each edit already made is checked, not
+    changed, so files patched by an earlier version gain only the new edits."""
     for _, address, original, replacement in edits:
         comment = f'    // 0x{address:x}:'
         start = text.find(comment)
@@ -69,12 +78,12 @@ def patch(text, edits):
         end = text.find('\n    // 0x', start + len(comment))
         end = len(text) if end < 0 else end
         block = text[start:end]
-        wanted = replacement if patched else original
-        if block.count(wanted) != 1:
-            raise ValueError(f'Instruction 0x{address:x} does not hold {wanted!r} once')
-        if not patched:
-            text = text[:start] + block.replace(original, replacement) + text[end:]
-    if not patched:
+        if block.count(replacement) == 1:
+            continue
+        if block.count(original) != 1:
+            raise ValueError(f'Instruction 0x{address:x} does not hold {original!r} once')
+        text = text[:start] + block.replace(original, replacement) + text[end:]
+    if MARKER not in text:
         text = INCLUDE + MARKER + '\n' + text
     return text
 
