@@ -94,13 +94,18 @@ function(openkai2_attach_generated_sources)
             "${project_root}/tools/native/patch-select-screen.py"
             --directory "$ENV{OPENKAI2_WORK_DIR}/budokai2-native/output"
             COMMAND_ERROR_IS_FATAL ANY)
+        execute_process(COMMAND "${Python3_EXECUTABLE}"
+            "${project_root}/tools/native/patch-ee-branches.py"
+            --directory "$ENV{OPENKAI2_WORK_DIR}/budokai2-native/output"
+            COMMAND_ERROR_IS_FATAL ANY)
         set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
             "${project_root}/tools/native/translation-entries.py")
     endif()
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
         "${project_root}/tools/native/patch-projection.py"
         "${project_root}/tools/native/patch-vector-macros.py"
-        "${project_root}/tools/native/patch-select-screen.py")
+        "${project_root}/tools/native/patch-select-screen.py"
+        "${project_root}/tools/native/patch-ee-branches.py")
     set(overlay_dir "${CMAKE_BINARY_DIR}/openkai2-overlays")
     include("${project_root}/tools/native/vector-core.cmake")
     execute_process(COMMAND "${Python3_EXECUTABLE}"
@@ -111,6 +116,7 @@ function(openkai2_attach_generated_sources)
         "${project_root}/tools/native/patches/launcher-display.patch"
         "${project_root}/tools/native/patches/window-redraw-pacing.patch"
         "${project_root}/tools/native/patches/disc-timing.patch"
+        "${project_root}/tools/native/patches/disc-timing-tests.patch"
         "${project_root}/tools/native/patches/fpu-conversion.patch"
         "${project_root}/tools/native/patches/soft-double-math.patch"
         "${project_root}/tools/native/patches/vector-data-memory.patch"
@@ -208,6 +214,12 @@ function(openkai2_attach_generated_sources)
             target_include_directories(${test} BEFORE PRIVATE "${overlay_dir}" "${project_root}/src")
         endif()
     endforeach()
+    if(TARGET ps2_iop_emulator_tests)
+        get_target_property(iop_test_sources ps2_iop_emulator_tests SOURCES)
+        list(FILTER iop_test_sources EXCLUDE REGEX "(^|/)iop_emulator_tests\\.cpp$")
+        set_property(TARGET ps2_iop_emulator_tests PROPERTY SOURCES "${iop_test_sources}")
+        target_sources(ps2_iop_emulator_tests PRIVATE "${overlay_dir}/tests/iop_emulator_tests.cpp")
+    endif()
     include("${project_root}/tools/native/spu2-core.cmake")
     target_link_libraries(ps2_iop PRIVATE openkai2_disc openkai2_spu2)
     add_library(openkai2_guest_checks STATIC "${project_root}/src/sound_checks.cpp"
@@ -498,7 +510,7 @@ function(openkai2_attach_generated_sources)
     endif()
     target_link_libraries(ps2EntryRunner PRIVATE openkai2_vector_checks openkai2_gpu_checks)
     target_sources(ps2EntryRunner PRIVATE ${generated_sources} "${project_root}/src/main.cpp"
-        "${project_root}/src/runtime_checks.cpp" "${project_root}/src/content_unlock_checks.cpp" "${project_root}/src/stream_checks.cpp"
+        "${project_root}/src/runtime_checks.cpp" "${project_root}/src/content_unlock_checks.cpp" "${project_root}/src/ee_branch_checks.cpp" "${project_root}/src/stream_checks.cpp"
         "${project_root}/src/sound_transfer_checks.cpp" "${project_root}/src/asset_checks.cpp"
         "${project_root}/src/draw_setup_checks.cpp" "${project_root}/src/battle_command_checks.cpp" "${project_root}/src/battle_update_checks.cpp" "${project_root}/src/fight_state_checks.cpp" "${project_root}/src/attack_effect_checks.cpp" "${project_root}/src/impact_effect_checks.cpp" "${project_root}/src/actor_command_checks.cpp" "${project_root}/src/pause_menu_checks.cpp" "${project_root}/src/select_screen_checks.cpp" "${project_root}/src/story_checks.cpp" "${project_root}/src/animation_checks.cpp" "${project_root}/src/aura_checks.cpp" "${project_root}/src/fade_checks.cpp" "${project_root}/src/movie_checks.cpp" "${project_root}/src/mpeg_checks.cpp"
         "${project_root}/src/mpeg_decode_checks.cpp")
@@ -506,12 +518,12 @@ function(openkai2_attach_generated_sources)
     # preserves the existing translation batches during incremental builds.
     set_source_files_properties("$ENV{OPENKAI2_WORK_DIR}/budokai2-native/output/entry_109390_0x1093f8.cpp"
         TARGET_DIRECTORY ps2EntryRunner PROPERTIES SKIP_UNITY_BUILD_INCLUSION TRUE)
-    set_source_files_properties("${project_root}/src/main.cpp" "${project_root}/src/runtime_checks.cpp" "${project_root}/src/content_unlock_checks.cpp"
+    set_source_files_properties("${project_root}/src/main.cpp" "${project_root}/src/runtime_checks.cpp" "${project_root}/src/content_unlock_checks.cpp" "${project_root}/src/ee_branch_checks.cpp"
         "${project_root}/src/stream_checks.cpp" "${project_root}/src/sound_transfer_checks.cpp" "${project_root}/src/asset_checks.cpp"
         "${project_root}/src/draw_setup_checks.cpp" "${project_root}/src/battle_command_checks.cpp" "${project_root}/src/battle_update_checks.cpp" "${project_root}/src/fight_state_checks.cpp" "${project_root}/src/attack_effect_checks.cpp" "${project_root}/src/impact_effect_checks.cpp" "${project_root}/src/actor_command_checks.cpp" "${project_root}/src/pause_menu_checks.cpp" "${project_root}/src/select_screen_checks.cpp" "${project_root}/src/story_checks.cpp" "${project_root}/src/animation_checks.cpp" "${project_root}/src/aura_checks.cpp" "${project_root}/src/fade_checks.cpp" "${project_root}/src/movie_checks.cpp" "${project_root}/src/mpeg_checks.cpp"
         "${project_root}/src/mpeg_decode_checks.cpp"
         TARGET_DIRECTORY ps2EntryRunner PROPERTIES SKIP_UNITY_BUILD_INCLUSION TRUE)
-    set_property(SOURCE "${project_root}/src/runtime_checks.cpp" "${project_root}/src/content_unlock_checks.cpp" "${project_root}/src/stream_checks.cpp" "${project_root}/src/asset_checks.cpp"
+    set_property(SOURCE "${project_root}/src/runtime_checks.cpp" "${project_root}/src/content_unlock_checks.cpp" "${project_root}/src/ee_branch_checks.cpp" "${project_root}/src/stream_checks.cpp" "${project_root}/src/asset_checks.cpp"
         "${project_root}/src/draw_setup_checks.cpp" "${project_root}/src/battle_command_checks.cpp" "${project_root}/src/battle_update_checks.cpp" "${project_root}/src/fight_state_checks.cpp" "${project_root}/src/attack_effect_checks.cpp" "${project_root}/src/impact_effect_checks.cpp" "${project_root}/src/actor_command_checks.cpp" "${project_root}/src/pause_menu_checks.cpp" "${project_root}/src/select_screen_checks.cpp" "${project_root}/src/story_checks.cpp" "${project_root}/src/animation_checks.cpp" "${project_root}/src/aura_checks.cpp" "${project_root}/src/fade_checks.cpp" "${project_root}/src/movie_checks.cpp"
         TARGET_DIRECTORY ps2EntryRunner APPEND PROPERTY
         INCLUDE_DIRECTORIES "${CMAKE_BINARY_DIR}")

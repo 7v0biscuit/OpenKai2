@@ -10,6 +10,8 @@ import subprocess
 import tempfile
 
 EXPECTED = {
+    'ps2xIOP/tests/iop_emulator_tests.cpp':
+        'a41aec531119daeefc777793de8a1fdae68c1eefe297c17574798b2c668935a6',
     'ps2xRuntime/src/lib/vu/ps2_vu1_upper.cpp':
         'd68f2d39cb354d49df418625457fbd3fff10067af6ca2aba6255c993959f9724',
     'ps2xRuntime/src/lib/gs/ps2_gs_memory.cpp':
@@ -135,6 +137,8 @@ def main():
         shutil.copytree(args.upstream / 'ps2xRuntime/src/lib/Kernel/Syscalls', temporary / 'Kernel/Syscalls')
         shutil.copy2(args.upstream / 'ps2xRuntime/src/lib/Kernel/EeScheduler.cpp', temporary / 'Kernel/EeScheduler.cpp')
         shutil.copytree(args.upstream / 'ps2xIOP/src/emulator', temporary / 'emulator')
+        (temporary / 'tests').mkdir()
+        shutil.copy2(args.upstream / 'ps2xIOP/tests/iop_emulator_tests.cpp', temporary / 'tests/iop_emulator_tests.cpp')
         for source in temporary.rglob('*'):
             if source.is_file() and source.suffix in ('.h', '.cpp', '.hpp', '.inc'):
                 source.write_bytes(source.read_bytes().replace(b'\r\n', b'\n'))
@@ -160,8 +164,8 @@ def main():
                       patches / 'gs-worker-thread.patch',
                       patches / 'vif-fill-writes.patch',
                       patches / 'spu2-dma-progress.patch',
-                      patches / 'guest-varargs.patch',
-                      patches / 'mod-disc-overlay.patch'):
+                      patches / 'guest-varargs.patch', patches / 'mod-disc-overlay.patch',
+                      patches / 'disc-timing-tests.patch'):
             apply_overlay_patch(temporary, patch)
         for source in temporary.rglob('*'):
             if source.is_file():

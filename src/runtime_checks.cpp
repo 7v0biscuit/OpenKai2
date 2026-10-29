@@ -9,6 +9,7 @@
 #include "stream_checks.h"
 #include "save_checks.h"
 #include "content_unlock_checks.h"
+#include "ee_branch_checks.h"
 #include "host_input.h"
 #include "frame_presenter.h"
 #include "sound_transfer_checks.h"
@@ -453,6 +454,8 @@ int run_runtime_checks() {
         throw std::runtime_error("Runtime regression: startup callback 0x00167188 is not registered");
     if (!runtime.memory().initialize()) throw std::runtime_error("Cannot allocate regression-test guest memory");
     auto* memory=runtime.memory().getRDRAM();
+    verify_ee_signed_branch_math(runtime,memory);
+    std::cout << "Runtime signed EE branch regression passed: 256 original software-double arithmetic cases, full 64-bit signs and caller frames.\n";
     verify_original_save_codec(runtime,memory);
     std::cout << "Runtime save codec regression passed: 45 original codec calls, two checksums, nine seed/alias combinations, 38 original capsule handlers and original unlock serialization.\n";
     verify_stream_callbacks(runtime,memory);

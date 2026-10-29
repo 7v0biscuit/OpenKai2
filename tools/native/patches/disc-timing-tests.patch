@@ -1,0 +1,32 @@
+--- a/tests/iop_emulator_tests.cpp
++++ b/tests/iop_emulator_tests.cpp
+@@ -1,4 +1,5 @@
+ #include "ps2x/iop/iop_subsystem.h"
++#include "disc_timing.h"
+ 
+ #include <algorithm>
+ #include <chrono>
+@@ -1099,6 +1100,11 @@
+     writeCdvdPvdReadIrx(host, 0x100u);
+     const ModuleLoadResult cdvdPvdRead = iop.loadModuleBuffer(0x100u);
+     iop.runEeCycles(4096u);
++    uint32_t earlyReadReason = 0u;
++    if (!expect(iop.readMemory(0x000101C0u, &earlyReadReason, sizeof(earlyReadReason)) &&
++                earlyReadReason == 0u, "CDVD read callback arrived before the drive completed")) return 1;
++    // Allow 200 ms of emulated DVD time (eight EE cycles per IOP cycle).
++    iop.runEeCycles(uint32_t(8u * (openkai2::DiscTiming::clock / 5u)));
+     iop.onSifTransfer({
+         SifTransferKind::GetOtherData,
+         SifTransferPhase::BeforeCopy,
+@@ -1121,6 +1127,11 @@
+     writeCdvdSeekIrx(host, 0x100u);
+     const ModuleLoadResult cdvdSeek = iop.loadModuleBuffer(0x100u);
+     iop.runEeCycles(4096u);
++    uint32_t earlySeekReason = 0u;
++    if (!expect(iop.readMemory(0x000101C0u, &earlySeekReason, sizeof(earlySeekReason)) &&
++                earlySeekReason == 0u, "CDVD seek callback arrived before the drive completed")) return 1;
++    // Allow 200 ms of emulated DVD time (eight EE cycles per IOP cycle).
++    iop.runEeCycles(uint32_t(8u * (openkai2::DiscTiming::clock / 5u)));
+     iop.onSifTransfer({
+         SifTransferKind::GetOtherData,
+         SifTransferPhase::BeforeCopy,
