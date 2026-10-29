@@ -16,7 +16,7 @@
 +        const auto& display=openkai2::graphics_settings();
 +        InitWindow(int(display.width),int(display.height),title);
 +        if(display.vsync)SetWindowState(FLAG_VSYNC_HINT);
-+        if(display.borderless)ToggleBorderlessWindowed();
++        if(display.borderless){ToggleBorderlessWindowed();ClearWindowState(FLAG_WINDOW_TOPMOST);} // raylib also makes it topmost, which blocks Alt+Tab
 +        std::cout << "[display:window] actual=" << GetScreenWidth() << 'x' << GetScreenHeight()
 +                  << " borderless=" << IsWindowState(FLAG_BORDERLESS_WINDOWED_MODE)
 +                  << " vsync_hint=" << IsWindowState(FLAG_VSYNC_HINT) << std::endl;
