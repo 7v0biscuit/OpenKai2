@@ -27,7 +27,29 @@ read-only. The startup log lists the mods it applied, in `[mods]` lines.
 ## Import tool
 
 The import tool copies data from a PS2 disc, or from files of your own, into a
-mod.
+mod. Reading discs, importing and extracting run in the background, with a
+progress bar and percentage.
+
+### Characters
+
+For a Budokai 2 USA disc, the tool reads the disc's own character tables and
+lists characters by name. Choosing one selects every file its record names,
+so they travel together. Then pick an action:
+
+- **Add as new character** copies the files as new entries and fills an unused
+  character ID with them. Choose the **Select cell** the character appears in;
+  the screen has 29 cells, so it takes over that cell from the character shown
+  there. **Roster slot** shows the ID it will use.
+- **Replace a character** writes the files over another character's, file for
+  file. Files that have no counterpart are left out and counted in the result.
+
+Switch the list to **All files** to work with raw archive entries instead.
+Other discs, including Budokai 3, open in the file view: their character
+tables are not mapped yet.
+
+### Files
+
+Steps for the file view:
 
 1. Pick the source. **Game disc** reads your verified Budokai 2 ISO and
    **Choose ISO…** reads any other PS2 ISO, such as Budokai 3.
@@ -55,6 +77,35 @@ you can edit them in other tools and import them back.
 The game disc must be verified on the **Play** page before importing, because
 the targets come from it.
 
+## Characters and the roster
+
+The USA executable keeps 53 character records at `0x389D40`, 712 bytes each,
+indexed by character ID. Each record starts with a 32-byte name. The u32
+fields from `0x74` to `0x1E0` hold the character's `USR/DATA_CMN.AFS` entries;
+unused fields hold 0 or
+-1. The record's own name for each field is unknown; the numbering suggests
+models, animations and select-screen art, which needs confirming in game. The
+game loads files by `(archive << 16) | entry`, and archive 0 is
+`DATA_CMN.AFS`. The select grid is at `0x3A4140`: one ID per cell for 29 cells,
+then Random (`0x3F`).
+
+IDs 1, 13, 14, 19 and 43 to 52 have names but no data, and the game never
+shows them. A mod fills one with `roster.ini`:
+
+```
+[character]
+slot = 13                  ; the ID to fill
+base = 0                   ; copy this character's record first (Goku)
+name = SSJ4 GOKU           ; up to 31 characters
+file.74 = add:ssj4_body.bin ; a DATA_CMN entry this mod adds
+file.1dc = 412             ; or an entry number
+f32.20 = 9.0               ; also u8., u16. and u32., at a hex record offset
+select = 5                 ; the grid cell, 0 to 28
+```
+
+The changes are made in memory after the executable loads and are listed in
+the startup log as `[mods] roster:` lines. Later mods win.
+
 ## Mod folder layout
 
 A mod is a folder in the mods folder. You can build one by hand:
@@ -69,6 +120,7 @@ mods/
       0412_goku.bin            replaces entry 412; text after the number is free
       add/new_stage.bin        appended as a new entry, in name order
     imports.txt                written by the import tool
+    roster.ini                 character slots, see above
 ```
 
 - Disc paths match without regard to case.
@@ -86,11 +138,14 @@ mods/
 - **Data from Budokai 3 is copied as is.** Budokai 3 uses formats and tables
   that differ from Budokai 2 in places, so a ported character or stage may not
   load or may look wrong. Test it, and keep the mod disabled if it breaks.
-- **Added entries are not new roster slots yet.** The game finds characters
-  and stages through internal tables that refer to entry numbers. An added
-  entry is on the disc, but the game uses it only when something points at it.
-  New select-screen slots need those tables mapped, which has not been done.
-  Replacing an existing character's or stage's entries works now.
+- **The select screen has 29 cells.** A new character takes over a cell; the
+  character that was there stays in the game but cannot be picked on that
+  screen. Adding cells needs the select screen's code changed, which has not
+  been done. There are 14 unused IDs to fill.
+- **Not every character table is mapped.** Data the record does not name, such
+  as voices, story scenes and skill capsules, stays the base character's.
+- **Stages and capsules are not listed by name yet.** Their names are images
+  and text on the disc, not in the executable. Edit them in the file view.
 - Only ISO9660 disc images are read. Files that span several extents are not
   listed.
 
@@ -102,7 +157,8 @@ The mod system lives in `src/mods`:
 - `disc_overlay.*` builds the virtual disc.
 - `mod_library.*` handles mod folders and the load order.
 - `importer.*` reads source discs and writes imports into mods.
+- `roster.*` reads and applies `roster.ini` and reads a disc's characters.
 
 The game reads the disc through `src/disc_image.*` (`IsoIndex`). The
 `mod-disc-overlay` patch in `tools/native/patches` routes the runtime's CD
-reads through the overlay. Tests are in `tests/mod_overlay_tests.cpp`.
+reads through the overlay. Tests are in `tests/mod_overlay_tests.cpp` and `tests/roster_tests.cpp`.
