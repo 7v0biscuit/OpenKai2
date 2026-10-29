@@ -160,7 +160,8 @@ def main():
                       patches / 'gs-worker-thread.patch',
                       patches / 'vif-fill-writes.patch',
                       patches / 'spu2-dma-progress.patch',
-                      patches / 'guest-varargs.patch'):
+                      patches / 'guest-varargs.patch',
+                      patches / 'mod-disc-overlay.patch'):
             apply_overlay_patch(temporary, patch)
         for source in temporary.rglob('*'):
             if source.is_file():

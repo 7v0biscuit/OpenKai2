@@ -2,6 +2,7 @@
 #include "iso_fixture.h"
 #include "disc_image.h"
 #include "disc_timing.h"
+#include "mods/disc_overlay.h"
 #include "ps2_runtime.h"
 #include "ps2_stubs.h"
 #include "Syscalls/RPC.h"
@@ -252,8 +253,30 @@ int main() {
         ps2_stubs::sceCdRead(memory.data(),&cpu,nullptr);
         require(getRegU32(&cpu,2)==1 && std::memcmp(memory.data()+0x3000,"abcdef",6)==0,
                 "EE original-ISO sector read failed");
+
+        // A mod that outgrows a file moves it past the end of the image; the
+        // EE search and sector reads follow it there.
+        const auto mod=root/"mods"/"Bigger";
+        fs::create_directories(mod/"files");
+        {
+            std::ofstream out(mod/"files"/"SLUS_207.79",std::ios::binary);
+            out << std::string(3000,'Q');
+        }
+        openkai2::mods::DiscOverlay::global().configure(fs::absolute(image),{mod});
+        const char modded[]="cdrom0:\\SLUS_207.79;1";
+        std::memcpy(memory.data()+0x2400,modded,sizeof(modded));
+        cpu.r[4]=_mm_cvtsi32_si128(0x2000); cpu.r[5]=_mm_cvtsi32_si128(0x2400);
+        ps2_stubs::sceCdSearchFile(memory.data(),&cpu,nullptr);
+        uint32_t movedLba=0,movedSize=0;
+        std::memcpy(&movedLba,memory.data()+0x2000,4);std::memcpy(&movedSize,memory.data()+0x2004,4);
+        require(getRegU32(&cpu,2)==1 && movedLba>=32 && movedSize==3000,"EE search did not find the modded file");
+        cpu.r[4]=_mm_cvtsi32_si128(int(movedLba)); cpu.r[5]=_mm_cvtsi32_si128(2); cpu.r[6]=_mm_cvtsi32_si128(0x3000);
+        ps2_stubs::sceCdRead(memory.data(),&cpu,nullptr);
+        require(getRegU32(&cpu,2)==1 && memory[0x3000]=='Q' && memory[0x3000+2999]=='Q',
+                "EE sector read did not return the modded file");
+        openkai2::mods::DiscOverlay::global().clear();
         fs::remove_all(root);
-        std::cout << "Original ISO sector mapping and CD/DVD search RPC passed for EE and IOP\n";
+        std::cout << "Original ISO sector mapping, CD/DVD search RPC and modded files passed for EE and IOP\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

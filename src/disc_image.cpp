@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "disc_image.h"
+#include "mods/disc_overlay.h"
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -234,6 +235,7 @@ class Iso {
             if (is_directory) {
                 if (more || continuing || !paths_.insert(key).second) fail("ISO has a conflicting directory");
                 entries_.push_back(index_entry(path,e,true,r));
+                entries_.back().record_offset=dir.offset+pos;
                 directory(e,path,depth+1);
             } else {
                 if (!continuing) {
@@ -241,6 +243,9 @@ class Iso {
                     if (files_.size()>=200000) fail("ISO file count exceeds the supported limit");
                     files_.push_back({path,{ },0});
                     entries_.push_back(index_entry(path,e,false,r));
+                    entries_.back().record_offset=dir.offset+pos;
+                } else {
+                    entries_.back().multi_extent=true;
                 }
                 files_.back().extents.push_back(e);
                 if (files_.back().extents.size()>1024) fail("Too many extents in an ISO file");
@@ -340,17 +345,17 @@ struct CacheLock {
 };
 } // namespace
 
-IsoIndex::IsoIndex(const std::filesystem::path& image) : entries_(Iso(image).entries()) {
+IsoIndex::IsoIndex(const std::filesystem::path& image) : image_(image), entries_(Iso(image).entries()) {
     for (size_t i=0; i<entries_.size(); ++i)
         lookup_.emplace(upper(entries_[i].path.generic_string()),i);
 }
 
-const IsoEntry* IsoIndex::find(std::string path) const {
+std::optional<std::string> IsoIndex::key(std::string path) {
     std::replace(path.begin(),path.end(),'\\','/');
     const auto colon=path.find(':');
     if (colon!=std::string::npos) {
         const auto device=upper(path.substr(0,colon));
-        if (device!="CDROM" && device!="CDROM0") return nullptr;
+        if (device!="CDROM" && device!="CDROM0") return std::nullopt;
         path.erase(0,colon+1);
     }
     std::string key;
@@ -362,8 +367,15 @@ const IsoEntry* IsoIndex::find(std::string path) const {
             if (!key.empty()) key+='/';
             key+=upper(filename(component,false));
         }
-    } catch (const std::runtime_error&) { return nullptr; }
-    const auto found=lookup_.find(key);
+    } catch (const std::runtime_error&) { return std::nullopt; }
+    return key;
+}
+
+const IsoEntry* IsoIndex::find(std::string path) const {
+    const auto key=IsoIndex::key(std::move(path));
+    if (!key) return nullptr;
+    if (const auto* modded=mods::DiscOverlay::global().find(image_,*key)) return modded;
+    const auto found=lookup_.find(*key);
     return found==lookup_.end() ? nullptr : &entries_[found->second];
 }
 

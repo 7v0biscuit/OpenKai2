@@ -31,7 +31,8 @@ function(openkai2_attach_generated_sources)
         CONTENT "#define OPENKAI2_SOURCE_REVISION \"@runtime_revision@\"\n" @ONLY)
     set_property(SOURCE "${project_root}/src/main.cpp" TARGET_DIRECTORY ps2EntryRunner
         APPEND PROPERTY INCLUDE_DIRECTORIES "${CMAKE_BINARY_DIR}")
-    add_library(openkai2_disc STATIC "${project_root}/src/disc_image.cpp")
+    add_library(openkai2_disc STATIC "${project_root}/src/disc_image.cpp" "${project_root}/src/mods/afs.cpp"
+        "${project_root}/src/mods/disc_overlay.cpp" "${project_root}/src/mods/mod_library.cpp")
     target_include_directories(openkai2_disc PUBLIC "${project_root}/src")
     target_compile_features(openkai2_disc PUBLIC cxx_std_17)
     if(WIN32)
@@ -113,6 +114,7 @@ function(openkai2_attach_generated_sources)
         "${project_root}/tools/native/patches/vif-fill-writes.patch"
         "${project_root}/tools/native/patches/spu2-dma-progress.patch"
         "${project_root}/tools/native/patches/guest-varargs.patch"
+        "${project_root}/tools/native/patches/mod-disc-overlay.patch"
         "${project_root}/tools/native/patches/simulation-pacing.patch"
         "${project_root}/tools/native/patches/vector-native-backend.patch"
         "${project_root}/tools/native/patches/guest-timing.patch"

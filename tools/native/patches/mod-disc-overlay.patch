@@ -1,0 +1,80 @@
+--- a/Kernel/Stubs/Helpers/Support.h
++++ b/Kernel/Stubs/Helpers/Support.h
+@@ -1,4 +1,5 @@
+ #include "disc_image.h"
++#include "mods/disc_overlay.h"
+ #include <memory>
+ #include <algorithm>
+ #include <cctype>
+@@ -205,7 +206,10 @@
+             return false;
+         }
+ 
+-        totalSectorsOut = g_cdImageSizeBytes / static_cast<uint64_t>(kCdSectorSize);
++        // Mods may extend the disc past the end of the image.
++        const auto &overlay = openkai2::mods::DiscOverlay::global();
++        const uint64_t bytes = overlay.active_for(imagePath) ? overlay.size() : g_cdImageSizeBytes;
++        totalSectorsOut = bytes / static_cast<uint64_t>(kCdSectorSize);
+         return true;
+     }
+ 
+@@ -407,12 +411,17 @@
+                     g_isoIndexPath = imagePath;
+                 }
+                 const auto *location = g_isoIndex->find(ps2Path);
+-                if (!location || location->directory || location->size != sizeBytes)
++                // A modded file differs from the extracted original, so its
++                // size comes from the disc overlay.
++                const bool modded = openkai2::mods::DiscOverlay::global().active_for(imagePath);
++                if (!location || location->directory || (location->size != sizeBytes && !modded))
+                 {
+                     g_lastCdError = -1;
+                     return false;
+                 }
+                 entry.baseLbn = location->sector;
++                entry.sizeBytes = static_cast<uint32_t>(location->size);
++                entry.sectors = sectorsForBytes(location->size);
+             }
+             catch (const std::exception &)
+             {
+@@ -481,6 +490,17 @@
+             }
+ 
+             const uint64_t offset = static_cast<uint64_t>(lbn) * kCdSectorSize;
++            const auto &overlay = openkai2::mods::DiscOverlay::global();
++            if (overlay.active_for(cdImage))
++            {
++                if (!dst || !overlay.read(offset, dst, byteCount))
++                {
++                    g_lastCdError = -1;
++                    return false;
++                }
++                g_lastCdError = 0;
++                return true;
++            }
+             return readHostRange(cdImage, offset, dst, byteCount);
+         }
+ 
+--- a/emulator/imports/iop_cdvd.cpp
++++ b/emulator/imports/iop_cdvd.cpp
+@@ -1,5 +1,6 @@
+ #include "iop_cdvd.h"
+ #include "disc_image.h"
++#include "mods/disc_overlay.h"
+ #include "disc_timing.h"
+ 
+ #include "../core/iop_cpu.h"
+@@ -745,7 +746,12 @@
+ 
+             bool read = false;
+             const std::string imagePath = host.hostPath(HostPathKind::CdImage);
+-            if (!imagePath.empty())
++            const auto &overlay = openkai2::mods::DiscOverlay::global();
++            if (!imagePath.empty() && overlay.active_for(imagePath))
++            {
++                read = overlay.read(static_cast<uint64_t>(lsn) * kSectorSize, bytes.data(), byteCount);
++            }
++            else if (!imagePath.empty())
+             {
+                 if (imageHandle == 0u)
+                     imageHandle = host.openHostFile(imagePath);

@@ -2,6 +2,8 @@
 #include "discord_presence.h"
 #include "host_audio.h"
 #include "disc_image.h"
+#include "mods/disc_overlay.h"
+#include "mods/mod_library.h"
 #include "display_settings.h"
 #include "graphics_settings.h"
 #include "launcher/settings.h"
@@ -202,6 +204,15 @@ int main(int argc, char* argv[]) {
         auto paths=PS2Runtime::getIoPaths();
         paths.cdImage=std::filesystem::absolute(image);
         PS2Runtime::setIoPaths(paths);
+        // Enabled mods are layered over the verified disc; the ISO is never changed.
+        const auto modsDirectory=openkai2::mods::default_mods_directory();
+        const auto mods=openkai2::mods::enabled_mod_folders(modsDirectory);
+        const auto applied=openkai2::mods::DiscOverlay::global().configure(paths.cdImage,mods);
+        std::cout << "[mods] directory=" << modsDirectory.string() << " enabled=" << mods.size()
+                  << " replaced_files=" << applied.replaced_files << " replaced_entries=" << applied.replaced_entries
+                  << " added_entries=" << applied.added_entries << " relocated_files=" << applied.relocated_files << std::endl;
+        for (const auto& mod : mods) std::cout << "[mods] loaded " << mod.filename().string() << std::endl;
+        for (const auto& note : applied.notes) std::cout << "[mods] " << note << std::endl;
         presence.update("Playing Budokai 2","In game");
         runtime.run();
         return 0;
