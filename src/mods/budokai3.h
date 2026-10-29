@@ -26,21 +26,21 @@ namespace openkai2::mods {
 inline constexpr uint32_t budokai3_names = 0x4314B0u, budokai3_records = 0x447440u;
 inline constexpr uint32_t budokai3_record_bytes = 96u, budokai3_name_bytes = 32u, budokai3_count = 106u;
 
-// A model's parts and how they link, which must match for a Budokai 2
-// character's animations to move it.
-struct ModelShape {
-    std::vector<std::array<uint32_t, 4>> parts;
-    bool operator==(const ModelShape &other) const { return parts == other.parts; }
-};
 // The shape of a DATA_CMN entry that is a costume model, or nothing.
 std::optional<ModelShape> model_shape(SourceDisc &disc, size_t entry);
 
 // The Budokai 3 characters' models as a roster: each character is one model,
-// with that model as its only file (at offset 0). Nothing for other discs.
+// with that model as its only file (at offset 0), and its shape. Nothing for
+// other discs.
 std::optional<DiscRoster> read_budokai3_models(SourceDisc &disc);
 
 // The record fields of a Budokai 2 character that hold its costume models.
 std::vector<std::pair<uint32_t, uint32_t>> costume_fields(SourceDisc &game, const DiscCharacter &character);
+// Reads the shape of each Budokai 2 character's first costume model.
+void read_model_shapes(SourceDisc &game, DiscRoster &roster);
+// The IDs of the characters in `wearers` whose model has the same shape as
+// the model `model` in `models`, in roster order.
+std::vector<uint32_t> fitting_wearers(const DiscRoster &models, uint32_t model, const DiscRoster &wearers);
 
 // A model entry's bytes, with Budokai 3 texture packs marked as Budokai 2's.
 std::vector<uint8_t> model_for_budokai2(SourceDisc &disc, size_t entry);

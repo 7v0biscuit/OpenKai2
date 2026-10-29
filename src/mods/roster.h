@@ -5,6 +5,7 @@
 #include <array>
 #include <cstdint>
 #include <filesystem>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -69,12 +70,22 @@ struct DiscCharacter {
     // (record offset, DATA_CMN entry) for every file the record names
     std::vector<std::pair<uint32_t, uint32_t>> files;
 };
+// A costume model's parts and how they link, which must match for one
+// character's animations to move another character's model (budokai3.h).
+struct ModelShape {
+    std::vector<std::array<uint32_t, 4>> parts;
+    bool operator==(const ModelShape &other) const { return parts == other.parts; }
+};
+
 struct DiscRoster {
     std::vector<DiscCharacter> characters; // only characters that have files
     std::array<uint8_t, roster_select_cells> grid{};
     // Models from another game (budokai3.h): each character is one model,
     // worn by the Budokai 2 character it is imported onto. There is no grid.
     bool models = false;
+    // The shape of each character's model, by character ID, for those whose
+    // first costume is a model whose shape was read (read_model_shapes).
+    std::map<uint32_t, ModelShape> shapes;
     const DiscCharacter *find(uint32_t id) const;
 };
 

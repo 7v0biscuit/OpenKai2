@@ -125,11 +125,15 @@ std::optional<DiscRoster> read_budokai3_models(SourceDisc &disc) {
         const auto internal = name_at(name);
         const uint32_t items = std::min<uint32_t>(uint32_t(memory[record + 4]) * memory[record + 5], 64);
         std::vector<uint32_t> models;
+        std::vector<ModelShape> shapes;
         for (uint32_t k = 0; k < items; ++k) {
             const auto entry = word(word(record + 8) + k * 12);
-            if (entry && entry < entries && std::find(models.begin(), models.end(), entry) == models.end() &&
-                model_shape(disc, entry))
+            if (!entry || entry >= entries || std::find(models.begin(), models.end(), entry) != models.end())
+                continue;
+            if (auto shape = model_shape(disc, entry)) {
                 models.push_back(entry);
+                shapes.push_back(std::move(*shape));
+            }
         }
         for (size_t k = 0; k < models.size(); ++k) {
             DiscCharacter character;
@@ -138,6 +142,7 @@ std::optional<DiscRoster> read_budokai3_models(SourceDisc &disc) {
             character.name = budokai3_name(internal) +
                              (models.size() > 1 ? ", model " + std::to_string(k + 1) : std::string());
             character.files = {{0u, models[k]}};
+            roster.shapes[character.id] = std::move(shapes[k]);
             roster.characters.push_back(std::move(character));
         }
     }
@@ -153,6 +158,27 @@ std::vector<std::pair<uint32_t, uint32_t>> costume_fields(SourceDisc &game, cons
         if (offset < 0x110u && model_shape(game, entry))
             fields.push_back({offset, entry});
     return fields;
+}
+
+void read_model_shapes(SourceDisc &game, DiscRoster &roster) {
+    for (const auto &character : roster.characters) {
+        const auto costumes = costume_fields(game, character);
+        if (!costumes.empty())
+            if (auto shape = model_shape(game, costumes.front().second))
+                roster.shapes[character.id] = std::move(*shape);
+    }
+}
+
+std::vector<uint32_t> fitting_wearers(const DiscRoster &models, uint32_t model, const DiscRoster &wearers) {
+    std::vector<uint32_t> fit;
+    const auto shape = models.shapes.find(model);
+    if (shape == models.shapes.end())
+        return fit;
+    for (const auto &character : wearers.characters)
+        if (const auto theirs = wearers.shapes.find(character.id);
+            theirs != wearers.shapes.end() && theirs->second == shape->second)
+            fit.push_back(character.id);
+    return fit;
 }
 
 std::vector<uint8_t> model_for_budokai2(SourceDisc &disc, size_t entry) {

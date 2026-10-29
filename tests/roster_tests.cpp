@@ -271,6 +271,16 @@ int main() {
                     !(model_shape(budokai3, 265) == model_shape(gameDisc, 171)) &&
                     !(model_shape(gameDisc, 213) == model_shape(gameDisc, 171)) && !model_shape(budokai3, 266),
                 "Model shapes were compared wrongly");
+        auto wearers = *gameRoster;
+        read_model_shapes(gameDisc, wearers);
+        require(wearers.shapes.size() == 2 && wearers.shapes.at(0).parts.size() == 5 &&
+                    fitting_wearers(*models, models->characters[0].id, wearers) == std::vector<uint32_t>{0} &&
+                    fitting_wearers(*models, models->characters[1].id, wearers).empty(),
+                "The characters that can wear a model were not found");
+        const auto shapesReport = disc_report(budokai3);
+        require(shapesReport.find("Costume model shapes") != std::string::npos &&
+                    shapesReport.find("Goku, model 1") != std::string::npos,
+                "The disc report does not list the model shapes");
         const auto converted = model_for_budokai2(budokai3, 264);
         auto expected = costume_model(5, 2);
         expected[0x40 + 0x70 + 5 * 32 + 12] = 1;

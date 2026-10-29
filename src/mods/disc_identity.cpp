@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "mods/disc_identity.h"
+#include "mods/budokai3.h"
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
@@ -255,7 +256,7 @@ DiscIdentity identify_disc(SourceDisc &disc) {
 std::string disc_report(SourceDisc &disc) {
     std::ostringstream out;
     const auto identity = identify_disc(disc);
-    out << "OpenKai2 disc report, version 4\n\nGame: " << game_name(identity.game) << "\nSerial: " << identity.serial
+    out << "OpenKai2 disc report, version 5\n\nGame: " << game_name(identity.game) << "\nSerial: " << identity.serial
         << "\nExecutable: " << identity.executable << "\n\nFiles:\n";
     char line[160];
     const auto hex = [&](const uint8_t *bytes, size_t count) {
@@ -339,6 +340,31 @@ std::string disc_report(SourceDisc &disc) {
                 out << '\n';
             }
         }
+    // Characters' models whose parts link the same way share a check value,
+    // and can wear each other's models.
+    auto roster = read_disc_roster(disc);
+    if (roster)
+        read_model_shapes(disc, *roster);
+    else
+        roster = read_budokai3_models(disc);
+    if (roster) {
+        out << "\nCostume model shapes (entry, parts, a check value of how they link):\n";
+        for (const auto &character : roster->characters) {
+            const auto shape = roster->shapes.find(character.id);
+            if (shape == roster->shapes.end())
+                continue;
+            uint32_t check = 2166136261u;
+            for (const auto &part : shape->second.parts)
+                for (const auto word : part)
+                    for (unsigned b = 0; b < 4; ++b)
+                        check = (check ^ ((word >> (8 * b)) & 0xFFu)) * 16777619u;
+            const auto entry = roster->models ? character.files.front().second
+                                              : costume_fields(disc, character).front().second;
+            std::snprintf(line, sizeof line, "  %-34s %5u %4zu  %08X\n", character.name.c_str(), entry,
+                          shape->second.parts.size(), check);
+            out << line;
+        }
+    }
     std::vector<uint8_t> elf;
     try {
         elf = disc.read_file(identity.executable);
