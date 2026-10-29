@@ -279,7 +279,9 @@ int main() {
                 "The characters that can wear a model were not found");
         const auto shapesReport = disc_report(budokai3);
         require(shapesReport.find("Costume model shapes") != std::string::npos &&
-                    shapesReport.find("Goku, model 1") != std::string::npos,
+                    shapesReport.find("Goku, model 1") != std::string::npos &&
+                    shapesReport.find("Goku, model 1, entry 264:\n    header: 4F4D4123") != std::string::npos &&
+                    shapesReport.find("    part  4: 00000004") != std::string::npos,
                 "The disc report does not list the model shapes");
         const auto converted = model_for_budokai2(budokai3, 264);
         auto expected = costume_model(5, 2);

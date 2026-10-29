@@ -5,6 +5,7 @@
 #include <array>
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <vector>
 
 // Character models from the Budokai 3 USA disc (SLUS-20998), worn by Budokai 2
@@ -41,6 +42,11 @@ void read_model_shapes(SourceDisc &game, DiscRoster &roster);
 // The IDs of the characters in `wearers` whose model has the same shape as
 // the model `model` in `models`, in roster order.
 std::vector<uint32_t> fitting_wearers(const DiscRoster &models, uint32_t model, const DiscRoster &wearers);
+
+// A plain-text dump of a costume model's mesh: its header, each part's row
+// and the first bytes of each part's data, for working out how parts attach
+// to the skeleton.
+std::string model_structure(SourceDisc &disc, size_t entry);
 
 // A model entry's bytes, with Budokai 3 texture packs marked as Budokai 2's.
 std::vector<uint8_t> model_for_budokai2(SourceDisc &disc, size_t entry);

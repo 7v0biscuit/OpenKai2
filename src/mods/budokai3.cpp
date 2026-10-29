@@ -3,6 +3,7 @@
 #include "mods/disc_identity.h"
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
 #include <cstring>
 #include <map>
 #include <sstream>
@@ -158,6 +159,36 @@ std::vector<std::pair<uint32_t, uint32_t>> costume_fields(SourceDisc &game, cons
         if (offset < 0x110u && model_shape(game, entry))
             fields.push_back({offset, entry});
     return fields;
+}
+
+std::string model_structure(SourceDisc &disc, size_t entry) {
+    const auto range = disc.range(roster_archive, entry);
+    const auto parts = model_parts(disc, range);
+    if (!parts)
+        return {};
+    std::string text;
+    char line[160];
+    const auto words = [&](const std::vector<uint8_t> &bytes, size_t from, size_t count) {
+        for (size_t at = from; at < from + count && at + 4 <= bytes.size(); at += 4) {
+            std::snprintf(line, sizeof line, " %08X", read32(bytes, at));
+            text += line;
+        }
+    };
+    const auto head = read_bytes(disc, range, parts->first, 0x70);
+    const uint32_t count = std::min<uint32_t>(read32(head, 16), 256), table = read32(head, 20);
+    text += "    header:";
+    words(head, 0, head.size());
+    text += '\n';
+    const auto rows = read_bytes(disc, range, parts->first + table, size_t(count) * 32);
+    for (uint32_t i = 0; i < count && (i + 1) * 32 <= rows.size(); ++i) {
+        std::snprintf(line, sizeof line, "    part %2u:", i);
+        text += line;
+        words(rows, i * 32, 32);
+        text += "  data:";
+        words(read_bytes(disc, range, parts->first + uint64_t(read32(rows, i * 32 + 4)), 64), 0, 64);
+        text += '\n';
+    }
+    return text;
 }
 
 void read_model_shapes(SourceDisc &game, DiscRoster &roster) {
