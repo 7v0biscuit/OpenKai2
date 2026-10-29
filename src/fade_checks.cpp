@@ -152,6 +152,8 @@ void verify_fade_callbacks(PS2Runtime& runtime, uint8_t* memory) {
     runtime.memory().write32(0x1000e000u,1u);
     R5900Context dmaContext{};
     runtime.kickGifDmaChainFromMMIO(memory,&dmaContext,0u,0u,queue,0x105u);
+    // A field is presented once the GS thread has drawn what came before it.
+    runtime.gs().fence();
     runtime.gs().latchHostPresentationFrame();
     std::vector<uint8_t> pixels;
     uint32_t width=0,height=0;
@@ -175,6 +177,8 @@ void verify_fade_callbacks(PS2Runtime& runtime, uint8_t* memory) {
     setup(10,1.0f,0.0f); put(gp-0x7fe0u,0u); invoke(0x00249af0u);
     std::memset(memory+queue+0xa0u,0,16); put(queue+0xa0u,0x70000000u);
     runtime.kickGifDmaChainFromMMIO(memory,&dmaContext,0u,0u,queue,0x105u);
+    // A field is presented once the GS thread has drawn what came before it.
+    runtime.gs().fence();
     runtime.gs().latchHostPresentationFrame();
     require(runtime.gs().copyLatchedHostPresentationFrame(pixels,width,height),
             "black overlay lost the host frame");
