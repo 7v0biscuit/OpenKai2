@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "iso_fixture.h"
 #include "mods/afs.h"
+#include "mods/budokai3.h"
 #include "mods/disc_identity.h"
 #include "mods/roster.h"
 #include "mods/select_alternates.h"
@@ -8,6 +9,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include <map>
 
 using namespace openkai2::test;
 using namespace openkai2::mods;
@@ -60,10 +62,12 @@ Bytes memory_image() {
     return memory;
 }
 
-// An ISO whose executable is that memory as one ELF segment, with a
-// DATA_CMN.AFS of 300 empty entries beside it.
-Bytes disc_image(const Bytes &memory, const std::string &executable = "SLUS_207.79") {
-    const uint32_t start = roster_records, bytes = uint32_t(memory.size() - start);
+// An ISO whose executable is the memory from `start` as one ELF segment,
+// with a DATA_CMN.AFS of 300 entries beside it: entry 0 is a small #AMB and
+// `files` gives others; the rest are empty.
+Bytes disc_image(const Bytes &memory, const std::string &executable = "SLUS_207.79", uint32_t start = roster_records,
+                 const std::map<uint32_t, Bytes> &files = {}) {
+    const uint32_t bytes = uint32_t(memory.size() - start);
     Bytes elf(0x100 + bytes, 0);
     std::memcpy(elf.data(), "\x7f" "ELF", 4);
     put32(elf, 28, 52);
@@ -76,36 +80,77 @@ Bytes disc_image(const Bytes &memory, const std::string &executable = "SLUS_207.
     put32(elf, 72, bytes);
     std::memcpy(elf.data() + 0x100, memory.data() + start, bytes);
 
-    const uint32_t entries = 300, elfSector = 40, elfSectors = uint32_t((elf.size() + sector - 1) / sector);
-    const uint32_t afsSector = elfSector + elfSectors, afsBytes = uint32_t(2 * sector);
-    Bytes image((afsSector + 3) * sector, 0);
+    // The archive: its entry table, entry 0 at 3072, then the given files.
+    const uint32_t entries = 300;
+    Bytes afs(2 * sector, 0);
+    std::memcpy(afs.data(), "AFS\0", 4);
+    put32(afs, 4, entries);
+    for (uint32_t i = 0; i < entries; ++i)
+        put32(afs, 8 + i * 8, 2 * sector);
+    const size_t pack = 3072;
+    put32(afs, 8, 3072);
+    put32(afs, 12, 64);
+    std::memcpy(afs.data() + pack, "#AMB ", 5);
+    put32(afs, pack + 16, 1);
+    put32(afs, pack + 20, 0x20);
+    put32(afs, pack + 0x20, 0x30);
+    put32(afs, pack + 0x24, 16);
+    std::memcpy(afs.data() + pack + 0x30, "#AMO", 4);
+    for (const auto &[entry, data] : files) {
+        put32(afs, 8 + entry * 8, uint32_t(afs.size()));
+        put32(afs, 12 + entry * 8, uint32_t(data.size()));
+        afs.insert(afs.end(), data.begin(), data.end());
+        afs.resize((afs.size() + sector - 1) / sector * sector, 0);
+    }
+
+    const uint32_t elfSector = 40, elfSectors = uint32_t((elf.size() + sector - 1) / sector);
+    const uint32_t afsSector = elfSector + elfSectors, afsSectors = uint32_t(afs.size() / sector);
+    Bytes image((afsSector + afsSectors + 1) * sector, 0);
     const auto base = fixture();
     std::copy(base.begin(), base.begin() + 18 * sector, image.begin());
-    both32(image, 16 * sector + 80, afsSector + 3);
+    both32(image, 16 * sector + 80, afsSector + afsSectors + 1);
     records(image, 18, {record(std::string(1, '\0'), 18, sector, 2), record(std::string(1, '\1'), 18, sector, 2),
                         record(executable + ";1", elfSector, uint32_t(elf.size())), record("SYSTEM.CNF;1", 22, 64),
                         record("USR", 20, sector, 2)});
     const std::string boot = "BOOT2 = cdrom0:\\" + executable + ";1\r\nVER = 1.00\r\n";
     std::copy(boot.begin(), boot.end(), image.begin() + 22 * sector);
     records(image, 20, {record(std::string(1, '\0'), 20, sector, 2), record(std::string(1, '\1'), 18, sector, 2),
-                        record("DATA_CMN.AFS;1", afsSector, afsBytes)});
+                        record("DATA_CMN.AFS;1", afsSector, uint32_t(afs.size()))});
     std::copy(elf.begin(), elf.end(), image.begin() + elfSector * sector);
-    const size_t afs = afsSector * sector;
-    std::memcpy(image.data() + afs, "AFS\0", 4);
-    put32(image, afs + 4, entries);
-    for (uint32_t i = 0; i < entries; ++i)
-        put32(image, afs + 8 + i * 8, 2 * sector);
-    // Entry 0 is an #AMB pack of one file, after the entry table.
-    const size_t pack = afs + 3072;
-    put32(image, afs + 8, 3072);
-    put32(image, afs + 12, 64);
-    std::memcpy(image.data() + pack, "#AMB ", 5);
-    put32(image, pack + 16, 1);
-    put32(image, pack + 20, 0x20);
-    put32(image, pack + 0x20, 0x30);
-    put32(image, pack + 0x24, 16);
-    std::memcpy(image.data() + pack + 0x30, "#AMO", 4);
+    std::copy(afs.begin(), afs.end(), image.begin() + afsSector * sector);
     return image;
+}
+
+// A costume model: an #AMB of a mesh whose parts link in a chain and its
+// textures. `twist` relinks the last part.
+Bytes costume_model(uint32_t parts, uint32_t textures, bool twist = false) {
+    const uint32_t mesh = 0x40, rows = 0x70, end = mesh + rows + parts * 32;
+    Bytes model(end + 0x20, 0);
+    std::memcpy(model.data(), "#AMB ", 5);
+    put32(model, 12, 3);
+    put32(model, 16, 2);
+    put32(model, 20, 0x20);
+    put32(model, 0x20, mesh);
+    put32(model, 0x24, end - mesh);
+    put32(model, 0x28, 1);
+    put32(model, 0x30, end);
+    put32(model, 0x34, 0x20);
+    put32(model, 0x38, 2);
+    std::memcpy(model.data() + mesh, "#AMO0", 5);
+    put32(model, mesh + 16, parts);
+    put32(model, mesh + 20, rows);
+    for (uint32_t i = 0; i < parts; ++i) {
+        const uint32_t at = mesh + rows + i * 32;
+        put32(model, at, i);
+        put32(model, at + 4, 0x1000 + i * 0x130); // where the part's data is; free to differ
+        put32(model, at + 8, i + 1 < parts ? rows + (i + 1) * 32 : 0);
+        put32(model, at + 16, i ? rows + (i - 1) * 32 : 0);
+    }
+    if (twist)
+        put32(model, mesh + rows + (parts - 1) * 32 + 16, rows);
+    std::memcpy(model.data() + end, "#AMT ", 5);
+    put32(model, end + 12, textures);
+    return model;
 }
 } // namespace
 
@@ -185,6 +230,51 @@ int main() {
         write(root / "other.iso", disc_image(plainGame, "SLUS_299.99"));
         SourceDisc unrelated(root / "other.iso");
         require(identify_disc(unrelated).game == DragonBallGame::none, "A disc without Dragon Ball data was accepted");
+
+        // Budokai 3's models are read from its table, and one fits a Budokai 2
+        // character whose model links its parts the same way.
+        write(root / "game.iso", disc_image(memory_image(), "SLUS_207.79", roster_records,
+                                            {{171, costume_model(5, 1)}, {213, costume_model(6, 1)}}));
+        SourceDisc gameDisc(root / "game.iso");
+        const auto gameRoster = read_disc_roster(gameDisc);
+        require(gameRoster && !gameRoster->models, "The game disc's roster was not read");
+        const auto *gameGoku = gameRoster->find(0);
+        require(costume_fields(gameDisc, *gameGoku) == std::vector<std::pair<uint32_t, uint32_t>>{{0x74, 171}},
+                "Goku's costume model was not found, or a file that is not a model was taken for one");
+        Bytes b3memory(budokai3_records + budokai3_count * budokai3_record_bytes, 0);
+        std::memcpy(b3memory.data() + budokai3_names, "GOKOU", 5);
+        std::memcpy(b3memory.data() + budokai3_names + 91 * budokai3_name_bytes, "GOKOU SS4", 9);
+        std::memcpy(b3memory.data() + budokai3_names + 0x2000, "BASLUS-20998DBZ3", 16);
+        const uint32_t lists = budokai3_names + 0x1000;
+        put32(b3memory, budokai3_records, budokai3_names);
+        b3memory[budokai3_records + 4] = 3; // three forms of one costume
+        b3memory[budokai3_records + 5] = 1;
+        put32(b3memory, budokai3_records + 8, lists);
+        for (const auto [k, entry] : {std::pair{0u, 264u}, {1u, 265u}, {2u, 264u}})
+            put32(b3memory, lists + 12 * k, entry);
+        const uint32_t ss4 = budokai3_records + 91 * budokai3_record_bytes;
+        put32(b3memory, ss4, budokai3_names + 91 * budokai3_name_bytes);
+        b3memory[ss4 + 4] = b3memory[ss4 + 5] = 1;
+        put32(b3memory, ss4 + 8, lists + 0x100);
+        put32(b3memory, lists + 0x100, 266);
+        write(root / "budokai3.iso", disc_image(b3memory, "SLUS_209.98", budokai3_names,
+                                                {{264, costume_model(5, 2)}, {265, costume_model(5, 2, true)}}));
+        SourceDisc budokai3(root / "budokai3.iso");
+        require(identify_disc(budokai3).game == DragonBallGame::budokai3, "The Budokai 3 disc was not identified");
+        const auto models = read_budokai3_models(budokai3);
+        require(models && models->models && models->characters.size() == 2 &&
+                    models->characters[0].name == "Goku, model 1" && models->characters[1].name == "Goku, model 2" &&
+                    models->characters[0].files == std::vector<std::pair<uint32_t, uint32_t>>{{0, 264}},
+                "Budokai 3's models were not read, or a record without a model was listed");
+        require(!read_budokai3_models(gameDisc) && !read_disc_roster(budokai3), "A disc was read with the other game's table");
+        require(model_shape(budokai3, 264) == model_shape(gameDisc, 171) &&
+                    !(model_shape(budokai3, 265) == model_shape(gameDisc, 171)) &&
+                    !(model_shape(gameDisc, 213) == model_shape(gameDisc, 171)) && !model_shape(budokai3, 266),
+                "Model shapes were compared wrongly");
+        const auto converted = model_for_budokai2(budokai3, 264);
+        auto expected = costume_model(5, 2);
+        expected[0x40 + 0x70 + 5 * 32 + 12] = 1;
+        require(converted == expected, "The model's textures were not marked as Budokai 2's, or more changed");
 
         // A mod fills Zarbon's unused record from Goku's and puts it on the grid.
         const auto mod = root / "mods" / "SSJ4";

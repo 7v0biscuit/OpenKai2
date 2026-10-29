@@ -35,7 +35,7 @@ function(openkai2_attach_generated_sources)
         "${project_root}/src/mods/disc_overlay.cpp" "${project_root}/src/mods/mod_library.cpp"
         "${project_root}/src/mods/importer.cpp" "${project_root}/src/mods/roster.cpp"
         "${project_root}/src/mods/select_alternates.cpp" "${project_root}/src/mods/select_screen.cpp"
-        "${project_root}/src/mods/disc_identity.cpp")
+        "${project_root}/src/mods/disc_identity.cpp" "${project_root}/src/mods/budokai3.cpp")
     target_include_directories(openkai2_disc PUBLIC "${project_root}/src")
     target_compile_features(openkai2_disc PUBLIC cxx_std_17)
     if(WIN32)

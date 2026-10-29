@@ -72,6 +72,9 @@ struct DiscCharacter {
 struct DiscRoster {
     std::vector<DiscCharacter> characters; // only characters that have files
     std::array<uint8_t, roster_select_cells> grid{};
+    // Models from another game (budokai3.h): each character is one model,
+    // worn by the Budokai 2 character it is imported onto. There is no grid.
+    bool models = false;
     const DiscCharacter *find(uint32_t id) const;
 };
 
