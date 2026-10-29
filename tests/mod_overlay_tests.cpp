@@ -3,6 +3,7 @@
 #include "disc_image.h"
 #include "mods/afs.h"
 #include "mods/disc_overlay.h"
+#include "mods/importer.h"
 #include "mods/mod_library.h"
 #include <cstring>
 #include <iostream>
@@ -145,6 +146,39 @@ int main() {
         const auto created = create_mod(mods, "Goku SSJ4!", "Me", "Test");
         require(created.filename() == "Goku_SSJ4" && scan_mods(mods).back().name == "Goku SSJ4!",
                 "A created mod was not added to the load order");
+        // The import tool reads another disc and writes its entries into a mod
+        // that the overlay then applies to this one.
+        SourceDisc source(image);
+        const auto &listed = source.files();
+        require(listed.size() == 4 && listed[2].path == "USR/DATA.AFS" && listed[2].archive && listed[2].entries == 3 &&
+                    listed[3].path == "USR/DATA.BIN" && !listed[3].archive,
+                "The source disc listing is wrong");
+        require(source.entries("cdrom0:\\USR\\DATA.AFS;1")[2].name == "stage.bin" &&
+                    source.read_entry("USR/DATA.AFS", 2) == std::vector<uint8_t>(10, 'C') &&
+                    source.read_file("USR/DATA.BIN").size() == 6,
+                "Source entries cannot be read");
+        const auto port = create_mod(mods, "Port", "Me", "");
+        ImportTarget swap{ImportTarget::Mode::Entry, "USR/DATA.AFS", 0, "goku.bin", ContentKind::Character, "B3"};
+        import_bytes(port, swap, source.read_entry("USR/DATA.AFS", 2));
+        import_bytes(port, swap, source.read_entry("USR/DATA.AFS", 1));
+        ImportTarget extra{ImportTarget::Mode::NewEntry, "USR/DATA.AFS", 0, "stage.bin", ContentKind::Stage, "B3"};
+        for (int i = 0; i < 3; ++i)
+            import_bytes(port, extra, std::vector<uint8_t>(size_t(10 + i), uint8_t('0' + i)));
+        file(root / "scratch.bin", "from scratch");
+        ImportTarget whole{ImportTarget::Mode::File, "USR/DATA.BIN", 0, "", ContentKind::Moveset, ""};
+        import_host_file(port, whole, root / "scratch.bin");
+        require(read_imports(port).size() == 6 && read_imports(port)[5].kind == "moveset" &&
+                    !fs::exists(port / "afs" / "USR" / "DATA.AFS" / "0000_goku.bin.tmp"),
+                "The imports were not recorded");
+        DiscOverlay::global().configure(image, {port});
+        afs = index.find("USR/DATA.AFS");
+        bytes = virtual_disc();
+        archive = archive_at(bytes, uint64_t(afs->sector) * sector, afs->size);
+        require(archive.entries.size() == 6 && entry(0) == std::string(3000, 'B') && archive.entries[3].name == "stage.bin" &&
+                    archive.entries[4].name == "stage_2.bin" && entry(5) == "222222222222" &&
+                    slice(bytes, uint64_t(index.find("USR/DATA.BIN")->sector) * sector, 12) == "from scratch",
+                "Imported entries were not applied");
+        DiscOverlay::global().clear();
         fs::remove_all(root);
         std::cout << "Mod overlay passed: in-place entries, relocated archives with added entries, file replacement, "
                      "patched directory records, invalid entries and load order.\n";
