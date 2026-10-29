@@ -8,6 +8,7 @@
 #include "launcher/settings.h"
 #include "launcher/update.h"
 #include "launcher/version.h"
+#include "mods/budokai3.h"
 #include "mods/disc_identity.h"
 #include "mods/importer.h"
 #include "mods/mod_library.h"
@@ -300,6 +301,8 @@ struct Window {
     std::shared_ptr<mods::SourceDisc> source, game;
     // Budokai 2 discs list their characters, each with its files grouped.
     std::optional<mods::DiscRoster> sourceRoster, gameRoster;
+    // Model shapes read so far, by (on the game disc, entry).
+    mutable std::map<std::pair<bool, size_t>, std::optional<mods::ModelShape>> shapes;
     // What the import tool brings into Budokai 2. Only characters are mapped
     // so far, and only from Budokai 2 discs; imports only ever add.
     enum class Task { characters, stages, movesets, capsules } importTask = Task::characters;
@@ -549,9 +552,9 @@ struct Window {
                        TaskCapsules})
             EnableWindow(controls[id], !busy());
         EnableWindow(controls[SaveReport], !busy() && source);
-        const bool picked = characterView && sourceCharacter() &&
-                            SendMessageW(controls[TargetList], LB_GETCURSEL, 0, 0) >= 0 && gameRoster;
-        EnableWindow(controls[ImportSelected], modding && picked && game);
+        const auto spot = SendMessageW(controls[TargetList], LB_GETCURSEL, 0, 0);
+        const bool picked = characterView && sourceCharacter() && spot >= 0 && gameRoster && game && fits(size_t(spot));
+        EnableWindow(controls[ImportSelected], modding && picked);
         // Preferences stay editable while a disc check or game session runs;
         // the next game process reads them.
         EnableWindow(controls[Resolution], settings.windowMode == 0);
@@ -894,9 +897,12 @@ struct Window {
                              L"formats, not its data. Nothing in Budokai 2 is changed.";
         if (characterView) {
             const int half = (content - 52) / 2;
-            caps(dc, L"1   CHOOSE A CHARACTER", contentLeft + 20, 278, half - 200, orange);
-            caps(dc, selected(SpotMode) == 1 ? L"2   CHOOSE WHOSE PORTRAIT THE NEW SPOT USES"
-                                              : L"2   CHOOSE A SPOT TO SHARE",
+            const bool models = sourceRoster->models;
+            caps(dc, models ? L"1   CHOOSE A MODEL" : L"1   CHOOSE A CHARACTER", contentLeft + 20, 278, half - 200,
+                 orange);
+            caps(dc, models ? L"2   CHOOSE WHO WEARS IT"
+                 : selected(SpotMode) == 1 ? L"2   CHOOSE WHOSE PORTRAIT THE NEW SPOT USES"
+                                           : L"2   CHOOSE A SPOT TO SHARE",
                  contentLeft + 32 + half, 278, content - 52 - half, orange);
             editFrame(dc, EntryFilter);
         } else {
@@ -960,6 +966,18 @@ struct Window {
         const auto into = choice > 0 && size_t(choice) <= modList.size() ? L"Saved into " + wide(modList[size_t(choice - 1)].name) + L"."
                                                                          : std::wstring(L"Saved as a new mod.");
         const auto *occupant = gameRoster->find(gameRoster->grid[size_t(row)]);
+        if (sourceRoster->models) {
+            if (!occupant)
+                return L"That spot is empty. Choose a spot with a character to wear the model.";
+            if (const auto why = modelMismatch(*character, *occupant))
+                return *why;
+            const auto wearer = wide(character->name) + L" worn by " + wide(occupant->name) + L", with " +
+                                wide(occupant->name) + L"'s moves, as a new character";
+            return wearer + (selected(SpotMode) == 1
+                                 ? L" with a new spot of its own before Random (experimental). "
+                                 : L" sharing spot " + std::to_wstring(row + 1) + L"; R2 switches. ") +
+                   L"Not tested in game yet. " + into;
+        }
         if (selected(SpotMode) == 1)
             return wide(character->name) + L" gets a new character slot and a new spot of its own before Random, showing " +
                    (occupant ? wide(occupant->name) + L"'s" : L"spot " + std::to_wstring(row + 1) + L"'s") +
@@ -1294,6 +1312,8 @@ struct Window {
         result.loaded = std::make_shared<mods::SourceDisc>(image);
         result.identity = mods::identify_disc(*result.loaded);
         result.roster = mods::read_disc_roster(*result.loaded);
+        if (!result.roster)
+            result.roster = mods::read_budokai3_models(*result.loaded);
         return result;
     }
     void loadSource(const std::filesystem::path &image) {
@@ -1313,6 +1333,7 @@ struct Window {
                     mods::DiscIdentity identity) {
         source = std::move(disc);
         sourceRoster = std::move(roster);
+        shapes.clear();
         sourceIdentity = std::move(identity);
         SetWindowTextW(controls[EntryFilter], L"");
         setTask(importTask);
@@ -1400,6 +1421,7 @@ struct Window {
                   mods::DiscIdentity identity) {
         game = std::move(disc);
         gameRoster = std::move(roster);
+        shapes.clear();
         gameIdentity = identity;
         // The game disc is the source until another disc is chosen.
         if (!source)
@@ -1424,6 +1446,95 @@ struct Window {
         mods::ImportTarget target;
         std::wstring name;
     };
+    // Why a model from another game cannot be worn by a Budokai 2 character,
+    // or nothing when it can: their models must link their parts the same
+    // way, so the character's animations move it. Shapes are kept, as each
+    // one reads the disc.
+    std::optional<std::wstring> modelMismatch(const mods::DiscCharacter &model, const mods::DiscCharacter &wearer) const {
+        const auto shape = [&](mods::SourceDisc &disc, size_t entry) -> const std::optional<mods::ModelShape> & {
+            const auto key = std::pair{&disc == game.get(), entry};
+            auto found = shapes.find(key);
+            if (found == shapes.end())
+                found = shapes.emplace(key, mods::model_shape(disc, entry)).first;
+            return found->second;
+        };
+        const auto costumes = mods::costume_fields(*game, wearer);
+        if (costumes.empty())
+            return wide(wearer.name) + L" has no costume model to replace.";
+        const auto &theirs = shape(*game, costumes.front().second);
+        const auto &ours = shape(*source, model.files.front().second);
+        if (!theirs || !ours || !(*theirs == *ours))
+            return wide(model.name) + L" has " + std::to_wstring(ours ? ours->parts.size() : 0) + L" parts linked " +
+                   L"differently from " + wide(wearer.name) + L"'s " + std::to_wstring(theirs ? theirs->parts.size() : 0) +
+                   L", so " + wide(wearer.name) + L"'s moves can't animate it. Choose a character with the same body, "
+                   L"such as the same character.";
+        return std::nullopt;
+    }
+    // Whether the chosen model can be worn by the character in a spot; other
+    // imports fit any spot.
+    bool fits(size_t spot) const {
+        if (!sourceRoster || !sourceRoster->models)
+            return true;
+        const auto *wearer = gameRoster->find(gameRoster->grid[spot]);
+        return wearer && !modelMismatch(*sourceCharacter(), *wearer);
+    }
+    // Adds a model from another game as a new character: a copy of the
+    // Budokai 2 character in the chosen spot, wearing the model in every
+    // costume. Nobody leaves the select screen.
+    void importModel(const mods::DiscCharacter &model, int pick) {
+        const auto *wearer = gameRoster->find(gameRoster->grid[size_t(pick)]);
+        if (!wearer)
+            throw std::runtime_error("That spot is empty; choose a spot with a character to wear the model");
+        if (const auto why = modelMismatch(model, *wearer))
+            throw std::runtime_error(utf8(*why));
+        std::vector<std::filesystem::path> folders;
+        for (const auto &mod : modList)
+            folders.push_back(mod.folder);
+        const auto slot = mods::free_roster_slot(mods::roster_slots_in_use(folders));
+        if (!slot)
+            throw std::runtime_error("Every unused character ID is already filled by a mod");
+        mods::RosterCharacter added;
+        added.slot = *slot;
+        added.base = wearer->id;
+        added.name = model.internal;
+        const bool newSpot = selected(SpotMode) == 1;
+        if (newSpot) {
+            added.new_cell = true;
+            added.icon_cell = uint32_t(pick);
+        } else
+            added.alternate_cells.push_back(uint32_t(pick));
+        std::string stem = model.name;
+        for (auto &c : stem)
+            c = std::isalnum(static_cast<unsigned char>(c)) ? char(std::tolower(static_cast<unsigned char>(c))) : '_';
+        const auto entry = model.files.front().second;
+        mods::ImportTarget target;
+        target.mode = mods::ImportTarget::Mode::NewEntry;
+        target.file = mods::roster_archive;
+        target.kind = mods::ContentKind::Character;
+        target.name = stem + "_" + std::to_string(entry) + ".bin";
+        target.source = utf8(source->image().filename().wstring()) + ":" + mods::roster_archive + "#" +
+                        std::to_string(entry);
+        const auto costumes = mods::costume_fields(*game, *wearer);
+        const auto summary = L"Added " + wide(model.name) + L" worn by " + wide(wearer->name) +
+                             (newSpot ? L", with a new spot of its own"
+                                      : L", sharing spot " + std::to_wstring(pick + 1) + L"; press R2 there to switch") +
+                             L" (character ID " + std::to_wstring(added.slot) + L").";
+        const auto mod = importMod(model.name);
+        startModJob(Job::importMod, L"Importing…",
+                    [disc = source, entry, target, mod, added, costumes, summary](const std::shared_ptr<Progress> &progress) {
+                        report(progress, L"Importing the model", 0, 1);
+                        const auto written =
+                            mods::import_bytes(mod, target, mods::model_for_budokai2(*disc, entry)).filename().string();
+                        std::vector<std::pair<uint32_t, std::string>> fields;
+                        for (const auto &costume : costumes)
+                            fields.push_back({costume.first, "add:" + written});
+                        mods::append_roster(mod, added, fields);
+                        report(progress, L"Importing the model", 1, 1);
+                        Result result{Job::importMod};
+                        result.message = summary + L" It loads the next time the game starts.";
+                        return result;
+                    });
+    }
     // Adds the character's files as new DATA_CMN entries and a roster.ini
     // section that fills an unused character ID with them. The character
     // shares a spot or gets a new one, so nobody leaves the select screen.
@@ -1436,6 +1547,8 @@ struct Window {
         const int pick = int(SendMessageW(controls[TargetList], LB_GETCURSEL, 0, 0));
         if (pick < 0)
             throw std::runtime_error("Choose a spot on the select screen");
+        if (sourceRoster->models)
+            return importModel(*character, pick);
         std::vector<std::filesystem::path> folders;
         for (const auto &mod : modList)
             folders.push_back(mod.folder);
