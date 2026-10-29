@@ -67,11 +67,14 @@ holds Budokai 3's character models, one row per form or costume, such as
 3. Choose **Share a spot** or **Add a new spot**, and where to save, as for
    characters, then press **Import**.
 
-The tool compares the two models before it imports: their parts must link the
-same way, or the Budokai 2 character's animations cannot move the model. When
-they don't, the sentence beside **Import** says so and Import stays off.
-Usually the same character in both games fits, such as Budokai 3's Goku on
-Budokai 2's Goku.
+The tool compares the two models: their parts must link the same way, or the
+Budokai 2 character's animations cannot move the model. Each model in the list
+says who can wear it ("fits Goku") or "no Budokai 2 match", and choosing a
+model marks the spots that fit and moves to the first. When the chosen
+character can't wear it, the sentence beside **Import** says why and Import
+stays off. Budokai 3 remade many characters' models, Goku's among them, so the
+same character in both games often does not fit. The disc report lists each
+model's part count and a check value; models with the same value fit.
 
 The model's mesh is copied as it is. Its textures are marked version 1, the
 version Budokai 2 uses; their headers match Budokai 2's exactly in every
