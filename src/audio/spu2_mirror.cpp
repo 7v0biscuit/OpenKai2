@@ -8,6 +8,7 @@
 #include "SPU2/defs.h"
 #include "SPU2/spu2.h"
 #include <array>
+#include <iostream>
 #include <utility>
 
 // State the PCSX2 SPU2 core expects from the rest of the emulator.
@@ -27,6 +28,14 @@ std::vector<int16_t> mixed;
 // unread when the transfer completes is kept, since the driver may then
 // reuse its buffer.
 std::array<std::vector<u16>, 2> remainders;
+struct StreamCounts { uint64_t transfers = 0, bytes = 0, unread = 0; };
+std::array<StreamCounts, 2> streamCounts;
+void reportStream(unsigned core) {
+    const auto &c = streamCounts[core];
+    if (c.transfers >= 64u && (c.transfers & (c.transfers - 1u)) == 0u)
+        std::cerr << "[audio:adma] core=" << core << " transfers=" << c.transfers << " bytes=" << c.bytes
+                  << " unread_at_completion=" << c.unread << '\n';
+}
 } // namespace
 
 u8 *iopPhysMem(u32 address) { return iopMemory ? iopMemory + (address & 0x1fffffu) : nullptr; }
@@ -52,6 +61,7 @@ void reset(uint8_t *iopRam, uint64_t now) {
     clock(now);
     lClocks = psxRegs.cycle;
     mixed.clear();
+    streamCounts = {};
     std::memset(spu2regs, 0, sizeof(spu2regs));
     std::memset(_spu2mem, 0, sizeof(_spu2mem));
     // The BIOS leaves these blocks looping so idle voices stay silent.
@@ -78,6 +88,11 @@ void dma_write(unsigned core, uint32_t address, uint32_t bytes, uint64_t now) {
     clock(now);
     TimeUpdate(psxRegs.cycle);
     spu2DmaRegisters[core][0] = address;
+    if ((Cores[core].AutoDMACtrl & (core + 1u)) == core + 1u) {
+        ++streamCounts[core].transfers;
+        streamCounts[core].bytes += bytes;
+        reportStream(core);
+    }
     Cores[core].DoDMAwrite(reinterpret_cast<u16 *>(iopPhysMem(address)), bytes / 2u);
 }
 
@@ -91,6 +106,7 @@ void dma_complete(unsigned core, uint64_t now) {
         auto &kept = remainders[core];
         kept.assign(state.DMAPtr, state.DMAPtr + state.InputDataProgress + state.InputDataLeft);
         state.DMAPtr = kept.data();
+        ++streamCounts[core].unread;
     }
     if (Cores[core].DmaMode)
         Cores[core].Regs.STATX |= 0x80;
