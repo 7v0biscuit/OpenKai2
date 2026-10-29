@@ -5,6 +5,7 @@
 #include "mods/disc_overlay.h"
 #include "mods/mod_library.h"
 #include "mods/roster.h"
+#include "mods/select_alternates.h"
 #include "display_settings.h"
 #include "graphics_settings.h"
 #include "launcher/settings.h"
@@ -218,6 +219,10 @@ int main(int argc, char* argv[]) {
         const auto roster=openkai2::mods::load_roster(mods,applied);
         for (const auto& line : openkai2::mods::apply_roster(runtime.memory().getRDRAM(),PS2_RAM_SIZE,roster))
             std::cout << "[mods] " << line << std::endl;
+        auto alternates=openkai2::mods::build_alternates(runtime.memory().getRDRAM(),PS2_RAM_SIZE,roster);
+        if (!alternates.empty())
+            std::cout << "[mods] select: R2 switches characters on shared spots" << std::endl;
+        openkai2::mods::install_alternates(runtime.memory().getRDRAM(),PS2_RAM_SIZE,std::move(alternates));
         presence.update("Playing Budokai 2","In game");
         runtime.run();
         return 0;

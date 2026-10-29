@@ -2,6 +2,7 @@
 #include "iso_fixture.h"
 #include "mods/afs.h"
 #include "mods/roster.h"
+#include "mods/select_alternates.h"
 #include <cstring>
 #include <iostream>
 
@@ -35,6 +36,7 @@ Bytes memory_image() {
     put32(memory, roster_records + 0x1dc, 97);
     put32(memory, roster_records + 0x1bc, 0xffffffffu);
     put32(memory, roster_records + 4 * roster_record_bytes + 0x74, 213);
+    memory[costume_counts] = 2; // Goku has two costumes; unused IDs have none
     const uint8_t grid[] = {0, 4};
     std::memcpy(memory.data() + roster_select_grid, grid, 2);
     std::memset(memory.data() + roster_select_grid + 2, 6, roster_select_cells - 2);
@@ -121,6 +123,41 @@ int main() {
                     get32(slot + 0x74) == 300 && get32(slot + 0x1dc) == 412 && get32(slot + 0x1bc) == 0xffffffffu &&
                     memory[roster_select_grid + 1] == 1 && memory[roster_select_grid] == 0,
                 "The roster edit was not applied");
+        require(memory[costume_counts + 1] == 2, "A filled slot kept a costume count of 0");
+
+        // A shared spot: R2 on spot 2 switches Krillin to Zarbon's filled ID and back.
+        file(root / "share" / "roster.ini", "[character]\nslot = 13\nbase = 4\nname = KRILLIN 2\nalternate = 1\n");
+        auto shared = load_roster({root / "share"}, overlay);
+        Bytes ram(0x400000, 0);
+        auto game = memory_image();
+        std::copy(game.begin(), game.end(), ram.begin());
+        apply_roster(ram.data(), ram.size(), shared);
+        const auto alternates = build_alternates(ram.data(), ram.size(), shared);
+        require(!alternates.empty() && alternates.spots[1] == std::vector<uint8_t>{4, 13} &&
+                    alternates.spots[0] == std::vector<uint8_t>{0},
+                "Shared spots were not built");
+        const uint32_t state = 0x200000;
+        put32(ram, select_state_pointers, 0x80000000u | state); // a kernel-segment pointer
+        ram[state + 88] = 0;
+        put32(ram, state + 192, 1);
+        ram[state + 128] = 4;
+        ram[state + 129] = 1;
+        require(!cycle_alternate(ram.data(), ram.size(), 0, 0x0100, alternates), "L2 switched a character");
+        require(!cycle_alternate(ram.data(), ram.size(), 1, alternate_button, alternates),
+                "Player 2 switched without a select screen");
+        const auto line = cycle_alternate(ram.data(), ram.size(), 0, alternate_button, alternates);
+        require(line && ram[roster_select_grid + 1] == 13 && ram[state + 128] == 13 && ram[state + 129] == 0,
+                "R2 did not switch the shared spot");
+        require(cycle_alternate(ram.data(), ram.size(), 0, alternate_button, alternates) &&
+                    ram[roster_select_grid + 1] == 4 && ram[state + 128] == 4,
+                "Switching did not wrap back to the original");
+        ram[state + 88] = 1;
+        require(!cycle_alternate(ram.data(), ram.size(), 0, alternate_button, alternates),
+                "A state block for another player was written");
+        ram[state + 88] = 0;
+        ram[state + 128] = 6;
+        require(!cycle_alternate(ram.data(), ram.size(), 0, alternate_button, alternates),
+                "A state that disagrees with the grid was written");
 
         // Bad input names the line; other executables are never patched.
         file(root / "bad" / "roster.ini", "[character]\nslot = 13\nselect = 29\n");
@@ -149,7 +186,7 @@ int main() {
         require(rejected, "A roster was written into an unknown executable");
         fs::remove_all(root);
         std::cout << "Roster passed: disc roster, character files, unused slots, roster.ini, add: entries, "
-                     "select cells and executable checks.\n";
+                     "select cells, shared spots and executable checks.\n";
         return 0;
     } catch (const std::exception &error) {
         std::cerr << error.what() << '\n';

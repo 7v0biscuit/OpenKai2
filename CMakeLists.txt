@@ -29,7 +29,7 @@ foreach(target IN LISTS probe_targets)
     endif()
 endforeach()
 
-add_library(openkai2_disc STATIC src/disc_image.cpp src/mods/afs.cpp src/mods/disc_overlay.cpp src/mods/mod_library.cpp src/mods/importer.cpp src/mods/roster.cpp)
+add_library(openkai2_disc STATIC src/disc_image.cpp src/mods/afs.cpp src/mods/disc_overlay.cpp src/mods/mod_library.cpp src/mods/importer.cpp src/mods/roster.cpp src/mods/select_alternates.cpp)
 target_include_directories(openkai2_disc PUBLIC src)
 target_compile_features(openkai2_disc PUBLIC cxx_std_17)
 if(WIN32)

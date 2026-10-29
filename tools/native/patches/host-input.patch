@@ -131,7 +131,7 @@
              clearBit(PAD_SELECT);
      }
  
-@@ -123,3 +127,26 @@
+@@ -123,3 +127,27 @@
      data[3] = static_cast<uint8_t>(btns >> 8);
      return true;
  }
@@ -156,6 +156,7 @@
 +    const auto value=port>=0 && port<2 && slot==0
 +        ? hostPads[port].consume() : openkai2::LatchedPadState::neutral();
 +    std::memcpy(data,value.data(),value.size());
++    if (port>=0 && port<2 && slot==0) openkai2::observe_pad_packet(port,data);
 +    return true;
 +}
 --- a/runtime/ps2_runtime.cpp

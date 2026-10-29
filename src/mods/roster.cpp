@@ -163,6 +163,8 @@ void append_roster(const fs::path &mod, const RosterCharacter &character,
     }
     if (character.select_cell)
         out << "select = " << *character.select_cell << '\n';
+    for (const auto spot : character.alternate_cells)
+        out << "alternate = " << spot << '\n';
     if (!out)
         throw std::runtime_error("Cannot write " + (mod / "roster.ini").string());
 }
@@ -235,6 +237,12 @@ std::vector<RosterCharacter> load_roster(const std::vector<fs::path> &mods, cons
                 std::transform(upper.begin(), upper.end(), upper.begin(),
                                [](unsigned char c) { return char(std::toupper(c)); });
                 current->name = upper;
+            } else if (name == "alternate") {
+                const auto spot = number(value, where);
+                if (spot >= roster_select_cells)
+                    throw std::runtime_error(where + ": alternate must be a cell from 0 to " +
+                                             std::to_string(roster_select_cells - 1));
+                current->alternate_cells.push_back(spot);
             } else if (name == "select") {
                 current->select_cell = number(value, where);
                 if (*current->select_cell >= roster_select_cells)
@@ -289,8 +297,12 @@ std::vector<std::string> apply_roster(uint8_t *memory, size_t bytes, const std::
         throw std::runtime_error("The loaded executable does not hold the Budokai 2 USA roster; roster mods were not applied");
     for (const auto &character : characters) {
         auto *target = record(memory, character.slot);
-        if (character.base && *character.base != character.slot)
+        if (character.base && *character.base != character.slot) {
             std::memmove(target, record(memory, *character.base), roster_record_bytes);
+            // The select screen divides by the costume count, which is 0 for unused IDs.
+            if (bytes > 0x37B310u + roster_count && !memory[0x37B310u + character.slot])
+                memory[0x37B310u + character.slot] = memory[0x37B310u + *character.base];
+        }
         if (character.name) {
             std::memset(target, 0, roster_name_bytes);
             std::memcpy(target, character.name->data(), character.name->size());
@@ -308,6 +320,8 @@ std::vector<std::string> apply_roster(uint8_t *memory, size_t bytes, const std::
             memory[roster_select_grid + *character.select_cell] = uint8_t(character.slot);
             line += ", select cell " + std::to_string(*character.select_cell) + " (was ID " + std::to_string(previous) + ")";
         }
+        for (const auto spot : character.alternate_cells)
+            line += ", shares select cell " + std::to_string(spot);
         if (!roster_slot_unused(character.slot) && character.base)
             line += "; this replaces a character the game uses";
         log.push_back(line + " (" + character.source.parent_path().filename().string() + ")");

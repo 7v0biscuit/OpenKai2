@@ -48,6 +48,8 @@ struct RosterCharacter {
     std::optional<std::string> name;
     std::vector<RosterField> fields;
     std::optional<uint32_t> select_cell;
+    // Spots the character shares with the character shown there; R2 switches.
+    std::vector<uint32_t> alternate_cells;
 };
 
 // Record fields that hold DATA_CMN entries; unused ones hold 0 or -1.

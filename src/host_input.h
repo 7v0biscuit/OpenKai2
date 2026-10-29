@@ -51,4 +51,6 @@ void publish_host_input(int,const LatchedPadState::Packet&);
 HostPadStats host_input_stats(int);
 void verify_guest_input();
 void verify_host_input();
+// Sees each pad packet the game reads; select-screen alternates use it.
+void observe_pad_packet(int port,const uint8_t* packet);
 }
