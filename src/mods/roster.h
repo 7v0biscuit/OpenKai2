@@ -31,6 +31,9 @@ inline constexpr uint32_t roster_name_bytes = 32u;
 inline constexpr uint32_t roster_select_grid = 0x3A4140u;
 inline constexpr uint32_t roster_select_cells = 29u; // without the Random cell
 inline constexpr const char *roster_archive = "USR/DATA_CMN.AFS";
+inline constexpr uint32_t roster_id_cells = 0x3A4100u;       // select cell per ID, -1 for none
+inline constexpr uint32_t roster_costumes = 0x37B310u;       // costumes per ID
+
 
 bool roster_slot_unused(uint32_t id);
 
@@ -50,6 +53,10 @@ struct RosterCharacter {
     std::optional<uint32_t> select_cell;
     // Spots the character shares with the character shown there; R2 switches.
     std::vector<uint32_t> alternate_cells;
+    // A spot of its own, added before Random, showing the portrait of the
+    // spot `icon_cell` names (or its base character's spot).
+    bool new_cell = false;
+    std::optional<uint32_t> icon_cell;
 };
 
 // Record fields that hold DATA_CMN entries; unused ones hold 0 or -1.

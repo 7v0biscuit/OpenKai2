@@ -165,6 +165,10 @@ void append_roster(const fs::path &mod, const RosterCharacter &character,
         out << "select = " << *character.select_cell << '\n';
     for (const auto spot : character.alternate_cells)
         out << "alternate = " << spot << '\n';
+    if (character.new_cell)
+        out << "new_cell = yes\n";
+    if (character.icon_cell)
+        out << "icon = " << *character.icon_cell << '\n';
     if (!out)
         throw std::runtime_error("Cannot write " + (mod / "roster.ini").string());
 }
@@ -237,6 +241,16 @@ std::vector<RosterCharacter> load_roster(const std::vector<fs::path> &mods, cons
                 std::transform(upper.begin(), upper.end(), upper.begin(),
                                [](unsigned char c) { return char(std::toupper(c)); });
                 current->name = upper;
+            } else if (name == "new_cell") {
+                const auto flag = lower(value);
+                if (flag != "yes" && flag != "no")
+                    throw std::runtime_error(where + ": new_cell must be yes or no");
+                current->new_cell = flag == "yes";
+            } else if (name == "icon") {
+                current->icon_cell = number(value, where);
+                if (*current->icon_cell >= roster_select_cells)
+                    throw std::runtime_error(where + ": icon must be a cell from 0 to " +
+                                             std::to_string(roster_select_cells - 1));
             } else if (name == "alternate") {
                 const auto spot = number(value, where);
                 if (spot >= roster_select_cells)
@@ -300,8 +314,8 @@ std::vector<std::string> apply_roster(uint8_t *memory, size_t bytes, const std::
         if (character.base && *character.base != character.slot) {
             std::memmove(target, record(memory, *character.base), roster_record_bytes);
             // The select screen divides by the costume count, which is 0 for unused IDs.
-            if (bytes > 0x37B310u + roster_count && !memory[0x37B310u + character.slot])
-                memory[0x37B310u + character.slot] = memory[0x37B310u + *character.base];
+            if (!memory[roster_costumes + character.slot])
+                memory[roster_costumes + character.slot] = memory[roster_costumes + *character.base];
         }
         if (character.name) {
             std::memset(target, 0, roster_name_bytes);
@@ -318,8 +332,13 @@ std::vector<std::string> apply_roster(uint8_t *memory, size_t bytes, const std::
         if (character.select_cell) {
             const auto previous = memory[roster_select_grid + *character.select_cell];
             memory[roster_select_grid + *character.select_cell] = uint8_t(character.slot);
+            memory[roster_id_cells + character.slot] = uint8_t(*character.select_cell);
             line += ", select cell " + std::to_string(*character.select_cell) + " (was ID " + std::to_string(previous) + ")";
         }
+        // The screen opens with the cursor on the cell of the last character
+        // chosen, so an ID with no cell would put it nowhere.
+        if (!character.alternate_cells.empty() && int8_t(memory[roster_id_cells + character.slot]) < 0)
+            memory[roster_id_cells + character.slot] = uint8_t(character.alternate_cells.front());
         for (const auto spot : character.alternate_cells)
             line += ", shares select cell " + std::to_string(spot);
         if (!roster_slot_unused(character.slot) && character.base)

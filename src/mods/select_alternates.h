@@ -21,7 +21,6 @@ namespace openkai2::mods {
 
 inline constexpr uint32_t select_state_pointers = 0x3A54B8u;
 inline constexpr uint32_t select_state_bytes = 1664u;
-inline constexpr uint32_t costume_counts = 0x37B310u; // costumes per character ID
 inline constexpr uint16_t alternate_button = 0x0200u; // R2, active high
 
 struct SelectAlternates {
@@ -35,9 +34,10 @@ struct SelectAlternates {
 SelectAlternates build_alternates(const uint8_t *memory, size_t bytes, const std::vector<RosterCharacter> &characters);
 
 // Switches the spot under a player's cursor to its next character when
-// `pressed` holds a new R2 press. Returns a line for the log when it does.
-// Does nothing unless the player's select-screen state is live and agrees
-// with the grid, so other screens are never written.
+// `pressed` holds a new R2 press, and otherwise keeps the spot's grid entry
+// equal to the hovered character. Returns a line for the log on a switch.
+// Does nothing unless the player's select-screen state is live and hovers a
+// character of that spot, so other screens are never written.
 std::optional<std::string> cycle_alternate(uint8_t *memory, size_t bytes, int player, uint16_t pressed,
                                            const SelectAlternates &alternates);
 

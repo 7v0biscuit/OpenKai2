@@ -22,7 +22,16 @@ Installed &installed() {
     static Installed value;
     return value;
 }
+// The live select-screen state of a player, or 0.
+uint32_t live_state(const uint8_t *memory, size_t bytes, int player) {
+    const uint32_t state = read32(memory, select_state_pointers + 4u * uint32_t(player)) & 0x1fffffffu;
+    if (state < 0x100000u || state + select_state_bytes > bytes || memory[state + 88] != player ||
+        read32(memory, state + 192) >= roster_select_cells)
+        return 0;
+    return state;
+}
 } // namespace
+
 
 bool SelectAlternates::empty() const {
     return std::all_of(spots.begin(), spots.end(), [](const auto &spot) { return spot.size() < 2; });
@@ -45,18 +54,24 @@ SelectAlternates build_alternates(const uint8_t *memory, size_t bytes, const std
 
 std::optional<std::string> cycle_alternate(uint8_t *memory, size_t bytes, int player, uint16_t pressed,
                                            const SelectAlternates &alternates) {
-    if (!(pressed & alternate_button) || player < 0 || player > 1 || bytes < roster_select_grid + 64)
+    if (player < 0 || player > 1 || bytes < roster_select_grid + 64)
         return std::nullopt;
-    const uint32_t state = read32(memory, select_state_pointers + 4u * uint32_t(player)) & 0x1fffffffu;
-    if (state < 0x100000u || state + select_state_bytes > bytes || memory[state + 88] != player)
+    const uint32_t state = live_state(memory, bytes, player);
+    if (!state)
         return std::nullopt;
     const uint32_t spot = read32(memory, state + 192);
-    if (spot >= roster_select_cells)
-        return std::nullopt;
     const auto &list = alternates.spots[spot];
     const uint8_t current = memory[state + 128];
     const auto at = std::find(list.begin(), list.end(), current);
-    if (list.size() < 2 || at == list.end() || memory[roster_select_grid + spot] != current)
+    if (list.size() < 2 || at == list.end())
+        return std::nullopt;
+    // The screen can open on an alternate, the last character chosen, while
+    // the grid still holds another; confirming reads the grid. When both
+    // players are on the spot, the grid is left to the last one who switched.
+    const uint32_t other = live_state(memory, bytes, 1 - player);
+    if (!other || read32(memory, other + 192) != spot)
+        memory[roster_select_grid + spot] = current;
+    if (!(pressed & alternate_button))
         return std::nullopt;
     const uint8_t next = *(at + 1 == list.end() ? list.begin() : at + 1);
     memory[roster_select_grid + spot] = next;

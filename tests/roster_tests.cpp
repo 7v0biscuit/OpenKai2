@@ -3,6 +3,7 @@
 #include "mods/afs.h"
 #include "mods/roster.h"
 #include "mods/select_alternates.h"
+#include "mods/select_screen.h"
 #include <cstring>
 #include <iostream>
 
@@ -36,11 +37,15 @@ Bytes memory_image() {
     put32(memory, roster_records + 0x1dc, 97);
     put32(memory, roster_records + 0x1bc, 0xffffffffu);
     put32(memory, roster_records + 4 * roster_record_bytes + 0x74, 213);
-    memory[costume_counts] = 2; // Goku has two costumes; unused IDs have none
+    memory[roster_costumes] = 2; // Goku has two costumes; unused IDs have none
     const uint8_t grid[] = {0, 4};
     std::memcpy(memory.data() + roster_select_grid, grid, 2);
     std::memset(memory.data() + roster_select_grid + 2, 6, roster_select_cells - 2);
     memory[roster_select_grid + roster_select_cells] = 0x3f;
+    std::memset(memory.data() + roster_id_cells, 0xff, 64);
+    memory[roster_id_cells + 0] = 0;
+    memory[roster_id_cells + 4] = 1;
+    memory[roster_id_cells + 0x3f] = 29;
     return memory;
 }
 
@@ -123,7 +128,7 @@ int main() {
                     get32(slot + 0x74) == 300 && get32(slot + 0x1dc) == 412 && get32(slot + 0x1bc) == 0xffffffffu &&
                     memory[roster_select_grid + 1] == 1 && memory[roster_select_grid] == 0,
                 "The roster edit was not applied");
-        require(memory[costume_counts + 1] == 2, "A filled slot kept a costume count of 0");
+        require(memory[roster_costumes + 1] == 2, "A filled slot kept a costume count of 0");
 
         // A shared spot: R2 on spot 2 switches Krillin to Zarbon's filled ID and back.
         file(root / "share" / "roster.ini", "[character]\nslot = 13\nbase = 4\nname = KRILLIN 2\nalternate = 1\n");
@@ -159,6 +164,37 @@ int main() {
         require(!cycle_alternate(ram.data(), ram.size(), 0, alternate_button, alternates),
                 "A state that disagrees with the grid was written");
 
+        // Without new spots the select screen keeps its original numbers.
+        auto plain = memory_image();
+        require(configure_select_screen(plain.data(), plain.size(), characters).empty() && select_cells() == 30 &&
+                    select_last() == 29 && select_offset(1600) == 1600 && select_offset(1648) == 1648 &&
+                    select_offset(1652) == 1652 && select_offset(1664) == 1664 && select_icon(29) == 29 &&
+                    select_icon(5) == 5 && select_random_bit() == (uint64_t(1) << 29) && select_extra_mask() == 0 &&
+                    preview_id(44) == 36 && preview_row(44) == 44 && preview_row(3) == 3,
+                "The unmodded select screen changed");
+
+        // Two new spots go before Random, which moves to the end.
+        file(root / "wheel" / "roster.ini", "[character]\nslot = 13\nbase = 4\nnew_cell = yes\n"
+                                            "[character]\nslot = 44\nbase = 0\nnew_cell = yes\nicon = 6\n");
+        auto wheel = load_roster({root / "wheel"}, overlay);
+        auto spots = memory_image();
+        apply_roster(spots.data(), spots.size(), wheel);
+        const auto lines = configure_select_screen(spots.data(), spots.size(), wheel);
+        const uint8_t *grid = spots.data() + roster_select_grid, *cells = spots.data() + roster_id_cells;
+        require(lines.size() == 3 && select_cells() == 32 && grid[29] == 13 && grid[30] == 44 && grid[31] == 0x3f &&
+                    cells[13] == 29 && cells[44] == 30 && cells[0x3f] == 31,
+                "New spots were not added before Random");
+        require(select_offset(1600) == 208 + 48 * 31 && select_offset(1648) == 208 + 48 * 32 &&
+                    select_offset(1652) == 212 + 48 * 32 && select_offset(1664) == 224 + 48 * 32,
+                "The fields after the cells did not move");
+        require(select_icon(29) == 1 && select_icon(30) == 6 && select_icon(31) == 29 && select_icon(28) == 28,
+                "New spots do not borrow the right portraits");
+        require(select_random_bit() == (uint64_t(1) << 31) && select_extra_mask() == ((uint64_t(1) << 29) | (uint64_t(1) << 30)),
+                "Unlock bits do not cover the new spots");
+        require(preview_id(44) == 0 && preview_row(44) == 0 && preview_id(45) == 36 && preview_row(13) == 13,
+                "A filled ID above 36 does not preview as its base");
+        reset_select_screen();
+
         // Bad input names the line; other executables are never patched.
         file(root / "bad" / "roster.ini", "[character]\nslot = 13\nselect = 29\n");
         bool rejected = false;
@@ -186,7 +222,7 @@ int main() {
         require(rejected, "A roster was written into an unknown executable");
         fs::remove_all(root);
         std::cout << "Roster passed: disc roster, character files, unused slots, roster.ini, add: entries, "
-                     "select cells, shared spots and executable checks.\n";
+                     "select cells, shared spots, added spots and executable checks.\n";
         return 0;
     } catch (const std::exception &error) {
         std::cerr << error.what() << '\n';
