@@ -8,6 +8,8 @@
 #include "launcher/settings.h"
 #include "launcher/update.h"
 #include "launcher/version.h"
+#include "mods/importer.h"
+#include "mods/mod_library.h"
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -21,11 +23,16 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <cwchar>
+#include <cwctype>
+#include <commctrl.h>
 #include <commdlg.h>
+#include <fstream>
 #include <functional>
 #include <future>
 #include <iostream>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <shellapi.h>
@@ -54,6 +61,7 @@ constexpr int displayTop = 124, graphicsTop = 296, updatesTop = 468;
 enum Id {
     PlayTab = 101,
     SavesTab,
+    ModsTab,
     SettingsTab,
     ChooseIso = 110,
     VerifyIso,
@@ -84,9 +92,33 @@ enum Id {
     ReleasePage,
     ResetGraphics = 170,
     ClearImage = 173,
-    DiscordActivity = 174
+    DiscordActivity = 174,
+    ModList = 180,
+    ModToggle,
+    ModUp,
+    ModDown,
+    ModRefresh,
+    ModFolder,
+    ModName,
+    ModCreate,
+    OpenImporter,
+    SourceGame = 200,
+    SourceIso,
+    SourceFiles,
+    SourceEntries,
+    EntryFilter,
+    TargetMod,
+    TargetKind,
+    TargetMode,
+    TargetFile,
+    TargetEntry,
+    ImportSelected,
+    ImportDiskFile,
+    ExtractSelected,
+    CloseImporter
 };
-constexpr int pageCount = 3;
+// Sidebar pages, then the import tool, which opens from the Mods page.
+constexpr int pageCount = 4, modsPage = 2, settingsPage = 3, importPage = 4;
 constexpr std::array<unsigned, 4> audioVolumes{100u, 75u, 50u, 25u};
 // Off, then the volume steps; a hand-edited volume selects the nearest step.
 int audioChoice(const Settings &settings) {
@@ -229,6 +261,7 @@ struct Grid {
 };
 LRESULT CALLBACK combo_procedure(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK button_procedure(HWND, UINT, WPARAM, LPARAM);
+LRESULT CALLBACK edit_procedure(HWND, UINT, WPARAM, LPARAM);
 struct Window {
     HWND hwnd{};
     Fonts fonts;
@@ -250,6 +283,12 @@ struct Window {
     std::vector<std::pair<unsigned, unsigned>> sizes{
         {1280, 720}, {1600, 900}, {1920, 1080}, {2560, 1440}, {3840, 2160}};
     std::vector<std::filesystem::path> backups;
+    std::vector<mods::ModInfo> modList;
+    // The import tool reads a source disc and writes into a mod; the game
+    // disc supplies the archives and entries an import can target.
+    std::unique_ptr<mods::SourceDisc> source, game;
+    std::vector<size_t> sourceRows, entryRows;
+    std::vector<std::string> targetFiles;
     HANDLE child{};
     std::future<Result> task, updateTask;
     std::shared_ptr<Progress> progress = std::make_shared<Progress>();
@@ -265,7 +304,8 @@ struct Window {
     bool running() const { return child || externalGame; }
     bool dropdownOpen() const {
         for (auto [id, control] : controls)
-            if ((id >= Renderer && id <= Audio) || id == UpdateChannel || id == AutomaticUpdates || id == DiscordActivity)
+            if ((id >= Renderer && id <= Audio) || id == UpdateChannel || id == AutomaticUpdates ||
+                id == DiscordActivity || (id >= TargetMod && id <= TargetEntry))
                 if (SendMessageW(control, CB_GETDROPPEDSTATE, 0, 0)) return true;
         return false;
     }
@@ -342,6 +382,29 @@ struct Window {
             SendMessageW(w, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(item.c_str()));
         SendMessageW(w, CB_SETCURSEL, selected, 0);
     }
+    void list(int id, const wchar_t *name, int rowHeight, bool multiple) {
+        controls[id] = CreateWindowExW(
+            0, L"LISTBOX", name,
+            WS_CHILD | WS_TABSTOP | WS_VSCROLL | LBS_NOTIFY | LBS_OWNERDRAWFIXED | LBS_HASSTRINGS |
+                LBS_NOINTEGRALHEIGHT | (multiple ? LBS_EXTENDEDSEL : 0),
+            0, 0, 0, 0, hwnd, reinterpret_cast<HMENU>(intptr_t(id)), nullptr, nullptr);
+        SendMessageW(controls[id], LB_SETITEMHEIGHT, 0, p(rowHeight));
+    }
+    void edit(int id, const wchar_t *hint) {
+        controls[id] = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | WS_TABSTOP | ES_AUTOHSCROLL, 0, 0, 0, 0, hwnd,
+                                       reinterpret_cast<HMENU>(intptr_t(id)), nullptr, nullptr);
+        auto old = reinterpret_cast<WNDPROC>(
+            SetWindowLongPtrW(controls[id], GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(edit_procedure)));
+        SetPropW(controls[id], L"OpenKai2.EditProcedure", reinterpret_cast<HANDLE>(old));
+        SetPropW(controls[id], L"OpenKai2.EditHint", reinterpret_cast<HANDLE>(const_cast<wchar_t *>(hint)));
+    }
+    std::wstring textOf(int id) const {
+        const int n = GetWindowTextLengthW(controls.at(id));
+        std::wstring value(size_t(n) + 1, 0);
+        GetWindowTextW(controls.at(id), value.data(), n + 1);
+        value.resize(size_t(n));
+        return value;
+    }
     int selected(int id) const { return int(SendMessageW(controls.at(id), CB_GETCURSEL, 0, 0)); }
     void place(int id, int x, int y, int w, int h, bool visible = true) {
         auto c = controls.at(id);
@@ -368,6 +431,20 @@ struct Window {
         for (auto [id, label] :
              std::vector<std::pair<int, const wchar_t *>>{{PlayTab, L"Play"},
                                                           {SavesTab, L"Saves"},
+                                                          {ModsTab, L"Mods"},
+                                                          {ModToggle, L"Enable / disable"},
+                                                          {ModUp, L"Move up"},
+                                                          {ModDown, L"Move down"},
+                                                          {ModRefresh, L"Refresh"},
+                                                          {ModFolder, L"Open mods folder"},
+                                                          {ModCreate, L"Create mod"},
+                                                          {OpenImporter, L"Import tool…"},
+                                                          {SourceGame, L"Game disc"},
+                                                          {SourceIso, L"Choose ISO…"},
+                                                          {ImportSelected, L"Import selected"},
+                                                          {ImportDiskFile, L"Import file from disk…"},
+                                                          {ExtractSelected, L"Extract selected…"},
+                                                          {CloseImporter, L"Back to mods"},
                                                           {SettingsTab, L"Settings"},
                                                           {CheckUpdates, L"Check now"},
                                                           {InstallUpdate, L"Install"},
@@ -417,11 +494,17 @@ struct Window {
               audioChoice(settings));
         combo(UpdateChannel, {L"Stable", L"Stable and prerelease"}, int(settings.updateChannel));
         combo(AutomaticUpdates, {L"Off", L"On"}, settings.autoUpdates ? 1 : 0);
-        controls[BackupList] = CreateWindowExW(
-            0, L"LISTBOX", L"Save backups",
-            WS_CHILD | WS_TABSTOP | WS_VSCROLL | LBS_NOTIFY | LBS_OWNERDRAWFIXED | LBS_HASSTRINGS,
-            0, 0, 0, 0, hwnd, reinterpret_cast<HMENU>(intptr_t(BackupList)), nullptr, nullptr);
-        SendMessageW(controls[BackupList], LB_SETITEMHEIGHT, 0, p(40));
+        combo(TargetMod, {}, 0);
+        combo(TargetKind, {L"Character", L"Moveset", L"Stage", L"Other"}, 0);
+        combo(TargetMode, {L"Add as new entries", L"Replace entries", L"Replace whole file"}, 0);
+        combo(TargetFile, {}, 0);
+        combo(TargetEntry, {}, 0);
+        list(BackupList, L"Save backups", 40, false);
+        list(ModList, L"Mods", 40, false);
+        list(SourceFiles, L"Source files", 30, false);
+        list(SourceEntries, L"Source entries", 30, true);
+        edit(ModName, L"New mod name");
+        edit(EntryFilter, L"Filter entries");
         for (auto [id, c] : controls)
             SendMessageW(c, WM_SETFONT, reinterpret_cast<WPARAM>(fonts.body), TRUE);
         SetTimer(hwnd, 1, 75, nullptr);
@@ -436,6 +519,18 @@ struct Window {
             EnableWindow(controls[id], active);
         EnableWindow(controls[Restore], active && !backups.empty());
         EnableWindow(controls[BackupList], !busy() && !child);
+        // Mods are read when the game starts, so they change only while it is closed.
+        const bool modding = !busy() && !running();
+        const auto chosenMod = SendMessageW(controls[ModList], LB_GETCURSEL, 0, 0);
+        for (int id : {ModToggle, ModUp, ModDown})
+            EnableWindow(controls[id], modding && chosenMod >= 0 && size_t(chosenMod) < modList.size() &&
+                                           (id != ModUp || chosenMod > 0) &&
+                                           (id != ModDown || size_t(chosenMod) + 1 < modList.size()));
+        for (int id : {ModCreate, OpenImporter, SourceGame, SourceIso, ImportDiskFile})
+            EnableWindow(controls[id], modding && (id != SourceGame || !settings.iso.empty()));
+        const bool picked = source && SendMessageW(controls[SourceEntries], LB_GETSELCOUNT, 0, 0) > 0;
+        EnableWindow(controls[ImportSelected], modding && picked && game);
+        EnableWindow(controls[ExtractSelected], !busy() && picked);
         // Preferences stay editable while a disc check or game session runs;
         // the next game process reads them.
         EnableWindow(controls[Resolution], settings.windowMode == 0);
@@ -450,7 +545,7 @@ struct Window {
         GetClientRect(hwnd, &rect);
         const int w = unscale(rect.right), h = unscale(rect.bottom);
         const int content = w - contentLeft - margin, right = contentLeft + content;
-        std::vector<int> order{PlayTab, SavesTab, SettingsTab};
+        std::vector<int> order{PlayTab, SavesTab, ModsTab, SettingsTab};
         auto position = [&](int id, int x, int y, int width, int height) {
             place(id, x, y, width, height);
             order.push_back(id);
@@ -477,6 +572,43 @@ struct Window {
                 ShowWindow(controls[BackupList], SW_HIDE);
             position(Restore, contentLeft + 20, panelBottom - 52, 160, 36);
             position(OpenBackups, contentLeft + 192, panelBottom - 52, 172, 36);
+        } else if (page == modsPage) {
+            const int panelBottom = h - 64;
+            position(OpenImporter, right - 20 - 140, 142, 140, 36);
+            position(ModFolder, right - 20 - 140 - 12 - 160, 142, 160, 36);
+            position(ModList, contentLeft + 20, 252, content - 40, std::max(80, panelBottom - 64 - 252));
+            if (modList.empty())
+                ShowWindow(controls[ModList], SW_HIDE);
+            int x = contentLeft + 20;
+            for (auto [id, width] : {std::pair{ModToggle, 150}, {ModUp, 100}, {ModDown, 110}, {ModRefresh, 90}}) {
+                position(id, x, panelBottom - 52, width, 36);
+                x += width + 10;
+            }
+            const int name = std::max(120, right - 20 - 120 - 10 - (x + 6));
+            position(ModName, right - 20 - 120 - 10 - name + 10, panelBottom - 44, name - 20, 22);
+            position(ModCreate, right - 20 - 120, panelBottom - 52, 120, 36);
+        } else if (page == importPage) {
+            const int listsBottom = h - 210, targetTop = listsBottom + 12;
+            position(CloseImporter, right - 20 - 130, 140, 130, 36);
+            position(SourceIso, right - 20 - 130 - 10 - 130, 140, 130, 36);
+            position(SourceGame, right - 20 - 130 - 10 - 130 - 10 - 116, 140, 116, 36);
+            const int files = (content - 52) * 2 / 5, entries = content - 52 - files;
+            const int entriesLeft = contentLeft + 32 + files;
+            position(SourceFiles, contentLeft + 20, 248, files, listsBottom - 14 - 248);
+            position(EntryFilter, entriesLeft + entries - 220 + 10, 218, 200, 20);
+            position(SourceEntries, entriesLeft, 248, entries, listsBottom - 14 - 248);
+            if (!source)
+                for (int id : {SourceFiles, EntryFilter, SourceEntries})
+                    ShowWindow(controls[id], SW_HIDE);
+            const int gap = 12, field = (content - 40 - 4 * gap) / 5;
+            int x = contentLeft + 20;
+            for (int id : {TargetMod, TargetKind, TargetMode, TargetFile, TargetEntry}) {
+                position(id, x, targetTop + 52, field, 34);
+                x += field + gap;
+            }
+            position(ImportSelected, contentLeft + 20, targetTop + 100, 160, 36);
+            position(ImportDiskFile, contentLeft + 192, targetTop + 100, 200, 36);
+            position(ExtractSelected, contentLeft + 404, targetTop + 100, 170, 36);
         } else {
             const Grid grid(content);
             const int half = (grid.column - 10) / 2;
@@ -539,11 +671,13 @@ struct Window {
         text(dc, L"v" + wide(application_version), 24, h - 38, sidebarWidth - 48, 18, fonts.caption, faint);
     }
     void paintHeader(HDC dc, int w, int content) {
-        const wchar_t *titles[] = {L"Play", L"Saves", L"Settings"};
+        const wchar_t *titles[] = {L"Play", L"Saves", L"Mods", L"Settings", L"Import tool"};
         const wchar_t *subtitles[] = {
             L"Your game, ready when you are.",
             L"Import, back up and restore your memory card.",
-            L"Saved automatically. Game settings apply at the next launch."};
+            L"Characters, movesets and stages layered over your disc. Your ISO is never changed.",
+            L"Saved automatically. Game settings apply at the next launch.",
+            L"Copy characters, movesets and stages from a PS2 disc, or your own files, into a mod."};
         text(dc, titles[page], contentLeft, 28, content - 180, 34, fonts.heading);
         text(dc, subtitles[page], contentLeft, 66, content - 180, 20, fonts.caption, muted,
              DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
@@ -685,6 +819,68 @@ struct Window {
                  content-72,38,fonts.caption,muted,DT_CENTER|DT_WORDBREAK|DT_NOPREFIX);
         }
     }
+    // Edit controls have no frame of their own; this draws the field around one.
+    void editFrame(HDC dc, int id) {
+        auto control = controls.at(id);
+        if (!(GetWindowLongPtrW(control, GWL_STYLE) & WS_VISIBLE))
+            return;
+        RECT r{};
+        GetWindowRect(control, &r);
+        MapWindowPoints(nullptr, hwnd, reinterpret_cast<POINT *>(&r), 2);
+        InflateRect(&r, p(10), p(7));
+        box(dc, r, field, GetFocus() == control ? orange : border, 8);
+    }
+    void paintMods(HDC dc, int h, int content) {
+        const int right = contentLeft + content, panelBottom = h - 64;
+        panelBox(dc, contentLeft, 124, right, 196);
+        text(dc, L"Mods folder", contentLeft + 20, 136, content - 360, 22, fonts.strong);
+        text(dc, mods::default_mods_directory().make_preferred().wstring(), contentLeft + 20, 160, content - 360, 18,
+             fonts.caption, muted, DT_LEFT | DT_SINGLELINE | DT_PATH_ELLIPSIS | DT_NOPREFIX);
+        panelBox(dc, contentLeft, 208, right, panelBottom);
+        text(dc, L"Load order", contentLeft + 20, 220, 200, 22, fonts.strong);
+        text(dc, L"Mods load top to bottom and later ones win. Changes apply the next time the game starts.",
+             contentLeft + 130, 223, content - 150, 18, fonts.caption, muted,
+             DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        if (modList.empty()) {
+            const int bottom = std::max(320, panelBottom - 64), middle = (252 + bottom) / 2;
+            box(dc, {p(contentLeft + 20), p(252), p(right - 20), p(bottom)}, field, border, 8);
+            text(dc, L"No mods yet", contentLeft + 36, middle - 28, content - 72, 24, fonts.strong, ink,
+                 DT_CENTER | DT_SINGLELINE | DT_NOPREFIX);
+            text(dc, L"Create one below, open the import tool, or drop mod folders into the mods folder.",
+                 contentLeft + 36, middle + 4, content - 72, 38, fonts.caption, muted,
+                 DT_CENTER | DT_WORDBREAK | DT_NOPREFIX);
+        }
+        editFrame(dc, ModName);
+    }
+    void paintImport(HDC dc, int h, int content) {
+        const int right = contentLeft + content, listsBottom = h - 210, targetTop = listsBottom + 12;
+        panelBox(dc, contentLeft, 124, right, 196);
+        caps(dc, L"SOURCE DISC", contentLeft + 20, 136, 200);
+        text(dc, source ? source->image().filename().wstring() : L"Choose a Budokai 2 or Budokai 3 ISO",
+             contentLeft + 20, 156, content - 440, 24, fonts.strong, ink,
+             DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        panelBox(dc, contentLeft, 208, right, listsBottom);
+        const int files = (content - 52) * 2 / 5;
+        caps(dc, L"FILES", contentLeft + 20, 222, files);
+        caps(dc, L"ENTRIES", contentLeft + 32 + files, 222, 200);
+        if (!source) {
+            box(dc, {p(contentLeft + 20), p(248), p(right - 20), p(listsBottom - 14)}, field, border, 8);
+            text(dc, L"Archives hold the game's characters, movesets and stages as numbered entries.",
+                 contentLeft + 36, (248 + listsBottom) / 2 - 20, content - 72, 40, fonts.caption, muted,
+                 DT_CENTER | DT_WORDBREAK | DT_NOPREFIX);
+        } else
+            editFrame(dc, EntryFilter);
+        panelBox(dc, contentLeft, targetTop, right, h - 64);
+        text(dc, L"Import into", contentLeft + 20, targetTop + 10, 160, 22, fonts.strong);
+        text(dc, game ? L"Targets come from your game disc. Data from another game may need edits to work."
+                      : L"Verify your Budokai 2 ISO on the Play page to choose what an import replaces.",
+             contentLeft + 130, targetTop + 13, content - 150, 18, fonts.caption, game ? muted : gold,
+             DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        const int gap = 12, field = (content - 40 - 4 * gap) / 5;
+        const wchar_t *labels[] = {L"MOD", L"CONTENT", L"ACTION", L"GAME FILE", L"FIRST ENTRY"};
+        for (int i = 0; i < 5; ++i)
+            caps(dc, labels[i], contentLeft + 20 + i * (field + gap), targetTop + 34, field);
+    }
     void paintSettings(HDC dc, int content) {
         const int right = contentLeft + content;
         const Grid grid(content);
@@ -747,6 +943,10 @@ struct Window {
             paintPlay(memory, content);
         else if (page == 1)
             paintSaves(memory, h, content);
+        else if (page == modsPage)
+            paintMods(memory, h, content);
+        else if (page == importPage)
+            paintImport(memory, h, content);
         else
             paintSettings(memory, content);
         const int footer = h - 34;
@@ -795,6 +995,12 @@ struct Window {
             LineTo(dc, left + p(4), top + p(6));
             LineTo(dc, left + size - p(4), top + p(6));
             LineTo(dc, left + size - p(4), top);
+        } else if (id == ModsTab) {
+            const int half = size / 2 - p(1);
+            for (int i = 0; i < 4; ++i) {
+                const int x = left + (i % 2) * (half + p(2)), y = top + (i / 2) * (half + p(2));
+                RoundRect(dc, x, y, x + half, y + half, p(3), p(3));
+            }
         } else {
             for (int i = 0; i < 3; ++i) {
                 const int y = top + p(2) + i * p(6), knob = left + p(i == 1 ? 10 : 4);
@@ -814,7 +1020,7 @@ struct Window {
         if (item.CtlType == ODT_BUTTON) {
             const int id = int(item.CtlID);
             const bool navigation = id >= PlayTab && id <= SettingsTab;
-            const bool chosen = navigation && id == PlayTab + page;
+            const bool chosen = navigation && id == PlayTab + (page == importPage ? modsPage : page);
             const bool primary = id == Play;
             const bool pressed = (item.itemState & ODS_SELECTED) != 0;
             const bool hot = hotButton == id && enabled;
@@ -921,6 +1127,269 @@ struct Window {
         if (page == 1)
             ShowWindow(controls[BackupList], backups.empty() ? SW_HIDE : SW_SHOWNA);
     }
+    static std::wstring bytesText(uint64_t bytes) {
+        if (bytes < 1024)
+            return std::to_wstring(bytes) + L" B";
+        if (bytes < 1024 * 1024)
+            return std::to_wstring((bytes + 1023) / 1024) + L" KB";
+        const auto tenths = (bytes * 10 + 1024 * 1024 / 2) / (1024 * 1024);
+        return std::to_wstring(tenths / 10) + L"." + std::to_wstring(tenths % 10) + L" MB";
+    }
+    static std::wstring number(size_t value) {
+        auto text = std::to_wstring(value);
+        return std::wstring(text.size() < 4 ? 4 - text.size() : 0, L'0') + text;
+    }
+    void refreshMods(int select = -1) {
+        const auto keep = SendMessageW(controls[ModList], LB_GETCURSEL, 0, 0);
+        modList = mods::scan_mods(mods::default_mods_directory());
+        auto list = controls[ModList];
+        SendMessageW(list, LB_RESETCONTENT, 0, 0);
+        for (const auto &mod : modList) {
+            std::wstring label = (mod.enabled ? L"On    ·   " : L"Off   ·   ") + wide(mod.name);
+            if (!mod.author.empty())
+                label += L"   ·   by " + wide(mod.author);
+            const auto changes = mod.replaced_files + mod.archive_entries;
+            label += L"   ·   " + std::to_wstring(changes) + (changes == 1 ? L" change" : L" changes");
+            SendMessageW(list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
+        }
+        const int chosen = select >= 0 ? select : int(keep);
+        if (chosen >= 0 && size_t(chosen) < modList.size())
+            SendMessageW(list, LB_SETCURSEL, WPARAM(chosen), 0);
+        if (page == modsPage)
+            ShowWindow(list, modList.empty() ? SW_HIDE : SW_SHOWNA);
+        auto target = controls[TargetMod];
+        const auto previous = SendMessageW(target, CB_GETCURSEL, 0, 0);
+        SendMessageW(target, CB_RESETCONTENT, 0, 0);
+        SendMessageW(target, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"New mod"));
+        for (const auto &mod : modList)
+            SendMessageW(target, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(wide(mod.name).c_str()));
+        SendMessageW(target, CB_SETCURSEL, previous > 0 && size_t(previous) <= modList.size() ? previous : 0, 0);
+        refreshEnabled();
+    }
+    const mods::SourceFile *sourceFile() const {
+        const auto row = SendMessageW(controls.at(SourceFiles), LB_GETCURSEL, 0, 0);
+        return source && row >= 0 && size_t(row) < sourceRows.size() ? &source->files()[sourceRows[size_t(row)]]
+                                                                      : nullptr;
+    }
+    // Selected entry numbers; SIZE_MAX stands for a whole file that is not an archive.
+    std::vector<size_t> chosenEntries() const {
+        auto list = controls.at(SourceEntries);
+        const auto count = SendMessageW(list, LB_GETSELCOUNT, 0, 0);
+        std::vector<int> rows(size_t(std::max<LRESULT>(0, count)));
+        if (!rows.empty())
+            SendMessageW(list, LB_GETSELITEMS, WPARAM(rows.size()), reinterpret_cast<LPARAM>(rows.data()));
+        std::vector<size_t> entries;
+        for (int row : rows)
+            if (row >= 0 && size_t(row) < entryRows.size())
+                entries.push_back(entryRows[size_t(row)]);
+        return entries;
+    }
+    void loadSource(const std::filesystem::path &image) {
+        auto disc = std::make_unique<mods::SourceDisc>(image);
+        source = std::move(disc);
+        sourceRows.clear();
+        auto list = controls[SourceFiles];
+        SendMessageW(list, LB_RESETCONTENT, 0, 0);
+        int first = -1;
+        for (size_t i = 0; i < source->files().size(); ++i) {
+            const auto &file = source->files()[i];
+            const auto label = wide(file.path) + L"   ·   " +
+                               (file.archive ? std::to_wstring(file.entries) + L" entries" : bytesText(file.size));
+            SendMessageW(list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
+            if (file.archive && first < 0)
+                first = int(i);
+            sourceRows.push_back(i);
+        }
+        SendMessageW(list, LB_SETCURSEL, WPARAM(std::max(0, first)), 0);
+        status = L"Read " + std::to_wstring(source->files().size()) + L" files from " +
+                 image.filename().wstring() + L".";
+        error = false;
+        layout();
+        fillEntries();
+    }
+    void fillEntries() {
+        entryRows.clear();
+        auto list = controls[SourceEntries];
+        SendMessageW(list, WM_SETREDRAW, FALSE, 0);
+        SendMessageW(list, LB_RESETCONTENT, 0, 0);
+        const auto *file = sourceFile();
+        std::wstring filter = textOf(EntryFilter);
+        std::transform(filter.begin(), filter.end(), filter.begin(), ::towlower);
+        if (file && !file->archive) {
+            entryRows.push_back(SIZE_MAX);
+            const auto label = L"Whole file   ·   " + bytesText(file->size);
+            SendMessageW(list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
+        } else if (file) {
+            const auto &entries = source->entries(file->path);
+            for (size_t i = 0; i < entries.size(); ++i) {
+                auto label = number(i) + L"   " + (entries[i].name.empty() ? L"(unnamed)" : wide(entries[i].name)) +
+                             L"   ·   " + bytesText(entries[i].size);
+                auto lowered = label;
+                std::transform(lowered.begin(), lowered.end(), lowered.begin(), ::towlower);
+                if (!filter.empty() && lowered.find(filter) == std::wstring::npos)
+                    continue;
+                entryRows.push_back(i);
+                SendMessageW(list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
+            }
+        }
+        SendMessageW(list, WM_SETREDRAW, TRUE, 0);
+        InvalidateRect(list, nullptr, TRUE);
+        // A file the game disc also has is the natural target, as when porting
+        // from Budokai 3, which shares much of Budokai 2's layout.
+        if (file && game) {
+            const auto key = IsoIndex::key(file->path);
+            for (size_t i = 0; i < targetFiles.size(); ++i)
+                if (IsoIndex::key(targetFiles[i]) == key) {
+                    SendMessageW(controls[TargetFile], CB_SETCURSEL, i, 0);
+                    fillTargetEntries();
+                    break;
+                }
+            if (!file->archive)
+                SendMessageW(controls[TargetMode], CB_SETCURSEL, 2, 0);
+            else if (selected(TargetMode) == 2)
+                SendMessageW(controls[TargetMode], CB_SETCURSEL, 0, 0);
+        }
+        refreshEnabled();
+    }
+    void openImporter() {
+        if (!game && disc && !settings.iso.empty()) {
+            game = std::make_unique<mods::SourceDisc>(settings.iso);
+            targetFiles.clear();
+            auto files = controls[TargetFile];
+            SendMessageW(files, CB_RESETCONTENT, 0, 0);
+            for (const auto &file : game->files()) {
+                targetFiles.push_back(file.path);
+                SendMessageW(files, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(wide(file.path).c_str()));
+            }
+            const auto archive = std::find_if(game->files().begin(), game->files().end(),
+                                              [](const auto &file) { return file.archive; });
+            SendMessageW(files, CB_SETCURSEL,
+                         archive == game->files().end() ? 0 : WPARAM(archive - game->files().begin()), 0);
+            fillTargetEntries();
+        }
+        page = importPage;
+        refreshMods();
+        layout();
+    }
+    void fillTargetEntries() {
+        auto list = controls[TargetEntry];
+        SendMessageW(list, CB_RESETCONTENT, 0, 0);
+        const int row = selected(TargetFile);
+        if (game && row >= 0 && size_t(row) < targetFiles.size()) {
+            const auto &entries = game->entries(targetFiles[size_t(row)]);
+            if (entries.empty())
+                SendMessageW(list, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Whole file"));
+            for (size_t i = 0; i < entries.size(); ++i) {
+                const auto label = number(i) + L"   " + (entries[i].name.empty() ? L"" : wide(entries[i].name));
+                SendMessageW(list, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
+            }
+        }
+        SendMessageW(list, CB_SETCURSEL, 0, 0);
+    }
+    std::filesystem::path importMod() {
+        const int choice = selected(TargetMod);
+        if (choice > 0 && size_t(choice) <= modList.size())
+            return modList[size_t(choice - 1)].folder;
+        const auto name = source ? "Imported from " + utf8(source->image().stem().wstring()) : std::string("Imported files");
+        auto folder = mods::create_mod(mods::default_mods_directory(), name, "", "Made with the OpenKai2 import tool");
+        refreshMods();
+        for (size_t i = 0; i < modList.size(); ++i)
+            if (modList[i].folder == folder)
+                SendMessageW(controls[TargetMod], CB_SETCURSEL, i + 1, 0);
+        return folder;
+    }
+    mods::ImportTarget importTarget(size_t count) const {
+        if (!game)
+            throw std::runtime_error("Verify your Budokai 2 ISO on the Play page before importing");
+        const int row = selected(TargetFile);
+        if (row < 0 || size_t(row) >= targetFiles.size())
+            throw std::runtime_error("Choose the game file this import changes");
+        mods::ImportTarget target;
+        target.file = targetFiles[size_t(row)];
+        target.kind = mods::ContentKind(std::clamp(selected(TargetKind), 0, 3));
+        const int mode = selected(TargetMode);
+        target.mode = mode == 1 ? mods::ImportTarget::Mode::Entry
+                      : mode == 2 ? mods::ImportTarget::Mode::File
+                                  : mods::ImportTarget::Mode::NewEntry;
+        target.entry = size_t(std::max(0, selected(TargetEntry)));
+        const auto entries = game->entries(target.file).size();
+        if (target.mode == mods::ImportTarget::Mode::File) {
+            if (count != 1)
+                throw std::runtime_error("Choose exactly one entry or file to replace a whole file");
+        } else if (!entries)
+            throw std::runtime_error(target.file + " is not an archive. Choose Replace whole file, or an archive");
+        else if (target.mode == mods::ImportTarget::Mode::Entry && target.entry + count > entries)
+            throw std::runtime_error(target.file + " has " + std::to_string(entries) + " entries; replacing " +
+                                     std::to_string(count) + " from entry " + std::to_string(target.entry) +
+                                     " runs past the end. Use Add as new entries instead");
+        return target;
+    }
+    void importChosen() {
+        const auto *file = sourceFile();
+        const auto entries = chosenEntries();
+        if (!file || entries.empty())
+            return;
+        const auto path = file->path;
+        auto target = importTarget(entries.size());
+        const auto mod = importMod();
+        const auto &names = source->entries(path);
+        size_t n = 0;
+        for (const auto entry : entries) {
+            auto item = target;
+            if (entry == SIZE_MAX) {
+                item.name = std::filesystem::path(path).filename().string();
+                item.source = utf8(source->image().filename().wstring()) + ":" + path;
+            } else {
+                item.name = names[entry].name.empty() ? "entry_" + std::to_string(entry) + ".bin" : names[entry].name;
+                item.source = utf8(source->image().filename().wstring()) + ":" + path + "#" + std::to_string(entry);
+            }
+            item.entry = target.entry + n++;
+            mods::import_bytes(mod, item, entry == SIZE_MAX ? source->read_file(path) : source->read_entry(path, entry));
+        }
+        refreshMods();
+        status = L"Imported " + std::to_wstring(n) + (n == 1 ? L" item into " : L" items into ") +
+                 mod.filename().wstring() + L". It loads the next time the game starts.";
+        error = false;
+    }
+    void importDiskFile() {
+        const auto file = choose(false, false, L"Choose a file to import");
+        if (file.empty())
+            return;
+        auto target = importTarget(1);
+        const auto mod = importMod();
+        const auto written = mods::import_host_file(mod, target, file);
+        refreshMods();
+        status = L"Imported " + file.filename().wstring() + L" into " + mod.filename().wstring() + L" as " +
+                 written.filename().wstring() + L".";
+        error = false;
+    }
+    void extractChosen() {
+        const auto *file = sourceFile();
+        const auto entries = chosenEntries();
+        if (!file || entries.empty())
+            return;
+        const auto folder = choose(true, false, L"Choose where to save the extracted files");
+        if (folder.empty())
+            return;
+        const auto path = file->path;
+        const auto &names = source->entries(path);
+        for (const auto entry : entries) {
+            const auto bytes = entry == SIZE_MAX ? source->read_file(path) : source->read_entry(path, entry);
+            const auto name = entry == SIZE_MAX ? std::filesystem::path(path).filename().wstring()
+                                                : number(entry) + L"_" + (names[entry].name.empty() ? L"entry.bin"
+                                                                                                    : wide(names[entry].name));
+            auto safe = name;
+            for (auto &c : safe)
+                if (c < 32 || std::wcschr(L"<>:\"/\\|?*", c))
+                    c = L'_';
+            std::ofstream out(folder / safe, std::ios::binary | std::ios::trunc);
+            out.write(reinterpret_cast<const char *>(bytes.data()), std::streamsize(bytes.size()));
+            if (!out)
+                throw std::runtime_error("Cannot write " + utf8((folder / safe).wstring()));
+        }
+        status = L"Extracted " + std::to_wstring(entries.size()) + L" items to " + folder.wstring() + L".";
+        error = false;
+    }
     void start(Job kind, std::filesystem::path source = {}) {
         const bool background = kind == Job::checkUpdate || kind == Job::downloadUpdate;
         if (background ? updating() : (busy() || child)) return;
@@ -1008,7 +1477,7 @@ struct Window {
     }
     void timer() {
         presence.enable(settings.discordPresence);
-        const char* pages[]={"Choosing a game","Managing saves","Configuring settings"};
+        const char* pages[]={"Choosing a game","Managing saves","Managing mods","Configuring settings","Importing mods"};
         presence.update(running()?"Playing Budokai 2":"In launcher",running()?"In game":pages[page]);
         if(presence.status()!=lastPresenceStatus && !dropdownOpen()) {
             lastPresenceStatus=presence.status();InvalidateRect(hwnd,nullptr,FALSE);
@@ -1078,7 +1547,7 @@ struct Window {
             }
             const bool idle = std::chrono::steady_clock::now() - lastInput >= std::chrono::seconds(5);
             if (!busy() && !updating() && !running() && staged &&
-                (installRequested || (settings.autoUpdates && idle && (page == 0 || page == 2)))) {
+                (installRequested || (settings.autoUpdates && idle && (page == 0 || page == settingsPage)))) {
                 try { apply_update(*staged); }
                 catch (const std::exception &e) {
                     updateStatus = wide(e.what());
@@ -1094,13 +1563,13 @@ struct Window {
                 return;
             }
         }
-        if (busy() || (updating() && page == 2)) InvalidateRect(hwnd, nullptr, FALSE);
+        if (busy() || (updating() && page == settingsPage)) InvalidateRect(hwnd, nullptr, FALSE);
     }
-    std::filesystem::path chooseFallback(bool folder, bool iso) {
+    std::filesystem::path chooseFallback(bool folder, bool iso, const wchar_t *title) {
         if (folder) {
             BROWSEINFOW options{};
             options.hwndOwner = hwnd;
-            options.lpszTitle = L"Choose an extracted save folder";
+            options.lpszTitle = title ? title : L"Choose an extracted save folder";
             options.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
             auto item = SHBrowseForFolderW(&options);
             if (!item)
@@ -1124,9 +1593,10 @@ struct Window {
         options.hwndOwner = hwnd;
         options.lpstrFile = path.data();
         options.nMaxFile = DWORD(path.size());
-        options.lpstrFilter = iso ? L"Disc images (*.iso)\0*.iso\0All files\0*.*\0\0"
-                                  : L"Saves and backups (*.psu, *.zip)\0*.psu;*.zip\0All files\0*.*\0\0";
-        options.lpstrTitle = iso ? L"Choose your Budokai 2 USA ISO" : L"Import a save or backup";
+        options.lpstrFilter = iso     ? L"Disc images (*.iso)\0*.iso\0All files\0*.*\0\0"
+                              : title ? L"All files\0*.*\0\0"
+                                      : L"Saves and backups (*.psu, *.zip)\0*.psu;*.zip\0All files\0*.*\0\0";
+        options.lpstrTitle = title ? title : iso ? L"Choose your Budokai 2 USA ISO" : L"Import a save or backup";
         options.Flags = OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
         if (GetOpenFileNameW(&options))
             return path.data();
@@ -1134,7 +1604,8 @@ struct Window {
             throw std::runtime_error("The Windows file picker could not open");
         return {};
     }
-    std::filesystem::path choose(bool folder, bool iso = false) {
+    // A title marks a mod-tool pick, which accepts any file.
+    std::filesystem::path choose(bool folder, bool iso = false, const wchar_t *title = nullptr) {
         picking = true;
         struct Reset {
             bool &flag;
@@ -1143,7 +1614,7 @@ struct Window {
         IFileOpenDialog *dialog = nullptr;
         if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER,
                                     IID_PPV_ARGS(&dialog))))
-            return chooseFallback(folder, iso);
+            return chooseFallback(folder, iso, title);
         struct Release {
             IFileOpenDialog *dialog;
             ~Release() { dialog->Release(); }
@@ -1162,7 +1633,10 @@ struct Window {
                                                 {L"All files", L"*.*"}};
             const COMDLG_FILTERSPEC saves[] = {{L"Saves and backups (*.psu, *.zip)", L"*.psu;*.zip"},
                                                {L"All files", L"*.*"}};
-            dialog->SetFileTypes(2, iso ? images : saves);
+            if (iso || !title)
+                dialog->SetFileTypes(2, iso ? images : saves);
+            else
+                dialog->SetFileTypes(1, images + 1);
             dialog->SetFileTypeIndex(1);
         }
         if (iso && !settings.iso.empty()) {
@@ -1176,9 +1650,10 @@ struct Window {
             }
             dialog->SetFileName(settings.iso.filename().c_str());
         }
-        dialog->SetTitle(folder ? L"Choose an extracted save folder"
-                         : iso  ? L"Choose your Budokai 2 USA ISO"
-                                : L"Import a save or backup");
+        dialog->SetTitle(title    ? title
+                         : folder ? L"Choose an extracted save folder"
+                         : iso    ? L"Choose your Budokai 2 USA ISO"
+                                  : L"Import a save or backup");
         const auto shown = dialog->Show(hwnd);
         if (shown == HRESULT_FROM_WIN32(ERROR_CANCELLED))
             return {};
@@ -1237,6 +1712,8 @@ struct Window {
             page = id - PlayTab;
             for (int tab = PlayTab; tab <= SettingsTab; ++tab)
                 InvalidateRect(controls[tab], nullptr, FALSE);
+            if (page == modsPage)
+                refreshMods();
             layout();
             SetFocus(controls[id]);
             return;
@@ -1305,6 +1782,63 @@ struct Window {
             start(Job::checkUpdate);
             return;
         }
+        if ((id == ModName || id == EntryFilter) && (notification == EN_SETFOCUS || notification == EN_KILLFOCUS)) {
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return;
+        }
+        if (id == EntryFilter && notification == EN_CHANGE) {
+            fillEntries();
+            return;
+        }
+        if (id == SourceFiles && notification == LBN_SELCHANGE) {
+            SetWindowTextW(controls[EntryFilter], L"");
+            fillEntries();
+            return;
+        }
+        if (id == SourceEntries && notification == LBN_SELCHANGE) {
+            // Replacing starts at the first chosen entry when both discs share the file.
+            const auto *file = sourceFile();
+            const auto entries = chosenEntries();
+            const int target = selected(TargetFile);
+            if (file && !entries.empty() && entries.front() != SIZE_MAX && target >= 0 &&
+                size_t(target) < targetFiles.size() && IsoIndex::key(targetFiles[size_t(target)]) == IsoIndex::key(file->path) &&
+                entries.front() < game->entries(file->path).size())
+                SendMessageW(controls[TargetEntry], CB_SETCURSEL, entries.front(), 0);
+            refreshEnabled();
+            return;
+        }
+        if (id == TargetFile && notification == CBN_SELCHANGE) {
+            fillTargetEntries();
+            return;
+        }
+        if (id == ModList && notification == LBN_SELCHANGE) {
+            refreshEnabled();
+            return;
+        }
+        if (id == ModRefresh) {
+            refreshMods();
+            status = L"Mods reloaded from the mods folder.";
+            error = false;
+            return;
+        }
+        if (id == ModFolder) {
+            const auto folder = mods::default_mods_directory();
+            std::filesystem::create_directories(folder);
+            ShellExecuteW(hwnd, L"open", folder.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+            return;
+        }
+        if (id == CloseImporter) {
+            page = modsPage;
+            refreshMods();
+            layout();
+            return;
+        }
+        if (id == ExtractSelected) {
+            extractChosen();
+            return;
+        }
+        if (notification != BN_CLICKED && notification != LBN_DBLCLK)
+            return;
         if (busy() || child)
             return;
         if (session_active()) {
@@ -1342,7 +1876,55 @@ struct Window {
             auto i = SendMessageW(controls[BackupList], LB_GETCURSEL, 0, 0);
             if (i >= 0 && size_t(i) < backups.size())
                 start(Job::restore, backups[size_t(i)]);
-        } else if ((id == OpenSaves || id == OpenBackups) && disc) {
+        } else if (id == ModToggle || id == ModUp || id == ModDown || (id == ModList && notification == LBN_DBLCLK)) {
+            const auto row = SendMessageW(controls[ModList], LB_GETCURSEL, 0, 0);
+            if (row < 0 || size_t(row) >= modList.size())
+                return;
+            auto index = size_t(row);
+            if (id == ModUp && index > 0) {
+                std::swap(modList[index], modList[index - 1]);
+                --index;
+            } else if (id == ModDown && index + 1 < modList.size()) {
+                std::swap(modList[index], modList[index + 1]);
+                ++index;
+            } else if (id == ModToggle || id == ModList)
+                modList[index].enabled = !modList[index].enabled;
+            mods::save_load_order(mods::default_mods_directory(), modList);
+            refreshMods(int(index));
+            status = wide(modList[index].name) + (id == ModUp || id == ModDown ? L" moved. "
+                                                  : modList[index].enabled ? L" enabled. " : L" disabled. ") +
+                     L"Changes apply the next time the game starts.";
+            error = false;
+        } else if (id == ModCreate) {
+            const auto name = utf8(textOf(ModName));
+            if (name.find_first_not_of(" \t") == std::string::npos) {
+                status = L"Type a name for the new mod.";
+                error = true;
+                SetFocus(controls[ModName]);
+                refreshEnabled();
+                return;
+            }
+            const auto folder = mods::create_mod(mods::default_mods_directory(), name, "", "");
+            SetWindowTextW(controls[ModName], L"");
+            refreshMods();
+            for (size_t i = 0; i < modList.size(); ++i)
+                if (modList[i].folder == folder)
+                    refreshMods(int(i));
+            status = L"Created " + folder.filename().wstring() + L". Add files with the import tool or by hand.";
+            error = false;
+        } else if (id == OpenImporter)
+            openImporter();
+        else if (id == SourceGame && !settings.iso.empty())
+            loadSource(settings.iso);
+        else if (id == SourceIso) {
+            const auto image = choose(false, true, L"Choose a PS2 ISO to import from");
+            if (!image.empty())
+                loadSource(image);
+        } else if (id == ImportSelected)
+            importChosen();
+        else if (id == ImportDiskFile)
+            importDiskFile();
+        else if ((id == OpenSaves || id == OpenBackups) && disc) {
             auto p = id == OpenSaves ? card() : backupPath();
             std::filesystem::create_directories(p);
             ShellExecuteW(hwnd, L"open", p.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
@@ -1375,6 +1957,31 @@ LRESULT CALLBACK button_procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp)
     }
     return original ? CallWindowProcW(original, hwnd, message, wp, lp)
                     : DefWindowProcW(hwnd, message, wp, lp);
+}
+// Draws the hint of an empty, unfocused field; cue banners need a newer
+// common controls library than the launcher loads.
+LRESULT CALLBACK edit_procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
+    auto original = reinterpret_cast<WNDPROC>(GetPropW(hwnd, L"OpenKai2.EditProcedure"));
+    auto *owner = reinterpret_cast<Window *>(GetWindowLongPtrW(GetParent(hwnd), GWLP_USERDATA));
+    const auto result = original ? CallWindowProcW(original, hwnd, message, wp, lp)
+                                 : DefWindowProcW(hwnd, message, wp, lp);
+    if (message == WM_PAINT && owner && GetFocus() != hwnd && GetWindowTextLengthW(hwnd) == 0) {
+        const auto *hint = reinterpret_cast<const wchar_t *>(GetPropW(hwnd, L"OpenKai2.EditHint"));
+        auto dc = GetDC(hwnd);
+        RECT rect{};
+        GetClientRect(hwnd, &rect);
+        rect.left += owner->p(2);
+        auto old = SelectObject(dc, owner->fonts.body);
+        SetBkMode(dc, TRANSPARENT);
+        SetTextColor(dc, faint);
+        if (hint)
+            DrawTextW(dc, hint, -1, &rect, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        SelectObject(dc, old);
+        ReleaseDC(hwnd, dc);
+    }
+    if (message == WM_SETFOCUS || message == WM_KILLFOCUS)
+        InvalidateRect(hwnd, nullptr, TRUE);
+    return result;
 }
 LRESULT CALLBACK combo_procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
     auto original = reinterpret_cast<WNDPROC>(GetPropW(hwnd, L"OpenKai2.ComboProcedure"));
@@ -1481,8 +2088,17 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
             self->layout();
             return 0;
         }
+        case WM_CTLCOLOREDIT: {
+            SetDCBrushColor(reinterpret_cast<HDC>(wp), field);
+            SetTextColor(reinterpret_cast<HDC>(wp), ink);
+            SetBkColor(reinterpret_cast<HDC>(wp), field);
+            return reinterpret_cast<LRESULT>(GetStockObject(DC_BRUSH));
+        }
         case WM_CTLCOLORLISTBOX: {
-            const COLORREF color = reinterpret_cast<HWND>(lp) == self->controls[BackupList] ? field : panel;
+            const auto target = reinterpret_cast<HWND>(lp);
+            const bool list = target == self->controls[BackupList] || target == self->controls[ModList] ||
+                              target == self->controls[SourceFiles] || target == self->controls[SourceEntries];
+            const COLORREF color = list ? field : panel;
             SetDCBrushColor(reinterpret_cast<HDC>(wp), color);
             SetTextColor(reinterpret_cast<HDC>(wp), ink);
             SetBkColor(reinterpret_cast<HDC>(wp), color);
@@ -1608,7 +2224,8 @@ int run_window(const std::filesystem::path &initialIso) {
         state.start(Job::verify, state.settings.iso);
     ACCEL shortcuts[] = {{FCONTROL | FVIRTKEY, '1', PlayTab},
                          {FCONTROL | FVIRTKEY, '2', SavesTab},
-                         {FCONTROL | FVIRTKEY, '3', SettingsTab}};
+                         {FCONTROL | FVIRTKEY, '3', ModsTab},
+                         {FCONTROL | FVIRTKEY, '4', SettingsTab}};
     const auto accelerators = CreateAcceleratorTableW(shortcuts, pageCount);
     struct AcceleratorCleanup {
         HACCEL value;

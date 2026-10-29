@@ -2,6 +2,7 @@
 #include "launcher/settings.h"
 #include "launcher/window.h"
 #include "launcher/update.h"
+#include "mods/mod_library.h"
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -161,7 +162,7 @@ int main() {
                 wait_until([] { return updateStarted.load(); }, "Background update did not start");
                 require(IsWindowEnabled(GetDlgItem(w,110)) != FALSE,
                         "Background update check blocked choosing an ISO");
-                click(w,103);
+                click(w,104);
                 mouse_choice(GetDlgItem(w,174),1);
                 require(read_settings(settings_path()).discordPresence,"Discord preference was not saved");
                 mouse_choice(GetDlgItem(w,174),0);
@@ -193,7 +194,7 @@ int main() {
                 keyboard_choice(GetDlgItem(w,148),0);
                 require(!read_settings(settings_path()).autoBackups,"Backup preference did not persist");
                 releaseUpdate = true;
-                click(w,103);
+                click(w,104);
                 wait_until([&] { return IsWindowEnabled(GetDlgItem(w,161)) != FALSE; },
                            "Update preferences did not unlock after the check completed");
                 keyboard_choice(GetDlgItem(w,161),0);
@@ -211,7 +212,7 @@ int main() {
         std::thread reopened([&] {
             HWND w{};
             try {
-                w = wait_launcher(); click(w,103);
+                w = wait_launcher(); click(w,104);
                 require(SendMessageW(GetDlgItem(w,141),CB_GETCURSEL,0,0)==3,
                         "Saved FPS was not restored when reopening the launcher");
                 require(SendMessageW(GetDlgItem(w,144),CB_GETCURSEL,0,0)==1,
@@ -243,7 +244,7 @@ int main() {
                             bounds.bottom<=client.bottom,"A settings control is clipped at the minimum window size");
                 }
                 // Navigation shortcuts must work while a native field has focus.
-                for(auto route : {std::pair<WORD,int>{'2',120},{'1',110},{'3',160},{'2',148},{'3',140}}) {
+                for(auto route : {std::pair<WORD,int>{'2',120},{'1',110},{'4',160},{'3',185},{'2',148},{'4',140}}) {
                     SetForegroundWindow(w);
                     INPUT keys[4]{};
                     for(auto& key:keys)key.type=INPUT_KEYBOARD;
@@ -265,6 +266,31 @@ int main() {
                     previous=bounds;
                 }
                 require(!IsWindowEnabled(GetDlgItem(w,127)),"Unlocks were enabled without a verified disc");
+                // Mods: create one, disable it, and lay out the import tool at the minimum size.
+                click(w,103);
+                SetWindowTextW(GetDlgItem(w,186),L"Test mod");
+                click(w,187);
+                require(SendMessageW(GetDlgItem(w,180),LB_GETCOUNT,0,0)==1 && IsWindowVisible(GetDlgItem(w,180)),
+                        "A created mod was not listed");
+                SendMessageW(GetDlgItem(w,180),LB_SETCURSEL,0,0);
+                click(w,181);
+                const auto mods=openkai2::mods::scan_mods(openkai2::mods::default_mods_directory());
+                require(mods.size()==1 && mods[0].name=="Test mod" && !mods[0].enabled,"Disabling a mod was not saved");
+                RECT client{};GetClientRect(w,&client);
+                auto inside=[&](int id,const char* message){
+                    RECT bounds{};GetWindowRect(GetDlgItem(w,id),&bounds);
+                    MapWindowPoints(nullptr,w,reinterpret_cast<POINT*>(&bounds),2);
+                    require(IsWindowVisible(GetDlgItem(w,id)) && bounds.left>=0 && bounds.top>=0 &&
+                            bounds.right<=client.right && bounds.bottom<=client.bottom,message);
+                };
+                for(int id=181;id<=188;++id) inside(id,"A mods control is clipped at the minimum window size");
+                click(w,188);
+                for(int id : {200,201,205,206,207,208,209,210,211,212,213})
+                    inside(id,"An import tool control is clipped at the minimum window size");
+                require(!IsWindowEnabled(GetDlgItem(w,210)) && !IsWindowEnabled(GetDlgItem(w,200)),
+                        "Importing was enabled without a source and a verified disc");
+                click(w,213);
+                require(IsWindowVisible(GetDlgItem(w,180))!=FALSE,"Back to mods did not return to the mods page");
             } catch (...) { failure=std::current_exception(); }
             if(w)PostMessageW(w,WM_CLOSE,0,0);
         });
