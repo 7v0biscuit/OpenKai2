@@ -130,12 +130,32 @@ int main() {
                     report.find("At 0x00389D40, 712 bytes apart, 53 names") != std::string::npos &&
                     report.find("USR/DATA_CMN.AFS") != std::string::npos,
                 "The disc report is missing the table or files");
+        // Budokai 3 keeps its names in a list and its records point at them.
         auto third = memory_image();
+        std::memset(third.data() + roster_records, 0, roster_count * roster_record_bytes);
         std::memcpy(third.data() + 0x3A40C0u, "BASLUS-21234DBZ3", 16);
+        const char *thirdNames[] = {"GOKOU", "KULILIN", "PICCOLO", "VEGETA", "GOHAN", "TRUNKS", "CELL", "FREEZA",
+                                    "OMEGA SHENRON", "BROLY"};
+        const uint32_t list = roster_records + 0x100, records = roster_records + 0x2000;
+        for (uint32_t i = 0; i < 10; ++i) {
+            std::memcpy(third.data() + list + 32 * i, thirdNames[i], std::strlen(thirdNames[i]));
+            put32(third, records + 0x1a0 * i, list + 32 * i);
+            put32(third, records + 0x1a0 * i + 0x40, 100 + i);
+        }
         write(root / "b3.iso", disc_image(third, "SLUS_212.34"));
         SourceDisc b3(root / "b3.iso");
         require(identify_disc(b3).game == DragonBallGame::budokai3 && !read_disc_roster(b3),
                 "A Budokai 3 disc was not identified, or was read with Budokai 2's layout");
+        const auto thirdReport = disc_report(b3);
+        if (std::getenv("OPENKAI2_SHOW_REPORT"))
+            std::cerr << thirdReport;
+        char pointerTable[96];
+        std::snprintf(pointerTable, sizeof pointerTable, "At 0x%08X, 416 bytes apart, 10 names, through pointers",
+                      records);
+        require(thirdReport.find(pointerTable) != std::string::npos &&
+                    thirdReport.find("+0x040: 100 101 102") != std::string::npos &&
+                    thirdReport.find("1 pointers  OMEGA SHENRON") != std::string::npos,
+                "The disc report did not follow pointers to a name list");
         auto plainGame = memory_image();
         std::memset(plainGame.data() + roster_records, 0, roster_count * roster_record_bytes);
         std::memset(plainGame.data() + 0x3A40C0u, 0, 16);

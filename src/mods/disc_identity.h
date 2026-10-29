@@ -35,10 +35,13 @@ struct ExecutableImage {
 std::optional<ExecutableImage> load_executable(const std::vector<uint8_t> &elf);
 
 // A run of records whose names are Dragon Ball characters, found by their
-// spacing. Used to map games whose tables are not known yet.
+// spacing. Used to map games whose tables are not known yet. Budokai 2 keeps
+// each name in its record; Budokai 3 keeps its names in a list of their own,
+// so its records are found through words that point at the names.
 struct CharacterTable {
-    uint32_t first = 0;  // address of the first name
-    uint32_t stride = 0; // bytes from one name to the next
+    uint32_t first = 0;  // address of the first name, or of the first pointer
+    uint32_t stride = 0; // bytes from one record to the next
+    bool pointers = false;
     std::vector<std::string> names;
 };
 std::vector<CharacterTable> find_character_tables(const ExecutableImage &image);

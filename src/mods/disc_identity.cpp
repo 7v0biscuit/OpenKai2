@@ -116,50 +116,96 @@ std::optional<ExecutableImage> load_executable(const std::vector<uint8_t> &elf) 
     return image;
 }
 
-std::vector<CharacterTable> find_character_tables(const ExecutableImage &image) {
-    // Every NUL-terminated character name, then names that sit at a common
-    // spacing from each other.
+namespace {
+// NUL-terminated character names, by address.
+std::vector<uint32_t> name_addresses(const ExecutableImage &image) {
     std::vector<uint32_t> names;
     const auto &memory = image.memory;
     for (uint32_t at = 1; at + 4 < memory.size(); ++at)
         if (!memory[at - 1] && std::isupper(memory[at]) && character_name(printable(image, at)))
             names.push_back(at);
+    return names;
+}
+// Spacings that occur at least five times between nearby addresses, smallest
+// first: multiples of a table's spacing line up too, so the smallest wins.
+std::vector<uint32_t> common_spacings(const std::vector<uint32_t> &at, uint32_t least) {
     std::map<uint32_t, size_t> spacing;
-    for (size_t i = 0; i < names.size(); ++i)
-        for (size_t j = i + 1; j < names.size() && names[j] - names[i] <= 4096; ++j)
-            if (names[j] - names[i] >= 32)
-                ++spacing[names[j] - names[i]];
-    std::vector<CharacterTable> tables;
-    std::vector<bool> used(names.size(), false);
-    // Multiples of a table's spacing line up too, so the smallest wins.
-    for (const auto &[stride, count] : spacing) {
-        if (count < 5)
-            continue;
-        for (size_t i = 0; i < names.size(); ++i) {
-            if (used[i])
-                continue;
-            // Walk back and forward from a name while the slots hold names.
-            uint32_t first = names[i];
-            while (first >= stride + 1 && plausible_name(printable(image, first - stride)) &&
-                   memory[first - stride - 1] == 0)
-                first -= stride;
-            CharacterTable table{first, stride, {}};
-            size_t known = 0;
-            for (uint32_t at = first; image.contains(at, 1); at += stride) {
-                const auto name = printable(image, at);
-                if (!plausible_name(name) || memory[at - 1] != 0)
-                    break;
-                known += character_name(name);
-                table.names.push_back(name);
-            }
-            if (known < 6 || known * 2 < table.names.size())
-                continue;
-            for (size_t j = 0; j < names.size(); ++j)
-                if (names[j] >= first && names[j] < first + stride * table.names.size() && (names[j] - first) % stride == 0)
-                    used[j] = true;
-            tables.push_back(std::move(table));
-        }
+    for (size_t i = 0; i < at.size(); ++i)
+        for (size_t j = i + 1; j < at.size() && at[j] - at[i] <= 4096; ++j)
+            if (at[j] - at[i] >= least)
+                ++spacing[at[j] - at[i]];
+    std::vector<uint32_t> strides;
+    for (const auto &[stride, count] : spacing)
+        if (count >= 5)
+            strides.push_back(stride);
+    return strides;
+}
+// Walks back and forward from `start` while `name_at` finds a name, and keeps
+// the run when most of its names are characters.
+template <typename NameAt>
+std::optional<CharacterTable> walk_table(const ExecutableImage &image, uint32_t start, uint32_t stride, bool pointers,
+                                         NameAt name_at) {
+    uint32_t first = start;
+    while (first >= stride && !name_at(first - stride).empty())
+        first -= stride;
+    CharacterTable table{first, stride, pointers, {}};
+    size_t known = 0;
+    for (uint32_t at = first; image.contains(at, 4); at += stride) {
+        auto name = name_at(at);
+        if (name.empty())
+            break;
+        known += character_name(name);
+        table.names.push_back(std::move(name));
     }
+    if (known < 6 || known * 2 < table.names.size())
+        return std::nullopt;
+    return table;
+}
+void mark_used(const std::vector<uint32_t> &at, std::vector<bool> &used, const CharacterTable &table) {
+    for (size_t j = 0; j < at.size(); ++j)
+        if (at[j] >= table.first && at[j] < table.first + table.stride * table.names.size() &&
+            (at[j] - table.first) % table.stride == 0)
+            used[j] = true;
+}
+} // namespace
+
+std::vector<CharacterTable> find_character_tables(const ExecutableImage &image) {
+    const auto &memory = image.memory;
+    const auto names = name_addresses(image);
+    std::vector<CharacterTable> tables;
+
+    // Records that hold their names: names at a common spacing.
+    const auto held = [&](uint32_t at) {
+        auto name = printable(image, at);
+        return at && memory[at - 1] == 0 && plausible_name(name) ? name : std::string{};
+    };
+    std::vector<bool> used(names.size(), false);
+    for (const auto stride : common_spacings(names, 32))
+        for (size_t i = 0; i < names.size(); ++i)
+            if (!used[i])
+                if (auto table = walk_table(image, names[i], stride, false, held)) {
+                    mark_used(names, used, *table);
+                    tables.push_back(std::move(*table));
+                }
+
+    // Records that point at their names: words holding a name's address, at a
+    // common spacing.
+    std::vector<uint32_t> pointers;
+    for (uint32_t at = 0; at + 4 <= memory.size(); at += 4)
+        if (std::binary_search(names.begin(), names.end(), read32(memory, at)))
+            pointers.push_back(at);
+    const auto pointed = [&](uint32_t at) {
+        const auto target = read32(memory, at);
+        return image.contains(target, 1) ? held(target) : std::string{};
+    };
+    std::vector<bool> followed(pointers.size(), false);
+    for (const auto stride : common_spacings(pointers, 4))
+        for (size_t i = 0; i < pointers.size(); ++i)
+            if (!followed[i])
+                if (auto table = walk_table(image, pointers[i], stride, true, pointed)) {
+                    mark_used(pointers, followed, *table);
+                    tables.push_back(std::move(*table));
+                }
     return tables;
 }
 
@@ -200,9 +246,15 @@ DiscIdentity identify_disc(SourceDisc &disc) {
 std::string disc_report(SourceDisc &disc) {
     std::ostringstream out;
     const auto identity = identify_disc(disc);
-    out << "OpenKai2 disc report\n\nGame: " << game_name(identity.game) << "\nSerial: " << identity.serial
+    out << "OpenKai2 disc report, version 2\n\nGame: " << game_name(identity.game) << "\nSerial: " << identity.serial
         << "\nExecutable: " << identity.executable << "\n\nFiles:\n";
     char line[160];
+    const auto hex = [&](const uint8_t *bytes, size_t count) {
+        for (size_t i = 0; i < count; ++i) {
+            std::snprintf(line, sizeof line, "%02x", bytes[i]);
+            out << line;
+        }
+    };
     for (const auto &file : disc.files()) {
         std::snprintf(line, sizeof line, "  %-32s %12llu bytes%s\n", file.path.c_str(),
                       static_cast<unsigned long long>(file.size),
@@ -212,20 +264,22 @@ std::string disc_report(SourceDisc &disc) {
     for (const auto &file : disc.files()) {
         if (!file.archive)
             continue;
-        out << "\nFirst bytes of " << file.path << " entries:\n";
+        // Sound archives hold ADX streams, whose format is known; the rest are
+        // listed in full so their files can be matched with Budokai 2's.
+        const auto name = upper(file.path.substr(file.path.find_last_of('/') + 1));
         const auto &entries = disc.entries(file.path);
-        for (size_t i = 0; i < entries.size() && i < 24; ++i) {
+        const size_t listed = name.rfind("ADX", 0) == 0 ? std::min<size_t>(entries.size(), 24) : entries.size();
+        out << "\nFirst bytes of " << file.path << " entries (" << listed << " of " << entries.size() << "):\n";
+        for (size_t i = 0; i < listed; ++i) {
             std::snprintf(line, sizeof line, "  %4zu %10u  ", i, entries[i].size);
             out << line;
-            if (entries[i].size >= 16) {
+            const size_t bytes = std::min<size_t>(entries[i].size, 32);
+            if (bytes) {
                 const auto range = disc.range(file.path, i);
                 std::ostringstream head;
-                SourceDisc::Range first{range.offset, 16};
-                disc.copy(first, head);
-                for (const unsigned char c : head.str()) {
-                    std::snprintf(line, sizeof line, "%02x", c);
-                    out << line;
-                }
+                disc.copy(SourceDisc::Range{range.offset, bytes}, head);
+                const auto text = head.str();
+                hex(reinterpret_cast<const uint8_t *>(text.data()), text.size());
             }
             out << "  " << entries[i].name << '\n';
         }
@@ -236,23 +290,40 @@ std::string disc_report(SourceDisc &disc) {
     } catch (const std::runtime_error &) {
     }
     const auto image = load_executable(elf);
-    const auto tables = image ? find_character_tables(*image) : std::vector<CharacterTable>{};
+    if (!image)
+        return out.str();
+    const auto &memory = image->memory;
+
+    const auto names = name_addresses(*image);
+    out << "\nCharacter names in the executable: " << names.size() << '\n';
+    std::vector<size_t> pointers(names.size(), 0);
+    for (uint32_t word = 0; word + 4 <= memory.size(); word += 4)
+        if (const auto at = std::lower_bound(names.begin(), names.end(), read32(memory, word));
+            at != names.end() && *at == read32(memory, word))
+            ++pointers[size_t(at - names.begin())];
+    for (size_t i = 0; i < names.size(); ++i) {
+        std::snprintf(line, sizeof line, "  0x%08X  %2zu pointers  ", names[i], pointers[i]);
+        out << line << printable(*image, names[i]) << '\n';
+    }
+
+    const auto tables = find_character_tables(*image);
     out << "\nCharacter tables: " << tables.size() << '\n';
     for (const auto &table : tables) {
-        std::snprintf(line, sizeof line, "\n  At 0x%08X, %u bytes apart, %zu names:\n", table.first, table.stride,
-                      table.names.size());
+        std::snprintf(line, sizeof line, "\n  At 0x%08X, %u bytes apart, %zu names%s:\n", table.first, table.stride,
+                      table.names.size(), table.pointers ? ", through pointers" : "");
         out << line;
         for (size_t i = 0; i < table.names.size(); ++i)
             out << "    " << i << "  " << table.names[i] << '\n';
         // Words that hold small numbers in most records may be file numbers.
-        out << "  Fields that look like file numbers (offset from the name: values of the first records):\n";
+        out << "  Fields that look like file numbers (offset from the "
+            << (table.pointers ? "pointer" : "name") << ": values of the first records):\n";
         // Offsets wrap round into the record before the name, so the whole
         // record is covered whatever the name's place in it.
-        for (uint32_t offset = 32; offset + 4 <= table.stride; offset += 4) {
+        for (uint32_t offset = table.pointers ? 4 : 32; offset + 4 <= table.stride; offset += 4) {
             size_t small = 0;
             std::string values;
             for (size_t i = 0; i < table.names.size(); ++i) {
-                const uint32_t value = read32(image->memory, table.first + i * table.stride + offset);
+                const uint32_t value = read32(memory, table.first + i * table.stride + offset);
                 small += value && value < 0x10000;
                 if (i < 8)
                     values += " " + std::to_string(int32_t(value));
@@ -260,6 +331,22 @@ std::string disc_report(SourceDisc &disc) {
             if (small * 2 >= table.names.size()) {
                 std::snprintf(line, sizeof line, "    +0x%03X:", offset);
                 out << line << values << '\n';
+            }
+        }
+        // The first records word by word, so fields the scan misses show too.
+        if (table.stride >= 64) {
+            out << "  The first records as words:\n";
+            for (size_t i = 0; i < table.names.size() && i < 3; ++i) {
+                out << "    " << table.names[i] << '\n';
+                for (uint32_t offset = 0; offset < table.stride && offset < 1024; offset += 16) {
+                    std::snprintf(line, sizeof line, "      +0x%03X", offset);
+                    out << line;
+                    for (uint32_t word = offset; word < offset + 16 && word < table.stride; word += 4) {
+                        std::snprintf(line, sizeof line, " %08X", read32(memory, table.first + i * table.stride + word));
+                        out << line;
+                    }
+                    out << '\n';
+                }
             }
         }
     }
