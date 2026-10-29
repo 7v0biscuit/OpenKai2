@@ -106,6 +106,14 @@ std::wstring wide(const std::string &s) {
     MultiByteToWideChar(CP_UTF8, 0, s.data(), int(s.size()), r.data(), n);
     return r;
 }
+std::string utf8(const std::wstring &s) {
+    if (s.empty())
+        return {};
+    int n = WideCharToMultiByte(CP_UTF8, 0, s.data(), int(s.size()), nullptr, 0, nullptr, nullptr);
+    std::string r(n, 0);
+    WideCharToMultiByte(CP_UTF8, 0, s.data(), int(s.size()), r.data(), n, nullptr, nullptr);
+    return r;
+}
 COLORREF mix(COLORREF a, COLORREF b, int t) {
     t = std::clamp(t, 0, 255);
     const auto channel = [t](int x, int y) { return x + (y - x) * t / 255; };
@@ -1011,7 +1019,10 @@ struct Window {
                 continue;
             try {
                 auto result = work.get();
-                std::cout << "[launcher] operation=" << int(result.kind) << " completed" << std::endl;
+                std::cout << "[launcher] operation=" << int(result.kind) << " completed";
+                if (!result.message.empty())
+                    std::cout << " message=\"" << utf8(result.message) << '"';
+                std::cout << std::endl;
                 if (background) {
                     release = std::move(result.release);
                     staged = std::move(result.staged);
