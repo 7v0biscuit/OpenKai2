@@ -286,7 +286,7 @@ int main() {
                 for(int id=181;id<=188;++id) inside(id,"A mods control is clipped at the minimum window size");
                 click(w,188);
                 // Character tasks show only the task, source, save target and Import.
-                for(int id : {200,201,205,210,213,214,215,216})
+                for(int id : {200,201,205,210,213,214,215,216,218})
                     inside(id,"An import tool control is clipped at the minimum window size");
                 require(!IsWindowVisible(GetDlgItem(w,207)) && !IsWindowVisible(GetDlgItem(w,203)),
                         "Archive controls were shown for a character task");

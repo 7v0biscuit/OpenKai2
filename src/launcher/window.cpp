@@ -121,7 +121,8 @@ enum Id {
     TaskAdd,
     TaskReplace,
     TaskFiles,
-    TargetList
+    TargetList,
+    SpotMode
 };
 // Sidebar pages, then the import tool, which opens from the Mods page.
 constexpr int pageCount = 4, modsPage = 2, settingsPage = 3, importPage = 4;
@@ -324,7 +325,7 @@ struct Window {
     bool dropdownOpen() const {
         for (auto [id, control] : controls)
             if ((id >= Renderer && id <= Audio) || id == UpdateChannel || id == AutomaticUpdates ||
-                id == DiscordActivity || (id >= TargetMod && id <= TargetEntry))
+                id == DiscordActivity || (id >= TargetMod && id <= TargetEntry) || id == SpotMode)
                 if (SendMessageW(control, CB_GETDROPPEDSTATE, 0, 0)) return true;
         return false;
     }
@@ -521,6 +522,7 @@ struct Window {
         combo(TargetMode, {L"Add as new entries", L"Replace entries", L"Replace whole file"}, 0);
         combo(TargetFile, {}, 0);
         combo(TargetEntry, {}, 0);
+        combo(SpotMode, {L"Share the spot (R2 switches)", L"Take over the spot"}, 0);
         list(BackupList, L"Save backups", 40, false);
         list(ModList, L"Mods", 40, false);
         list(SourceFiles, L"Source files", 30, false);
@@ -552,7 +554,7 @@ struct Window {
         for (int id : {ModCreate, OpenImporter, SourceGame, SourceIso, ImportDiskFile})
             EnableWindow(controls[id], modding && (id != SourceGame || !settings.iso.empty()));
         for (int id : {SourceFiles, SourceEntries, EntryFilter, TargetList, TargetMod, TargetKind, TargetMode, TargetFile,
-                       TargetEntry, TaskAdd, TaskReplace, TaskFiles})
+                       TargetEntry, TaskAdd, TaskReplace, TaskFiles, SpotMode})
             EnableWindow(controls[id], !busy());
         const bool picked = characterTask()
                                 ? characterView && sourceCharacter() &&
@@ -633,7 +635,9 @@ struct Window {
                 if (!characterView)
                     for (int id : {SourceFiles, EntryFilter, TargetList})
                         ShowWindow(controls[id], SW_HIDE);
-                position(TargetMod, contentLeft + 20, targetTop + 52, 240, 34);
+                position(TargetMod, contentLeft + 20, targetTop + 52, 220, 34);
+                if (importTask == Task::add)
+                    position(SpotMode, contentLeft + 252, targetTop + 52, 260, 34);
                 position(ImportSelected, right - 20 - 160, targetTop + 52, 160, 36);
             } else {
                 const int files = (content - 52) * 2 / 5, entries = content - 52 - files;
@@ -967,9 +971,11 @@ struct Window {
                  contentLeft + 130, targetTop + 13, content - 150, 18, fonts.caption, game ? muted : gold,
                  DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
         if (characterTask()) {
-            caps(dc, L"SAVE TO", contentLeft + 20, targetTop + 34, 240);
+            caps(dc, L"SAVE TO", contentLeft + 20, targetTop + 34, 220);
+            if (importTask == Task::add)
+                caps(dc, L"ON THE SELECT SCREEN", contentLeft + 252, targetTop + 34, 260);
             // One plain sentence says what pressing Import will do.
-            text(dc, plan(), contentLeft + 280, targetTop + 48, content - 280 - 200, 44, fonts.caption, ink,
+            text(dc, plan(), contentLeft + 20, targetTop + 94, content - 40, 36, fonts.caption, ink,
                  DT_LEFT | DT_WORDBREAK | DT_END_ELLIPSIS | DT_NOPREFIX);
             return;
         }
@@ -988,6 +994,10 @@ struct Window {
                                                                          : std::wstring(L"Saved as a new mod.");
         if (importTask == Task::add) {
             const auto *occupant = gameRoster->find(gameRoster->grid[size_t(row)]);
+            if (selected(SpotMode) == 0)
+                return wide(character->name) + L" gets a new character slot and shares spot " + std::to_wstring(row + 1) +
+                       (occupant ? L" with " + wide(occupant->name) : L"") +
+                       L"; press R2 (Right Shift) on that spot to switch between them. " + into;
             return wide(character->name) + L" gets a new character slot and takes spot " + std::to_wstring(row + 1) +
                    L" on the select screen" + (occupant ? L" in place of " + wide(occupant->name) : L"") + L". " + into;
         }
@@ -1669,7 +1679,11 @@ struct Window {
             added.slot = *slot;
             added.base = character->id;
             added.name = character->internal;
-            added.select_cell = uint32_t(pick);
+            const bool sharing = selected(SpotMode) == 0;
+            if (sharing)
+                added.alternate_cells.push_back(uint32_t(pick));
+            else
+                added.select_cell = uint32_t(pick);
             for (const auto entry : chosen) {
                 ImportItem item;
                 item.entry = entry;
@@ -1683,9 +1697,11 @@ struct Window {
                 items.push_back(std::move(item));
             }
             const auto *occupant = gameRoster->find(gameRoster->grid[size_t(pick)]);
-            summary = L"Added " + wide(character->name) + L" to spot " + std::to_wstring(pick + 1) +
-                      L" on the select screen" + (occupant ? L" in place of " + wide(occupant->name) : std::wstring()) +
-                      L" (character ID " + std::to_wstring(added.slot) + L").";
+            summary = L"Added " + wide(character->name) + (sharing ? L", sharing spot " : L" to spot ") +
+                      std::to_wstring(pick + 1) +
+                      (occupant ? (sharing ? L" with " : L" in place of ") + wide(occupant->name) : std::wstring()) +
+                      L" (character ID " + std::to_wstring(added.slot) + L")." +
+                      (sharing ? L" Press R2 on that spot to switch." : L"");
         } else {
             if (size_t(pick) >= gameRoster->characters.size())
                 throw std::runtime_error("Choose the character to replace");
@@ -2273,7 +2289,8 @@ struct Window {
                 setTask(id == TaskAdd ? Task::add : id == TaskReplace ? Task::replace : Task::files);
             return;
         }
-        if ((id == TargetList || id == TargetMod) && (notification == LBN_SELCHANGE || notification == CBN_SELCHANGE)) {
+        if ((id == TargetList || id == TargetMod || id == SpotMode) &&
+            (notification == LBN_SELCHANGE || notification == CBN_SELCHANGE)) {
             refreshEnabled();
             return;
         }
