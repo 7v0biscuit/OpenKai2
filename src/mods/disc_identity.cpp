@@ -255,7 +255,7 @@ DiscIdentity identify_disc(SourceDisc &disc) {
 std::string disc_report(SourceDisc &disc) {
     std::ostringstream out;
     const auto identity = identify_disc(disc);
-    out << "OpenKai2 disc report, version 3\n\nGame: " << game_name(identity.game) << "\nSerial: " << identity.serial
+    out << "OpenKai2 disc report, version 4\n\nGame: " << game_name(identity.game) << "\nSerial: " << identity.serial
         << "\nExecutable: " << identity.executable << "\n\nFiles:\n";
     char line[160];
     const auto hex = [&](const uint8_t *bytes, size_t count) {
@@ -270,6 +270,23 @@ std::string disc_report(SourceDisc &disc) {
                       file.archive ? (", " + std::to_string(file.entries) + " entries").c_str() : "");
         out << line;
     }
+    // The first bytes of a few files of each format and version, to compare
+    // the layouts of the two games' files.
+    struct Sample {
+        std::string where;
+        std::vector<uint8_t> bytes;
+    };
+    std::map<std::pair<std::string, uint32_t>, std::vector<Sample>> samples;
+    const auto sample = [&](const SourceDisc::Range &range, uint64_t offset, uint64_t size, std::string where) {
+        const auto head = read_bytes(disc, range, offset, 16);
+        if (offset == 0 && size == 0)
+            return;
+        if (head.size() < 16 || head[0] != '#')
+            return;
+        auto &kept = samples[{std::string(head.begin(), head.begin() + 4), read32(head, 12)}];
+        if (kept.size() < 3)
+            kept.push_back({std::move(where), read_bytes(disc, range, offset, size_t(std::min<uint64_t>(size, 512)))});
+    };
     for (const auto &file : disc.files()) {
         if (!file.archive)
             continue;
@@ -289,8 +306,10 @@ std::string disc_report(SourceDisc &disc) {
             // An #AMB pack: the word at 16 counts its files and the word at
             // 20 is where their 16-byte records start. Each record and the
             // first bytes it leads to show the formats packed inside.
-            if (head.size() < 32 || std::memcmp(head.data(), "#AMB", 4) != 0)
+            if (head.size() < 32 || std::memcmp(head.data(), "#AMB", 4) != 0) {
+                sample(range, 0, range.size, file.path + " entry " + std::to_string(i));
                 continue;
+            }
             const uint32_t count = std::min<uint32_t>(read32(head, 16), 64), table = read32(head, 20);
             const auto records = read_bytes(disc, range, table, size_t(count) * 16);
             for (uint32_t k = 0; k + 1 <= records.size() / 16; ++k) {
@@ -300,9 +319,26 @@ std::string disc_report(SourceDisc &disc) {
                 const auto inner = read_bytes(disc, range, read32(records, k * 16), 16);
                 hex(inner.data(), inner.size());
                 out << '\n';
+                sample(range, read32(records, k * 16), read32(records, k * 16 + 4),
+                       file.path + " entry " + std::to_string(i) + " file " + std::to_string(k));
             }
         }
     }
+    out << "\nFormat samples: up to three files of each format and version, up to 512 bytes each:\n";
+    for (const auto &[key, kept] : samples)
+        for (const auto &one : kept) {
+            std::snprintf(line, sizeof line, "\n  %s version %u, %s:\n", key.first.c_str(), key.second, one.where.c_str());
+            out << line;
+            for (size_t at = 0; at < one.bytes.size(); at += 16) {
+                std::snprintf(line, sizeof line, "    +%03zX", at);
+                out << line;
+                for (size_t word = at; word + 4 <= one.bytes.size() && word < at + 16; word += 4) {
+                    std::snprintf(line, sizeof line, " %08X", read32(one.bytes, word));
+                    out << line;
+                }
+                out << '\n';
+            }
+        }
     std::vector<uint8_t> elf;
     try {
         elf = disc.read_file(identity.executable);
@@ -374,7 +410,7 @@ std::string disc_report(SourceDisc &disc) {
     // names the character test does not know included.
     std::vector<std::pair<uint32_t, uint32_t>> lists;
     for (size_t i = 0, j; i < names.size(); i = j) {
-        for (j = i + 1; j < names.size() && names[j] - names[j - 1] <= 0x200; ++j) {
+        for (j = i + 1; j < names.size() && names[j] - names[j - 1] <= 0x1000; ++j) {
         }
         if (j - i >= 5)
             lists.emplace_back(names[i], std::min<uint32_t>(names[j - 1] + 0x40, uint32_t(memory.size())));
@@ -406,7 +442,7 @@ std::string disc_report(SourceDisc &disc) {
         return text;
     };
     const auto pointer = [&](uint32_t value) {
-        return value >= 0x100000u && value + 64 <= memory.size() && value % 4 == 0 && !in_lists(value);
+        return value >= 0x100000u && value + 96 <= memory.size() && value % 4 == 0 && !in_lists(value);
     };
     auto by_stride = tables;
     std::stable_sort(by_stride.begin(), by_stride.end(),
@@ -442,21 +478,21 @@ std::string disc_report(SourceDisc &disc) {
                     targets.push_back(read32(memory, at + word));
         }
     }
-    // Two steps out, so lists that point at lists show too.
+    // Three steps out, so lists that point at lists show too.
     std::vector<uint32_t> shown;
-    for (int depth = 0; depth < 2 && !targets.empty(); ++depth) {
+    for (int depth = 0; depth < 3 && !targets.empty(); ++depth) {
         std::sort(targets.begin(), targets.end());
         targets.erase(std::unique(targets.begin(), targets.end()), targets.end());
         std::vector<uint32_t> next;
         if (depth == 0)
-            out << "\nData the records point at, 64 bytes each:\n";
+            out << "\nData the records point at, 96 bytes each:\n";
         for (const auto at : targets) {
             if (shown.size() >= 2000 || std::binary_search(shown.begin(), shown.end(), at))
                 continue;
             shown.insert(std::upper_bound(shown.begin(), shown.end(), at), at);
             std::snprintf(line, sizeof line, "  0x%08X", at);
-            out << line << words(at, 64) << '\n';
-            for (uint32_t word = 0; word < 64; word += 4)
+            out << line << words(at, 96) << '\n';
+            for (uint32_t word = 0; word < 96; word += 4)
                 if (pointer(read32(memory, at + word)))
                     next.push_back(read32(memory, at + word));
         }

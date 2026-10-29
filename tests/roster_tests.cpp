@@ -139,7 +139,8 @@ int main() {
         require(report.find("Game: Dragon Ball Z: Budokai 2") != std::string::npos &&
                     report.find("At 0x00389D40, 712 bytes apart, 53 names") != std::string::npos &&
                     report.find("USR/DATA_CMN.AFS") != std::string::npos &&
-                    report.find("         0  00000030 00000010 00000000 00000000  23414d4f") != std::string::npos,
+                    report.find("         0  00000030 00000010 00000000 00000000  23414d4f") != std::string::npos &&
+                    report.find("#AMO version 0, USR/DATA_CMN.AFS entry 0 file 0:\n    +000 4F4D4123") != std::string::npos,
                 "The disc report is missing the table or files");
         // Budokai 3 keeps its names in a list and its records point at them.
         auto third = memory_image();
