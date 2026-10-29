@@ -189,10 +189,13 @@ A character goes on the select screen in one of three ways:
   screen's code (`tools/native/patch-select-screen.py`). It is experimental:
   report anything odd on the select screen, with `startup.log`.
 
-The 3D preview's tables cover IDs below 37. Filled IDs 37 and up (43 to 52)
-show their base character in the preview, so the new character's own model
-appears in battle. IDs 1, 13, 14 and 19 preview as themselves; the import
-tool uses them first.
+The 3D preview's tables cover IDs below 37. The pose table at `0x37B3D0`
+holds a 44-byte row per ID, after 16 bytes, with the preview camera; the rows
+of IDs 1, 13, 14 and 19 hold a placeholder whose camera sits far too close.
+Every filled ID uses its base character's row. IDs 1, 13, 14 and 19 show
+their own model in the preview; filled IDs 37 and up (43 to 52) show their
+base character's model there, and their own in battle. The import tool uses
+IDs 1, 13, 14 and 19 first.
 
 ## Mod folder layout
 
