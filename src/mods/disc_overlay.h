@@ -22,6 +22,9 @@ public:
     struct Summary {
         size_t replaced_files = 0, replaced_entries = 0, added_entries = 0, relocated_files = 0;
         std::vector<std::string> notes;
+        // Entry numbers given to added entries, by IsoIndex::key of the
+        // archive and then by file name, so other mod files can refer to them.
+        std::map<std::string, std::map<std::string, uint32_t>> added;
     };
 
     static DiscOverlay &global();

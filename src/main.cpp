@@ -4,6 +4,7 @@
 #include "disc_image.h"
 #include "mods/disc_overlay.h"
 #include "mods/mod_library.h"
+#include "mods/roster.h"
 #include "display_settings.h"
 #include "graphics_settings.h"
 #include "launcher/settings.h"
@@ -213,6 +214,10 @@ int main(int argc, char* argv[]) {
                   << " added_entries=" << applied.added_entries << " relocated_files=" << applied.relocated_files << std::endl;
         for (const auto& mod : mods) std::cout << "[mods] loaded " << mod.filename().string() << std::endl;
         for (const auto& note : applied.notes) std::cout << "[mods] " << note << std::endl;
+        // Roster mods edit the character tables in the loaded executable.
+        const auto roster=openkai2::mods::load_roster(mods,applied);
+        for (const auto& line : openkai2::mods::apply_roster(runtime.memory().getRDRAM(),PS2_RAM_SIZE,roster))
+            std::cout << "[mods] " << line << std::endl;
         presence.update("Playing Budokai 2","In game");
         runtime.run();
         return 0;

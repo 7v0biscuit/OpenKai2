@@ -414,6 +414,7 @@ DiscOverlay::Summary DiscOverlay::configure(const fs::path &image, const std::ve
             }
         }
         for (const auto &[name, file] : edit.added) {
+            summary.added[key][lower(name)] = uint32_t(list.size());
             AfsEntry added;
             added.name = name;
             added.size = uint32_t(file_size(file));
