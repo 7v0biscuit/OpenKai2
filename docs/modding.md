@@ -74,13 +74,27 @@ archives), so the file formats can be compared with Budokai 2's. It holds no
 game data beyond names, numbers and those first bytes. Send it to have that
 game mapped.
 
-Budokai 3 keeps its character names in a list of their own, not in each
-record, so the report also follows the words that point at each name to find
-the records. A Budokai 3 report showed that its archives are the same AFS
-format as Budokai 2's (`DATA_CMN.AFS`, `DATA_USA.AFS`, `ADX_USA.AFS`), that its
-sound is CRI ADX like Budokai 2's, and that its data files are packed in
-`#AMB`, `#AMK` and `#SKA` containers. A report from a Budokai 2 disc shows
-whether Budokai 2's files use the same containers.
+The report also lists the files inside each `#AMB` container with their
+first bytes, every string in the character name lists, and, for tables that
+point at names, every record and the data it points at.
+
+What the reports have shown so far about Budokai 3:
+
+- Its archives are the same AFS format as Budokai 2's (`DATA_CMN.AFS`,
+  `DATA_USA.AFS`, `ADX_USA.AFS`), and its sound is CRI ADX like Budokai 2's.
+- Both games pack their data in the same containers (`#AMB`, `#AMT`, `#AMK`,
+  `#SPX`, `#AMA`, `#AMM`), at the same container version. Budokai 3 also has
+  `#BPL`, `#LST` and `#AMO` files. An `#AMB` starts with a 32-byte header whose
+  word at 16 counts its files and whose word at 20 is where their 16-byte
+  records start.
+- In both games each character has one `#AMB` model per costume, about 800 KB,
+  and three more files. Budokai 2's are a 200 KB `#AMB` of four files, a 5 KB
+  file and a 1.4 MB `#AMB` of two; Budokai 3's are a 40 to 80 KB `#AMB` of four,
+  a 5 KB file and a 1.5 to 2.4 MB `#AMB` of four.
+- Budokai 3 keeps its character names in a list of 32-byte slots at
+  `0x4314B0`. Its character records are 96 bytes; each holds a pointer to its
+  name, four flag bytes, two pointers to smaller blocks of data and the
+  record's number, which is also the name's slot.
 
 Data from another game is not converted. Budokai 3 and Infinite World use a
 newer version of the engine, and their files may need converting before
