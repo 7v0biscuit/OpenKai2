@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "iso_fixture.h"
 #include "mods/afs.h"
+#include "mods/disc_identity.h"
 #include "mods/roster.h"
 #include "mods/select_alternates.h"
 #include "mods/select_screen.h"
+#include <cstdlib>
 #include <cstring>
 #include <iostream>
 
@@ -29,10 +31,19 @@ uint8_t *character(Bytes &memory, uint32_t id) { return memory.data() + roster_r
 // Guest memory holding the parts of the USA roster the code checks.
 Bytes memory_image() {
     Bytes memory(roster_select_grid + 64, 0);
+    // Every record has a name, as in the game; a few are set below.
+    for (uint32_t id = 0; id < roster_count; ++id) {
+        const auto name = "VEGETA " + std::to_string(id);
+        std::memcpy(character(memory, id), name.data(), name.size());
+    }
+    std::memcpy(memory.data() + 0x3A40C0u, "BASLUS-20779DBZ2", 16); // the memory card folder
+    std::memset(character(memory, 0), 0, roster_name_bytes);
     std::memcpy(character(memory, 0), "GOKOU", 5);
-    std::memcpy(character(memory, 4), "KULILIN", 7);
-    std::memcpy(character(memory, 13), "ZARBON", 6);
-    std::memcpy(character(memory, roster_count - 1), "BUU (TEN + YAM)", 15);
+    for (const auto &[id, name] : {std::pair<uint32_t, const char *>{4, "KULILIN"}, {13, "ZARBON"},
+                                   {roster_count - 1, "BUU (TEN + YAM)"}}) {
+        std::memset(character(memory, id), 0, roster_name_bytes);
+        std::memcpy(character(memory, id), name, std::strlen(name));
+    }
     put32(memory, roster_records + 0x74, 171);
     put32(memory, roster_records + 0x1dc, 97);
     put32(memory, roster_records + 0x1bc, 0xffffffffu);
@@ -51,7 +62,7 @@ Bytes memory_image() {
 
 // An ISO whose executable is that memory as one ELF segment, with a
 // DATA_CMN.AFS of 300 empty entries beside it.
-Bytes disc_image(const Bytes &memory) {
+Bytes disc_image(const Bytes &memory, const std::string &executable = "SLUS_207.79") {
     const uint32_t start = roster_records, bytes = uint32_t(memory.size() - start);
     Bytes elf(0x100 + bytes, 0);
     std::memcpy(elf.data(), "\x7f" "ELF", 4);
@@ -72,7 +83,10 @@ Bytes disc_image(const Bytes &memory) {
     std::copy(base.begin(), base.begin() + 18 * sector, image.begin());
     both32(image, 16 * sector + 80, afsSector + 3);
     records(image, 18, {record(std::string(1, '\0'), 18, sector, 2), record(std::string(1, '\1'), 18, sector, 2),
-                        record("SLUS_207.79;1", elfSector, uint32_t(elf.size())), record("USR", 20, sector, 2)});
+                        record(executable + ";1", elfSector, uint32_t(elf.size())), record("SYSTEM.CNF;1", 22, 64),
+                        record("USR", 20, sector, 2)});
+    const std::string boot = "BOOT2 = cdrom0:\\" + executable + ";1\r\nVER = 1.00\r\n";
+    std::copy(boot.begin(), boot.end(), image.begin() + 22 * sector);
     records(image, 20, {record(std::string(1, '\0'), 20, sector, 2), record(std::string(1, '\1'), 18, sector, 2),
                         record("DATA_CMN.AFS;1", afsSector, afsBytes)});
     std::copy(elf.begin(), elf.end(), image.begin() + elfSector * sector);
@@ -103,6 +117,31 @@ int main() {
         require(goku.size() == 2 && goku[0] == std::pair<uint32_t, uint32_t>{0x74, 171} &&
                     goku[1] == std::pair<uint32_t, uint32_t>{0x1dc, 97},
                 "A character's files were not found, or -1 and out-of-range values were kept");
+
+        // The disc is identified by its memory card folder, and its table found.
+        const auto identity = identify_disc(source);
+        require(identity.game == DragonBallGame::budokai2 && identity.serial == "SLUS-20779" &&
+                    identity.executable == "SLUS_207.79",
+                "A Budokai 2 disc was not identified");
+        const auto report = disc_report(source);
+        if (std::getenv("OPENKAI2_SHOW_REPORT"))
+            std::cerr << report;
+        require(report.find("Game: Dragon Ball Z: Budokai 2") != std::string::npos &&
+                    report.find("At 0x00389D40, 712 bytes apart, 53 names") != std::string::npos &&
+                    report.find("USR/DATA_CMN.AFS") != std::string::npos,
+                "The disc report is missing the table or files");
+        auto third = memory_image();
+        std::memcpy(third.data() + 0x3A40C0u, "BASLUS-21234DBZ3", 16);
+        write(root / "b3.iso", disc_image(third, "SLUS_212.34"));
+        SourceDisc b3(root / "b3.iso");
+        require(identify_disc(b3).game == DragonBallGame::budokai3 && !read_disc_roster(b3),
+                "A Budokai 3 disc was not identified, or was read with Budokai 2's layout");
+        auto plainGame = memory_image();
+        std::memset(plainGame.data() + roster_records, 0, roster_count * roster_record_bytes);
+        std::memset(plainGame.data() + 0x3A40C0u, 0, 16);
+        write(root / "other.iso", disc_image(plainGame, "SLUS_299.99"));
+        SourceDisc unrelated(root / "other.iso");
+        require(identify_disc(unrelated).game == DragonBallGame::none, "A disc without Dragon Ball data was accepted");
 
         // A mod fills Zarbon's unused record from Goku's and puts it on the grid.
         const auto mod = root / "mods" / "SSJ4";
