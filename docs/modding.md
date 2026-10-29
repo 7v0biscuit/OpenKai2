@@ -26,62 +26,56 @@ read-only. The startup log lists the mods it applied, in `[mods]` lines.
 
 ## Import tool
 
-The import tool copies characters from a PS2 disc, or files of your own, into
-a mod. Verify your Budokai 2 ISO on the **Play** page first: the tool opens
-with it as the source. Use **Choose ISO…** to read another disc and **Game
-disc** to go back.
+The import tool adds content from Dragon Ball Z games to Budokai 2. It reads
+Budokai, Budokai 2, Budokai 3 and Infinite World discs and refuses other discs.
+Imports only ever add: every character already in Budokai 2 stays on the select
+screen.
 
-At the top, choose what to do: **Add a character**, **Replace a character** or
-**Copy files**. Reading discs and importing run in the background, with a
-progress bar and percentage.
+Verify your Budokai 2 ISO on the **Play** page first: the tool opens with it as
+the source. Use **Choose ISO…** to read another disc and **Game disc** to go
+back. The tool names the game it found beside the disc. Reading discs and
+importing run in the background, with a progress bar and percentage.
 
-### Add or replace a character
+At the top, choose what to add: **Characters**, **Stages**, **Movesets** or
+**Capsules**.
+
+### Characters
 
 1. **Choose a character** from the list on the left. The search box filters it
-   by name.
-2. On the right, choose where it goes:
-   - **Add a character**: a spot on the select screen. The character gets an
-     unused character ID. Under **On the select screen**, choose how it
-     appears:
-     - **Share the spot**: press R2 on that spot to switch characters.
-     - **Take over the spot**: it replaces the character shown there.
-     - **Add a new spot (experimental)**: it gets a spot of its own, and the
-       spot you chose gives the portrait.
-   - **Replace a character**: the character whose files it replaces, file for
-     file.
+   by name. Every file the character's record names is imported together.
+2. On the right, choose a spot on the select screen. Under **On the select
+   screen**, choose how the character appears:
+   - **Share a spot**: press R2 (Right Shift) on that spot to switch between
+     the characters it holds.
+   - **Add a new spot (experimental)**: it gets a spot of its own before
+     Random, showing the portrait of the spot you chose.
 3. Under **Save to**, keep **New mod** or pick an existing mod. A new mod is
    named after the character.
 4. Read the sentence beside **Import**, which says what will happen, then
-   press **Import**.
+   press **Import**. The character fills an unused character ID.
 
-Characters are read from Budokai 2 USA discs. Other discs, including Budokai
-3, can only use **Copy files**, because their character tables are not mapped
-yet.
+### What can be imported so far
 
-### Copy files
+| Content    | Budokai 2 | Budokai | Budokai 3 | Infinite World |
+|------------|-----------|---------|-----------|----------------|
+| Characters | Yes       | Not yet | Not yet   | Not yet        |
+| Stages     | Not yet   | Not yet | Not yet   | Not yet        |
+| Movesets   | Not yet   | Not yet | Not yet   | Not yet        |
+| Capsules   | Not yet   | Not yet | Not yet   | Not yet        |
 
-For archives and files of any disc:
+Each game keeps its characters, stages, movesets and capsules in tables in its
+executable, and those tables have to be mapped before the tool can read them.
+Budokai 2's character table is mapped. For the rest, **Save disc report…**
+writes `%LOCALAPPDATA%\OpenKai2\mods\reports\<serial>.txt`. The report lists
+the disc's files and archives, the character tables found in its executable
+with the fields that look like file numbers, and the first 16 bytes of archive
+entries, so the file formats can be compared with Budokai 2's. It holds no game
+data beyond names, numbers and those first bytes. Send it to have that game
+mapped.
 
-1. Pick a file on the left. For an archive, its entries are listed on the
-   right with their numbers, names and sizes; type in the filter box to search
-   them. Ctrl-click or Shift-click to choose several entries.
-2. Choose where the data goes:
-   - **Mod**: an existing mod, or **New mod** to create one named after the
-     source disc.
-   - **Content**: character, moveset, stage or other. This is recorded in the
-     mod's `imports.txt` so you can tell what it holds.
-   - **Action**:
-     - **Add as new entries** appends to the archive.
-     - **Replace entries** overwrites entries in order, starting at
-       **First entry**.
-     - **Replace whole file** swaps the game file.
-   - **Game file**: the archive or file on your Budokai 2 disc. When the
-     source disc has a file at the same path, it is chosen for you.
-3. Press **Import**.
-
-**Import file from disk…** imports a file you made or edited yourself, using
-the same targets. **Extract selected…** saves the chosen entries as files, so
-you can edit them in other tools and import them back.
+Data from another game is not converted. Budokai 3 and Infinite World use a
+newer version of the engine, and their files may need converting before
+Budokai 2 can load them; the report's file signatures show whether they do.
 
 ## Characters and the roster
 
@@ -125,7 +119,8 @@ A character goes on the select screen in one of three ways:
   spot to switch between the characters it holds. Nothing in the game's code
   changes. The spot keeps its original portrait.
 - **`select`** takes over a spot. The character that was there stays in the
-  game but cannot be picked on the select screen.
+  game but cannot be picked on the select screen. The import tool never does
+  this; it is for mods made by hand.
 - **`new_cell`** adds a spot to the wheel, before Random, for up to 34 extra
   spots. New spots are always unlocked and show the portrait of the spot
   named by `icon`, or of their base character's spot. This changes the select
@@ -166,16 +161,13 @@ mods/
 
 ## Limits
 
-- **Data from Budokai 3 is copied as is.** Budokai 3 uses formats and tables
-  that differ from Budokai 2 in places, so a ported character or stage may not
-  load or may look wrong. Test it, and keep the mod disabled if it breaks.
 - **There are 14 unused IDs to fill**, so 14 added characters at most.
 - **New spots borrow a portrait.** The sprite sheet has one portrait per
   original spot; adding portraits needs the sheet's format mapped.
 - **Not every character table is mapped.** Data the record does not name, such
   as voices, story scenes and skill capsules, stays the base character's.
-- **Stages and capsules are not listed by name yet.** Their names are images
-  and text on the disc, not in the executable. Edit them in the file view.
+- **Stages, movesets and capsules are not mapped yet**, in any game. Stage and
+  capsule names are images and text on the disc, not in the executable.
 - Only ISO9660 disc images are read. Files that span several extents are not
   listed.
 
@@ -188,6 +180,8 @@ The mod system lives in `src/mods`:
 - `mod_library.*` handles mod folders and the load order.
 - `importer.*` reads source discs and writes imports into mods.
 - `roster.*` reads and applies `roster.ini` and reads a disc's characters.
+- `disc_identity.*` tells which Dragon Ball game a disc holds and writes disc
+  reports.
 - `select_alternates.*` switches shared spots with R2.
 - `select_screen.*` holds the select-screen layout the patched code reads.
 
