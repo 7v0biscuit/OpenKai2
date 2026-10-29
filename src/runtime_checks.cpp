@@ -21,6 +21,7 @@
 #include "impact_effect_checks.h"
 #include "actor_command_checks.h"
 #include "pause_menu_checks.h"
+#include "select_screen_checks.h"
 #include "story_checks.h"
 #include "vector_checks.h"
 #include "vector/backend.h"
@@ -501,6 +502,8 @@ int run_runtime_checks() {
     verify_story_callbacks(runtime,memory);
     std::cout << "Runtime story callback regression passed: complete callback bank, original completion method, aliases, dependencies and caller frames.\n";
     std::cout << "Runtime pause menu regression passed: 12 registered callbacks, 513 original open, timer and input-dispatch cases with aliases, priority, null slots and stack guards.\n";
+    verify_select_screen(runtime,memory);
+    std::cout << "Runtime select screen regression passed: cell builder on the original and a 33-cell wheel, locks, count, cursor place, wheel angles, bounds and portraits.\n";
     verify_actor_commands(runtime,memory);
     std::cout << "Runtime script command regression passed: 485 registered commands and 36 pod/actor state calls with cached and uncached aliases.\n";
     std::cout << "Runtime object callback regression passed: 79 installed callbacks and 162 constructor/update calls at completion boundaries.\n";

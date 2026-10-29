@@ -6,6 +6,7 @@
 #include "mods/mod_library.h"
 #include "mods/roster.h"
 #include "mods/select_alternates.h"
+#include "mods/select_screen.h"
 #include "display_settings.h"
 #include "graphics_settings.h"
 #include "launcher/settings.h"
@@ -218,6 +219,8 @@ int main(int argc, char* argv[]) {
         // Roster mods edit the character tables in the loaded executable.
         const auto roster=openkai2::mods::load_roster(mods,applied);
         for (const auto& line : openkai2::mods::apply_roster(runtime.memory().getRDRAM(),PS2_RAM_SIZE,roster))
+            std::cout << "[mods] " << line << std::endl;
+        for (const auto& line : openkai2::mods::configure_select_screen(runtime.memory().getRDRAM(),PS2_RAM_SIZE,roster))
             std::cout << "[mods] " << line << std::endl;
         auto alternates=openkai2::mods::build_alternates(runtime.memory().getRDRAM(),PS2_RAM_SIZE,roster);
         if (!alternates.empty())
