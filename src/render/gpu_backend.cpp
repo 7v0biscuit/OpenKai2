@@ -149,13 +149,16 @@ struct GpuRasterBackend::Impl {
         std::vector<uint32_t> bins,refs;bins.reserve(activeTiles.size()*4u);refs.reserve(references);
         for(auto id:activeTiles){auto& list=tileCommands[id];bins.insert(bins.end(),{id&255u,id>>8u,uint32_t(refs.size()),uint32_t(list.size())});refs.insert(refs.end(),list.begin(),list.end());list.clear();}
         if(palette.empty())palette.push_back(0u);
+        // The batch moves to the device; the next one starts at this size, so
+        // encoding in place does not regrow the buffer draw by draw.
+        const size_t commandWords=commands.size();
         statistics.tiles+=activeTiles.size();++statistics.batches;totalTiles.fetch_add(activeTiles.size(),std::memory_order_relaxed);totalBatches.fetch_add(1u,std::memory_order_relaxed);
         device->post([r=resources,cmd=std::move(commands),bins=std::move(bins),refs=std::move(refs),colors=std::move(palette)](gpu::Api& gl){
             const std::array<const std::vector<uint32_t>*,4> arrays={&cmd,&bins,&refs,&colors};
             for(unsigned i=0;i<4u;++i){gl.BindBuffer(gpu::ShaderStorageBuffer,r->buffers[i+1u]);gl.BufferData(gpu::ShaderStorageBuffer,gpu::Size(arrays[i]->size()*4u),arrays[i]->data(),gpu::DynamicDraw);}
             for(unsigned i=0;i<6u;++i)gl.BindBufferBase(gpu::ShaderStorageBuffer,i,r->buffers[i]);
             gl.UseProgram(r->program);gl.DispatchCompute(unsigned(bins.size()/4u),1u,1u);gl.MemoryBarrier(gpu::ShaderStorageBarrier|gpu::BufferUpdateBarrier);gl.check("GPU raster dispatch");
-        });commands.clear();palette.clear();activeTiles.clear();paletteOffsets.clear();references=0u;batchWrites.reset();batchSources.reset();
+        });commands.clear();commands.reserve(commandWords);palette.clear();activeTiles.clear();paletteOffsets.clear();references=0u;batchWrites.reset();batchSources.reset();
     }
     void materialize(const Pages& requested){
         footprintValid=false;
