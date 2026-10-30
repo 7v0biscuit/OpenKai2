@@ -24,11 +24,14 @@
  #include "runtime/ee_scheduler.h"
  #include "work_timings.h"
  #include "startup_diagnostics.h"
-@@ -1910,6 +1911,7 @@
-         {
-             m_runtime.memory().gs().csr.fetch_and(~0x2000ull, std::memory_order_acq_rel);
-         }
+@@ -1939,6 +1940,9 @@
+         completeExternalWait(event.id, event.value, KE_OK);
+         break;
+     case EeEventType::VBlankEnd:
+         dispatchIrq(false, 3u);
++        // The field scans out after VBlank, once the game's VBlank handlers
++        // have chosen its buffer; presenting at VBlank start raced the flip.
 +        openkai2::present_guest_field(m_vsyncTick);
-         writeGuestU32(m_vsyncFlagAddress, 1u);
-         if (m_vsyncTickAddress != 0u)
-         {
+         break;
+     case EeEventType::Dmac:
+         break;
