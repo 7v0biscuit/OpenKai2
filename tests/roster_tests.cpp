@@ -6,6 +6,7 @@
 #include "mods/roster.h"
 #include "mods/select_alternates.h"
 #include "mods/select_screen.h"
+#include "mods/stages.h"
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
@@ -316,6 +317,26 @@ int main() {
         auto expected = costume_model(5, 2, false, budokai3Layout);
         expected[0x40 + 0x70 + 5 * 32 + 12] = 1;
         require(converted == expected, "The model's textures were not marked as Budokai 2's, or more changed");
+
+        // The stage table: names, files and the B stages that reuse them.
+        Bytes stageMemory(stage_records + stage_count * stage_record_bytes, 0);
+        const char *stageNames[] = {"ISLAND", "TOWN", "ROOM TIME MIND", "BUDO", "R&R BASE", "SNOW", "GARDEN",
+                                    "NAMEC", "KAIOH SHIN", "ISLAND B", "TOWN B", "R&R BASE B", "SNOW B"};
+        for (uint32_t i = 0; i < stage_count; ++i) {
+            const uint32_t record = stage_records + i * stage_record_bytes;
+            std::memcpy(stageMemory.data() + record, stageNames[i], std::strlen(stageNames[i]));
+            for (uint32_t k = 0; k < 8; ++k)
+                put32(stageMemory, record + stage_files_begin + 4 * k, 2 + (i % 9) * 8 + k);
+            put32(stageMemory, record + stage_variant, i >= 9 ? 1 : 0);
+        }
+        write(root / "stages.iso", disc_image(stageMemory, "SLUS_207.79", stage_records));
+        SourceDisc stageDisc(root / "stages.iso");
+        const auto stages = read_disc_stages(stageDisc);
+        require(stages && stages->size() == 13 && (*stages)[2].internal == "ROOM TIME MIND" && !(*stages)[2].variant &&
+                    (*stages)[9].variant && (*stages)[0].files.size() == 8 &&
+                    (*stages)[0].files[3] == std::pair<uint32_t, uint32_t>{0x4C, 5} &&
+                    !read_disc_stages(budokai3),
+                "The stage table was not read");
 
         // Versions for finding which part Budokai 2 draws wrongly.
         const auto b3model = costume_model(5, 2, false, budokai3Layout), b2model = costume_model(5, 1, false, gokuLayout);

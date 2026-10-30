@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "mods/disc_identity.h"
 #include "mods/budokai3.h"
+#include "mods/stages.h"
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
@@ -256,7 +257,7 @@ DiscIdentity identify_disc(SourceDisc &disc) {
 std::string disc_report(SourceDisc &disc) {
     std::ostringstream out;
     const auto identity = identify_disc(disc);
-    out << "OpenKai2 disc report, version 8\n\nGame: " << game_name(identity.game) << "\nSerial: " << identity.serial
+    out << "OpenKai2 disc report, version 9\n\nGame: " << game_name(identity.game) << "\nSerial: " << identity.serial
         << "\nExecutable: " << identity.executable << "\n\nFiles:\n";
     char line[160];
     const auto hex = [&](const uint8_t *bytes, size_t count) {
@@ -565,6 +566,39 @@ std::string disc_report(SourceDisc &disc) {
                     next.push_back(read32(memory, at + word));
         }
         targets = std::move(next);
+    }
+
+    // Stages: Budokai 2's table is mapped; for Budokai 3, the records around
+    // its stage names, word by word, to map them.
+    if (const auto stages = read_disc_stages(disc)) {
+        out << "\nStages (index, name, B stage, files as record offset = DATA_CMN entry):\n";
+        for (const auto &stage : *stages) {
+            std::snprintf(line, sizeof line, "  %2u  %-16s %s ", stage.index, stage.internal.c_str(),
+                          stage.variant ? "B" : " ");
+            out << line;
+            for (const auto &[offset, entry] : stage.files) {
+                std::snprintf(line, sizeof line, " %02X=%u", offset, entry);
+                out << line;
+            }
+            out << '\n';
+        }
+    }
+    if (identity.game == DragonBallGame::budokai3 && image->contains(budokai3_stage_names, budokai3_stage_bytes)) {
+        const auto named = [&](uint32_t at) {
+            const auto text = printable(*image, at);
+            return image->contains(at, budokai3_stage_bytes) && (at == 0 || !memory[at - 1]) && text.size() >= 2 &&
+                   std::isupper(static_cast<unsigned char>(text[0]));
+        };
+        uint32_t first = budokai3_stage_names;
+        for (unsigned n = 0; n < 64 && first >= budokai3_stage_bytes && named(first - budokai3_stage_bytes); ++n)
+            first -= budokai3_stage_bytes;
+        out << "\nStage records from 0x";
+        std::snprintf(line, sizeof line, "%08X, %u bytes each:\n", first, budokai3_stage_bytes);
+        out << line;
+        for (uint32_t at = first, n = 0; n < 96 && named(at); at += budokai3_stage_bytes, ++n) {
+            std::snprintf(line, sizeof line, "  0x%08X  %-16s", at, printable(*image, at).c_str());
+            out << line << words(at, budokai3_stage_bytes) << '\n';
+        }
     }
     return out.str();
 }
