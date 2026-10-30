@@ -260,6 +260,12 @@ struct GpuRasterBackend::Impl {
         cmd[16]=t.psm;cmd[17]=t.tbp0;cmd[18]=t.tbw;cmd[19]=s.textureWidth;cmd[20]=s.textureHeight;cmd[21]=uint32_t(c.clamp);cmd[22]=uint32_t(c.clamp>>32u);cmd[23]=t.tfx;cmd[24]=t.tcc;
         cmd[25]=s.texa.ta0;cmd[26]=s.texa.ta1;cmd[27]=s.texa.aem;cmd[29]=uint32_t(s.fogR)|(uint32_t(s.fogG)<<8u)|(uint32_t(s.fogB)<<16u);
         cmd[38]=c.frame.psm;cmd[39]=flatDepth;
+        // These depths are constant over the draw. Convert once on the CPU,
+        // retaining the presenter's original truncation/triangle rounding.
+        if(point || sprite || flatDepth){
+            const double z=batch.vertices[sprite ? 1u : 0u].z;
+            cmd[88]=uint32_t(std::min(z+(flatDepth ? 0.5 : 0.0),4294967295.0));
+        }
         const bool usesDepth=((c.test>>17u)&3u)>=2u || !c.zbuf.zmask;
         unsigned mx=0u,my=0u;
         if(textured){

@@ -16,8 +16,9 @@ uvec4 unpackColor(uint p){return uvec4(p,p>>8u,p>>16u,p>>24u)&uvec4(255u);}
 uint packColor(uvec4 p){return p.x|(p.y<<8u)|(p.z<<16u)|(p.w<<24u);}
 uint bitAddress(uint psm,uint base,uint width,ivec2 pos){
     uint d=(psm&63u)*8u;uint pw=tables[d],ph=tables[d+1u];
-    uvec2 p=uvec2(pos);uint page=(p.y/ph)*((width*64u)/pw)+p.x/pw;
-    return (base*2048u+page*65536u+tables[tables[d+5u]+(p.y%ph)*pw+p.x%pw])&33554431u;
+    uvec2 p=uvec2(pos);uint sx=tables[d+6u],sy=tables[d+7u];
+    uint page=(p.y>>sy)*((width*64u)>>sx)+(p.x>>sx);
+    return (base*2048u+page*65536u+tables[tables[d+5u]+(p.y&(ph-1u))*pw+(p.x&(pw-1u))])&33554431u;
 }
 uint readPixel(uint psm,uint base,uint width,ivec2 pos){
     uint bits=bitAddress(psm,base,width,pos),count=tables[(psm&63u)*8u+3u];
@@ -79,11 +80,11 @@ float interpolateAttribute(float a,float b,float c,vec3 weights){
     precise float result=first+c*weights.z;return result;
 }
 float qValue(float q){return abs(q)>1.0e-8 ? q : 1.0;}
-bool shadePixel(uint c,ivec2 position,out uvec4 color,out uint z){
+bool shadePixel(uint c,ivec2 position,uint destinationDepth,out uvec4 color,out uint z){
     uint flags=word(c,1u);uint a=vertex(c,0u),b=vertex(c,1u),d=vertex(c,2u);
     vec2 uv=vec2(0.0);uint fog=0u;
     if(word(c,0u)==0u){
-        color=unpackColor(word(a,4u));z=uint(packDouble2x32(uvec2(word(a,2u),word(a,3u))));fog=word(a,5u);
+        color=unpackColor(word(a,4u));z=word(c,88u);fog=word(a,5u);
     }else if(word(c,0u)==1u){
         ivec2 start=ivec2(number(a,0u),number(a,1u)),finish=ivec2(number(b,0u),number(b,1u));
         ivec2 delta=abs(finish-start),direction=ivec2(greaterThan(finish,start))*2-ivec2(1);
@@ -102,7 +103,7 @@ bool shadePixel(uint c,ivec2 position,out uvec4 color,out uint z){
         precise float fogValue=float(word(a,5u))+(float(word(b,5u))-float(word(a,5u)))*t;
         fog=uint(clamp(int(fogValue),0,255));
     }else if(word(c,0u)==6u){
-        color=unpackColor(word(b,4u));z=uint(packDouble2x32(uvec2(word(b,2u),word(b,3u))));fog=word(b,5u);
+        color=unpackColor(word(b,4u));z=word(c,88u);fog=word(b,5u);
         if((flags&1u)!=0u){
             precise float tx=(float(position.x)-number(c,34u))/number(c,36u);
             precise float ty=(float(position.y)-number(c,35u))/number(c,37u);
@@ -122,12 +123,15 @@ bool shadePixel(uint c,ivec2 position,out uvec4 color,out uint z){
         precise float w2=1.0-w0-w1;
         if(w0 < -0.0001 || w1 < -0.0001 || w2 < -0.0001)return false;
         vec3 weights=vec3(w0,w1,w2);
-        double z0=packDouble2x32(uvec2(word(a,2u),word(a,3u)));
-        double z1=packDouble2x32(uvec2(word(b,2u),word(b,3u)));
-        double z2=packDouble2x32(uvec2(word(d,2u),word(d,3u)));
-        precise double depth=z0+(z1-z0)*double(w1);
-        depth=depth+(z2-z0)*double(w2);
-        z=word(c,39u)!=0u ? uint(min(packDouble2x32(uvec2(word(a,2u),word(a,3u)))+0.5lf,4294967295.0lf)) : uint(depth+0.5lf);
+        if(word(c,39u)!=0u)z=word(c,88u);
+        else{
+            double z0=packDouble2x32(uvec2(word(a,2u),word(a,3u)));
+            double z1=packDouble2x32(uvec2(word(b,2u),word(b,3u)));
+            double z2=packDouble2x32(uvec2(word(d,2u),word(d,3u)));
+            precise double depth=z0+(z1-z0)*double(w1);
+            depth=depth+(z2-z0)*double(w2);
+            z=uint(depth+0.5lf);
+        }
         color=unpackColor(word(d,4u));
         if((flags&4u)!=0u){
             vec4 ca=vec4(unpackColor(word(a,4u))),cb=vec4(unpackColor(word(b,4u))),cd=vec4(unpackColor(word(d,4u)));
@@ -151,6 +155,10 @@ bool shadePixel(uint c,ivec2 position,out uvec4 color,out uint z){
         }
         if((flags&16u)!=0u)fog=uint(clamp(int(interpolateAttribute(float(word(a,5u)),float(word(b,5u)),float(word(d,5u)),weights)),0,255));
     }
+    // Depth failure prevents every alpha-failure write mode as well. Reject
+    // hidden samples before texture fetches, palette expansion and filtering.
+    uint method=(word(c,9u)>>17u)&3u;
+    if((method==2u && z<destinationDepth) || (method==3u && z<=destinationDepth))return false;
     if((flags&1u)!=0u)color=combineTexture(c,color,unpackColor(sampleTexture(c,uv)));
     if((flags&16u)!=0u){uvec3 fogColor=unpackColor(word(c,29u)).xyz;color.xyz=((uvec3(fog)*color.xyz)>>8u)+((uvec3(255u-fog)*fogColor)>>8u);}
     return true;
@@ -189,13 +197,12 @@ void main(){
     for(uint i=first;i<end;++i){
         uint c=references[i]*96u;
         if(position.x<int(word(c,2u)) || position.y<int(word(c,3u)) || position.x>int(word(c,4u)) || position.y>int(word(c,5u)))continue;
-        uvec4 source;uint z;if(!shadePixel(c,position,source,z))continue;
         uint test=word(c,9u),mask=7u;
+        if(((test>>17u)&3u)==0u)continue;
+        if((test&16384u)!=0u && framePsm!=1u && ((frame>>(frameCount==16u ? 15u : 31u))&1u)!=((test>>15u)&1u))continue;
+        uvec4 source;uint z;if(!shadePixel(c,position,depth,source,z))continue;
         if(!alphaPass(test,source.w)){uint failure=(test>>12u)&3u;mask=failure==0u ? 0u : failure==1u ? 3u : failure==2u ? 4u : framePsm==0u ? 1u : 3u;}
         if(mask==0u)continue;
-        if((test&16384u)!=0u && framePsm!=1u && ((frame>>(frameCount==16u ? 15u : 31u))&1u)!=((test>>15u)&1u))continue;
-        uint method=(test>>17u)&3u;
-        if(method==0u || (method==2u && z<depth) || (method==3u && z<=depth))continue;
         if((mask&3u)!=0u){
             uint oldColor=frameCount==16u ? convert16(frame) : framePsm==1u ? (frame&16777215u)|2147483648u : frame;
             uvec4 result=source;uint alpha=word(c,10u),flags=word(c,1u);

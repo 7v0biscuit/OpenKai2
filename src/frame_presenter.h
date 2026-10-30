@@ -40,5 +40,17 @@ private:
     std::atomic<uint64_t> completed_{0},workUs_{0},rendered_{0};
     std::thread worker_;
 };
+// Bind on the guest executor thread. VBlank can then request a completed
+// field independently of window swaps or the selected display refresh limit.
+class FieldPresentationScope {
+public:
+    explicit FieldPresentationScope(FramePresenter&);
+    ~FieldPresentationScope();
+    FieldPresentationScope(const FieldPresentationScope&)=delete;
+    FieldPresentationScope& operator=(const FieldPresentationScope&)=delete;
+private:
+    FramePresenter* previous_;
+};
+void present_guest_field(uint64_t tick);
 void verify_frame_presenter();
 }

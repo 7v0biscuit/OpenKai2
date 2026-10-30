@@ -12,8 +12,9 @@ layout(std430,binding=5) readonly buffer AddressTables {uint tables[];};
 const uint header=14u;
 uint bitAddress(uint psm,uint base,uint width,ivec2 pos){
     uint d=(psm&63u)*8u;uint pw=tables[d],ph=tables[d+1u];
-    uvec2 p=uvec2(pos);uint page=(p.y/ph)*((width*64u)/pw)+p.x/pw;
-    return (base*2048u+page*65536u+tables[tables[d+5u]+(p.y%ph)*pw+p.x%pw])&33554431u;
+    uvec2 p=uvec2(pos);uint sx=tables[d+6u],sy=tables[d+7u];
+    uint page=(p.y>>sy)*((width*64u)>>sx)+(p.x>>sx);
+    return (base*2048u+page*65536u+tables[tables[d+5u]+(p.y&(ph-1u))*pw+(p.x&(pw-1u))])&33554431u;
 }
 uint bitsPerPixel(uint psm){return tables[(psm&63u)*8u+3u];}
 uint readPixel(uint psm,uint base,uint width,ivec2 pos){

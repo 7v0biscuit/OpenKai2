@@ -517,6 +517,7 @@ int run_runtime_checks() {
     verify_attack_effects(runtime,memory);
     std::cout << "Runtime attack effect regression passed: 16 registered methods, 114 original call-site cases, allocation failure, three resource types, node links, callbacks, and saved registers.\n";
     verify_fight_states(runtime,memory);
+    std::cout << "Runtime melee callback regression passed: complete task banks, actor entry and update, phase transitions, saved registers, and memory aliases.\n";
     std::cout << "Runtime fight rule regression passed: 20 registered mode methods, six original rule handlers, 896 call-site cases, timers, knockouts, ties, state commands, and saved registers.\n";
     verify_battle_draws(runtime,memory);
     std::cout << "Runtime battle draw regression passed: 24 original methods registered, 224 selector cases, 16 original intro cases, enable masks, model groups, visibility, and saved registers.\n";

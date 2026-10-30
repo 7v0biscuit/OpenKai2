@@ -161,7 +161,7 @@ def main():
                       patches / 'spu2-mirror.patch',
                       patches / 'vif-unpack-lanes.patch',
                       patches / 'iop-unaligned-loads.patch',
-                      patches / 'gs-worker-thread.patch',
+                      patches / 'gs-worker-thread.patch', patches / 'gs-image-queue.patch', patches / 'field-requests.patch',
                       patches / 'vif-fill-writes.patch',
                       patches / 'spu2-dma-progress.patch',
                       patches / 'guest-varargs.patch', patches / 'mod-disc-overlay.patch',

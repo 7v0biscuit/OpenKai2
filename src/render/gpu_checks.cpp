@@ -465,6 +465,16 @@ void checkGsWorker(){
     for(GS* gs:{worker.get(),reference.get()})for(unsigned i=0;i<packets.size();++i){
         const auto& packet=packets[i];
         gs->processGIFPacket(reinterpret_cast<const uint8_t*>(packet.data()),uint32_t(packet.size()*8u));
+        if(i%23u==0u){
+            // Uploads must retain their position among draws, and must own a
+            // copy even if the caller immediately reuses its source buffer.
+            std::array<uint8_t,257> pixels{};
+            for(unsigned j=0;j<pixels.size();++j)pixels[j]=uint8_t(i*17u+j*13u);
+            const uint64_t psm=(i/23u)%2u ? 2u : 0u;
+            gs->uploadImageNative((uint64_t(10240u)<<32u)|(uint64_t(2u)<<48u)|(psm<<56u),
+                uint64_t(i%64u)<<32u,16ull|(4ull<<32u),0u,pixels.data(),uint32_t(pixels.size()));
+            pixels.fill(0u);
+        }
         if(i==300u)gs->writeRegister(0x47u,0x50000u);
     }
     worker->fence();
@@ -473,6 +483,9 @@ void checkGsWorker(){
         const auto expected=reference->ReadVram(0u,56u*32u,8u,x,y);
         differing+=worker->ReadVram(0u,56u*32u,8u,x,y)!=expected;drawn+=expected!=0x35353535u;
     }
+    for(unsigned psm:{0u,2u})for(unsigned y=0;y<4u;++y)for(unsigned x=0;x<80u;++x)
+        if(worker->ReadVram(psm,10240u,2u,x,y)!=reference->ReadVram(psm,10240u,2u,x,y))
+            throw std::runtime_error("Queued native upload lost ordering, source ownership or its partial final pixel");
     if(!drawn)throw std::runtime_error("GS thread fixture drew nothing");
     if(differing)throw std::runtime_error("GS thread changed "+std::to_string(differing)+" sampled pixels");
 }

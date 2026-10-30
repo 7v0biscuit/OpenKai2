@@ -1,0 +1,58 @@
+--- a/runtime/gs/gs_frontend.cpp
++++ b/runtime/gs/gs_frontend.cpp
+@@ -187,9 +187,19 @@
+         lock.unlock();
+         for (size_t offset = 0; offset + 16u <= m_working.size();)
+         {
+-            uint32_t size = 0;
++            uint32_t size = 0, kind = 0;
+             std::memcpy(&size, m_working.data() + offset, sizeof(size));
+-            processGIFPacketNow(m_working.data() + offset + 16u, size);
++            std::memcpy(&kind, m_working.data() + offset + 4u, sizeof(kind));
++            const auto* payload = m_working.data() + offset + 16u;
++            if (kind == 1u)
++            {
++                uint64_t registers[4];
++                std::memcpy(registers, payload, sizeof(registers));
++                uploadImageNative(registers[0], registers[1], registers[2], registers[3],
++                                  payload + sizeof(registers), size - sizeof(registers));
++            }
++            else
++                processGIFPacketNow(payload, size);
+             offset += 16u + ((size + 15u) & ~15u);
+         }
+         m_working.clear();
+@@ -909,6 +919,33 @@
+                            const uint8_t *data,
+                            uint32_t sizeBytes)
+ {
++    // Keep native texture uploads in the same FIFO as GIF packets. Waiting
++    // for every preceding draw here serializes the EE and GS at each upload.
++    // The queue owns both registers and bytes before the guest can reuse RAM.
++    if (m_worker.joinable() && !onWorker() && data && sizeBytes && sizeBytes <= (16u << 20u))
++    {
++        std::unique_lock<std::mutex> lock(m_queueMutex);
++        if (m_pending.size() >= (size_t(32) << 20u))
++        {
++            openkai2::RuntimeWorkTimer wait(openkai2::RuntimeWork::gsFence);
++            m_queueDrained.wait(lock, [this]() { return m_pending.empty() && !m_workerBusy; });
++        }
++        constexpr uint32_t kind = 1u;
++        const uint32_t size = 32u + sizeBytes;
++        const size_t at = m_pending.size();
++        m_pending.resize(at + 16u + ((size + 15u) & ~15u));
++        std::memcpy(m_pending.data() + at, &size, sizeof(size));
++        std::memcpy(m_pending.data() + at + 4u, &kind, sizeof(kind));
++        const uint64_t registers[] = {bitbltbuf, trxpos, trxreg, trxdir};
++        std::memcpy(m_pending.data() + at + 16u, registers, sizeof(registers));
++        std::memcpy(m_pending.data() + at + 48u, data, sizeBytes);
++        if (!m_workerBusy && !m_workerWake)
++        {
++            m_workerWake = true;
++            m_queueReady.notify_one();
++        }
++        return;
++    }
+     fence();
+     std::lock_guard<std::recursive_mutex> lock(m_stateMutex);
+     uploadImageNativeUnlocked(bitbltbuf, trxpos, trxreg, trxdir, data, sizeBytes);

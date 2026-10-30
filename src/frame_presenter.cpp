@@ -7,6 +7,10 @@
 #include <sstream>
 
 namespace openkai2 {
+namespace { thread_local FramePresenter* fieldPresenter=nullptr; }
+FieldPresentationScope::FieldPresentationScope(FramePresenter& presenter):previous_(fieldPresenter){fieldPresenter=&presenter;}
+FieldPresentationScope::~FieldPresentationScope(){fieldPresenter=previous_;}
+void present_guest_field(uint64_t tick){if(fieldPresenter)fieldPresenter->request(tick);}
 FramePresenter::FramePresenter(std::function<void(uint64_t)> render)
     :render_(std::move(render)),worker_([this]{run();}) {}
 FramePresenter::~FramePresenter() { stop(); }
