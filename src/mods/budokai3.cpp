@@ -326,6 +326,79 @@ std::string model_digest(SourceDisc &disc, size_t entry) {
     return text;
 }
 
+std::string mesh_differences(SourceDisc &budokai3, size_t entry, SourceDisc &game, size_t own) {
+    const auto theirParts = model_parts(budokai3, budokai3.range(roster_archive, entry));
+    const auto ourParts = model_parts(game, game.range(roster_archive, own));
+    if (!theirParts || !ourParts)
+        return "    not both costume models\n";
+    const auto theirs = budokai3.read_entry(roster_archive, entry), ours = game.read_entry(roster_archive, own);
+    const uint32_t theirMesh = theirParts->first, ourMesh = ourParts->first;
+    const uint32_t size = std::min(theirParts->second - theirMesh, ourParts->second - ourMesh);
+    // Vertex data is floats; a word that is not a float of a plausible size
+    // on either side is a count, a flag or a GIF or VIF code.
+    const auto plain = [](uint32_t word) {
+        const uint32_t exponent = word >> 23 & 0xFF;
+        return word == 0 || word == 0x80000000u || (exponent >= 0x60 && exponent <= 0x9F);
+    };
+    std::vector<uint32_t> starts;
+    for (uint32_t i = 0, blocks = std::min<uint32_t>(read32(ours, ourMesh + 32), 64); i < blocks; ++i)
+        starts.push_back(read32(ours, ourMesh + 48 + i * 4));
+    const auto block = [&](uint32_t at) {
+        int found = -1;
+        for (size_t i = 0; i < starts.size(); ++i)
+            if (starts[i] <= at && (found < 0 || starts[i] > starts[size_t(found)]))
+                found = int(i);
+        return found;
+    };
+    size_t words = 0, floats = 0, codes = 0;
+    std::map<std::pair<uint32_t, uint32_t>, size_t> pairs;
+    std::string listed;
+    char line[256];
+    for (uint32_t at = 0; at + 4 <= size; at += 4) {
+        const uint32_t ourWord = read32(ours, ourMesh + at), theirWord = read32(theirs, theirMesh + at);
+        if (ourWord == theirWord)
+            continue;
+        ++words;
+        if (plain(ourWord) && plain(theirWord)) {
+            ++floats;
+            continue;
+        }
+        ++codes;
+        ++pairs[{ourWord, theirWord}];
+        if (codes <= 200) {
+            const uint32_t row = at & ~15u;
+            std::snprintf(line, sizeof line, "    +%06X block %2d: %08X -> %08X   row B2", at, block(at), ourWord, theirWord);
+            listed += line;
+            for (uint32_t k = 0; k < 16 && row + k + 4 <= size; k += 4) {
+                std::snprintf(line, sizeof line, " %08X", read32(ours, ourMesh + row + k));
+                listed += line;
+            }
+            listed += "  B3";
+            for (uint32_t k = 0; k < 16 && row + k + 4 <= size; k += 4) {
+                std::snprintf(line, sizeof line, " %08X", read32(theirs, theirMesh + row + k));
+                listed += line;
+            }
+            listed += '\n';
+        }
+    }
+    std::snprintf(line, sizeof line,
+                  "    %u bytes compared: %zu words differ, %zu of them both vertex-like floats, %zu codes or flags\n",
+                  size, words, floats, codes);
+    std::string text = line;
+    std::vector<std::pair<size_t, std::pair<uint32_t, uint32_t>>> common;
+    for (const auto &[pair, count] : pairs)
+        common.push_back({count, pair});
+    std::sort(common.rbegin(), common.rend());
+    text += "    most common changes (Budokai 2 -> Budokai 3, times):\n";
+    for (size_t i = 0; i < common.size() && i < 40; ++i) {
+        std::snprintf(line, sizeof line, "      %08X -> %08X  %zu\n", common[i].second.first, common[i].second.second,
+                      common[i].first);
+        text += line;
+    }
+    text += "    first differing codes or flags (offset in the mesh):\n" + listed;
+    return text;
+}
+
 std::string model_materials(SourceDisc &disc, size_t entry) {
     if (!model_parts(disc, disc.range(roster_archive, entry)))
         return {};

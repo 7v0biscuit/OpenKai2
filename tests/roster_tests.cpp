@@ -381,6 +381,13 @@ int main() {
                         std::string::npos,
                 "Budokai 3 materials were not given Budokai 2's flag");
 
+        // Mesh comparison lists codes and flags, not vertex floats.
+        const auto differences = mesh_differences(budokai3, 267, budokai3, 264);
+        require(differences.find("00000000 -> 000001B5") != std::string::npos &&
+                    differences.find("00000000 -> 000029BD") != std::string::npos &&
+                    differences.find("0 of them both vertex-like floats") != std::string::npos,
+                "The mesh comparison does not list the material record");
+
         // Versions for finding which part Budokai 2 draws wrongly.
         const auto b3model = costume_model(5, 2, false, budokai3Layout), b2model = costume_model(5, 1, false, gokuLayout);
         const size_t mesh = 0x40, meshBytes = 0x70 + 5 * 32, textures = mesh + meshBytes;

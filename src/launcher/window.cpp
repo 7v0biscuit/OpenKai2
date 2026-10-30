@@ -45,6 +45,7 @@
 #include <shobjidl.h>
 #include <sstream>
 #include <stdexcept>
+#include <tuple>
 #include <vector>
 #include <windowsx.h>
 
@@ -1870,12 +1871,35 @@ struct Window {
             return;
         const auto folder = mods::default_mods_directory() / "reports";
         const auto name = sourceIdentity.serial.empty() ? utf8(source->image().stem().wstring()) : sourceIdentity.serial;
+        // With Budokai 3 as the source, the report also compares its Supreme
+        // Kai and Krillin meshes with your Budokai 2 disc's, word by word.
+        std::vector<std::tuple<std::string, size_t, size_t>> compared;
+        if (sourceRoster && sourceRoster->models && gameRoster && game)
+            for (const char *wanted : {"KAIO-SHIN", "KULILIN"}) {
+                const mods::DiscCharacter *theirs = nullptr, *ours = nullptr;
+                for (const auto &character : sourceRoster->characters)
+                    if (character.internal == wanted && !theirs)
+                        theirs = &character;
+                for (const auto &character : gameRoster->characters)
+                    if (character.internal == wanted && !ours)
+                        ours = &character;
+                if (!theirs || !ours || theirs->files.empty())
+                    continue;
+                const auto costumes = mods::costume_fields(*game, *ours);
+                if (!costumes.empty())
+                    compared.emplace_back(ours->name, theirs->files.front().second, costumes.front().second);
+            }
         startModJob(Job::saveReport, L"Writing the disc report…",
-                    [disc = source, folder, name](const std::shared_ptr<Progress> &) {
+                    [disc = source, game = game, compared, folder, name](const std::shared_ptr<Progress> &) {
                         std::filesystem::create_directories(folder);
                         const auto path = folder / (wide(name) + L".txt");
                         std::ofstream out(path, std::ios::binary | std::ios::trunc);
                         out << mods::disc_report(*disc);
+                        if (!compared.empty())
+                            out << "\nBudokai 3 meshes compared with your Budokai 2 disc's:\n";
+                        for (const auto &[who, entry, own] : compared)
+                            out << "\n  " << who << ", Budokai 3 entry " << entry << ", Budokai 2 entry " << own << ":\n"
+                                << mods::mesh_differences(*disc, entry, *game, own);
                         if (!out)
                             throw std::runtime_error("Cannot write " + utf8(path.wstring()));
                         Result result{Job::saveReport};

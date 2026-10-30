@@ -71,6 +71,12 @@ std::string model_contents(SourceDisc &disc, size_t entry);
 // second mesh block and the last 128 bytes of the texture pack.
 std::string model_digest(SourceDisc &disc, size_t entry);
 
+// Every word in which a Budokai 3 model's mesh differs from a Budokai 2
+// model's mesh `own`, leaving out vertex data: counts, the most common
+// changes and the first 200 with their rows, to find what else Budokai 2
+// draws differently.
+std::string mesh_differences(SourceDisc &budokai3, size_t entry, SourceDisc &game, size_t own);
+
 // The flag Budokai 2 sets in the first word of every material record of a
 // mesh (0x21B5) and Budokai 3 leaves clear (0x01B5); without it Budokai 2
 // draws the mesh black.

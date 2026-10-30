@@ -136,7 +136,10 @@ there, to see in game which part Budokai 2 draws wrongly:
 Press R2 on the spot to go through them. The message after importing, and
 the `[mods] select:` lines in `startup.log`, give each version's character ID.
 In the first test only D looked right: A, B and C, which use the Budokai 3
-mesh, were black.
+mesh, were black. Setting Budokai 2's material flag (v0.1.52) did not fix
+them. With a Budokai 3 source and your Budokai 2 disc verified, **Save disc
+report…** also compares Supreme Kai's and Krillin's meshes in both games word
+by word, listing every difference that is not vertex data.
 
 ### What can be imported so far
 
