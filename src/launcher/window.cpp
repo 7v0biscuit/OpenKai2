@@ -1012,18 +1012,18 @@ struct Window {
                 return L"That spot is empty. Choose a spot with a character to wear the model.";
             if (const auto why = modelMismatch(*character, *occupant))
                 return *why;
-            const auto wearer = wide(character->name) + L" worn by " + wide(occupant->name) + L", with " +
-                                wide(occupant->name) + L"'s moves, as a new character";
+            const auto wearer = L"A new " + wide(occupant->name) + L" with " + wide(character->name) +
+                                L"'s Budokai 3 textures on " + wide(occupant->name) + L"'s body and moves,";
             if (selected(SpotMode) == compareVersions)
                 return L"Adds four versions of " + wide(character->name) + L" worn by " + wide(occupant->name) +
                        L", sharing spot " + std::to_wstring(row + 1) +
-                       L". R2 goes through them in order: A as imported, B unchanged from Budokai 3, C with " +
-                       wide(occupant->name) + L"'s own textures, D with " + wide(occupant->name) +
-                       L"'s own mesh. Uses four character IDs. " + into;
+                       L". R2 goes through them in order: A the whole model as converted, B unchanged from Budokai 3, "
+                       L"C with " + wide(occupant->name) + L"'s own textures, D with " + wide(occupant->name) +
+                       L"'s own body (the normal import). Uses four character IDs. " + into;
             return wearer + (selected(SpotMode) == 1
                                  ? L" with a new spot of its own before Random (experimental). "
                                  : L" sharing spot " + std::to_wstring(row + 1) + L"; R2 switches. ") +
-                   L"Not tested in game yet. " + into;
+                   L"Budokai 3 bodies are drawn black in Budokai 2, so only the textures come over. " + into;
         }
         if (selected(SpotMode) == 1)
             return wide(character->name) + L" gets a new character slot and a new spot of its own before Random, showing " +
@@ -1532,9 +1532,10 @@ struct Window {
         mods::ImportTarget target;
         std::wstring name;
     };
-    // Why a model from another game cannot be worn by a Budokai 2 character,
-    // or nothing when it can: their models must link their parts the same
-    // way, so the character's animations move it.
+    // Why a model's textures from another game cannot go on a Budokai 2
+    // character's own body, or nothing when they can: the character's
+    // textures must match the model's in number, format and size, so the
+    // body's texture coordinates land where they should.
     std::optional<std::wstring> modelMismatch(const mods::DiscCharacter &model, const mods::DiscCharacter &wearer) const {
         const auto theirs = gameRoster->shapes.find(wearer.id);
         if (theirs == gameRoster->shapes.end())
@@ -1546,10 +1547,10 @@ struct Window {
         std::wstring others;
         for (size_t i = 0; i < fit.size() && i < 3; ++i)
             others += (i ? L", " : L"") + wide(gameRoster->find(fit[i])->name);
-        return wide(model.name) + L" (" + std::to_wstring(ours->second.parts.size()) + L" parts) is built differently from " +
-               wide(wearer.name) + L"'s model (" + std::to_wstring(theirs->second.parts.size()) + L" parts), so " +
-               wide(wearer.name) + L"'s moves can't animate it. " +
-               (others.empty() ? L"No Budokai 2 character has the same body."
+        return wide(model.name) + L"'s textures (" + std::to_wstring(ours->second.textures.size()) +
+               L") are laid out differently from " + wide(wearer.name) + L"'s (" +
+               std::to_wstring(theirs->second.textures.size()) + L"), so they would land in the wrong places. " +
+               (others.empty() ? L"No Budokai 2 character's textures match."
                                : L"It fits " + others + (fit.size() > 3 ? L" and others." : L"."));
     }
     // Marks the spots whose character can wear the chosen model, and moves to
@@ -1591,7 +1592,7 @@ struct Window {
                                                                      {Version::unchanged, "B"},
                                                                      {Version::budokai2_textures, "C"},
                                                                      {Version::budokai2_mesh, "D"}}
-                    : std::vector<std::pair<Version, const char *>>{{Version::converted, ""}};
+                    : std::vector<std::pair<Version, const char *>>{{Version::budokai2_mesh, ""}};
         std::vector<std::filesystem::path> folders;
         for (const auto &mod : modList)
             folders.push_back(mod.folder);
@@ -1636,7 +1637,7 @@ struct Window {
         for (size_t i = 0; i < added.size(); ++i)
             ids += (i ? L", " : L"") + (compare ? wide(versions[i].second) + L" = " : std::wstring()) +
                    std::to_wstring(added[i].slot);
-        const auto summary = L"Added " + wide(model.name) + L" worn by " + wide(wearer->name) +
+        const auto summary = L"Added " + wide(wearer->name) + L" with " + wide(model.name) + L"'s textures" +
                              (compare ? L" in four versions, sharing spot " + std::to_wstring(pick + 1) +
                                             L"; press R2 there to go through them"
                               : newSpot ? std::wstring(L", with a new spot of its own")
