@@ -225,6 +225,34 @@ their own model in the preview; filled IDs 37 and up (43 to 52) show their
 base character's model there, and their own in battle. The import tool uses
 IDs 1, 13, 14 and 19 first.
 
+## Stages
+
+The USA executable keeps 13 stage records of 156 bytes at `0x373270`. A record
+starts with a 32-byte name. From `0x40` it holds eight `DATA_CMN.AFS` entries:
+the map (`#MDD`) at `0x40`, the `#MAD` and `#MAS` at `0x44` and `0x48`, the
+`#AMB` pack at `0x4C`, the `#SPX` at `0x50`, and three more files at `0x54`
+to `0x5C`. The word at `0x60` is 1 for the "B" stages (ISLAND B, TOWN B,
+R&R BASE B and SNOW B), which reuse another stage's files. The nine stages
+with files of their own use entries 2 to 73, eight each. The game keeps the
+current stage's index at `0x373C60` and `0x373CAC`.
+
+| Index | Name | Files (DATA_CMN) |
+|-------|------|------------------|
+| 0 | ISLAND | 34 to 41 |
+| 1 | TOWN | 66 to 73 |
+| 2 | ROOM TIME MIND | 42 to 49 |
+| 3 | BUDO | 10 to 17 |
+| 4 | R&R BASE | 2 to 9 |
+| 5 | SNOW | 58 to 65 |
+| 6 | GARDEN | 18 to 25 |
+| 7 | NAMEC | 50 to 57 |
+| 8 | KAIOH SHIN | 26 to 33 |
+| 9 to 12 | ISLAND B, TOWN B, R&R BASE B, SNOW B | as 0, 1, 4 and 5 |
+
+Stages cannot be imported yet: the stage select screen's list is not mapped,
+so an added stage could not be chosen. Budokai 3 names its stages 92 bytes
+apart from `0x44B078`; the disc report dumps those records to map them.
+
 ## Mod folder layout
 
 A mod is a folder in the mods folder. You can build one by hand:
