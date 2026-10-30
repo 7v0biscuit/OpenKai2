@@ -506,9 +506,6 @@ std::vector<uint8_t> model_for_budokai2(SourceDisc &disc, size_t entry) {
     // Budokai 2 sets a flag in every material that Budokai 3 leaves clear.
     for (const auto record : material_records(bytes, false))
         bytes[record + 1] |= uint8_t(budokai2_material_flag >> 8);
-    // And one in every draw record of the mesh's first block.
-    for (const auto record : draw_records(bytes))
-        bytes[record] |= uint8_t(budokai2_draw_flag);
     return bytes;
 }
 
@@ -624,8 +621,38 @@ std::vector<uint8_t> model_version(SourceDisc &budokai3, size_t entry, SourceDis
     const auto ours = game.read_entry(roster_archive, own);
     const auto [theirMesh, theirTextures] = split_model(theirs);
     const auto [ourMesh, ourTextures] = split_model(ours);
-    return version == ModelVersion::budokai2_textures ? join_model(theirs, theirMesh, ourTextures)
-                                                      : join_model(ours, ourMesh, match_pack(theirTextures, ourTextures));
+    switch (version) {
+    case ModelVersion::budokai2_textures:
+        return join_model(theirs, theirMesh, ourTextures);
+    case ModelVersion::rebuilt_pack:
+        return join_model(ours, theirMesh, match_pack(theirTextures, theirTextures));
+    case ModelVersion::budokai2_mesh_whole_pack:
+        return join_model(ours, ourMesh, match_pack(theirTextures, theirTextures));
+    case ModelVersion::renumbered_mesh: {
+        // The wearer's matched pack, with each material's texture numbers
+        // moved to where their textures went; a texture the pack left out
+        // becomes the first kept one of its format and size.
+        const auto source = pack_textures(theirTextures);
+        const auto picks = match_textures(layout_of(source), layout_of(pack_textures(ourTextures)));
+        auto model = join_model(ours, theirMesh, match_pack(theirTextures, ourTextures));
+        const auto renumber = [&](uint32_t texture) {
+            for (size_t i = 0; i < picks.size(); ++i)
+                if (picks[i] == texture)
+                    return uint32_t(i);
+            if (texture < source.size())
+                for (size_t i = 0; i < picks.size(); ++i)
+                    if (layout_of({source[picks[i]]}) == layout_of({source[texture]}))
+                        return uint32_t(i);
+            return 0u;
+        };
+        for (const auto record : material_records(model, true))
+            for (const size_t at : {record + 8, record + 12})
+                put32(model, at, renumber(read32(model, at)));
+        return model;
+    }
+    default:
+        return join_model(ours, ourMesh, match_pack(theirTextures, ourTextures));
+    }
 }
 
 } // namespace openkai2::mods

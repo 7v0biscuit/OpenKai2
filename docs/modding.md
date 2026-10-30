@@ -126,25 +126,31 @@ Krillin's and Supreme Kai's material records in both games.
 characters sharing the chosen spot, in this order after the character already
 there, to see in game which part Budokai 2 draws wrongly:
 
-- **A**: the whole Budokai 3 model, its textures marked version 1 and its
-  materials flagged as Budokai 2's;
-- **B**: the model exactly as on the Budokai 3 disc;
-- **C**: the Budokai 3 mesh with the wearer's own Budokai 2 textures;
-- **D**: the wearer's own Budokai 2 mesh with the Budokai 3 textures, as a
-  normal import does.
+- **E**: the Budokai 3 mesh with its whole texture pack, laid out as D lays
+  its pack;
+- **F**: the wearer's own Budokai 2 mesh with that whole pack, unmatched, so
+  colours may land in the wrong places;
+- **G**: the Budokai 3 mesh with D's pack, its materials' texture numbers moved
+  to where their textures went;
+- **D**: the wearer's own Budokai 2 mesh with the Budokai 3 textures matched
+  to it, as a normal import does.
 
 Press R2 on the spot to go through them. The message after importing, and
 the `[mods] select:` lines in `startup.log`, give each version's character ID.
-In the first test only D looked right: A, B and C, which use the Budokai 3
-mesh, were black. Setting Budokai 2's material flag (v0.1.52) did not fix
-them. The word-by-word comparison of Supreme Kai's meshes then showed one more
-difference: Budokai 2 sets bit `0x20` in the draw records of the mesh's first
-block (`9000022C` where Budokai 3 has `9000020C`). These are 16 bytes at a
-16-byte boundary: a word of `0x2xx` with a kind of 0, 6, 8 or 9 in its top
-four bits, then the 16-byte-aligned offset in the mesh of what it draws.
-Forced imports set both flags (v0.1.55). With a Budokai 3 source and your Budokai 2 disc verified, **Save disc
-report…** also compares Supreme Kai's and Krillin's meshes in both games word
-by word, listing every difference that is not vertex data.
+
+Up to v0.1.55 the versions were A (the whole converted model, as a forced
+import uses), B (unchanged), C (the Budokai 3 mesh with the wearer's
+textures) and D. Only D looked right. Setting Budokai 2's material flag
+(v0.1.52) did not fix the others. With a Budokai 3 source and your Budokai 2
+disc verified, **Save disc report…** also compares Supreme Kai's and
+Krillin's meshes in both games word by word, listing every difference that is
+not vertex data. Supreme Kai's differ only in the material flag, texture
+numbers and bit `0x20` in some draw records of the mesh's first block
+(`9000022C` where Budokai 3 has `9000020C`): 27 of 55 in Budokai 2. Krillin's
+Budokai 2 mesh sets it in none of its 50, so that bit is a per-model setting;
+v0.1.55 set it in every draw record, and v0.1.56 no longer does. E, F and G
+tell apart whether the Budokai 3 mesh or its texture pack is what Budokai 2
+draws wrongly.
 
 ### What can be imported so far
 

@@ -85,10 +85,9 @@ inline constexpr uint32_t budokai2_material_flag = 0x2000u;
 // mesh block, holding flags, 0x29BD and two texture numbers. With `any`, every
 // record with 0x29BD in its second word, whatever its flags.
 std::vector<size_t> material_records(const std::vector<uint8_t> &model, bool any);
-// The flag Budokai 2 sets in the first word of every draw record in a mesh's
-// first block (0x9000022C) and Budokai 3 leaves clear (0x9000020C); found by
-// comparing Supreme Kai's meshes word by word, where it and the material flag
-// are the only differences besides texture numbers and vertex data.
+// A flag in the first word of draw records in a mesh's first block. Supreme
+// Kai's Budokai 2 mesh sets it in 27 of 55 (0x9000022C where Budokai 3 has
+// 0x9000020C) and Krillin's in none, so it is not changed on import.
 inline constexpr uint32_t budokai2_draw_flag = 0x20u;
 // Where a model's draw records are: 16 bytes at a 16-byte boundary in the
 // mesh's first block, a word of 0x2xx with a kind of 0, 6, 8 or 9 in its top
@@ -98,7 +97,7 @@ std::vector<size_t> draw_records(const std::vector<uint8_t> &model);
 std::string model_materials(SourceDisc &disc, size_t entry);
 
 // A model entry's bytes, with Budokai 3 texture packs marked as Budokai 2's
-// and its materials and draw records given Budokai 2's flags.
+// and its materials given Budokai 2's flag.
 std::vector<uint8_t> model_for_budokai2(SourceDisc &disc, size_t entry);
 
 // Versions of a Budokai 3 model for finding out in game which of its parts
@@ -109,6 +108,11 @@ enum class ModelVersion {
     unchanged,          // exactly as on the Budokai 3 disc
     budokai2_textures,  // the Budokai 3 mesh with the wearer's textures
     budokai2_mesh,      // the wearer's mesh with the Budokai 3 textures matched to it
+    // To find whether the Budokai 3 mesh or its texture pack is what Budokai
+    // 2 draws wrongly, since budokai2_mesh draws right and converted does not:
+    rebuilt_pack,             // the Budokai 3 mesh with its whole pack laid out as budokai2_mesh lays it
+    budokai2_mesh_whole_pack, // the wearer's mesh with that whole pack, unmatched
+    renumbered_mesh,          // the Budokai 3 mesh with budokai2_mesh's pack, texture numbers moved to match
 };
 std::vector<uint8_t> model_version(SourceDisc &budokai3, size_t entry, SourceDisc &game, size_t own,
                                    ModelVersion version);

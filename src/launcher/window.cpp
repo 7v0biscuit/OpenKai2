@@ -1058,9 +1058,10 @@ struct Window {
             if (selected(SpotMode) == compareVersions)
                 return L"Adds four versions of " + wide(character->name) + L" worn by " + wide(occupant->name) +
                        L", sharing spot " + std::to_wstring(row + 1) +
-                       L". R2 goes through them in order: A the whole model as converted, B unchanged from Budokai 3, "
-                       L"C with " + wide(occupant->name) + L"'s own textures, D with " + wide(occupant->name) +
-                       L"'s own body (the normal import). Uses four character IDs. " + into;
+                       L". R2 goes through them in order: E the Budokai 3 body with all its textures repacked, F " +
+                       wide(occupant->name) + L"'s body with all those textures, G the Budokai 3 body with D's "
+                       L"textures, D " + wide(occupant->name) + L"'s body (the normal import). Uses four character IDs. " +
+                       into;
             return wearer + (selected(SpotMode) == 1
                                  ? L" with a new spot of its own before Random (experimental). "
                                  : L" sharing spot " + std::to_wstring(row + 1) + L"; R2 switches. ") +
@@ -1662,9 +1663,9 @@ struct Window {
         const bool compare = selected(SpotMode) == compareVersions, newSpot = selected(SpotMode) == 1 || force;
         using Version = mods::ModelVersion;
         const std::vector<std::pair<Version, const char *>> versions =
-            compare ? std::vector<std::pair<Version, const char *>>{{Version::converted, "A"},
-                                                                     {Version::unchanged, "B"},
-                                                                     {Version::budokai2_textures, "C"},
+            compare ? std::vector<std::pair<Version, const char *>>{{Version::rebuilt_pack, "E"},
+                                                                     {Version::budokai2_mesh_whole_pack, "F"},
+                                                                     {Version::renumbered_mesh, "G"},
                                                                      {Version::budokai2_mesh, "D"}}
                     : std::vector<std::pair<Version, const char *>>{{force ? Version::converted : Version::budokai2_mesh, ""}};
         std::vector<std::filesystem::path> folders;

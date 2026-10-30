@@ -385,9 +385,8 @@ int main() {
                     model_materials(budokai3, 267).find("material at mesh +000050: 000001B5 000029BD 00000003") !=
                         std::string::npos,
                 "Budokai 3 materials were not given Budokai 2's flag");
-        require(get32(flagged.data() + 0xB0) == 0x9000022C && get32(flagged.data() + 0xC0) == 0x6000020F &&
-                    draw_records(flagged).size() == 1,
-                "Budokai 3 draw records were not given Budokai 2's flag");
+        require(get32(flagged.data() + 0xB0) == 0x9000020C && draw_records(flagged).size() == 1,
+                "Budokai 3 draw records were changed or not found");
 
         // Mesh comparison lists codes and flags, not vertex floats.
         const auto differences = mesh_differences(budokai3, 267, budokai3, 264);
@@ -419,6 +418,19 @@ int main() {
                     get32(withOurMesh.data() + matched + 12) == 1 && get32(withOurMesh.data() + matched + 16) == 2 &&
                     piece(withOurMesh, matched, 12) == piece(theirTextures, 0, 12),
                 "The Budokai 2 mesh with Budokai 3 textures is wrong");
+        // E, F and G: the whole pack repacked onto either mesh, and the
+        // Budokai 3 mesh with D's pack.
+        const auto rebuiltPack = model_version(budokai3, 264, gameDisc, 171, ModelVersion::rebuilt_pack);
+        const auto wholeOnOurs = model_version(budokai3, 264, gameDisc, 171, ModelVersion::budokai2_mesh_whole_pack);
+        const auto renumbered = model_version(budokai3, 264, gameDisc, 171, ModelVersion::renumbered_mesh);
+        const auto packCount = [](const Bytes &model) { return get32(model.data() + get32(model.data() + 0x30) + 16); };
+        require(piece(rebuiltPack, 0x40, meshBytes) == piece(b3model, mesh, meshBytes) &&
+                    packCount(rebuiltPack) == packCount(expected) && packCount(rebuiltPack) > packCount(withOurMesh) &&
+                    piece(wholeOnOurs, 0x40, meshBytes) == piece(b2model, mesh, meshBytes) &&
+                    packCount(wholeOnOurs) == packCount(expected) &&
+                    piece(renumbered, 0x40, meshBytes) == piece(b3model, mesh, meshBytes) &&
+                    packCount(renumbered) == packCount(withOurMesh),
+                "The versions for finding the black bodies are wrong");
 
         // Matching: the wearer's slots take the model's textures in order,
         // skipping extras, and the pack is rebuilt to the wearer's layout.
