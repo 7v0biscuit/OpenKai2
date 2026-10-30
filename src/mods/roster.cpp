@@ -470,8 +470,7 @@ std::vector<std::string> apply_roster(uint8_t *memory, size_t bytes, const std::
                 line += (i ? i + 1 == copied.size() ? " and " : ", " : " ") + copied[i];
         }
         if (character.base && character.slot >= roster_id_tables[0].count)
-            line += "; IDs above " + std::to_string(roster_id_tables[0].count - 1) +
-                    " have no move effects of their own, so its special moves may not work";
+            line += ", reading its base's move effects and hair";
         if (character.select_cell) {
             const auto previous = memory[roster_select_grid + *character.select_cell];
             memory[roster_select_grid + *character.select_cell] = uint8_t(character.slot);

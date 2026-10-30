@@ -264,9 +264,12 @@ game indexes by character ID, where the unused IDs hold nothing:
 | `0x377120` | 4 bytes | IDs 0 to 52 | the `DATA_US.AFS` entry of the name plate |
 | `0x3A1D60` | 20 bytes | IDs 0 to 40 | hair physics per costume (read at `0x200AC0`) |
 
-IDs 43 to 52 lie past the move-effects table, so the special moves of a
-character filled there may not work; the import tool uses IDs 1, 13, 14 and
-19 first and says so when it has to use a higher one.
+IDs 43 to 52 lie past the move-effects and hair tables. The translated
+code that reads them (`0x20B340`, `0x20BA60` and `0x20C3B0` for move effects,
+`0x200AC0` for hair) scales the character ID through `id_table_row`
+(`src/mods/select_screen.h`), which gives a filled ID past the tables its
+base character's row, so its special moves and hair work. Its voices still
+come from rows that IDs above 35 don't have.
 
 A character goes on the select screen in one of three ways:
 

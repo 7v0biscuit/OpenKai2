@@ -11,6 +11,7 @@ struct Layout {
     uint32_t cells = select_cells_original;
     std::array<uint8_t, select_cells_max> icons{}; // portrait cell for each added cell
     std::array<uint8_t, 64> preview{};             // base ID + 1 for filled IDs
+    std::array<uint8_t, 64> base{};                // base ID + 1 for every filled ID
 } layout;
 } // namespace
 
@@ -52,6 +53,14 @@ uint32_t preview_row(uint32_t id) {
     return id < layout.preview.size() && layout.preview[id] ? layout.preview[id] - 1u : id;
 }
 
+uint32_t id_table_row(uint32_t id) {
+    // IDs below the table's end have their base's row copied in by
+    // apply_roster; filled IDs past it read their base's row directly.
+    if (id < roster_id_tables[0].count || id >= layout.base.size() || !layout.base[id])
+        return id;
+    return layout.base[id] - 1u;
+}
+
 void reset_select_screen() { layout = Layout{}; }
 
 std::vector<std::string> configure_select_screen(uint8_t *memory, size_t bytes,
@@ -68,6 +77,8 @@ std::vector<std::string> configure_select_screen(uint8_t *memory, size_t bytes,
         // too close. IDs above 36 also show the base's model there.
         if (character.slot < next.preview.size() && character.base)
             next.preview[character.slot] = uint8_t((*character.base < preview_ids ? *character.base : 36u) + 1u);
+        if (character.slot < next.base.size() && character.base && *character.base < roster_id_tables[0].count)
+            next.base[character.slot] = uint8_t(*character.base + 1u);
         if (character.new_cell &&
             std::none_of(added.begin(), added.end(), [&](const auto *other) { return other->slot == character.slot; }))
             added.push_back(&character);

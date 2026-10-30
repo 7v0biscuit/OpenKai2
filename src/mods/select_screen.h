@@ -34,6 +34,10 @@ uint64_t select_random_bit();
 uint64_t select_extra_mask();
 uint32_t preview_id(uint32_t id);  // in place of the clamp to 36
 uint32_t preview_row(uint32_t id); // a pose-table row: the base's for filled IDs
+// The row a character ID reads in the per-ID tables that end at ID 40, the
+// move effects (0x376F30) and hair (0x3A1D60): its base's for filled IDs past
+// them, so their special moves and hair work.
+uint32_t id_table_row(uint32_t id);
 
 // Adds a cell before Random for each character whose roster.ini asks for a
 // new spot, and points filled IDs at their base character's preview.

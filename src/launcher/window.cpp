@@ -1047,14 +1047,12 @@ struct Window {
                  targetTop + 10, 44, 22, fonts.strong, ink, DT_LEFT | DT_SINGLELINE | DT_NOPREFIX);
         }
         if (characterView) {
-            // How many more characters fit, and how many keep their specials.
-            const auto free = freeWithSpecials + freeWithout;
+            // How many more characters fit.
+            const auto free = freeIds;
             if (!(busy() && modJob(activeJob))) {
                 text(dc,
                      free == 0 ? std::wstring(L"Every unused character ID is filled; remove a character on the Mods page to free one.")
-                     : std::to_wstring(free) + (free == 1 ? L" character ID free: " : L" character IDs free: ") +
-                           std::to_wstring(freeWithSpecials) + L" keep special moves" +
-                           (freeWithout ? L", " + std::to_wstring(freeWithout) + L" don't yet" : std::wstring()),
+                     : std::to_wstring(free) + (free == 1 ? L" character ID free for imports." : L" character IDs free for imports."),
                      contentLeft + 120, targetTop + 13, content - 120 - 200, 18, fonts.caption, free ? muted : red,
                      DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
             }
@@ -1398,7 +1396,7 @@ struct Window {
     // ID, or nothing for rows that are not characters.
     std::vector<std::optional<uint32_t>> contentSlots;
     std::multimap<std::string, std::wstring> importedFrom; // imports.txt source -> mod name
-    unsigned freeWithSpecials = 0, freeWithout = 0;
+    unsigned freeIds = 0;
     // The mod a source disc entry was already imported into, if any.
     std::optional<std::wstring> importedInto(size_t entry) const {
         if (!source)
@@ -1488,11 +1486,11 @@ struct Window {
             for (const auto &record : mods::read_imports(mod.folder))
                 importedFrom.emplace(record.source, wide(mod.name));
         }
-        freeWithSpecials = freeWithout = 0;
+        freeIds = 0;
         const auto taken = mods::roster_slots_in_use(folders);
         for (uint32_t id = 0; id < mods::roster_count; ++id)
             if (mods::roster_slot_unused(id) && std::find(taken.begin(), taken.end(), id) == taken.end())
-                ++(id < mods::roster_id_tables[0].count ? freeWithSpecials : freeWithout);
+                ++freeIds;
         auto target = controls[TargetMod];
         const auto previous = SendMessageW(target, CB_GETCURSEL, 0, 0);
         SendMessageW(target, CB_RESETCONTENT, 0, 0);
@@ -1774,13 +1772,6 @@ struct Window {
             return gameRoster->shapes.count(wearer->id) != 0;
         return model && wearer && !modelMismatch(*model, *wearer);
     }
-    // Only IDs below 41 have move effects to take from their base.
-    static std::wstring movesWarning(uint32_t slot) {
-        return slot < mods::roster_id_tables[0].count
-                   ? std::wstring()
-                   : L" Character ID " + std::to_wstring(slot) +
-                         L" has no move effects of its own, so its special moves may not work.";
-    }
     // Adds a model from another game as a new character: a copy of the
     // Budokai 2 character in the chosen spot, wearing the model in every
     // costume. Nobody leaves the select screen.
@@ -1852,8 +1843,7 @@ struct Window {
                                             L"; press R2 there to go through them"
                               : newSpot ? std::wstring(L", with a new spot of its own")
                                         : L", sharing spot " + std::to_wstring(pick + 1) + L"; press R2 there to switch") +
-                             L" (character ID" + (compare ? L"s " : L" ") + ids + L")." +
-                             movesWarning(added.back().slot);
+                             L" (character ID" + (compare ? L"s " : L" ") + ids + L").";
         const auto mod = importMod(model.name);
         startModJob(Job::importMod, L"Importing…",
                     [disc = source, game = game, entry, own, versions, targets, mod, added, costumes,
@@ -1908,7 +1898,7 @@ struct Window {
         status = L"Added " + wide(body->name) + L" with " + wide(moves.name) + L"'s moves" +
                  (newSpot ? std::wstring(L", with a new spot of its own")
                           : L", sharing spot " + std::to_wstring(pick + 1) + L"; press R2 there to switch") +
-                 L" (character ID " + std::to_wstring(added.slot) + L")." + movesWarning(added.slot) +
+                 L" (character ID " + std::to_wstring(added.slot) + L")." +
                  L" It loads the next time the game starts.";
         refreshMods();
         InvalidateRect(hwnd, nullptr, FALSE);
@@ -1972,7 +1962,7 @@ struct Window {
                           std::to_wstring(added.slot) + L")."
                     : L"Added " + wide(character->name) + L", sharing spot " + std::to_wstring(pick + 1) +
                           (occupant ? L" with " + wide(occupant->name) : std::wstring()) + L" (character ID " +
-                          std::to_wstring(added.slot) + L"). Press R2 on that spot to switch.") + movesWarning(added.slot);
+                          std::to_wstring(added.slot) + L"). Press R2 on that spot to switch.");
         const auto mod = importMod(character->name);
         const auto files = character->files;
         startModJob(Job::importMod, L"Importing…",

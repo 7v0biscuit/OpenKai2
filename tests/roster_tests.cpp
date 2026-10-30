@@ -652,7 +652,11 @@ int main() {
         require(preview_id(44) == 0 && preview_row(44) == 0 && preview_id(45) == 36 && preview_row(13) == 4 &&
                     preview_row(14) == 14,
                 "A filled ID does not take its base's preview");
+        require(id_table_row(44) == 0 && id_table_row(13) == 13 && id_table_row(45) == 45 &&
+                    id_table_row(4) == 4,
+                "A filled ID past the move-effects table does not read its base's row");
         reset_select_screen();
+        require(id_table_row(44) == 44, "A reset select screen kept a move-effects row");
 
         // Bad input names the line; other executables are never patched.
         file(root / "bad" / "roster.ini", "[character]\nslot = 13\nselect = 29\n");

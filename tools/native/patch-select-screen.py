@@ -66,6 +66,17 @@ for name, register, table, scale, adds in [('sub_002AF000_0x2af000', 18, 0x2af14
         EDITS.append((name, address, f'ADD32(GPR_U32(ctx, 2), GPR_U32(ctx, {register}))',
                       f'ADD32(GPR_U32(ctx, 2), {row})'))
 
+# The move-effects table at 0x376F30 has a 12-byte row for each ID below 41,
+# the hair table at 0x3A1D60 a 20-byte one. Each reader scales the ID with a
+# shift and an add; filled IDs past the tables read their base's row instead.
+for name, register, scale, add, shift in [('sub_0020B340_0x20b340', 6, 0x20b368, 0x20b36c, 1),
+                                          ('sub_0020BA60_0x20ba60', 9, 0x20bb98, 0x20bb9c, 1),
+                                          ('sub_0020C3B0_0x20c3b0', 5, 0x20c438, 0x20c43c, 1),
+                                          ('sub_00200AC0_0x200ac0', 5, 0x200b2c, 0x200b30, 2)]:
+    row = f'openkai2::mods::id_table_row(GPR_U32(ctx, {register}))'
+    EDITS.append((name, scale, f'SLL32(GPR_U32(ctx, {register}), {shift})', f'SLL32({row}, {shift})'))
+    EDITS.append((name, add, f'GPR_U32(ctx, {register})))', f'{row}))'))
+
 
 def patch(text, edits):
     """Applies the edits for one file. Each edit already made is checked, not
