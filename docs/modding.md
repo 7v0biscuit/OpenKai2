@@ -165,7 +165,7 @@ and the two games' differ.
 | Content    | Budokai 2 | Budokai | Budokai 3 | Infinite World |
 |------------|-----------|---------|-----------|----------------|
 | Characters | Yes       | Not yet | Textures  | Not yet        |
-| Stages     | Listed    | Not yet | Listed    | Not yet        |
+| Stages     | Listed    | Not yet | Into a B stage | Not yet   |
 | Movesets   | Yes       | Not yet | Not yet   | Not yet        |
 | Capsules   | Not yet   | Not yet | Not yet   | Not yet        |
 
@@ -319,8 +319,33 @@ current stage's index at `0x373C60` and `0x373CAC`.
 | 8 | KAIOH SHIN | 26 to 33 |
 | 9 to 12 | ISLAND B, TOWN B, R&R BASE B, SNOW B | as 0, 1, 4 and 5 |
 
-Stages cannot be imported yet: the stage select screen's list is not mapped,
-so an added stage could not be chosen.
+### Stage mods
+
+The four B stages (records 9 to 12: ISLAND B, TOWN B, R&R BASE B and SNOW B)
+reuse another stage's files and differ from it only in the word at `0x60`, so
+a stage mod can turn one into an imported stage without losing any stage that
+has files of its own. A mod's `stages.ini` holds one section per stage:
+
+```ini
+[stage]
+slot = 10                 ; a B stage record, 9 to 12
+name = B3 BUDO            ; up to 31 characters
+file.40 = add:stage_budo_40.bin
+...                       ; file.40 to file.5c, all eight
+```
+
+Values are `DATA_CMN.AFS` entry numbers or `add:` names, as in `roster.ini`.
+At start-up the record takes the files and name and its `0x60` word becomes 0;
+the startup log has a `[mods] stage:` line for it. Later mods win a slot. The
+stage select screen still shows the B stage's own name and picture.
+
+The import tool's **Stages** tab does this for Budokai 3 discs: choose a stage
+on the left and a B stage on the right. It unpacks the stage's two packs into
+the eight files in Budokai 2's order (by their `#MDD`, `#MAD`, `#MAS`, `#AMB`
+and `#SPX` marks, then the second pack's three files) and marks texture packs
+inside version 1. The Mods page lists a mod's stages, and **Remove** puts the
+B stage back. This is checked by unit tests, not yet in game; adding stages
+beyond the 13 records still needs the stage select screen mapped.
 
 Budokai 3 keeps 17 stage records of 92 bytes at `0x44AE50`, starting with BUDO
 (its seventh, GOKU, is at `0x44B078`). A record starts with a 16-byte name; the

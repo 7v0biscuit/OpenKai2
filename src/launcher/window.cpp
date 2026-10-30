@@ -316,6 +316,13 @@ struct Window {
     // Movesets: a Budokai 2 character's moves on another's body. Stages: the
     // source's stages, listed until they can be added.
     bool movesView = false, stageView = false;
+    // The game disc's own stage table, for the B stages a stage import fills.
+    std::optional<std::vector<mods::DiscStage>> gameStages;
+    // Stages import from Budokai 3, whose packs are unpacked into the eight
+    // files a Budokai 2 stage names.
+    bool stageImport() const {
+        return stageView && sourceIdentity.game == mods::DragonBallGame::budokai3 && gameStages && game;
+    }
     // What the import tool brings into Budokai 2. Only characters are mapped
     // so far, and only from Budokai 2 discs; imports only ever add.
     enum class Task { characters, stages, movesets, capsules } importTask = Task::characters;
@@ -475,7 +482,7 @@ struct Window {
                                                           {OpenImporter, L"Import tool…"},
                                                           {ModRename, L"Rename"},
                                                           {ModDelete, L"Delete mod"},
-                                                          {ModRemove, L"Remove character"},
+                                                          {ModRemove, L"Remove"},
                                                           {SourceGame, L"Game disc"},
                                                           {SourceIso, L"Choose ISO…"},
                                                           {SourceLast, L"Last disc"},
@@ -593,8 +600,8 @@ struct Window {
         for (int id : {ModRename, ModDelete})
             EnableWindow(controls[id], modding && modChosen);
         const auto contentRow = SendMessageW(controls[ModContents], LB_GETCURSEL, 0, 0);
-        EnableWindow(controls[ModRemove], modding && modChosen && contentRow >= 0 &&
-                                              size_t(contentRow) < contentSlots.size() && contentSlots[size_t(contentRow)]);
+        EnableWindow(controls[ModRemove], modding && modChosen && contentRow >= 0 && size_t(contentRow) < contentSlots.size() &&
+                                              (contentSlots[size_t(contentRow)] || contentStages[size_t(contentRow)]));
         EnableWindow(controls[ModContents], !busy());
         for (int id : {ModToggle, ModUp, ModDown})
             EnableWindow(controls[id], modding && chosenMod >= 0 && size_t(chosenMod) < modList.size() &&
@@ -611,7 +618,8 @@ struct Window {
             EnableWindow(controls[id], !busy());
         EnableWindow(controls[SaveReport], !busy() && source);
         const auto spot = SendMessageW(controls[TargetList], LB_GETCURSEL, 0, 0);
-        const bool picked = characterView && sourceCharacter() && spot >= 0 && gameRoster && game && fits(size_t(spot));
+        const bool picked = (characterView && sourceCharacter() && spot >= 0 && gameRoster && game && fits(size_t(spot))) ||
+                            (stageImport() && spot >= 0 && SendMessageW(controls[SourceFiles], LB_GETCURSEL, 0, 0) >= 0);
         EnableWindow(controls[ImportSelected], modding && picked);
         // Preferences stay editable while a disc check or game session runs;
         // the next game process reads them.
@@ -705,6 +713,11 @@ struct Window {
             } else if (stageView) {
                 const int listTop = 304, listHeight = listsBottom - 14 - listTop, half = (content - 52) / 2;
                 position(SourceFiles, contentLeft + 20, listTop, half, listHeight);
+                if (stageImport()) {
+                    position(TargetList, contentLeft + 32 + half, listTop, content - 52 - half, listHeight);
+                    position(TargetMod, contentLeft + 20, targetTop + 52, 220, 34);
+                    position(ImportSelected, right - 20 - 160, targetTop + 52, 160, 36);
+                }
             }
         } else {
             const Grid grid(content);
@@ -946,7 +959,7 @@ struct Window {
              18, fonts.caption, muted, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
         if (!modList.empty()) {
             text(dc, L"What it adds", contentsLeft, 220, 140, 22, fonts.strong);
-            text(dc, L"Choose a character to remove it.", contentsLeft + 130, 223, half - 130, 18, fonts.caption, muted,
+            text(dc, L"Choose a character or stage to remove it.", contentsLeft + 130, 223, half - 130, 18, fonts.caption, muted,
                  DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
         }
         if (modList.empty()) {
@@ -995,7 +1008,8 @@ struct Window {
         } else {
             auto heading = content_name;
             std::transform(heading.begin(), heading.end(), heading.begin(), ::towupper);
-            caps(dc, heading, contentLeft + 20, 278, 300, orange);
+            if (!stageImport())
+                caps(dc, heading, contentLeft + 20, 278, 300, orange);
             if (!disc)
                 placeholder(L"Verify your Budokai 2 ISO on the Play page first. The import tool needs it.");
             else if (!source)
@@ -1003,13 +1017,20 @@ struct Window {
             else if (importTask == Task::characters)
                 placeholder(L"Characters from " + wide(mods::game_name(sourceIdentity.game)) +
                             L" can't be imported yet: its character tables aren't mapped." + mapping);
-            else if (stageView) {
+            else if (stageImport()) {
+                const int half = (content - 52) / 2;
+                caps(dc, L"1   CHOOSE A STAGE", contentLeft + 20, 278, half, orange);
+                caps(dc, L"2   CHOOSE A B STAGE TO BECOME IT", contentLeft + 32 + half, 278, content - 52 - half, orange);
+            } else if (stageView) {
                 const int half = (content - 52) / 2;
                 text(dc,
-                     std::to_wstring(sourceStages->size()) + L" stages on this disc, with the DATA_CMN entries "
-                     L"they use. Adding a stage needs the game's stage table made larger and the stage select "
-                     L"screen mapped, which isn't done yet, so stages can't be imported. Budokai 3 stages are "
-                     L"packed differently, but hold the same eight files with the same versions as Budokai 2's.",
+                     std::to_wstring(sourceStages->size()) + L" stages on this disc, with the DATA_CMN entries they "
+                     L"use. " +
+                         (sourceIdentity.game == mods::DragonBallGame::budokai3
+                              ? std::wstring(L"Reading your Budokai 2 disc's stage table first; open the import tool "
+                                             L"from the Mods page with your game disc verified.")
+                              : std::wstring(L"These are Budokai 2's own stages. Choose a Budokai 3 disc with "
+                                             L"Choose ISO to import its stages into the four B stages.")),
                      contentLeft + 32 + half + 8, 310, content - 52 - half - 36, 200, fonts.caption, muted,
                      DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
             } else if (importTask == Task::movesets)
@@ -1061,10 +1082,38 @@ struct Window {
             // One plain sentence says what pressing Import will do.
             text(dc, plan(), contentLeft + 20, targetTop + 94, content - 40, 36, fonts.caption, ink,
                  DT_LEFT | DT_WORDBREAK | DT_END_ELLIPSIS | DT_NOPREFIX);
+        } else if (stageImport()) {
+            caps(dc, L"SAVE TO", contentLeft + 20, targetTop + 34, 220);
+            text(dc, stagePlan(), contentLeft + 20, targetTop + 94, content - 40, 36, fonts.caption, ink,
+                 DT_LEFT | DT_WORDBREAK | DT_END_ELLIPSIS | DT_NOPREFIX);
         } else
             text(dc, L"Imports add to Budokai 2; every character already in it stays on the select screen.",
                  contentLeft + 20, targetTop + 48, content - 40, 20, fonts.caption, muted,
                  DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+    }
+    // The B stage record a target row stands for, and the stage it reuses.
+    static constexpr uint32_t stageSlots = mods::stage_count - mods::stage_first_variant;
+    std::wstring stageName(uint32_t record) const {
+        // Budokai 2 USA's stage names, until its stage table has been read.
+        static const char *const names[] = {"ISLAND", "TOWN", "ROOM TIME MIND", "BUDO", "R&R BASE", "SNOW", "GARDEN",
+                                            "NAMEC", "KAIOH SHIN", "ISLAND B", "TOWN B", "R&R BASE B", "SNOW B"};
+        if (gameStages && record < gameStages->size())
+            return wide(mods::stage_display_name((*gameStages)[record].internal));
+        return record < std::size(names) ? wide(mods::stage_display_name(names[record])) : L"stage " + std::to_wstring(record);
+    }
+    std::wstring stagePlan() const {
+        const auto row = SendMessageW(controls.at(SourceFiles), LB_GETCURSEL, 0, 0);
+        const auto target = SendMessageW(controls.at(TargetList), LB_GETCURSEL, 0, 0);
+        if (!stageImport() || row < 0 || size_t(row) >= sourceStages->size() || target < 0 || target >= LRESULT(stageSlots))
+            return L"Choose a stage and the B stage it becomes.";
+        const auto &stage = (*sourceStages)[size_t(row)];
+        const uint32_t record = mods::stage_first_variant + uint32_t(target);
+        const int choice = selected(TargetMod);
+        const auto into = choice > 0 && size_t(choice) <= modList.size() ? L"Saved into " + wide(modList[size_t(choice - 1)].name) + L"."
+                                                                         : std::wstring(L"Saved as a new mod.");
+        return wide(mods::stage_display_name(stage.internal)) + L" from Budokai 3 takes the place of " +
+               stageName(record) + L", which only reuses another stage's files; its eight files are added and "
+               L"nothing else changes. Pick " + stageName(record) + L" on the stage select screen to play it. " + into;
     }
     std::wstring plan() const {
         const auto *character = sourceCharacter();
@@ -1395,6 +1444,7 @@ struct Window {
     // it takes, then its file counts. contentSlots holds each row's character
     // ID, or nothing for rows that are not characters.
     std::vector<std::optional<uint32_t>> contentSlots;
+    std::vector<std::optional<uint32_t>> contentStages; // stage record per row, for stage rows
     std::multimap<std::string, std::wstring> importedFrom; // imports.txt source -> mod name
     unsigned freeIds = 0;
     // The mod a source disc entry was already imported into, if any.
@@ -1409,15 +1459,18 @@ struct Window {
         auto list = controls[ModContents];
         SendMessageW(list, LB_RESETCONTENT, 0, 0);
         contentSlots.clear();
+        contentStages.clear();
         const auto row = SendMessageW(controls[ModList], LB_GETCURSEL, 0, 0);
         if (row < 0 || size_t(row) >= modList.size()) {
             refreshEnabled();
             return;
         }
         const auto &mod = modList[size_t(row)];
-        const auto add = [&](const std::wstring &label, std::optional<uint32_t> slot) {
+        const auto add = [&](const std::wstring &label, std::optional<uint32_t> slot,
+                             std::optional<uint32_t> stage = std::nullopt) {
             SendMessageW(list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
             contentSlots.push_back(slot);
+            contentStages.push_back(stage);
         };
         std::vector<mods::RosterSection> characters;
         try {
@@ -1439,13 +1492,20 @@ struct Window {
                 label += L"   ·   shares spot " + std::to_wstring(character.shared_cells.front() + 1);
             add(label, character.slot);
         }
+        std::vector<mods::StageSection> stages;
+        try {
+            stages = mods::read_stage_sections(mod.folder);
+        } catch (const std::exception &) {
+        }
+        for (const auto &stage : stages)
+            add(L"Stage " + wide(stage.name) + L"   ·   in place of " + stageName(stage.slot), std::nullopt, stage.slot);
         if (mod.archive_entries)
             add(std::to_wstring(mod.archive_entries) + (mod.archive_entries == 1 ? L" archive entry" : L" archive entries"),
                 std::nullopt);
         if (mod.replaced_files)
             add(std::to_wstring(mod.replaced_files) + (mod.replaced_files == 1 ? L" replaced file" : L" replaced files"),
                 std::nullopt);
-        if (characters.empty() && !mod.archive_entries && !mod.replaced_files)
+        if (characters.empty() && stages.empty() && !mod.archive_entries && !mod.replaced_files)
             add(L"Nothing yet: import into it or add files to its folder", std::nullopt);
         refreshEnabled();
     }
@@ -1611,14 +1671,22 @@ struct Window {
         const auto keptId = kept ? int(kept->id) : -1;
         sourceRows.clear();
         auto list = controls[SourceFiles];
+        const auto keepStage = SendMessageW(list, LB_GETCURSEL, 0, 0);
         SendMessageW(list, LB_RESETCONTENT, 0, 0);
         if (stageView) {
             for (const auto &stage : *sourceStages) {
                 auto label = wide(mods::stage_display_name(stage.internal)) + L"   ·   files";
                 for (const auto &file : stage.files)
                     label += L" " + std::to_wstring(file.second);
+                if (sourceIdentity.game == mods::DragonBallGame::budokai3 && stage.files.size() != 2)
+                    label += L"   ·   can't be imported (one pack)";
+                else if (sourceIdentity.game == mods::DragonBallGame::budokai3 && !stage.files.empty())
+                    if (const auto mod = importedInto(stage.files.front().second))
+                        label += L"   ·   already in " + *mod;
                 SendMessageW(list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
             }
+            if (keepStage >= 0 && size_t(keepStage) < sourceStages->size())
+                SendMessageW(list, LB_SETCURSEL, WPARAM(keepStage), 0);
             return;
         }
         if (!characterView)
@@ -1662,6 +1730,28 @@ struct Window {
         auto list = controls[TargetList];
         const auto keep = SendMessageW(list, LB_GETCURSEL, 0, 0);
         SendMessageW(list, LB_RESETCONTENT, 0, 0);
+        if (stageImport()) {
+            // Each B stage, the stage whose files it reuses, and a mod that
+            // already filled it.
+            std::map<uint32_t, std::wstring> filled;
+            for (const auto &mod : modList)
+                if (mod.enabled)
+                    for (const auto &section : mods::read_stage_sections(mod.folder))
+                        filled[section.slot] = wide(section.name) + L" from " + wide(mod.name);
+            for (uint32_t i = 0; i < stageSlots; ++i) {
+                const uint32_t record = mods::stage_first_variant + i;
+                auto label = stageName(record);
+                const auto &stages = *gameStages;
+                for (const auto &other : stages)
+                    if (record < stages.size() && !other.variant && other.files == stages[record].files)
+                        label += L"   ·   reuses " + wide(mods::stage_display_name(other.internal));
+                if (const auto found = filled.find(record); found != filled.end())
+                    label += L"   ·   now " + found->second;
+                SendMessageW(list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
+            }
+            SendMessageW(list, LB_SETCURSEL, WPARAM(keep >= 0 && keep < LRESULT(stageSlots) ? keep : 0), 0);
+            return;
+        }
         if (!characterView || !gameRoster)
             return;
         for (uint32_t cell = 0; cell < mods::roster_select_cells; ++cell) {
@@ -1700,6 +1790,11 @@ struct Window {
         game = std::move(disc);
         gameRoster = std::move(roster);
         gameIdentity = identity;
+        try {
+            gameStages = mods::read_disc_stages(*game);
+        } catch (const std::exception &) {
+            gameStages.reset();
+        }
         // The game disc is the source until another disc is chosen.
         if (!source)
             showSource(game, gameRoster, std::move(identity));
@@ -1902,6 +1997,52 @@ struct Window {
                  L" It loads the next time the game starts.";
         refreshMods();
         InvalidateRect(hwnd, nullptr, FALSE);
+    }
+    // Unpacks a Budokai 3 stage into the eight files a Budokai 2 stage names,
+    // adds them as new DATA_CMN entries and fills a B stage's record with
+    // them through the mod's stages.ini.
+    void importStage() {
+        const auto row = SendMessageW(controls[SourceFiles], LB_GETCURSEL, 0, 0);
+        const auto target = SendMessageW(controls[TargetList], LB_GETCURSEL, 0, 0);
+        if (row < 0 || size_t(row) >= sourceStages->size() || target < 0 || target >= LRESULT(stageSlots))
+            throw std::runtime_error("Choose a stage and the B stage it becomes");
+        const auto stage = (*sourceStages)[size_t(row)];
+        const uint32_t record = mods::stage_first_variant + uint32_t(target);
+        const auto shown = mods::stage_display_name(stage.internal);
+        std::string stem = stage.internal;
+        for (auto &c : stem)
+            c = std::isalnum(static_cast<unsigned char>(c)) ? char(std::tolower(static_cast<unsigned char>(c))) : '_';
+        std::string name = "B3 " + stage.internal;
+        name.resize(std::min<size_t>(name.size(), 31));
+        const auto mod = importMod(shown + " stage");
+        const auto iso = utf8(source->image().filename().wstring());
+        const auto summary = L"Added " + wide(shown) + L" from Budokai 3 in place of " + stageName(record) +
+                             L". Pick " + stageName(record) + L" on the stage select screen to play it.";
+        startModJob(Job::importMod, L"Importing…",
+                    [disc = source, stage, record, stem, name, iso, mod, summary](const std::shared_ptr<Progress> &progress) {
+                        report(progress, L"Unpacking the stage", 0, 9);
+                        const auto files = mods::budokai3_stage_files(*disc, stage);
+                        std::vector<std::pair<uint32_t, std::string>> fields;
+                        for (size_t i = 0; i < files.size(); ++i) {
+                            report(progress, L"Importing the stage's files", i + 1, 9);
+                            mods::ImportTarget target;
+                            target.mode = mods::ImportTarget::Mode::NewEntry;
+                            target.file = mods::roster_archive;
+                            target.kind = mods::ContentKind::Stage;
+                            char suffix[16];
+                            std::snprintf(suffix, sizeof suffix, "_%02x.bin", files[i].first);
+                            target.name = "stage_" + stem + suffix;
+                            target.source = iso + ":" + mods::roster_archive + "#" +
+                                            std::to_string(stage.files[files[i].first < 0x54 ? 0 : 1].second);
+                            const auto written = mods::import_bytes(mod, target, files[i].second).filename().string();
+                            fields.push_back({files[i].first, "add:" + written});
+                        }
+                        mods::append_stage(mod, record, name, fields);
+                        report(progress, L"Importing the stage's files", 9, 9);
+                        Result result{Job::importMod};
+                        result.message = summary + L" It loads the next time the game starts.";
+                        return result;
+                    });
     }
     // Adds the character's files as new DATA_CMN entries and a roster.ini
     // section that fills an unused character ID with them. The character
@@ -2177,6 +2318,8 @@ struct Window {
                     if (result.kind == Job::importMod) {
                         refreshMods();
                         fillSourceList();
+                        if (stageImport())
+                            fillTargetList();
                     }
                     if (!closing && result.kind == Job::launch) launch();
                 }
@@ -2645,6 +2788,20 @@ struct Window {
                     status = L"Deleted " + wide(mod.name) + L". The game starts without it next time.";
                 } else {
                     const auto line = SendMessageW(controls[ModContents], LB_GETCURSEL, 0, 0);
+                    if (line >= 0 && size_t(line) < contentStages.size() && contentStages[size_t(line)]) {
+                        const auto record = *contentStages[size_t(line)];
+                        const auto question = L"Remove the stage in place of " + stageName(record) + L" from " +
+                                              wide(mod.name) + L"?\n\nIts files are removed and " + stageName(record) +
+                                              L" goes back to how it was.";
+                        if (MessageBoxW(hwnd, question.c_str(), L"Remove stage", MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) != IDYES)
+                            return;
+                        const auto files = mods::remove_stage(mod.folder, record);
+                        refreshMods(int(row));
+                        status = L"Removed the stage from " + wide(mod.name) + L" (" + std::to_wstring(files) +
+                                 (files == 1 ? L" file" : L" files") + L"); " + stageName(record) + L" is back.";
+                        error = false;
+                        return;
+                    }
                     if (line < 0 || size_t(line) >= contentSlots.size() || !contentSlots[size_t(line)])
                         return;
                     const auto slot = *contentSlots[size_t(line)];
@@ -2692,7 +2849,9 @@ struct Window {
             const auto image = choose(false, true, L"Choose a PS2 ISO to import from");
             if (!image.empty())
                 loadSource(image);
-        } else if (id == ImportSelected)
+        } else if (id == ImportSelected && stageImport())
+            importStage();
+        else if (id == ImportSelected)
             importCharacter();
         else if ((id == OpenSaves || id == OpenBackups) && disc) {
             auto p = id == OpenSaves || gameSaveList() ? card() : backupPath();

@@ -5,6 +5,7 @@
 #include "mods/disc_overlay.h"
 #include "mods/mod_library.h"
 #include "mods/roster.h"
+#include "mods/stages.h"
 #include "mods/select_alternates.h"
 #include "mods/select_screen.h"
 #include "display_settings.h"
@@ -221,6 +222,10 @@ int main(int argc, char* argv[]) {
         for (const auto& line : openkai2::mods::apply_roster(runtime.memory().getRDRAM(),PS2_RAM_SIZE,roster))
             std::cout << "[mods] " << line << std::endl;
         for (const auto& line : openkai2::mods::configure_select_screen(runtime.memory().getRDRAM(),PS2_RAM_SIZE,roster))
+            std::cout << "[mods] " << line << std::endl;
+        // Stage mods fill the B stages' records with imported stages.
+        const auto stages=openkai2::mods::load_stage_mods(mods,applied);
+        for (const auto& line : openkai2::mods::apply_stage_mods(runtime.memory().getRDRAM(),PS2_RAM_SIZE,stages))
             std::cout << "[mods] " << line << std::endl;
         auto alternates=openkai2::mods::build_alternates(runtime.memory().getRDRAM(),PS2_RAM_SIZE,roster);
         if (!alternates.empty())

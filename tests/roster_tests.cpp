@@ -366,7 +366,32 @@ int main() {
             put32(b3stages, record + 0x10, 100 + 2 * i);
             put32(b3stages, record + 0x14, i == 2 ? 0 : 101 + 2 * i);
         }
-        write(root / "b3stages.iso", disc_image(b3stages, "SLUS_209.98", budokai3_names));
+        // BUDO's two packs: the five marked files in Budokai 3's order, with a
+        // version 2 texture pack inside the #AMB, then three more.
+        const auto amb = [](const std::vector<Bytes> &files) {
+            Bytes pack(0x20 + 16 * files.size(), 0);
+            std::memcpy(pack.data(), "#AMB", 4);
+            put32(pack, 16, uint32_t(files.size()));
+            put32(pack, 20, 0x20);
+            for (size_t i = 0; i < files.size(); ++i) {
+                pack.resize((pack.size() + 15) / 16 * 16, 0);
+                put32(pack, 0x20 + 16 * i, uint32_t(pack.size()));
+                put32(pack, 0x24 + 16 * i, uint32_t(files[i].size()));
+                pack.insert(pack.end(), files[i].begin(), files[i].end());
+            }
+            return pack;
+        };
+        const auto marked = [](const char *mark, uint8_t fill) {
+            Bytes file(32, fill);
+            std::memcpy(file.data(), mark, 4);
+            return file;
+        };
+        Bytes stageTextures = marked("#AMT", 0);
+        put32(stageTextures, 12, 2);
+        const auto stageAmb = amb({stageTextures});
+        const auto firstPack = amb({marked("#MDD", 1), marked("#MAD", 2), marked("#MAS", 3), marked("#SPX", 4), stageAmb});
+        const auto secondPack = amb({Bytes(20, 6), marked("IECS", 7), marked("IECS", 8)});
+        write(root / "b3stages.iso", disc_image(b3stages, "SLUS_209.98", budokai3_names, {{100, firstPack}, {101, secondPack}}));
         SourceDisc b3stageDisc(root / "b3stages.iso");
         const auto b3list = read_disc_stages(b3stageDisc);
         require(b3list && b3list->size() == budokai3_stage_count && (*b3list)[0].internal == "BUDO" &&
@@ -377,6 +402,67 @@ int main() {
                     stage_display_name("MIND & TIME B") == "Hyperbolic Time Chamber B" &&
                     stage_display_name("TOWN") == "TOWN",
                 "Stage names were not shown as expected");
+        // Unpacked into the eight files a Budokai 2 record names, in its order,
+        // the texture pack marked version 1.
+        const auto stageFiles = budokai3_stage_files(b3stageDisc, (*b3list)[0]);
+        std::vector<uint32_t> offsets;
+        for (const auto &file : stageFiles)
+            offsets.push_back(file.first);
+        require(offsets == std::vector<uint32_t>{0x40, 0x44, 0x48, 0x4C, 0x50, 0x54, 0x58, 0x5C} &&
+                    stageFiles[0].second[4] == 1 && stageFiles[3].second.size() == stageAmb.size() &&
+                    std::memcmp(stageFiles[3].second.data(), "#AMB", 4) == 0 && stageFiles[4].second[4] == 4 &&
+                    get32(stageFiles[3].second.data() + get32(stageFiles[3].second.data() + 0x20) + 12) == 1 &&
+                    stageFiles[5].second == Bytes(20, 6) && stageFiles[7].second[4] == 8,
+                "A Budokai 3 stage was not unpacked into Budokai 2's files");
+        bool unpackRefused = false;
+        try {
+            budokai3_stage_files(b3stageDisc, (*b3list)[2]);
+        } catch (const std::runtime_error &) {
+            unpackRefused = true;
+        }
+        require(unpackRefused, "A stage without two packs was unpacked");
+
+        // A stage mod turns a B stage into the imported one, and can be
+        // listed and removed again.
+        {
+            const auto stageMod = root / "mods" / "Stage";
+            const auto added_dir = stageMod / "afs" / "USR" / "DATA_CMN.AFS" / "add";
+            fs::create_directories(added_dir);
+            std::vector<std::pair<uint32_t, std::string>> fields;
+            DiscOverlay::Summary stageOverlay;
+            for (uint32_t k = 0; k < 8; ++k) {
+                const auto name = "budo_" + std::to_string(k) + ".bin";
+                write(added_dir / name, Bytes(4, 1));
+                fields.push_back({0x40 + 4 * k, "add:" + name});
+                stageOverlay.added["USR/DATA_CMN.AFS"][name] = 500 + k;
+            }
+            append_stage(stageMod, 10, "BUDO 3", fields);
+            const auto loaded = load_stage_mods({stageMod}, stageOverlay);
+            auto table = stageMemory;
+            const auto lines = apply_stage_mods(table.data(), table.size(), loaded);
+            const uint32_t record = stage_records + 10 * stage_record_bytes;
+            require(loaded.size() == 1 && lines.size() == 1 && std::string(reinterpret_cast<char *>(table.data() + record)) == "BUDO 3" &&
+                        get32(table.data() + record + 0x40) == 500 && get32(table.data() + record + 0x5C) == 507 &&
+                        get32(table.data() + record + stage_variant) == 0 &&
+                        get32(table.data() + record - stage_record_bytes + 0x40) == get32(stageMemory.data() + record - stage_record_bytes + 0x40),
+                    "A stage mod did not fill its B stage, or changed another");
+            const auto sections = read_stage_sections(stageMod);
+            require(sections.size() == 1 && sections[0].slot == 10 && sections[0].name == "BUDO 3" && sections[0].added.size() == 8,
+                    "A mod's stages were misread");
+            bool slotRefused = false;
+            try {
+                append_stage(stageMod, 3, "BUDO 3", fields);
+                load_stage_mods({stageMod}, stageOverlay);
+            } catch (const std::runtime_error &) {
+                slotRefused = true;
+            }
+            require(slotRefused, "A stage mod replaced a stage with files of its own");
+            require(remove_stage(stageMod, 3) == 0 && fs::exists(added_dir / "budo_0.bin") &&
+                        remove_stage(stageMod, 10) == 8 && read_stage_sections(stageMod).empty() &&
+                        !fs::exists(added_dir / "budo_0.bin"),
+                    "Removing a stage removed files another still uses, or left its own");
+            fs::remove_all(stageMod);
+        }
 
         // Budokai 3 materials get the flag Budokai 2 sets; other records stay.
         const auto flagged = model_for_budokai2(budokai3, 267);

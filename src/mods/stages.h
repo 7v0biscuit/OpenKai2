@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #pragma once
+#include "mods/disc_overlay.h"
 #include "mods/importer.h"
+#include <filesystem>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -36,6 +38,48 @@ struct DiscStage {
     // (record offset, DATA_CMN entry) for each file the record names
     std::vector<std::pair<uint32_t, uint32_t>> files;
 };
+
+// The four "B" stages (ISLAND B, TOWN B, R&R BASE B and SNOW B, records 9 to
+// 12) reuse another stage's files and differ from it only in the word at 0x60.
+// A stage mod turns one of them into an imported stage: its own eight files,
+// a name, and 0 at 0x60. No stage with files of its own is lost.
+inline constexpr uint32_t stage_first_variant = 9u;
+
+// A [stage] section of a mod's stages.ini, with add: values resolved to the
+// DATA_CMN entries the overlay gave them.
+struct StageMod {
+    std::filesystem::path source; // the stages.ini it came from, for messages
+    uint32_t slot = 0;            // a B stage record, 9 to 12
+    std::string name;             // up to 31 characters
+    std::vector<std::pair<uint32_t, uint32_t>> files; // (record offset 0x40 to 0x5C, entry)
+};
+// A [stage] section as written, for listing and removing.
+struct StageSection {
+    uint32_t slot = 0;
+    std::string name;
+    std::vector<std::string> added; // files from add: values
+};
+// Reads stages.ini from each mod, in load order; later mods win a slot.
+// Throws std::runtime_error naming the file and line on bad input.
+std::vector<StageMod> load_stage_mods(const std::vector<std::filesystem::path> &mods,
+                                      const DiscOverlay::Summary &overlay);
+// Writes the stages into the loaded USA executable's stage table. Returns a
+// line per stage for the startup log; throws if the table is not there.
+std::vector<std::string> apply_stage_mods(uint8_t *memory, size_t bytes, const std::vector<StageMod> &stages);
+// Adds a [stage] section to the mod's stages.ini.
+void append_stage(const std::filesystem::path &mod, uint32_t slot, const std::string &name,
+                  const std::vector<std::pair<uint32_t, std::string>> &files);
+std::vector<StageSection> read_stage_sections(const std::filesystem::path &mod);
+// Removes the stage filling `slot` from the mod's stages.ini, with the added
+// files no other stage uses. Returns how many files were removed.
+size_t remove_stage(const std::filesystem::path &mod, uint32_t slot);
+
+// A Budokai 3 stage's two packs unpacked into the eight files a Budokai 2
+// stage record names, as (record offset, bytes): #MDD, #MAD, #MAS, the #AMB
+// pack and #SPX by their marks, then the second pack's three files in order.
+// Texture packs inside are marked version 1, as Budokai 2 reads them. Throws
+// when the packs are not laid out that way.
+std::vector<std::pair<uint32_t, std::vector<uint8_t>>> budokai3_stage_files(SourceDisc &disc, const DiscStage &stage);
 
 // Reads the stage table from a disc's own executable: Budokai 2 USA's, or
 // Budokai 3 USA's, whose stages each name their two packs at 0x10 and 0x14.
