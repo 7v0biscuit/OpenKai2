@@ -71,7 +71,8 @@ std::vector<ModInfo> scan_mods(const fs::path &directory) {
     std::error_code error;
     if (fs::is_directory(directory, error))
         for (const auto &item : fs::directory_iterator(directory, error))
-            if (item.is_directory(error) && utf8(item.path().filename()).front() != '.')
+            if (item.is_directory(error) && utf8(item.path().filename()).front() != '.' &&
+                utf8(item.path().filename()) != reports_folder)
                 found.emplace(utf8(item.path().filename()), read_mod(item.path()));
     std::vector<ModInfo> ordered;
     std::ifstream order(directory / "load-order.txt");
@@ -133,6 +134,46 @@ fs::path create_mod(const fs::path &directory, const std::string &name, const st
     auto mods = scan_mods(directory);
     save_load_order(directory, mods);
     return folder;
+}
+
+void rename_mod(const fs::path &folder, const std::string &name) {
+    if (trim(name).empty())
+        throw std::runtime_error("Type a name for the mod");
+    std::vector<std::string> lines;
+    bool named = false;
+    {
+        std::ifstream in(folder / "mod.ini");
+        for (std::string line; std::getline(in, line);) {
+            const auto equals = line.find('=');
+            if (equals != std::string::npos && trim(line.substr(0, equals)) == "name") {
+                if (named)
+                    continue;
+                line = "name=" + trim(name);
+                named = true;
+            }
+            lines.push_back(line);
+        }
+    }
+    if (!named)
+        lines.insert(lines.begin(), "name=" + trim(name));
+    const auto temporary = folder / "mod.ini.tmp";
+    {
+        std::ofstream out(temporary, std::ios::trunc);
+        for (const auto &line : lines)
+            out << line << '\n';
+        if (!out)
+            throw std::runtime_error("Cannot write the mod's mod.ini");
+    }
+    fs::rename(temporary, folder / "mod.ini");
+}
+
+void delete_mod(const fs::path &directory, const std::string &id) {
+    const auto folder = directory / from_utf8(id);
+    if (id.empty() || id == "." || id == ".." || id.find_first_of("/\\") != std::string::npos ||
+        !fs::is_directory(folder))
+        throw std::runtime_error("No mod folder named " + id);
+    fs::remove_all(folder);
+    save_load_order(directory, scan_mods(directory));
 }
 
 } // namespace openkai2::mods

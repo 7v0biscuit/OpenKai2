@@ -148,6 +148,132 @@ std::optional<uint32_t> free_roster_slot(const std::vector<uint32_t> &taken) {
     return std::nullopt;
 }
 
+namespace {
+// roster.ini split into the lines before its first section and one block of
+// lines per [character] section.
+struct RosterFile {
+    std::vector<std::string> head;
+    std::vector<std::vector<std::string>> sections;
+};
+RosterFile split_roster(const fs::path &mod) {
+    RosterFile file;
+    std::ifstream in(mod / "roster.ini");
+    for (std::string line; std::getline(in, line);) {
+        if (lower(trim(line)) == "[character]")
+            file.sections.emplace_back();
+        (file.sections.empty() ? file.head : file.sections.back()).push_back(line);
+    }
+    return file;
+}
+RosterSection parse_section(const std::vector<std::string> &lines) {
+    RosterSection section;
+    for (const auto &line : lines) {
+        const auto equals = line.find('=');
+        if (equals == std::string::npos)
+            continue;
+        const auto key = lower(trim(line.substr(0, equals)));
+        auto value = trim(line.substr(equals + 1));
+        if (const auto comment = value.find(" ;"); comment != std::string::npos)
+            value = trim(value.substr(0, comment));
+        const auto number = [&]() -> std::optional<uint32_t> {
+            try {
+                return uint32_t(std::stoul(value, nullptr, 0));
+            } catch (const std::exception &) {
+                return std::nullopt;
+            }
+        };
+        if (key == "slot")
+            section.slot = number().value_or(0u);
+        else if (key == "name")
+            section.name = value;
+        else if (key == "base")
+            section.base = number();
+        else if (key == "alternate") {
+            if (const auto cell = number())
+                section.shared_cells.push_back(*cell);
+        } else if (key == "new_cell")
+            section.new_cell = lower(value) == "yes";
+        else if (key.rfind("file.", 0) == 0 && lower(value).rfind("add:", 0) == 0)
+            section.added.push_back(trim(value.substr(4)));
+    }
+    return section;
+}
+} // namespace
+
+std::vector<RosterSection> read_roster_sections(const fs::path &mod) {
+    std::vector<RosterSection> sections;
+    for (const auto &lines : split_roster(mod).sections)
+        sections.push_back(parse_section(lines));
+    return sections;
+}
+
+size_t remove_roster_character(const fs::path &mod, uint32_t slot) {
+    auto file = split_roster(mod);
+    std::vector<std::string> removed;
+    std::vector<std::vector<std::string>> kept;
+    bool found = false;
+    for (auto &lines : file.sections) {
+        const auto section = parse_section(lines);
+        if (section.slot == slot && !found) {
+            found = true;
+            removed = section.added;
+        } else
+            kept.push_back(std::move(lines));
+    }
+    if (!found)
+        throw std::runtime_error("The mod has no character with ID " + std::to_string(slot));
+    // A file another character still names stays.
+    for (const auto &lines : kept)
+        for (const auto &name : parse_section(lines).added)
+            removed.erase(std::remove_if(removed.begin(), removed.end(),
+                                         [&](const std::string &other) { return lower(other) == lower(name); }),
+                          removed.end());
+    {
+        const auto temporary = mod / "roster.ini.tmp";
+        std::ofstream out(temporary, std::ios::trunc);
+        for (const auto &line : file.head)
+            out << line << '\n';
+        for (const auto &lines : kept)
+            for (const auto &line : lines)
+                out << line << '\n';
+        if (!out)
+            throw std::runtime_error("Cannot write the mod's roster.ini");
+        out.close();
+        fs::rename(temporary, mod / "roster.ini");
+    }
+    // Added files sit in afs/<archive>/add/; their imports.txt lines go too.
+    size_t count = 0;
+    std::vector<std::string> gone;
+    std::error_code error;
+    for (fs::recursive_directory_iterator it(mod / "afs", error), end; !error && it != end; it.increment(error)) {
+        if (!it->is_regular_file(error) || lower(it->path().parent_path().filename().string()) != "add")
+            continue;
+        const auto name = lower(it->path().filename().string());
+        if (std::any_of(removed.begin(), removed.end(), [&](const std::string &file) { return lower(file) == name; }))
+            gone.push_back(it->path().string());
+    }
+    for (const auto &path : gone)
+        if (fs::remove(path, error))
+            ++count;
+    std::ifstream in(mod / "imports.txt");
+    std::vector<std::string> lines;
+    for (std::string line; std::getline(in, line);) {
+        const auto first = line.find('\t'), second = first == std::string::npos ? first : line.find('\t', first + 1);
+        const auto target = second == std::string::npos ? std::string() : lower(line.substr(first + 1, second - first - 1));
+        const auto slash = target.find_last_of("/\\");
+        const auto file = slash == std::string::npos ? target : target.substr(slash + 1);
+        if (std::none_of(removed.begin(), removed.end(), [&](const std::string &name) { return lower(name) == file; }))
+            lines.push_back(line);
+    }
+    in.close();
+    if (fs::exists(mod / "imports.txt")) {
+        std::ofstream out(mod / "imports.txt", std::ios::trunc);
+        for (const auto &line : lines)
+            out << line << '\n';
+    }
+    return count;
+}
+
 void append_roster(const fs::path &mod, const RosterCharacter &character,
                    const std::vector<std::pair<uint32_t, std::string>> &files) {
     std::ofstream out(mod / "roster.ini", std::ios::app);

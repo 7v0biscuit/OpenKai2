@@ -37,5 +37,12 @@ std::vector<std::filesystem::path> enabled_mod_folders(const std::filesystem::pa
 // `name`, and appends it to the load order. Returns the folder.
 std::filesystem::path create_mod(const std::filesystem::path &directory, const std::string &name,
                                  const std::string &author, const std::string &description);
+// Gives a mod a new name in its mod.ini; its folder keeps its name, so the
+// load order and other mods' references stay valid.
+void rename_mod(const std::filesystem::path &folder, const std::string &name);
+// Deletes a mod's folder and drops it from the load order.
+void delete_mod(const std::filesystem::path &directory, const std::string &id);
+// The folder under the mods directory that holds disc reports, not a mod.
+inline constexpr const char *reports_folder = "reports";
 
 } // namespace openkai2::mods

@@ -111,6 +111,10 @@ enum Id {
     ModName,
     ModCreate,
     OpenImporter,
+    ModContents,
+    ModRename,
+    ModDelete,
+    ModRemove,
     SourceGame = 200,
     SourceIso = 201,
     SourceFiles = 202,
@@ -468,6 +472,9 @@ struct Window {
                                                           {ModFolder, L"Open mods folder"},
                                                           {ModCreate, L"Create mod"},
                                                           {OpenImporter, L"Import tool…"},
+                                                          {ModRename, L"Rename"},
+                                                          {ModDelete, L"Delete mod"},
+                                                          {ModRemove, L"Remove character"},
                                                           {SourceGame, L"Game disc"},
                                                           {SourceIso, L"Choose ISO…"},
                                                           {ImportSelected, L"Import"},
@@ -540,6 +547,7 @@ struct Window {
             reinterpret_cast<LONG_PTR>(save_list_procedure)));
         SetPropW(controls[BackupList], L"OpenKai2.SaveListProcedure", reinterpret_cast<HANDLE>(originalList));
         list(ModList, L"Mods", 40, false);
+        list(ModContents, L"Mod contents", 30, false);
         list(SourceFiles, L"Source files", 30, false);
         list(TargetList, L"Import target", 30, false);
         edit(ModName, L"New mod name");
@@ -579,6 +587,13 @@ struct Window {
         // Mods are read when the game starts, so they change only while it is closed.
         const bool modding = !busy() && !running();
         const auto chosenMod = SendMessageW(controls[ModList], LB_GETCURSEL, 0, 0);
+        const bool modChosen = chosenMod >= 0 && size_t(chosenMod) < modList.size();
+        for (int id : {ModRename, ModDelete})
+            EnableWindow(controls[id], modding && modChosen);
+        const auto contentRow = SendMessageW(controls[ModContents], LB_GETCURSEL, 0, 0);
+        EnableWindow(controls[ModRemove], modding && modChosen && contentRow >= 0 &&
+                                              size_t(contentRow) < contentSlots.size() && contentSlots[size_t(contentRow)]);
+        EnableWindow(controls[ModContents], !busy());
         for (int id : {ModToggle, ModUp, ModDown})
             EnableWindow(controls[id], modding && chosenMod >= 0 && size_t(chosenMod) < modList.size() &&
                                            (id != ModUp || chosenMod > 0) &&
@@ -641,9 +656,17 @@ struct Window {
             const int panelBottom = h - 64;
             position(OpenImporter, right - 20 - 140, 142, 140, 36);
             position(ModFolder, right - 20 - 140 - 12 - 160, 142, 160, 36);
-            position(ModList, contentLeft + 20, 252, content - 40, std::max(80, panelBottom - 64 - 252));
+            // The load order on the left, what the chosen mod adds on the right.
+            const int half = (content - 52) / 2, contentsLeft = contentLeft + 32 + half;
+            position(ModList, contentLeft + 20, 252, half, std::max(80, panelBottom - 64 - 252));
+            position(ModContents, contentsLeft, 252, half, std::max(60, panelBottom - 112 - 252));
+            const int third = (half - 20) / 3;
+            position(ModRename, contentsLeft, panelBottom - 100, third, 36);
+            position(ModDelete, contentsLeft + third + 10, panelBottom - 100, third, 36);
+            position(ModRemove, contentsLeft + 2 * (third + 10), panelBottom - 100, half - 2 * (third + 10), 36);
             if (modList.empty())
-                ShowWindow(controls[ModList], SW_HIDE);
+                for (int id : {ModList, ModContents, ModRename, ModDelete, ModRemove})
+                    ShowWindow(controls[id], SW_HIDE);
             int x = contentLeft + 20;
             for (auto [id, width] : {std::pair{ModToggle, 150}, {ModUp, 100}, {ModDown, 110}, {ModRefresh, 90}}) {
                 position(id, x, panelBottom - 52, width, 36);
@@ -910,10 +933,15 @@ struct Window {
         text(dc, mods::default_mods_directory().make_preferred().wstring(), contentLeft + 20, 160, content - 360, 18,
              fonts.caption, muted, DT_LEFT | DT_SINGLELINE | DT_PATH_ELLIPSIS | DT_NOPREFIX);
         panelBox(dc, contentLeft, 208, right, panelBottom);
-        text(dc, L"Load order", contentLeft + 20, 220, 200, 22, fonts.strong);
-        text(dc, L"Mods load top to bottom and later ones win. Changes apply the next time the game starts.",
-             contentLeft + 130, 223, content - 150, 18, fonts.caption, muted,
-             DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        const int half = (content - 52) / 2, contentsLeft = contentLeft + 32 + half;
+        text(dc, L"Load order", contentLeft + 20, 220, 120, 22, fonts.strong);
+        text(dc, L"Top to bottom; later mods win. Applies when the game starts.", contentLeft + 130, 223, half - 110,
+             18, fonts.caption, muted, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        if (!modList.empty()) {
+            text(dc, L"What it adds", contentsLeft, 220, 140, 22, fonts.strong);
+            text(dc, L"Choose a character to remove it.", contentsLeft + 130, 223, half - 130, 18, fonts.caption, muted,
+                 DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        }
         if (modList.empty()) {
             const int bottom = std::max(320, panelBottom - 64), middle = (252 + bottom) / 2;
             box(dc, {p(contentLeft + 20), p(252), p(right - 20), p(bottom)}, field, border, 8);
@@ -1347,6 +1375,54 @@ struct Window {
         auto text = std::to_wstring(value);
         return std::wstring(text.size() < 4 ? 4 - text.size() : 0, L'0') + text;
     }
+    // What the chosen mod adds: a row per character it fills, with the spot
+    // it takes, then its file counts. contentSlots holds each row's character
+    // ID, or nothing for rows that are not characters.
+    std::vector<std::optional<uint32_t>> contentSlots;
+    void fillModContents() {
+        auto list = controls[ModContents];
+        SendMessageW(list, LB_RESETCONTENT, 0, 0);
+        contentSlots.clear();
+        const auto row = SendMessageW(controls[ModList], LB_GETCURSEL, 0, 0);
+        if (row < 0 || size_t(row) >= modList.size()) {
+            refreshEnabled();
+            return;
+        }
+        const auto &mod = modList[size_t(row)];
+        const auto add = [&](const std::wstring &label, std::optional<uint32_t> slot) {
+            SendMessageW(list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
+            contentSlots.push_back(slot);
+        };
+        std::vector<mods::RosterSection> characters;
+        try {
+            characters = mods::read_roster_sections(mod.folder);
+        } catch (const std::exception &) {
+        }
+        const auto nameOf = [&](uint32_t id) -> std::wstring {
+            const auto *character = gameRoster ? gameRoster->find(id) : nullptr;
+            return character ? wide(character->name) : L"ID " + std::to_wstring(id);
+        };
+        for (const auto &character : characters) {
+            auto label = wide(character.name.empty() ? "Character" : mods::roster_display_name(character.name)) +
+                         L"   ·   ID " + std::to_wstring(character.slot);
+            if (character.base)
+                label += L"   ·   moves of " + nameOf(*character.base);
+            if (character.new_cell)
+                label += L"   ·   own spot";
+            else if (!character.shared_cells.empty())
+                label += L"   ·   shares spot " + std::to_wstring(character.shared_cells.front() + 1);
+            add(label, character.slot);
+        }
+        if (mod.archive_entries)
+            add(std::to_wstring(mod.archive_entries) + (mod.archive_entries == 1 ? L" archive entry" : L" archive entries"),
+                std::nullopt);
+        if (mod.replaced_files)
+            add(std::to_wstring(mod.replaced_files) + (mod.replaced_files == 1 ? L" replaced file" : L" replaced files"),
+                std::nullopt);
+        if (characters.empty() && !mod.archive_entries && !mod.replaced_files)
+            add(L"Nothing yet: import into it or add files to its folder", std::nullopt);
+        refreshEnabled();
+    }
     void refreshMods(int select = -1) {
         const auto keep = SendMessageW(controls[ModList], LB_GETCURSEL, 0, 0);
         modList = mods::scan_mods(mods::default_mods_directory());
@@ -1356,15 +1432,25 @@ struct Window {
             std::wstring label = (mod.enabled ? L"On    ·   " : L"Off   ·   ") + wide(mod.name);
             if (!mod.author.empty())
                 label += L"   ·   by " + wide(mod.author);
+            size_t characters = 0;
+            try {
+                characters = mods::read_roster_sections(mod.folder).size();
+            } catch (const std::exception &) {
+            }
             const auto changes = mod.replaced_files + mod.archive_entries;
-            label += L"   ·   " + std::to_wstring(changes) + (changes == 1 ? L" change" : L" changes");
+            if (characters)
+                label += L"   ·   " + std::to_wstring(characters) + (characters == 1 ? L" character" : L" characters");
+            if (changes || !characters)
+                label += L"   ·   " + std::to_wstring(changes) + (changes == 1 ? L" file" : L" files");
             SendMessageW(list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
         }
         const int chosen = select >= 0 ? select : int(keep);
         if (chosen >= 0 && size_t(chosen) < modList.size())
             SendMessageW(list, LB_SETCURSEL, WPARAM(chosen), 0);
         if (page == modsPage)
-            ShowWindow(list, modList.empty() ? SW_HIDE : SW_SHOWNA);
+            for (int id : {ModList, ModContents, ModRename, ModDelete, ModRemove})
+                ShowWindow(controls[id], modList.empty() ? SW_HIDE : SW_SHOWNA);
+        fillModContents();
         auto target = controls[TargetMod];
         const auto previous = SendMessageW(target, CB_GETCURSEL, 0, 0);
         SendMessageW(target, CB_RESETCONTENT, 0, 0);
@@ -1871,7 +1957,7 @@ struct Window {
     void saveReport() {
         if (!source)
             return;
-        const auto folder = mods::default_mods_directory() / "reports";
+        const auto folder = mods::default_mods_directory() / mods::reports_folder;
         const auto name = sourceIdentity.serial.empty() ? utf8(source->image().stem().wstring()) : sourceIdentity.serial;
         // With Budokai 3 as the source, the report also compares its Supreme
         // Kai and Krillin meshes with your Budokai 2 disc's, word by word.
@@ -2385,6 +2471,10 @@ struct Window {
             return;
         }
         if (id == ModList && notification == LBN_SELCHANGE) {
+            fillModContents();
+            return;
+        }
+        if (id == ModContents && notification == LBN_SELCHANGE) {
             refreshEnabled();
             return;
         }
@@ -2481,6 +2571,53 @@ struct Window {
                                                   : modList[index].enabled ? L" enabled. " : L" disabled. ") +
                      L"Changes apply the next time the game starts.";
             error = false;
+        } else if (id == ModRename || id == ModDelete || id == ModRemove) {
+            const auto row = SendMessageW(controls[ModList], LB_GETCURSEL, 0, 0);
+            if (row < 0 || size_t(row) >= modList.size())
+                return;
+            const auto mod = modList[size_t(row)];
+            try {
+                if (id == ModRename) {
+                    const auto name = utf8(textOf(ModName));
+                    if (name.find_first_not_of(" \t") == std::string::npos) {
+                        status = L"Type the new name in the box beside Create mod, then press Rename.";
+                        error = true;
+                        SetFocus(controls[ModName]);
+                        refreshEnabled();
+                        return;
+                    }
+                    mods::rename_mod(mod.folder, name);
+                    SetWindowTextW(controls[ModName], L"");
+                    refreshMods(int(row));
+                    status = L"Renamed " + wide(mod.name) + L" to " + wide(name) + L".";
+                } else if (id == ModDelete) {
+                    const auto question = L"Delete " + wide(mod.name) + L"?\n\nIts folder and everything it adds are "
+                                          L"removed. This can't be undone.";
+                    if (MessageBoxW(hwnd, question.c_str(), L"Delete mod", MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) != IDYES)
+                        return;
+                    mods::delete_mod(mods::default_mods_directory(), mod.id);
+                    refreshMods(std::min(int(row), int(modList.size()) - 2));
+                    status = L"Deleted " + wide(mod.name) + L". The game starts without it next time.";
+                } else {
+                    const auto line = SendMessageW(controls[ModContents], LB_GETCURSEL, 0, 0);
+                    if (line < 0 || size_t(line) >= contentSlots.size() || !contentSlots[size_t(line)])
+                        return;
+                    const auto slot = *contentSlots[size_t(line)];
+                    const auto question = L"Remove character ID " + std::to_wstring(slot) + L" from " + wide(mod.name) +
+                                          L"?\n\nIts spot and the files only it uses are removed.";
+                    if (MessageBoxW(hwnd, question.c_str(), L"Remove character", MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) != IDYES)
+                        return;
+                    const auto files = mods::remove_roster_character(mod.folder, slot);
+                    refreshMods(int(row));
+                    status = L"Removed character ID " + std::to_wstring(slot) + L" from " + wide(mod.name) + L" (" +
+                             std::to_wstring(files) + (files == 1 ? L" file" : L" files") + L"). ID " +
+                             std::to_wstring(slot) + L" is free for the next import.";
+                }
+                error = false;
+            } catch (const std::exception &e) {
+                status = wide(e.what());
+                error = true;
+            }
         } else if (id == ModCreate) {
             const auto name = utf8(textOf(ModName));
             if (name.find_first_not_of(" \t") == std::string::npos) {

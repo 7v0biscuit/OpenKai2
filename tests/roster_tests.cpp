@@ -518,6 +518,55 @@ int main() {
                 "add: was not resolved to the added entry");
         require(free_roster_slot(roster_slots_in_use({mod})) == 13u, "A filled slot was offered again");
 
+        // A mod's characters are listed, and one can be removed with the
+        // added files only it uses and their imports.txt lines.
+        {
+            const auto two = root / "mods" / "Two";
+            const auto added_dir = two / "afs" / "USR" / "DATA_CMN.AFS" / "add";
+            fs::create_directories(added_dir);
+            for (const char *name : {"a.bin", "b.bin", "shared.bin"})
+                write(added_dir / name, Bytes(4, 1));
+            {
+                std::ofstream log(two / "imports.txt");
+                log << "character\tafs/USR/DATA_CMN.AFS/add/a.bin\tsrc#1\n"
+                    << "character\tafs/USR/DATA_CMN.AFS/add/b.bin\tsrc#2\n";
+            }
+            RosterCharacter first, second;
+            first.slot = 1;
+            first.base = 4;
+            first.name = "KULILIN A";
+            first.alternate_cells = {6};
+            second.slot = 13;
+            second.base = 0;
+            second.name = "GOKOU B";
+            second.new_cell = true;
+            append_roster(two, first, {{0x74, "add:a.bin"}, {0x78, "add:shared.bin"}});
+            append_roster(two, second, {{0x74, "add:b.bin"}, {0x78, "add:shared.bin"}, {0x7c, "412"}});
+            const auto sections = read_roster_sections(two);
+            require(sections.size() == 2 && sections[0].slot == 1 && sections[0].name == "KULILIN A" &&
+                        sections[0].base == 4u && sections[0].shared_cells == std::vector<uint32_t>{6} &&
+                        sections[0].added == std::vector<std::string>{"a.bin", "shared.bin"} && sections[1].new_cell &&
+                        sections[1].added.size() == 2,
+                    "A mod's roster sections were misread");
+            require(remove_roster_character(two, 1) == 1u && !fs::exists(added_dir / "a.bin") &&
+                        fs::exists(added_dir / "shared.bin") && fs::exists(added_dir / "b.bin"),
+                    "Removing a character removed the wrong files");
+            const auto left = read_roster_sections(two);
+            std::ifstream log(two / "imports.txt");
+            const std::string text((std::istreambuf_iterator<char>(log)), std::istreambuf_iterator<char>());
+            require(left.size() == 1 && left[0].slot == 13 && text.find("a.bin") == std::string::npos &&
+                        text.find("b.bin") != std::string::npos,
+                    "Removing a character left its section or record, or dropped another's");
+            bool refused = false;
+            try {
+                remove_roster_character(two, 1);
+            } catch (const std::runtime_error &) {
+                refused = true;
+            }
+            require(refused, "Removing a character the mod does not have was accepted");
+            fs::remove_all(two);
+        }
+
         auto memory = memory_image();
         // Goku's entries in the other tables indexed by character ID; ID 1 has
         // the unused ID's -1 for its move effects.

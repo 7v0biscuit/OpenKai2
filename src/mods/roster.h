@@ -122,6 +122,23 @@ std::optional<uint32_t> free_roster_slot(const std::vector<uint32_t> &taken);
 void append_roster(const std::filesystem::path &mod, const RosterCharacter &character,
                    const std::vector<std::pair<uint32_t, std::string>> &files);
 
+// A [character] section of a mod's roster.ini as written, for listing what
+// the mod adds; add: values are kept as the names of the files they add.
+struct RosterSection {
+    uint32_t slot = 0;
+    std::string name;
+    std::optional<uint32_t> base;
+    std::vector<uint32_t> shared_cells; // spots shared with the character there
+    bool new_cell = false;
+    std::vector<std::string> added; // files from add: values
+};
+std::vector<RosterSection> read_roster_sections(const std::filesystem::path &mod);
+// Removes the character filling `slot` from the mod's roster.ini, with the
+// added files no other character of the mod uses and their imports.txt
+// lines. Returns how many files were removed; throws if the mod has no such
+// character.
+size_t remove_roster_character(const std::filesystem::path &mod, uint32_t slot);
+
 // Reads roster.ini from each mod, in load order. "add:<name>" values are
 // resolved to the entry numbers the overlay gave those added DATA_CMN
 // entries. Throws std::runtime_error naming the file and line on bad input.

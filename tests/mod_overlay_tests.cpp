@@ -148,6 +148,27 @@ int main() {
         const auto created = create_mod(mods, "Goku SSJ4!", "Me", "Test");
         require(created.filename() == "Goku_SSJ4" && scan_mods(mods).back().name == "Goku SSJ4!",
                 "A created mod was not added to the load order");
+        // Renaming changes the shown name only; the reports folder is not a mod;
+        // deleting removes the folder and its load order line.
+        rename_mod(created, "SSJ4 Goku");
+        fs::create_directories(mods / reports_folder);
+        list = scan_mods(mods);
+        require(created.filename() == "Goku_SSJ4" && list.back().name == "SSJ4 Goku" && list.back().author == "Me" &&
+                    std::none_of(list.begin(), list.end(), [](const ModInfo &mod) { return mod.id == reports_folder; }),
+                "A renamed mod lost its folder or details, or the reports folder was listed");
+        delete_mod(mods, "Goku_SSJ4");
+        list = scan_mods(mods);
+        std::ifstream order(mods / "load-order.txt");
+        const std::string orderText((std::istreambuf_iterator<char>(order)), std::istreambuf_iterator<char>());
+        require(!fs::exists(created) && list.size() == 3 && orderText.find("Goku_SSJ4") == std::string::npos,
+                "A deleted mod was left on disk or in the load order");
+        bool refused = false;
+        try {
+            delete_mod(mods, "..");
+        } catch (const std::runtime_error &) {
+            refused = true;
+        }
+        require(refused && fs::exists(mods), "Deleting outside the mods folder was not refused");
         // The import tool reads another disc and writes its entries into a mod
         // that the overlay then applies to this one.
         SourceDisc source(image);

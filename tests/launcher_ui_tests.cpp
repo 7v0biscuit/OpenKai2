@@ -290,7 +290,14 @@ int main() {
                     require(IsWindowVisible(GetDlgItem(w,id)) && bounds.left>=0 && bounds.top>=0 &&
                             bounds.right<=client.right && bounds.bottom<=client.bottom,message);
                 };
-                for(int id=181;id<=188;++id) inside(id,"A mods control is clipped at the minimum window size");
+                for(int id=181;id<=192;++id) inside(id,"A mods control is clipped at the minimum window size");
+                // The chosen mod's contents are listed; Rename takes the name typed below.
+                require(SendMessageW(GetDlgItem(w,189),LB_GETCOUNT,0,0)==1 && !IsWindowEnabled(GetDlgItem(w,192)),
+                        "An empty mod's contents were not listed, or Remove character was enabled");
+                SetWindowTextW(GetDlgItem(w,186),L"Renamed mod");
+                click(w,190);
+                require(openkai2::mods::scan_mods(openkai2::mods::default_mods_directory())[0].name=="Renamed mod",
+                        "Renaming a mod was not saved");
                 click(w,188);
                 // Content buttons, the source and the report fit; without a disc there is nothing to import.
                 for(int id : {200,201,213,214,215,216,219,220})
