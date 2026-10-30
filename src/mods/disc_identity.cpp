@@ -257,7 +257,7 @@ DiscIdentity identify_disc(SourceDisc &disc) {
 std::string disc_report(SourceDisc &disc) {
     std::ostringstream out;
     const auto identity = identify_disc(disc);
-    out << "OpenKai2 disc report, version 9\n\nGame: " << game_name(identity.game) << "\nSerial: " << identity.serial
+    out << "OpenKai2 disc report, version 10\n\nGame: " << game_name(identity.game) << "\nSerial: " << identity.serial
         << "\nExecutable: " << identity.executable << "\n\nFiles:\n";
     char line[160];
     const auto hex = [&](const uint8_t *bytes, size_t count) {
@@ -404,7 +404,7 @@ std::string disc_report(SourceDisc &disc) {
                     const auto fields = roster->models ? character.files : costume_fields(disc, character);
                     if (!fields.empty())
                         out << "\n  " << character.name << ", entry " << fields.front().second << ":\n"
-                            << model_digest(disc, fields.front().second);
+                            << model_digest(disc, fields.front().second) << model_materials(disc, fields.front().second);
                     break;
                 }
     }

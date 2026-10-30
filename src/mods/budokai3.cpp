@@ -326,6 +326,22 @@ std::string model_digest(SourceDisc &disc, size_t entry) {
     return text;
 }
 
+std::string model_materials(SourceDisc &disc, size_t entry) {
+    if (!model_parts(disc, disc.range(roster_archive, entry)))
+        return {};
+    const auto bytes = disc.read_entry(roster_archive, entry);
+    const uint32_t mesh = read32(bytes, read32(bytes, 20));
+    std::string text;
+    char line[160];
+    for (const auto record : material_records(bytes, true)) {
+        std::snprintf(line, sizeof line, "    material at mesh +%06zX: %08X %08X %08X %08X\n", record - mesh,
+                      read32(bytes, record), read32(bytes, record + 4), read32(bytes, record + 8),
+                      read32(bytes, record + 12));
+        text += line;
+    }
+    return text;
+}
+
 void read_model_shapes(SourceDisc &game, DiscRoster &roster) {
     for (const auto &character : roster.characters) {
         const auto costumes = costume_fields(game, character);
@@ -347,6 +363,34 @@ std::vector<uint32_t> fitting_wearers(const DiscRoster &models, uint32_t model, 
     return fit;
 }
 
+std::vector<size_t> material_records(const std::vector<uint8_t> &model, bool any) {
+    // The mesh header counts its blocks at 32 and lists them from 48; a block
+    // runs to the next one or to the end of the mesh. Material records sit at
+    // 16-byte boundaries inside the blocks: flags, 0x29BD, then two texture
+    // numbers.
+    std::vector<size_t> records;
+    const uint32_t mesh = read32(model, read32(model, 20)), size = read32(model, read32(model, 20) + 4);
+    if (mesh > model.size() || size > model.size() - mesh)
+        return records;
+    const uint32_t blocks = std::min<uint32_t>(read32(model, mesh + 32), 64);
+    std::vector<uint32_t> starts;
+    for (uint32_t i = 0; i < blocks; ++i)
+        starts.push_back(read32(model, mesh + 48 + i * 4));
+    for (const auto start : starts) {
+        uint32_t end = size;
+        for (const auto other : starts)
+            if (other > start && other < end)
+                end = other;
+        for (uint32_t at = (start + 15) / 16 * 16; at + 16 <= end; at += 16) {
+            const size_t record = size_t(mesh) + at;
+            if (read32(model, record + 4) == 0x29BDu &&
+                (any || (read32(model, record) & ~budokai2_material_flag) == 0x1B5u))
+                records.push_back(record);
+        }
+    }
+    return records;
+}
+
 std::vector<uint8_t> model_for_budokai2(SourceDisc &disc, size_t entry) {
     const auto range = disc.range(roster_archive, entry);
     const auto parts = model_parts(disc, range);
@@ -356,6 +400,9 @@ std::vector<uint8_t> model_for_budokai2(SourceDisc &disc, size_t entry) {
     const size_t version = size_t(parts->second) + 12;
     if (version + 4 <= bytes.size() && read32(bytes, version) == 2)
         bytes[version] = 1;
+    // Budokai 2 sets a flag in every material that Budokai 3 leaves clear.
+    for (const auto record : material_records(bytes, false))
+        bytes[record + 1] |= uint8_t(budokai2_material_flag >> 8);
     return bytes;
 }
 

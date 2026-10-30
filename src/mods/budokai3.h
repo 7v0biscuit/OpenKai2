@@ -19,10 +19,11 @@
 //
 // A costume model is an #AMB pack of a mesh (#AMO) and its textures (#AMT) in
 // both games, and every header matches. Budokai 3 marks its textures version 2
-// where Budokai 2 uses 1; with the mark changed, Budokai 2 draws them. It draws
-// Budokai 3 meshes all black, though, so imports put the Budokai 3 textures on
-// the wearer's own Budokai 2 mesh. Movesets are not converted: the wearer keeps
-// its moves and animations.
+// where Budokai 2 uses 1; with the mark changed, Budokai 2 draws them. Budokai
+// 3 meshes leave out a flag Budokai 2 sets in every material, and Budokai 2
+// draws them black; imports put the Budokai 3 textures on the wearer's own
+// Budokai 2 mesh, and forced imports set the flag. Movesets are not converted:
+// the wearer keeps its moves and animations.
 namespace openkai2::mods {
 
 inline constexpr uint32_t budokai3_names = 0x4314B0u, budokai3_records = 0x447440u;
@@ -70,7 +71,19 @@ std::string model_contents(SourceDisc &disc, size_t entry);
 // second mesh block and the last 128 bytes of the texture pack.
 std::string model_digest(SourceDisc &disc, size_t entry);
 
-// A model entry's bytes, with Budokai 3 texture packs marked as Budokai 2's.
+// The flag Budokai 2 sets in the first word of every material record of a
+// mesh (0x21B5) and Budokai 3 leaves clear (0x01B5); without it Budokai 2
+// draws the mesh black.
+inline constexpr uint32_t budokai2_material_flag = 0x2000u;
+// Where a model's material records are: 16 bytes at a 16-byte boundary in a
+// mesh block, holding flags, 0x29BD and two texture numbers. With `any`, every
+// record with 0x29BD in its second word, whatever its flags.
+std::vector<size_t> material_records(const std::vector<uint8_t> &model, bool any);
+// A plain-text list of a model's material records, for the disc report.
+std::string model_materials(SourceDisc &disc, size_t entry);
+
+// A model entry's bytes, with Budokai 3 texture packs marked as Budokai 2's
+// and its materials given Budokai 2's flag.
 std::vector<uint8_t> model_for_budokai2(SourceDisc &disc, size_t entry);
 
 // Versions of a Budokai 3 model for finding out in game which of its parts

@@ -277,8 +277,19 @@ int main() {
         b3memory[ss4 + 4] = b3memory[ss4 + 5] = 1;
         put32(b3memory, ss4 + 8, lists + 0x100);
         put32(b3memory, lists + 0x100, 266);
+        // A model whose mesh block holds a Budokai 3 material record and
+        // another record that is not one.
+        auto materialModel = costume_model(5, 2, false, budokai3Layout);
+        put32(materialModel, 0x40 + 32, 1);
+        put32(materialModel, 0x40 + 48, 0x50);
+        for (const auto &[at, flags] : {std::pair{0x50u, 0x1B5u}, {0x60u, 0x3A7u}}) {
+            put32(materialModel, 0x40 + at, flags);
+            put32(materialModel, 0x40 + at + 4, 0x29BD);
+            put32(materialModel, 0x40 + at + 8, 3);
+        }
         write(root / "budokai3.iso", disc_image(b3memory, "SLUS_209.98", budokai3_names,
                                                 {{264, costume_model(5, 2, false, budokai3Layout)},
+                                                 {267, materialModel},
                                                  {265, costume_model(5, 2, true, {{0x14, 0x00070007}})}}));
         SourceDisc budokai3(root / "budokai3.iso");
         require(identify_disc(budokai3).game == DragonBallGame::budokai3, "The Budokai 3 disc was not identified");
@@ -337,6 +348,14 @@ int main() {
                     (*stages)[0].files[3] == std::pair<uint32_t, uint32_t>{0x4C, 5} &&
                     !read_disc_stages(budokai3),
                 "The stage table was not read");
+
+        // Budokai 3 materials get the flag Budokai 2 sets; other records stay.
+        const auto flagged = model_for_budokai2(budokai3, 267);
+        require(get32(flagged.data() + 0x90) == 0x21B5 && get32(flagged.data() + 0xA0) == 0x3A7 &&
+                    material_records(flagged, true).size() == 2 && material_records(flagged, false).size() == 1 &&
+                    model_materials(budokai3, 267).find("material at mesh +000050: 000001B5 000029BD 00000003") !=
+                        std::string::npos,
+                "Budokai 3 materials were not given Budokai 2's flag");
 
         // Versions for finding which part Budokai 2 draws wrongly.
         const auto b3model = costume_model(5, 2, false, budokai3Layout), b2model = costume_model(5, 1, false, gokuLayout);
