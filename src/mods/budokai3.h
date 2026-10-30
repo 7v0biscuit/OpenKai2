@@ -50,8 +50,14 @@ std::vector<size_t> match_textures(const std::vector<std::array<uint32_t, 2>> &m
 // Whether a model's textures can be matched to a wearer's own mesh.
 bool textures_fit(const ModelShape &model, const ModelShape &wearer);
 // A texture pack for the wearer's mesh, built from the model's pack `theirs`
-// to the layout of the wearer's pack `ours`. Throws when they do not match.
-std::vector<uint8_t> match_pack(const std::vector<uint8_t> &theirs, const std::vector<uint8_t> &ours);
+// to the layout of the wearer's pack `ours`; with `ourLighting`, the wearer's
+// own shading textures stay in place of the model's. Throws when they do not
+// match.
+std::vector<uint8_t> match_pack(const std::vector<uint8_t> &theirs, const std::vector<uint8_t> &ours,
+                                bool ourLighting = false);
+// The model's pack `theirs`, its shading textures replaced by those of the
+// wearer's pack `ours` of the same format and size, in order.
+std::vector<uint8_t> with_budokai2_lighting(const std::vector<uint8_t> &theirs, const std::vector<uint8_t> &ours);
 // The IDs of the characters in `wearers` whose mesh can wear the textures of
 // the model `model` in `models`, in roster order.
 std::vector<uint32_t> fitting_wearers(const DiscRoster &models, uint32_t model, const DiscRoster &wearers);
@@ -108,11 +114,9 @@ enum class ModelVersion {
     unchanged,          // exactly as on the Budokai 3 disc
     budokai2_textures,  // the Budokai 3 mesh with the wearer's textures
     budokai2_mesh,      // the wearer's mesh with the Budokai 3 textures matched to it
-    // To find whether the Budokai 3 mesh or its texture pack is what Budokai
-    // 2 draws wrongly, since budokai2_mesh draws right and converted does not:
-    rebuilt_pack,             // the Budokai 3 mesh with its whole pack laid out as budokai2_mesh lays it
-    budokai2_mesh_whole_pack, // the wearer's mesh with that whole pack, unmatched
-    renumbered_mesh,          // the Budokai 3 mesh with budokai2_mesh's pack, texture numbers moved to match
+    budokai2_lighting,  // budokai2_mesh, keeping the wearer's own shading textures
+    // the whole model as converted, its shading textures replaced by the wearer's
+    converted_budokai2_lighting,
 };
 std::vector<uint8_t> model_version(SourceDisc &budokai3, size_t entry, SourceDisc &game, size_t own,
                                    ModelVersion version);

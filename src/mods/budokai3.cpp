@@ -544,8 +544,18 @@ std::vector<uint8_t> join_model(const std::vector<uint8_t> &header, const std::v
     std::copy(textures.begin(), textures.end(), model.begin() + texturesAt);
     return model;
 }
+// How many bytes a texture's pixels or palette take in its pack. The header
+// gives where they start and the size of the data, but the data follows 32
+// bytes that send it to the console's video memory: three zero words, a VIF
+// DIRECT code for the GIF tag and the data, then the GIF tag's first half.
+uint32_t transfer_bytes(const std::vector<uint8_t> &pack, uint32_t at, uint32_t size) {
+    const bool sent = size % 16 == 0 && size_t(at) + 32 <= pack.size() &&
+                      read32(pack, at + 12) == (0x50000000u | (size / 16 + 1));
+    return sent && size_t(at) + size + 32 <= pack.size() ? size + 32 : size;
+}
 // A texture pack's textures: each 48-byte header, then its pixels and its
-// palette, at the offsets the header gives from the start of the pack.
+// palette, each with the 32 bytes that send it, at the offsets the header
+// gives from the start of the pack.
 struct PackTexture {
     std::vector<uint8_t> header, pixels, palette;
 };
@@ -560,11 +570,30 @@ std::vector<PackTexture> pack_textures(const std::vector<uint8_t> &pack) {
     for (uint32_t i = 0; i < count; ++i) {
         PackTexture texture;
         texture.header = slice(read32(pack, table + i * 4), 48);
-        texture.pixels = slice(read32(texture.header, 20), read32(texture.header, 24));
-        texture.palette = slice(read32(texture.header, 36), read32(texture.header, 40));
+        texture.pixels = slice(read32(texture.header, 20), transfer_bytes(pack, read32(texture.header, 20),
+                                                                          read32(texture.header, 24)));
+        texture.palette = slice(read32(texture.header, 36), transfer_bytes(pack, read32(texture.header, 36),
+                                                                           read32(texture.header, 40)));
         textures.push_back(std::move(texture));
     }
     return textures;
+}
+// Whether a texture shades the body rather than colouring it: Budokai 2 and
+// Budokai 3 mark their 256-colour shading textures with the top bit of the
+// header's second word, and keep other textures whose palette is black with
+// only the transparency changing. Each game shares its own across every
+// character, and they differ between the games.
+bool lighting_texture(const PackTexture &texture) {
+    if (read32(texture.header, 4) & 0x80000000u)
+        return true;
+    const auto &palette = texture.palette;
+    const size_t first = palette.size() >= 36 && read32(palette, 12) >> 24 == 0x50 ? 32 : 0;
+    if (palette.size() < first + 4)
+        return false;
+    for (size_t at = first; at + 4 <= palette.size(); at += 4)
+        if (read32(palette, at) & 0x00FFFFFFu)
+            return false;
+    return true;
 }
 std::vector<std::array<uint32_t, 2>> layout_of(const std::vector<PackTexture> &textures) {
     std::vector<std::array<uint32_t, 2>> layout;
@@ -574,23 +603,20 @@ std::vector<std::array<uint32_t, 2>> layout_of(const std::vector<PackTexture> &t
 }
 } // namespace
 
-std::vector<uint8_t> match_pack(const std::vector<uint8_t> &theirs, const std::vector<uint8_t> &ours) {
-    const auto source = pack_textures(theirs), wanted = pack_textures(ours);
-    const auto picks = match_textures(layout_of(source), layout_of(wanted));
-    if (picks.empty())
-        throw std::runtime_error("The textures do not match the body's textures");
-    // A pack laid out as the games lay theirs: the 32-byte header, the offset
-    // table, the texture headers, then each texture's pixels and palette at
-    // 16-byte boundaries.
+namespace {
+// A pack laid out as the games lay theirs: the 32-byte header (from `like`),
+// the offset table, the texture headers, then each texture's pixels and
+// palette at 16-byte boundaries.
+std::vector<uint8_t> build_pack(const std::vector<uint8_t> &like, const std::vector<PackTexture> &textures) {
     const auto align = [](size_t at) { return (at + 15) / 16 * 16; };
-    const uint32_t count = uint32_t(picks.size()), table = 0x20, headers = uint32_t(align(table + count * 4));
+    const uint32_t count = uint32_t(textures.size()), table = 0x20, headers = uint32_t(align(table + count * 4));
     std::vector<uint8_t> pack(align(headers + count * 48), 0);
-    std::copy(theirs.begin(), theirs.begin() + 0x20, pack.begin());
+    std::copy(like.begin(), like.begin() + 0x20, pack.begin());
     put32(pack, 12, 1); // Budokai 2's version
     put32(pack, 16, count);
     put32(pack, 20, table);
     for (uint32_t i = 0; i < count; ++i) {
-        auto header = source[picks[i]].header;
+        auto header = textures[i].header;
         put32(header, 0, i);
         const auto place = [&](const std::vector<uint8_t> &bytes) {
             const auto at = uint32_t(pack.size());
@@ -598,12 +624,48 @@ std::vector<uint8_t> match_pack(const std::vector<uint8_t> &theirs, const std::v
             pack.resize(align(pack.size()), 0);
             return at;
         };
-        put32(header, 20, place(source[picks[i]].pixels));
-        put32(header, 36, place(source[picks[i]].palette));
+        put32(header, 20, place(textures[i].pixels));
+        put32(header, 36, place(textures[i].palette));
         put32(pack, table + i * 4, headers + i * 48);
         std::copy(header.begin(), header.end(), pack.begin() + headers + i * 48);
     }
     return pack;
+}
+} // namespace
+
+std::vector<uint8_t> match_pack(const std::vector<uint8_t> &theirs, const std::vector<uint8_t> &ours,
+                                bool ourLighting) {
+    const auto source = pack_textures(theirs), wanted = pack_textures(ours);
+    const auto picks = match_textures(layout_of(source), layout_of(wanted));
+    if (picks.empty())
+        throw std::runtime_error("The textures do not match the body's textures");
+    std::vector<PackTexture> textures;
+    for (size_t i = 0; i < picks.size(); ++i)
+        textures.push_back(ourLighting && lighting_texture(wanted[i]) ? wanted[i] : source[picks[i]]);
+    return build_pack(theirs, textures);
+}
+
+std::vector<uint8_t> with_budokai2_lighting(const std::vector<uint8_t> &theirs, const std::vector<uint8_t> &ours) {
+    auto textures = pack_textures(theirs);
+    const auto own = pack_textures(ours);
+    // The n-th shading texture of a format and size takes the wearer's n-th
+    // of that format and size, or its last one.
+    std::map<std::array<uint32_t, 2>, size_t> seen;
+    for (auto &texture : textures) {
+        if (!lighting_texture(texture))
+            continue;
+        const auto shape = layout_of({texture}).front();
+        std::vector<const PackTexture *> candidates;
+        for (const auto &mine : own)
+            if (lighting_texture(mine) && layout_of({mine}).front() == shape)
+                candidates.push_back(&mine);
+        if (candidates.empty())
+            continue;
+        const auto *pick = candidates[std::min(seen[shape]++, candidates.size() - 1)];
+        texture.pixels = pick->pixels;
+        texture.palette = pick->palette;
+    }
+    return build_pack(theirs, textures);
 }
 
 std::vector<uint8_t> model_version(SourceDisc &budokai3, size_t entry, SourceDisc &game, size_t own,
@@ -624,32 +686,10 @@ std::vector<uint8_t> model_version(SourceDisc &budokai3, size_t entry, SourceDis
     switch (version) {
     case ModelVersion::budokai2_textures:
         return join_model(theirs, theirMesh, ourTextures);
-    case ModelVersion::rebuilt_pack:
-        return join_model(ours, theirMesh, match_pack(theirTextures, theirTextures));
-    case ModelVersion::budokai2_mesh_whole_pack:
-        return join_model(ours, ourMesh, match_pack(theirTextures, theirTextures));
-    case ModelVersion::renumbered_mesh: {
-        // The wearer's matched pack, with each material's texture numbers
-        // moved to where their textures went; a texture the pack left out
-        // becomes the first kept one of its format and size.
-        const auto source = pack_textures(theirTextures);
-        const auto picks = match_textures(layout_of(source), layout_of(pack_textures(ourTextures)));
-        auto model = join_model(ours, theirMesh, match_pack(theirTextures, ourTextures));
-        const auto renumber = [&](uint32_t texture) {
-            for (size_t i = 0; i < picks.size(); ++i)
-                if (picks[i] == texture)
-                    return uint32_t(i);
-            if (texture < source.size())
-                for (size_t i = 0; i < picks.size(); ++i)
-                    if (layout_of({source[picks[i]]}) == layout_of({source[texture]}))
-                        return uint32_t(i);
-            return 0u;
-        };
-        for (const auto record : material_records(model, true))
-            for (const size_t at : {record + 8, record + 12})
-                put32(model, at, renumber(read32(model, at)));
-        return model;
-    }
+    case ModelVersion::budokai2_lighting:
+        return join_model(ours, ourMesh, match_pack(theirTextures, ourTextures, true));
+    case ModelVersion::converted_budokai2_lighting:
+        return join_model(theirs, theirMesh, with_budokai2_lighting(theirTextures, ourTextures));
     default:
         return join_model(ours, ourMesh, match_pack(theirTextures, ourTextures));
     }

@@ -1058,10 +1058,11 @@ struct Window {
             if (selected(SpotMode) == compareVersions)
                 return L"Adds four versions of " + wide(character->name) + L" worn by " + wide(occupant->name) +
                        L", sharing spot " + std::to_wstring(row + 1) +
-                       L". R2 goes through them in order: E the Budokai 3 body with all its textures repacked, F " +
-                       wide(occupant->name) + L"'s body with all those textures, G the Budokai 3 body with D's "
-                       L"textures, D " + wide(occupant->name) + L"'s body (the normal import). Uses four character IDs. " +
-                       into;
+                       L". R2 goes through them in order: D " + wide(occupant->name) +
+                       L"'s body with the Budokai 3 textures (the normal import), H the same keeping " +
+                       wide(occupant->name) + L"'s shading textures, J the whole Budokai 3 model with " +
+                       wide(occupant->name) + L"'s shading textures, A the whole model as forced. Uses four "
+                       L"character IDs. " + into;
             return wearer + (selected(SpotMode) == 1
                                  ? L" with a new spot of its own before Random (experimental). "
                                  : L" sharing spot " + std::to_wstring(row + 1) + L"; R2 switches. ") +
@@ -1663,10 +1664,10 @@ struct Window {
         const bool compare = selected(SpotMode) == compareVersions, newSpot = selected(SpotMode) == 1 || force;
         using Version = mods::ModelVersion;
         const std::vector<std::pair<Version, const char *>> versions =
-            compare ? std::vector<std::pair<Version, const char *>>{{Version::rebuilt_pack, "E"},
-                                                                     {Version::budokai2_mesh_whole_pack, "F"},
-                                                                     {Version::renumbered_mesh, "G"},
-                                                                     {Version::budokai2_mesh, "D"}}
+            compare ? std::vector<std::pair<Version, const char *>>{{Version::budokai2_mesh, "D"},
+                                                                     {Version::budokai2_lighting, "H"},
+                                                                     {Version::converted_budokai2_lighting, "J"},
+                                                                     {Version::converted, "A"}}
                     : std::vector<std::pair<Version, const char *>>{{force ? Version::converted : Version::budokai2_mesh, ""}};
         std::vector<std::filesystem::path> folders;
         for (const auto &mod : modList)

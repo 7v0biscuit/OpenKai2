@@ -418,19 +418,15 @@ int main() {
                     get32(withOurMesh.data() + matched + 12) == 1 && get32(withOurMesh.data() + matched + 16) == 2 &&
                     piece(withOurMesh, matched, 12) == piece(theirTextures, 0, 12),
                 "The Budokai 2 mesh with Budokai 3 textures is wrong");
-        // E, F and G: the whole pack repacked onto either mesh, and the
-        // Budokai 3 mesh with D's pack.
-        const auto rebuiltPack = model_version(budokai3, 264, gameDisc, 171, ModelVersion::rebuilt_pack);
-        const auto wholeOnOurs = model_version(budokai3, 264, gameDisc, 171, ModelVersion::budokai2_mesh_whole_pack);
-        const auto renumbered = model_version(budokai3, 264, gameDisc, 171, ModelVersion::renumbered_mesh);
+        // The versions keeping the wearer's shading textures.
+        const auto lit = model_version(budokai3, 264, gameDisc, 171, ModelVersion::budokai2_lighting);
+        const auto wholeLit = model_version(budokai3, 264, gameDisc, 171, ModelVersion::converted_budokai2_lighting);
         const auto packCount = [](const Bytes &model) { return get32(model.data() + get32(model.data() + 0x30) + 16); };
-        require(piece(rebuiltPack, 0x40, meshBytes) == piece(b3model, mesh, meshBytes) &&
-                    packCount(rebuiltPack) == packCount(expected) && packCount(rebuiltPack) > packCount(withOurMesh) &&
-                    piece(wholeOnOurs, 0x40, meshBytes) == piece(b2model, mesh, meshBytes) &&
-                    packCount(wholeOnOurs) == packCount(expected) &&
-                    piece(renumbered, 0x40, meshBytes) == piece(b3model, mesh, meshBytes) &&
-                    packCount(renumbered) == packCount(withOurMesh),
-                "The versions for finding the black bodies are wrong");
+        require(piece(lit, 0x40, meshBytes) == piece(b2model, mesh, meshBytes) &&
+                    packCount(lit) == packCount(withOurMesh) &&
+                    piece(wholeLit, 0x40, meshBytes) == piece(b3model, mesh, meshBytes) &&
+                    packCount(wholeLit) == packCount(expected),
+                "The versions keeping Budokai 2's shading textures are wrong");
 
         // Matching: the wearer's slots take the model's textures in order,
         // skipping extras, and the pack is rebuilt to the wearer's layout.
@@ -464,6 +460,46 @@ int main() {
                     rebuilt[get32(rebuilt.data() + second + 36)] == 0x53 && get32(rebuilt.data() + second + 20) % 16 == 0,
                 "The matched texture pack is wrong");
         require(model_shape(budokai3, 264) && !model_shape(budokai3, 266), "A model's shape was misread");
+
+        // Pixels and palettes follow the 32 bytes that send them to video
+        // memory, which the header's sizes leave out; all of it is carried
+        // over. Shading textures (top bit of the second header word) stay the
+        // wearer's when asked.
+        const auto sentPack = [&](const Layout &layout, uint8_t fill, int shading) {
+            auto model = costume_model(1, 2, false, layout);
+            const uint32_t at = get32(model.data() + 0x30);
+            Bytes pack(model.begin() + at, model.end());
+            pack.resize((pack.size() + 15) / 16 * 16, 0);
+            for (uint32_t i = 0; i < layout.size(); ++i) {
+                const uint32_t header = get32(pack.data() + 0x20 + i * 4);
+                if (int(i) == shading)
+                    put32(pack, header + 4, 0x80000001);
+                for (const uint32_t field : {20u, 36u}) {
+                    put32(pack, header + field, uint32_t(pack.size()));
+                    put32(pack, header + field + 4, 32);
+                    Bytes sent(32, 0);
+                    put32(sent, 12, 0x50000003);
+                    pack.insert(pack.end(), sent.begin(), sent.end());
+                    pack.insert(pack.end(), 32, uint8_t(fill + (field == 36 ? 0x40 : 0) + i));
+                }
+            }
+            return pack;
+        };
+        const auto sentTheirs = sentPack({{0x14, 8}, {0x13, 6}}, 0x10, 1);
+        const auto sentOurs = sentPack({{0x14, 8}, {0x13, 6}}, 0x80, 1);
+        const auto keptAll = match_pack(sentTheirs, sentOurs), keptLight = match_pack(sentTheirs, sentOurs, true);
+        const auto texel = [](const Bytes &pack, uint32_t texture, uint32_t field, uint32_t at) {
+            return pack[get32(pack.data() + get32(pack.data() + 0x20 + texture * 4) + field) + at];
+        };
+        require(texel(keptAll, 0, 20, 63) == 0x10 && texel(keptAll, 0, 36, 63) == 0x50 &&
+                    get32(keptAll.data() + get32(keptAll.data() + 0x20) + 36) -
+                            get32(keptAll.data() + get32(keptAll.data() + 0x20) + 20) == 64 &&
+                    texel(keptAll, 1, 20, 40) == 0x11 && texel(keptLight, 1, 20, 40) == 0x81 &&
+                    texel(keptLight, 1, 36, 63) == 0xC1 && texel(keptLight, 0, 20, 40) == 0x10,
+                "Texture data was cut short, or the shading texture was not kept");
+        const auto relit = with_budokai2_lighting(sentTheirs, sentOurs);
+        require(texel(relit, 1, 20, 40) == 0x81 && texel(relit, 0, 20, 40) == 0x10,
+                "The model's shading texture was not replaced by the wearer's");
 
         // A mod fills Zarbon's unused record from Goku's and puts it on the grid.
         const auto mod = root / "mods" / "SSJ4";

@@ -126,14 +126,12 @@ Krillin's and Supreme Kai's material records in both games.
 characters sharing the chosen spot, in this order after the character already
 there, to see in game which part Budokai 2 draws wrongly:
 
-- **E**: the Budokai 3 mesh with its whole texture pack, laid out as D lays
-  its pack;
-- **F**: the wearer's own Budokai 2 mesh with that whole pack, unmatched, so
-  colours may land in the wrong places;
-- **G**: the Budokai 3 mesh with D's pack, its materials' texture numbers moved
-  to where their textures went;
 - **D**: the wearer's own Budokai 2 mesh with the Budokai 3 textures matched
-  to it, as a normal import does.
+  to it, as a normal import does;
+- **H**: D, keeping the wearer's own shading textures;
+- **J**: the whole Budokai 3 model, its shading textures replaced by the
+  wearer's;
+- **A**: the whole Budokai 3 model, as a forced import uses it.
 
 Press R2 on the spot to go through them. The message after importing, and
 the `[mods] select:` lines in `startup.log`, give each version's character ID.
@@ -148,9 +146,19 @@ not vertex data. Supreme Kai's differ only in the material flag, texture
 numbers and bit `0x20` in some draw records of the mesh's first block
 (`9000022C` where Budokai 3 has `9000020C`): 27 of 55 in Budokai 2. Krillin's
 Budokai 2 mesh sets it in none of its 50, so that bit is a per-model setting;
-v0.1.55 set it in every draw record, and v0.1.56 no longer does. E, F and G
-tell apart whether the Budokai 3 mesh or its texture pack is what Budokai 2
-draws wrongly.
+v0.1.55 set it in every draw record, and v0.1.56 no longer does.
+
+In v0.1.56 every repacked version was black, D included, while a plain copy
+of a Budokai 2 character drew right. Repacking cut each texture's pixels and
+palette 32 bytes short: the header gives their size without the 32 bytes in
+front that send them to video memory (three zero words, a VIF `DIRECT` code
+and half a GIF tag), so the last 32 bytes of every pixel block and palette
+were lost, half of a 16-colour palette. v0.1.57 carries them over.
+
+Shading textures are the 256-colour textures marked by the top bit of the
+header's second word, and textures whose palette is black with only the
+transparency changing. Each game shares its own across all its characters,
+and the two games' differ.
 
 ### What can be imported so far
 
