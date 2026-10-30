@@ -58,48 +58,52 @@ At the top, choose what to add: **Characters**, **Stages**, **Movesets** or
 
 With a Budokai 3 USA disc (SLUS-20998) as the source, the list on the left
 holds Budokai 3's character models, one row per form or costume, such as
-"Goku, model 3". A model is worn by a Budokai 2 character:
+"Goku, model 3". Budokai 2 draws Budokai 3 meshes all black, so the tool
+brings over a model's textures and puts them on a Budokai 2 character's own
+body:
 
 1. **Choose a model** on the left.
-2. On the right, **choose who wears it**: a spot whose character has the same
-   body. The new character is a copy of that character, with its moves,
-   animations and voice, wearing the Budokai 3 model in every costume.
+2. On the right, **choose who wears it**. The new character is a copy of that
+   Budokai 2 character, with its body, moves, animations and voice, wearing
+   the Budokai 3 textures in every costume.
 3. Choose **Share a spot** or **Add a new spot**, and where to save, as for
    characters, then press **Import**.
 
-The tool compares the two models: their parts must link the same way, or the
-Budokai 2 character's animations cannot move the model. Each model in the list
-says who can wear it ("fits Goku") or "no Budokai 2 match", and choosing a
-model marks the spots that fit and moves to the first. When the chosen
-character can't wear it, the sentence beside **Import** says why and Import
-stays off. Budokai 3 remade many characters' models, Goku's among them, so the
-same character in both games often does not fit. The disc report lists each
-model's part count and a check value; models with the same value fit.
+The textures must line up with the wearer's body: the wearer's textures must
+have the same formats and sizes, in order, as the model's first textures, or
+they would land in the wrong places. Extra Budokai 3 textures are left
+unused. Each model in the list says who it fits ("fits Krillin") or "no
+Budokai 2 match", and choosing a model marks the spots that fit and moves to
+the first. When the chosen character doesn't fit, the sentence beside
+**Import** says why and Import stays off. Usually the same character in both
+games fits. Budokai 3 marks its textures version 2; they are marked version 1,
+the version Budokai 2 uses, and their layout matches Budokai 2's.
 
-The model's mesh is copied as it is. Its textures are marked version 1, the
-version Budokai 2 uses; their headers match Budokai 2's exactly in every
-report so far. Budokai 3 models have not been tried in game yet: if one shows
-wrongly or the game stops, report it with `startup.log`.
+The disc report lists each model's part count and a check value of how its
+parts link, for the work on converting Budokai 3 meshes.
 
-Budokai 3 models are drawn black in game so far, while a Budokai 2 character
-copied the same way looks normal. To find out which part of the model Budokai
-2 draws wrongly, choose **Compare 4 versions (test)** under **On the select
-screen**. The tool adds four characters sharing the chosen spot, in this
-order after the character already there:
+#### Comparing versions
 
-- **A**: the model as normally imported, its textures marked version 1;
+**Compare 4 versions (test)** under **On the select screen** adds four
+characters sharing the chosen spot, in this order after the character already
+there, to see in game which part Budokai 2 draws wrongly:
+
+- **A**: the whole Budokai 3 model, its textures marked version 1;
 - **B**: the model exactly as on the Budokai 3 disc;
 - **C**: the Budokai 3 mesh with the wearer's own Budokai 2 textures;
-- **D**: the wearer's own Budokai 2 mesh with the Budokai 3 textures.
+- **D**: the wearer's own Budokai 2 mesh with the Budokai 3 textures, as a
+  normal import does.
 
 Press R2 on the spot to go through them. The message after importing, and
 the `[mods] select:` lines in `startup.log`, give each version's character ID.
+In the first test only D looked right: A, B and C, which use the Budokai 3
+mesh, were black.
 
 ### What can be imported so far
 
 | Content    | Budokai 2 | Budokai | Budokai 3 | Infinite World |
 |------------|-----------|---------|-----------|----------------|
-| Characters | Yes       | Not yet | Models    | Not yet        |
+| Characters | Yes       | Not yet | Textures  | Not yet        |
 | Stages     | Not yet   | Not yet | Not yet   | Not yet        |
 | Movesets   | Not yet   | Not yet | Not yet   | Not yet        |
 | Capsules   | Not yet   | Not yet | Not yet   | Not yet        |
