@@ -81,6 +81,20 @@ version Budokai 2 uses; their headers match Budokai 2's exactly in every
 report so far. Budokai 3 models have not been tried in game yet: if one shows
 wrongly or the game stops, report it with `startup.log`.
 
+Budokai 3 models are drawn black in game so far, while a Budokai 2 character
+copied the same way looks normal. To find out which part of the model Budokai
+2 draws wrongly, choose **Compare 4 versions (test)** under **On the select
+screen**. The tool adds four characters sharing the chosen spot, in this
+order after the character already there:
+
+- **A**: the model as normally imported, its textures marked version 1;
+- **B**: the model exactly as on the Budokai 3 disc;
+- **C**: the Budokai 3 mesh with the wearer's own Budokai 2 textures;
+- **D**: the wearer's own Budokai 2 mesh with the Budokai 3 textures.
+
+Press R2 on the spot to go through them. The message after importing, and
+the `[mods] select:` lines in `startup.log`, give each version's character ID.
+
 ### What can be imported so far
 
 | Content    | Budokai 2 | Budokai | Budokai 3 | Infinite World |
