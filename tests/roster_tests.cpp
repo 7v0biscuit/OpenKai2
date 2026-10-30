@@ -389,7 +389,9 @@ int main() {
         Bytes stageTextures = marked("#AMT", 0);
         put32(stageTextures, 12, 2);
         const auto stageAmb = amb({stageTextures});
-        const auto firstPack = amb({marked("#MDD", 1), marked("#MAD", 2), marked("#MAS", 3), marked("#SPX", 4), stageAmb});
+        // Budokai 3's stage pack also holds #AME particle files, which are dropped.
+        const auto firstPack = amb({marked("#MDD", 1), marked("#MAD", 2), marked("#MAS", 3), marked("#SPX", 4),
+                                    amb({marked("#AME", 9), stageTextures, marked("#AME", 10)})});
         const auto secondPack = amb({Bytes(20, 6), marked("IECS", 7), marked("IECS", 8)});
         write(root / "b3stages.iso", disc_image(b3stages, "SLUS_209.98", budokai3_names, {{100, firstPack}, {101, secondPack}}));
         SourceDisc b3stageDisc(root / "b3stages.iso");
@@ -409,7 +411,8 @@ int main() {
         for (const auto &file : stageFiles)
             offsets.push_back(file.first);
         require(offsets == std::vector<uint32_t>{0x40, 0x44, 0x48, 0x4C, 0x50, 0x54, 0x58, 0x5C} &&
-                    stageFiles[0].second[4] == 1 && stageFiles[3].second.size() == stageAmb.size() &&
+                    stageFiles[0].second[4] == 1 && stageFiles[3].second.size() == 0x70 && get32(stageFiles[3].second.data() + 16) == 1 &&
+                    get32(stageFiles[3].second.data() + 0x24) == 32 && unloadable_pack_files(stageFiles[3].second).empty() &&
                     std::memcmp(stageFiles[3].second.data(), "#AMB", 4) == 0 && stageFiles[4].second[4] == 4 &&
                     get32(stageFiles[3].second.data() + get32(stageFiles[3].second.data() + 0x20) + 12) == 1 &&
                     stageFiles[5].second == Bytes(20, 6) && stageFiles[7].second[4] == 8,
@@ -419,6 +422,30 @@ int main() {
                     unloadable_pack_files(amb({stageTextures, marked("#AMX", 0)})) == std::vector<std::string>{"#AMX"} &&
                     budokai3_stage_problem(b3stageDisc, (*b3list)[2]),
                 "Stage files Budokai 2 can't load were not found, or a loadable stage was refused");
+        // Dropping files keeps the rest in order at 16-byte boundaries, with
+        // their records' other words.
+        {
+            auto pack = amb({marked("#AME", 1), marked("#AMG", 2), Bytes(20, 3), marked("#AMO", 4)});
+            put32(pack, 0x3C, 0x1234);
+            put32(pack, 8, uint32_t(pack.size()));
+            const auto kept = without_unloadable_files(pack);
+            const auto files = [&](const Bytes &bytes) {
+                std::vector<std::string> marks;
+                for (uint32_t i = 0; i < get32(bytes.data() + 16); ++i) {
+                    const uint32_t at = get32(bytes.data() + 0x20 + 16 * i);
+                    require(at % 16 == 0 && at + get32(bytes.data() + 0x24 + 16 * i) <= bytes.size(), "A kept file ran past its pack");
+                    marks.emplace_back(reinterpret_cast<const char *>(bytes.data() + at), 4);
+                }
+                return marks;
+            };
+            require(files(kept) == std::vector<std::string>{"#AMG", "#AMO"} && get32(kept.data() + 8) == kept.size() && get32(kept.data() + 0x2C) == 0x1234 &&
+                        kept.size() < pack.size() && without_unloadable_files(stageAmb) == stageAmb &&
+                        without_unloadable_files(Bytes(20, 6)) == Bytes(20, 6),
+                    "Files Budokai 2 can't load were not dropped from a pack, or the rest moved wrongly");
+            const auto shorter = without_unloadable_files(amb({marked("#AMG", 2), marked("#AME", 1)}));
+            require(get32(shorter.data() + 0x30) == 0 && get32(shorter.data() + 0x34) == 0 && shorter.size() == 0x60,
+                    "A dropped file's record was left behind");
+        }
         bool unpackRefused = false;
         try {
             budokai3_stage_files(b3stageDisc, (*b3list)[2]);

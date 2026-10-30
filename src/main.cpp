@@ -228,8 +228,7 @@ int main(int argc, char* argv[]) {
         const auto stages=openkai2::mods::load_stage_mods(mods,applied,&stageNotes);
         for (const auto& note : stageNotes) std::cout << "[mods] " << note << std::endl;
         if (!openkai2::mods::stage_mods_enabled && !stages.empty())
-            std::cout << "[mods] stage: " << stages.size() << " stage mod(s) not applied; Budokai 3 stages froze the game "
-                         "and stay off until their files are converted" << std::endl;
+            std::cout << "[mods] stage: " << stages.size() << " stage mod(s) not applied; stage mods are turned off" << std::endl;
         else
             for (const auto& line : openkai2::mods::apply_stage_mods(runtime.memory().getRDRAM(),PS2_RAM_SIZE,stages))
                 std::cout << "[mods] " << line << std::endl;

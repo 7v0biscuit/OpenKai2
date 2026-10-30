@@ -69,6 +69,10 @@ uint32_t get32(const std::vector<uint8_t> &bytes, size_t at) {
     return at + 4 <= bytes.size() ? bytes[at] | bytes[at + 1] << 8 | bytes[at + 2] << 16 | uint32_t(bytes[at + 3]) << 24
                                   : 0u;
 }
+void put32(std::vector<uint8_t> &bytes, size_t at, uint32_t value) {
+    for (int i = 0; i < 4; ++i)
+        bytes[at + i] = uint8_t(value >> (8 * i));
+}
 // stages.ini split into the lines before the first section and each section.
 struct StageFile {
     std::vector<std::string> head;
@@ -135,6 +139,48 @@ void texture_version_1(std::vector<uint8_t> &file) {
     }
 }
 } // namespace
+
+std::vector<uint8_t> without_unloadable_files(const std::vector<uint8_t> &pack) {
+    if (pack.size() < 32 || std::memcmp(pack.data(), "#AMB", 4) != 0)
+        return pack;
+    const uint32_t count = get32(pack, 16), records = get32(pack, 20);
+    if (count > 64 || records < 24 || records + uint64_t(count) * 16 > pack.size())
+        throw std::runtime_error("A Budokai 3 stage pack's records run past its end");
+    const auto loadable = [&](uint32_t at) {
+        return at + 4 <= pack.size() && pack[at] == '#' &&
+               std::any_of(std::begin(budokai2_pack_kinds), std::end(budokai2_pack_kinds),
+                           [&](const char *kind) { return std::memcmp(pack.data() + at + 1, kind, 3) == 0; });
+    };
+    // The header and record table stay where they are; the files kept follow
+    // them again at 16-byte boundaries, with their records moved up.
+    uint32_t start = records + count * 16;
+    for (uint32_t i = 0; i < count; ++i)
+        if (const uint32_t size = get32(pack, records + i * 16 + 4); size)
+            start = std::min(start, get32(pack, records + i * 16));
+    start = std::max(start, records + count * 16);
+    std::vector<uint8_t> out(pack.begin(), pack.begin() + start);
+    std::fill(out.begin() + records, out.begin() + records + count * 16, 0);
+    uint32_t kept = 0;
+    for (uint32_t i = 0; i < count; ++i) {
+        const uint32_t at = get32(pack, records + i * 16), size = get32(pack, records + i * 16 + 4);
+        if (at > pack.size() || size > pack.size() - at)
+            throw std::runtime_error("A Budokai 3 stage file runs past its pack");
+        if (size && !loadable(at))
+            continue;
+        out.resize((out.size() + 15) / 16 * 16, 0);
+        std::copy(pack.begin() + records + i * 16, pack.begin() + records + i * 16 + 16, out.begin() + records + kept * 16);
+        put32(out, records + kept * 16, size ? uint32_t(out.size()) : 0);
+        out.insert(out.end(), pack.begin() + at, pack.begin() + at + size);
+        ++kept;
+    }
+    out.resize((out.size() + 15) / 16 * 16, 0);
+    put32(out, 16, kept);
+    // A header word that held the pack's size holds the new one.
+    for (uint32_t word = 4; word < 32; word += 4)
+        if (word != 16 && word != 20 && get32(pack, word) == pack.size())
+            put32(out, word, uint32_t(out.size()));
+    return out;
+}
 
 std::vector<std::string> unloadable_pack_files(const std::vector<uint8_t> &pack) {
     std::vector<std::string> marks;
@@ -207,7 +253,7 @@ std::vector<StageMod> load_stage_mods(const std::vector<fs::path> &mods, const D
                     if (const auto marks = unloadable_pack_files(bytes); !marks.empty()) {
                         if (notes)
                             notes->push_back("stage: skipped " + current->name + " (" + where + "): its pack holds " +
-                                             marks.front() + " files, which Budokai 2 can't load");
+                                             marks.front() + " files, which Budokai 2 can't load; import the stage again");
                         current.reset();
                         packNames.clear();
                         return;
@@ -304,7 +350,7 @@ std::vector<std::string> apply_stage_mods(uint8_t *memory, size_t bytes, const s
         for (unsigned i = 0; i < 4; ++i)
             record[stage_variant + i] = 0;
         log.push_back("stage: record " + std::to_string(stage.slot) + " is " + name + " (was " + previous +
-                      "), with its own files");
+                      "), with its own files (experimental)");
     }
     return log;
 }
@@ -382,7 +428,7 @@ std::vector<std::pair<uint32_t, std::vector<uint8_t>>> budokai3_stage_files(Sour
         });
         if (found == first.end())
             throw std::runtime_error("The stage " + stage.internal + " has no " + mark + " file");
-        auto bytes = *found;
+        auto bytes = without_unloadable_files(*found);
         texture_version_1(bytes);
         files.push_back({offset, std::move(bytes)});
     }

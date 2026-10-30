@@ -44,10 +44,10 @@ struct DiscStage {
 // A stage mod turns one of them into an imported stage: its own eight files,
 // a name, and 0 at 0x60. No stage with files of its own is lost.
 inline constexpr uint32_t stage_first_variant = 9u;
-// Stage mods are not applied and the import tool does not offer stage
-// imports: a Budokai 3 stage loaded this way froze the game (it jumped to
-// 0x231712 while loading), so its files need converting first.
-inline constexpr bool stage_mods_enabled = false;
+// Stage mods are applied and the import tool offers stage imports. Still
+// experimental: a Budokai 3 stage froze the game until its #AME particle
+// files were dropped from its pack (Budokai 2's loader jumped to 0x231712).
+inline constexpr bool stage_mods_enabled = true;
 
 // A [stage] section of a mod's stages.ini, with add: values resolved to the
 // DATA_CMN entries the overlay gave them.
@@ -94,6 +94,10 @@ inline constexpr const char *budokai2_pack_kinds[] = {"AMG", "AMT", "AMM", "AMO"
 // The marks of the files in an #AMB pack that Budokai 2 cannot load, e.g.
 // "#AMX"; empty when it can load them all.
 std::vector<std::string> unloadable_pack_files(const std::vector<uint8_t> &pack);
+// The #AMB pack without the files Budokai 2 cannot load, such as Budokai 3's
+// #AME particle emitters, the rest moved up in record order. Anything that is
+// not an #AMB comes back as it is.
+std::vector<uint8_t> without_unloadable_files(const std::vector<uint8_t> &pack);
 // Why a Budokai 3 stage can't be imported, or nothing when it can.
 std::optional<std::string> budokai3_stage_problem(SourceDisc &disc, const DiscStage &stage);
 

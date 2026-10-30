@@ -1023,16 +1023,14 @@ struct Window {
                             L" can't be imported yet: its character tables aren't mapped." + mapping);
             else if (stageImport()) {
                 const int half = (content - 52) / 2;
-                caps(dc, L"1   CHOOSE A STAGE", contentLeft + 20, 278, half, orange);
+                caps(dc, L"1   CHOOSE A STAGE (EXPERIMENTAL)", contentLeft + 20, 278, half, orange);
                 caps(dc, L"2   CHOOSE WHICH STAGE IT REPLACES", contentLeft + 32 + half, 278, content - 52 - half, orange);
             } else if (stageView) {
                 const int half = (content - 52) / 2;
                 text(dc,
                      L"This disc has " + std::to_wstring(sourceStages->size()) + L" stages. " +
                          (sourceIdentity.game == mods::DragonBallGame::budokai3 && !mods::stage_mods_enabled
-                              ? std::wstring(L"Budokai 3 stages can't be imported yet. Their files load differently "
-                                             L"in Budokai 2 and froze the game, so stage imports are off until they "
-                                             L"can be converted. Stage mods made with v0.1.59 are not applied.")
+                              ? std::wstring(L"Budokai 3 stages can't be imported in this version.")
                           : sourceIdentity.game == mods::DragonBallGame::budokai3
                               ? std::wstring(L"Stages can be added once your Budokai 2 disc has been read: verify it "
                                              L"on the Play page, then open the import tool again.")
@@ -1129,7 +1127,8 @@ struct Window {
                                                                          : std::wstring(L"Saved as a new mod.");
         return wide(mods::stage_display_name(stage.internal)) + L" from Budokai 3 replaces " + stageName(record) +
                L", a copy of another stage, so no stage is lost. Choose " + stageName(record) +
-               L" on the stage select screen to play it. " + into;
+               L" on the stage select screen to play it. Stage imports are experimental: its particle effects "
+               L"are left out, and if the fight doesn't load, remove the stage on the Mods page. " + into;
     }
     std::wstring plan() const {
         const auto *character = sourceCharacter();

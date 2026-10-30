@@ -321,13 +321,16 @@ current stage's index at `0x373C60` and `0x373CAC`.
 
 ### Stage mods
 
-**Turned off since v0.1.61.** A Budokai 3 stage imported this way froze the
-game when chosen: first at Budokai 2's pack loader (`0x12A75C` calling
-address 0), then with a jump to `0x231712`. Its files need converting before
-Budokai 2 can load them, so stage mods are read but not applied
-(`stage_mods_enabled` in `src/mods/stages.h`), and the import tool's Stages
-tab only lists stages. What follows describes the format for when they are
-converted.
+**Experimental since v0.1.62.** Budokai 3 stage packs hold `#AME` particle
+emitter files, a kind Budokai 2's pack loader (`0x12A680`) has no handler
+for: it looks each file's mark up in the table at `0x33D680` and, finding
+none, called address 0 or garbage (`0x231712`), which froze the game. The
+import tool now drops those files from the `#AMB` pack (the rest move up in
+record order at 16-byte boundaries), so the stage loads without its particle
+effects. Stage mods holding a pack with a kind the table lacks are still
+skipped with a startup log line; ones made with v0.1.59 to v0.1.61 need
+importing again. `stage_mods_enabled` in `src/mods/stages.h` turns stage
+mods off.
 
 The four B stages (records 9 to 12: ISLAND B, TOWN B, R&R BASE B and SNOW B)
 reuse another stage's files and differ from it only in the word at `0x60`, so
