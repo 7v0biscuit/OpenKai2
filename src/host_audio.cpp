@@ -231,6 +231,56 @@ int test_host_audio() {
             }
         }
         require(gaps == 0u && slowest > 0.7, "Audio at 93% speed lost its tempo or ran dry");
+        // A full-speed game that hitches for 100 ms every two seconds, then
+        // catches up: the buffer absorbs each stall, the tempo never moves and
+        // the stretcher is never used.
+        auto hitching = std::make_unique<Output>();
+        played = 0;
+        gaps = 0;
+        bool touched = false;
+        for (unsigned step = 0; step < 1500u; ++step) {
+            const unsigned phase = step % 94u;
+            const size_t count = phase < 5u ? 0u : phase == 5u ? 1024u * 6u : 1024u;
+            for (size_t done = 0; done < count; done += 512u) {
+                for (unsigned i = 0; i < 512u; ++i, ++played)
+                    chunk[i * 2u] = chunk[i * 2u + 1u] = tone[(played % 48000u) * 2u];
+                hitching->queues[0].push(chunk);
+            }
+            std::fill(block.begin(), block.end(), 0.0f);
+            render(*hitching, block.data(), 1024u);
+            if (step > 20u) {
+                touched = touched || hitching->playback[0].stretching() || hitching->playback[0].speed() != 1.0;
+                for (unsigned i = 0; i < 1024u; i += 64u)
+                    gaps += std::fabs(block[i * 2u]) + std::fabs(block[(i + 16u) * 2u]) + std::fabs(block[(i + 32u) * 2u]) < 1.0e-4f;
+            }
+        }
+        require(gaps == 0u && !touched && hitching->playback[0].underruns() == 0u,
+                "100 ms hitches changed the tempo or left gaps");
+        // A game that runs at 80% for a while and then at full speed again
+        // returns to the untouched stream, without a gap.
+        auto recovering = std::make_unique<Output>();
+        played = 0;
+        gaps = 0;
+        owed = 0.0;
+        bool stretchedWhileSlow = false;
+        for (unsigned step = 0; step < 1400u; ++step) {
+            owed += (step < 300u ? 0.8 : 1.0) * 1024.0;
+            for (; owed >= 512.0; owed -= 512.0) {
+                for (unsigned i = 0; i < 512u; ++i, ++played)
+                    chunk[i * 2u] = chunk[i * 2u + 1u] = tone[(played % 48000u) * 2u];
+                recovering->queues[0].push(chunk);
+            }
+            std::fill(block.begin(), block.end(), 0.0f);
+            render(*recovering, block.data(), 1024u);
+            if (step == 299u)
+                stretchedWhileSlow = recovering->playback[0].stretching();
+            if (step > 20u)
+                for (unsigned i = 0; i < 1024u; i += 64u)
+                    gaps += std::fabs(block[i * 2u]) + std::fabs(block[(i + 16u) * 2u]) + std::fabs(block[(i + 32u) * 2u]) < 1.0e-4f;
+        }
+        require(stretchedWhileSlow, "Audio at 80% speed was not stretched");
+        require(gaps == 0u && !recovering->playback[0].stretching() && recovering->playback[0].speed() == 1.0,
+                "Audio back at full speed did not return to the untouched stream");
         // At full speed the stretcher is transparent: output equals input.
         auto steady = std::make_unique<Output>();
         steady->gain = 1.0f;
@@ -263,7 +313,7 @@ int test_host_audio() {
         std::fill(samples.begin(), samples.end(), 0.0f);
         render(*check, samples.data(), 1024u);
         require(std::fabs(samples[1023u * 2u]) < 1.0e-6f, "Stopped stream kept playing");
-        std::cout << "Host audio mixer passed: 48 kHz float stereo, both SPU2 cores, volume, limiter, transparent full-speed playback, a steady tempo at 93% speed and stretching to 40% speed.\n"
+        std::cout << "Host audio mixer passed: 48 kHz float stereo, both SPU2 cores, volume, limiter, transparent full-speed playback, 100 ms hitches absorbed, a steady tempo at 93% speed, stretching to 40% speed and back to untouched playback.\n"
                   << "Host audio output is " << (options.enabled ? "enabled" : "disabled")
                   << " in settings at " << options.volume << "% volume.\n";
         return 0;

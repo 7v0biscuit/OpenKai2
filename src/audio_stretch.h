@@ -11,13 +11,23 @@
 #include <vector>
 
 namespace openkai2 {
-// Full-speed PCM passes through unchanged. A genuinely slower producer uses
-// SoundTouch's stereo time stretching, retaining pitch and channel phase.
+// PCM produced at full speed passes through unchanged. The buffer absorbs the
+// short stalls a frame hitch causes; only a producer that stays slower (or
+// faster) than real time is time-stretched with SoundTouch, which keeps pitch
+// and stereo phase. Like PCSX2's and DuckStation's stretchers, the decision
+// follows the buffer fill averaged over about a second with a wide dead band,
+// so a single hitch never changes the tempo. Stretching hands back to the
+// untouched stream once the producer keeps up again.
 class StretchedPlayback {
   public:
     static constexpr unsigned window = 1024u, hop = 512u, search = 256u;
-    static constexpr unsigned target = 4096u, prefill = target + window + search * 2u;
-    static constexpr double slowest = 0.25, fastest = 1.25;
+    static constexpr unsigned target = 6144u, prefill = target + window + search * 2u;
+    static constexpr double slowest = 0.25, fastest = 1.1;
+    // Fill (1 = target) under which a falling stream starts stretching, the
+    // average over which a rising one does, and the fill under which a
+    // stretched stream slows at once.
+    static constexpr double startBelow = 0.6, startAbove = 2.0, reserve = 0.45;
+    static constexpr unsigned averaged = 48u, settledCalls = 96u, crossfade = 384u;
 
     StretchedPlayback() {
         stretch_.setSampleRate(48000);
@@ -29,14 +39,14 @@ class StretchedPlayback {
         stretch_.setSetting(SETTING_OVERLAP_MS, 8);
         raw_.reserve(32768);
         input_.reserve(32768);
+        fed_.reserve(history * 2u);
     }
     void reset() {
         clearStream();
-        speed_ = rate_ = shortRate_ = 1.0;
-        intervalInput_ = intervalOutput_ = longInput_ = longOutput_ = 0;
-        boundary_ = 0;
         last_.fill(0);
         fadeLeft_ = fadeIn_ = 0;
+        boundary_ = 0;
+        resumeRate_ = 1.0;
     }
     void render(StereoAudioQueue &queue, std::span<float> output) {
         const auto stop = queue.stopBoundary();
@@ -53,11 +63,28 @@ class StretchedPlayback {
             startupOutput_ += requested;
         }
         if (!playing_ && available() >= prefill) {
-            if (startupOutput_ >= prefill)
-                speed_ = rate_ = shortRate_ =
-                    std::clamp(double(startupInput_) / startupOutput_, slowest, 1.0);
+            // A producer already slower than real time while priming starts
+            // stretched at its rate; a full-speed one starts untouched.
+            // A few calls of priming are a noisy measure, so only a clearly
+            // slow start counts; a rate measured before a gap is trusted.
+            bool slow = false;
+            if (startupOutput_ >= prefill) {
+                rate_ = shortRate_ = std::clamp(double(startupInput_) / startupOutput_, slowest, 1.0);
+                slow = rate_ < 0.85;
+                if (!slow)
+                    rate_ = shortRate_ = 1.0;
+            }
+            if (resumeRate_ < 0.97) {
+                rate_ = shortRate_ = std::min(rate_, resumeRate_);
+                slow = true;
+            }
+            resumeRate_ = 1.0;
             playing_ = true;
             fadeIn_ = hop;
+            if (slow) {
+                stretched_ = true;
+                speed_ = rate_;
+            }
             intervalInput_ = intervalOutput_ = longInput_ = longOutput_ = 0;
         }
         if (wasPlaying)
@@ -67,38 +94,35 @@ class StretchedPlayback {
             silent_.fetch_add(requested, std::memory_order_relaxed);
             return;
         }
-        const double buffered =
-            double(available()) + stretch_.numUnprocessedSamples() + double(stretch_.numSamples()) * speed_;
-        const double fill = buffered / double(target + window);
-        const bool low = fill < 0.85;
-        const bool unity = std::abs(rate_ - 1.0) < 0.01 && fill >= 0.7 && fill <= 1.8;
-        double wanted = unity ? 1.0 : std::clamp(rate_ * (1.0 + 0.05 * (fill - 1.0)), slowest, fastest);
-        if (low)
-            wanted = std::clamp(std::min(std::max(shortRate_, rate_ * 0.8), wanted), slowest, fastest);
-        if (!stretched_ && rate_ == 1.0)
-            wanted = 1.0;
-        speed_ = low ? wanted : speed_ + (wanted - speed_) * 0.03;
-        if (unity && std::abs(speed_ - 1.0) < 0.002)
-            speed_ = 1.0;
-        if (!stretched_ && speed_ != 1.0)
-            stretched_ = true;
+        steer();
+        size_t written = 0;
+        if (!tail_.empty()) {
+            // The stretcher's last output, already blended into the stream.
+            const size_t count = std::min(requested, tail_.size() / 2u);
+            mix(output, tail_.data(), count);
+            tail_.erase(tail_.begin(), tail_.begin() + count * 2u);
+            written = count;
+        }
+        const auto rest = output.subspan(written * 2u);
+        const size_t wanted = requested - written;
         if (stretched_) {
             stretch_.setTempo(speed_);
             if (available()) {
+                remember(input_.data() + read_ * 2u, available());
                 stretch_.putSamples(input_.data() + read_ * 2u, unsigned(available()));
                 read_ = input_.size() / 2u;
             }
-            processed_.resize(requested * 2u);
-            const auto count = stretch_.receiveSamples(processed_.data(), unsigned(requested));
-            mix(output, processed_.data(), count);
-            if (count < requested)
-                underrun(output.subspan(size_t(count) * 2u));
+            processed_.resize(wanted * 2u);
+            const auto count = stretch_.receiveSamples(processed_.data(), unsigned(wanted));
+            mix(rest, processed_.data(), count);
+            if (count < wanted)
+                underrun(rest.subspan(size_t(count) * 2u));
         } else {
-            const size_t count = std::min(requested, available());
-            mix(output, input_.data() + read_ * 2u, count);
+            const size_t count = std::min(wanted, available());
+            mix(rest, input_.data() + read_ * 2u, count);
             read_ += count;
-            if (count < requested)
-                underrun(output.subspan(count * 2u));
+            if (count < wanted)
+                underrun(rest.subspan(count * 2u));
         }
         if (read_ > 8192u || read_ == input_.size() / 2u) {
             input_.erase(input_.begin(), input_.begin() + read_ * 2u);
@@ -106,11 +130,91 @@ class StretchedPlayback {
         }
     }
     double speed() const { return speed_; }
+    bool stretching() const { return stretched_; }
     uint64_t underruns() const { return underruns_.load(std::memory_order_relaxed); }
     uint64_t silentFrames() const { return silent_.load(std::memory_order_relaxed); }
 
   private:
+    static constexpr size_t history = 16384u;
     size_t available() const { return input_.size() / 2u - read_; }
+    double buffered() const {
+        return double(available()) + double(tail_.size() / 2u) + stretch_.numUnprocessedSamples() +
+               double(stretch_.numSamples()) * speed_;
+    }
+    // Chooses the tempo. The fill averaged over about a second decides when
+    // a full-speed stream starts stretching; while stretching, the tempo
+    // follows the measured rate, trimmed by a briefly smoothed fill so the
+    // buffer settles at its target without overshooting.
+    void steer() {
+        const double fill = buffered() / double(target);
+        fills_[fillAt_++ % averaged] = fill;
+        const size_t count = std::min<size_t>(fillAt_, averaged);
+        double average = 0.0;
+        for (size_t i = 0; i < count; ++i)
+            average += fills_[i];
+        average /= double(count);
+        recent_ = fillAt_ == 1u ? fill : recent_ + (fill - recent_) * 0.2;
+        if (!stretched_) {
+            // Falling: low now and low on average, which a single hitch is
+            // not. Stretching starts with room for the input the stretcher
+            // holds back.
+            const bool falling = recent_ < startBelow && average < 0.9;
+            const bool rising = count >= averaged / 4u && average > startAbove;
+            if (!falling && !rising)
+                return;
+            stretched_ = true;
+            settled_ = 0;
+            speed_ = wantedSpeed(recent_);
+            return;
+        }
+        // The stretcher keeps about a sequence and a seek window of input it
+        // cannot play yet, so it needs more in hand than plain playback.
+        const bool low = fill < reserve;
+        const double wanted = wantedSpeed(low ? fill : recent_);
+        speed_ = low ? std::min(speed_, wanted) : speed_ + (wanted - speed_) * 0.2;
+        if (std::abs(rate_ - 1.0) < 0.03 && std::abs(average - 1.0) < 0.2 && std::abs(speed_ - 1.0) < 0.03)
+            ++settled_;
+        else
+            settled_ = 0;
+        if (settled_ >= settledCalls)
+            leave();
+    }
+    double wantedSpeed(double fill) const { return std::clamp(rate_ * (1.0 + 0.6 * (fill - 1.0)), slowest, fastest); }
+    // Hands the stream back from the stretcher: its remaining output plays
+    // first, its last `crossfade` frames blended with the untouched stream
+    // from where the stretcher had got to, and the input it still held goes
+    // back in front of the queue.
+    void leave() {
+        const size_t pending = stretch_.numUnprocessedSamples() + crossfade;
+        tail_.resize(size_t(stretch_.numSamples()) * 2u);
+        tail_.resize(size_t(stretch_.receiveSamples(tail_.data(), stretch_.numSamples())) * 2u);
+        const size_t held = fed_.size() / 2u;
+        const size_t back = std::min(held, pending + crossfade);
+        std::vector<float> resume(fed_.end() - back * 2u, fed_.end());
+        const size_t blend = std::min({size_t(crossfade), tail_.size() / 2u, back});
+        const size_t from = tail_.size() / 2u - blend;
+        for (size_t i = 0; i < blend; ++i) {
+            const float in = float(i + 1u) / float(blend + 1u);
+            for (unsigned channel = 0; channel < 2u; ++channel)
+                tail_[(from + i) * 2u + channel] =
+                    tail_[(from + i) * 2u + channel] * (1.0f - in) + resume[i * 2u + channel] * in;
+        }
+        input_.erase(input_.begin(), input_.begin() + read_ * 2u);
+        read_ = 0;
+        input_.insert(input_.begin(), resume.begin() + blend * 2u, resume.end());
+        stretch_.clear();
+        stretch_.setTempo(1.0);
+        fed_.clear();
+        stretched_ = false;
+        speed_ = 1.0;
+        settled_ = 0;
+        fillAt_ = 0;
+    }
+    void remember(const float *samples, size_t frames) {
+        fed_.insert(fed_.end(), samples, samples + frames * 2u);
+        if (fed_.size() > history * 2u)
+            fed_.erase(fed_.begin(), fed_.end() - history * 2u);
+    }
     size_t pull(StereoAudioQueue &queue) {
         const auto count = std::min<uint64_t>(queue.available(), 16384u);
         if (!count)
@@ -163,28 +267,39 @@ class StretchedPlayback {
         stretch_.clear();
         stretch_.setTempo(1.0);
         input_.clear();
+        tail_.clear();
+        fed_.clear();
         read_ = 0;
         playing_ = stretched_ = false;
         speed_ = rate_ = shortRate_ = 1.0;
         startupInput_ = startupOutput_ = 0;
         intervalInput_ = intervalOutput_ = longInput_ = longOutput_ = 0;
+        fillAt_ = settled_ = 0;
     }
     void underrun(std::span<float> remaining) {
         underruns_.fetch_add(1u, std::memory_order_relaxed);
         silent_.fetch_add(remaining.size() / 2u, std::memory_order_relaxed);
+        // The producer's measured rate outlives the gap, so a slow stream
+        // resumes stretched instead of running dry again at full speed.
+        const double rate = rate_;
         clearStream();
+        resumeRate_ = rate;
         fadeLeft_ = hop;
         fade(remaining);
     }
     soundtouch::SoundTouch stretch_;
     std::vector<int32_t> raw_;
-    std::vector<float> input_, processed_;
+    std::vector<float> input_, processed_, tail_, fed_;
     size_t read_ = 0;
     bool playing_ = false, stretched_ = false;
     double speed_ = 1.0, rate_ = 1.0, shortRate_ = 1.0;
     uint64_t intervalInput_ = 0, intervalOutput_ = 0, longInput_ = 0, longOutput_ = 0;
     uint64_t startupInput_ = 0, startupOutput_ = 0;
     uint64_t boundary_ = 0;
+    std::array<double, averaged> fills_{};
+    size_t fillAt_ = 0;
+    double recent_ = 1.0, resumeRate_ = 1.0;
+    unsigned settled_ = 0;
     std::array<float, 2> last_{};
     unsigned fadeLeft_ = 0, fadeIn_ = 0;
     std::atomic<uint64_t> underruns_{0}, silent_{0};
