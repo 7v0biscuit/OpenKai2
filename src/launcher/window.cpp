@@ -273,6 +273,8 @@ struct Result {
     std::shared_ptr<mods::SourceDisc> loaded;
     std::optional<mods::DiscRoster> roster;
     mods::DiscIdentity identity;
+    // For a Budokai 3 disc, why each stage can't be imported, if it can't.
+    std::vector<std::optional<std::string>> stageProblems;
 };
 struct Grid {
     int column;
@@ -318,6 +320,7 @@ struct Window {
     bool movesView = false, stageView = false;
     // The game disc's own stage table, for the B stages a stage import fills.
     std::optional<std::vector<mods::DiscStage>> gameStages;
+    std::vector<std::optional<std::string>> sourceStageProblems; // per source stage, from readDisc
     // Stages import from Budokai 3, whose packs are unpacked into the eight
     // files a Budokai 2 stage names.
     bool stageImport() const {
@@ -619,7 +622,8 @@ struct Window {
         EnableWindow(controls[SaveReport], !busy() && source);
         const auto spot = SendMessageW(controls[TargetList], LB_GETCURSEL, 0, 0);
         const bool picked = (characterView && sourceCharacter() && spot >= 0 && gameRoster && game && fits(size_t(spot))) ||
-                            (stageImport() && spot >= 0 && SendMessageW(controls[SourceFiles], LB_GETCURSEL, 0, 0) >= 0);
+                            (stageImport() && spot >= 0 && SendMessageW(controls[SourceFiles], LB_GETCURSEL, 0, 0) >= 0 &&
+                             !stageProblem(size_t(SendMessageW(controls[SourceFiles], LB_GETCURSEL, 0, 0))));
         EnableWindow(controls[ImportSelected], modding && picked);
         // Preferences stay editable while a disc check or game session runs;
         // the next game process reads them.
@@ -1099,6 +1103,13 @@ struct Window {
             return wide(mods::stage_display_name((*gameStages)[record].internal));
         return record < std::size(names) ? wide(mods::stage_display_name(names[record])) : L"stage " + std::to_wstring(record);
     }
+    std::optional<std::string> stageProblem(size_t row) const {
+        if (row < sourceStageProblems.size() && sourceStageProblems[row])
+            return sourceStageProblems[row];
+        if (sourceStages && row < sourceStages->size() && (*sourceStages)[row].files.size() != 2)
+            return std::string("it has no second pack");
+        return std::nullopt;
+    }
     std::wstring stagePlan() const {
         const auto row = SendMessageW(controls.at(SourceFiles), LB_GETCURSEL, 0, 0);
         const auto target = SendMessageW(controls.at(TargetList), LB_GETCURSEL, 0, 0);
@@ -1106,6 +1117,8 @@ struct Window {
             return L"Choose a stage, then the stage it replaces.";
         const auto &stage = (*sourceStages)[size_t(row)];
         const uint32_t record = mods::stage_first_variant + uint32_t(target);
+        if (const auto problem = stageProblem(size_t(row)))
+            return wide(mods::stage_display_name(stage.internal)) + L" can't be imported: " + wide(*problem) + L".";
         const int choice = selected(TargetMod);
         const auto into = choice > 0 && size_t(choice) <= modList.size() ? L"Saved into " + wide(modList[size_t(choice - 1)].name) + L"."
                                                                          : std::wstring(L"Saved as a new mod.");
@@ -1596,6 +1609,10 @@ struct Window {
             mods::read_model_shapes(*result.loaded, *result.roster);
         else
             result.roster = mods::read_budokai3_models(*result.loaded);
+        if (result.identity.game == mods::DragonBallGame::budokai3)
+            if (const auto stages = mods::read_disc_stages(*result.loaded))
+                for (const auto &stage : *stages)
+                    result.stageProblems.push_back(mods::budokai3_stage_problem(*result.loaded, stage));
         return result;
     }
     void loadSource(const std::filesystem::path &image) {
@@ -1616,6 +1633,8 @@ struct Window {
         source = std::move(disc);
         sourceRoster = std::move(roster);
         sourceIdentity = std::move(identity);
+        if (sourceIdentity.game != mods::DragonBallGame::budokai3)
+            sourceStageProblems.clear();
         try {
             sourceStages = mods::read_disc_stages(*source);
         } catch (const std::exception &) {
@@ -1673,7 +1692,9 @@ struct Window {
         if (stageView) {
             for (const auto &stage : *sourceStages) {
                 auto label = wide(mods::stage_display_name(stage.internal));
-                if (sourceIdentity.game == mods::DragonBallGame::budokai3 && stage.files.size() != 2)
+                const auto index = size_t(&stage - sourceStages->data());
+                if (sourceIdentity.game == mods::DragonBallGame::budokai3 &&
+                    (stage.files.size() != 2 || (index < sourceStageProblems.size() && sourceStageProblems[index])))
                     label += L"   ·   can't be imported";
                 else if (sourceIdentity.game == mods::DragonBallGame::budokai3 && !stage.files.empty())
                     if (const auto mod = importedInto(stage.files.front().second))
@@ -2004,6 +2025,8 @@ struct Window {
         const auto stage = (*sourceStages)[size_t(row)];
         const uint32_t record = mods::stage_first_variant + uint32_t(target);
         const auto shown = mods::stage_display_name(stage.internal);
+        if (const auto problem = stageProblem(size_t(row)))
+            throw std::runtime_error(shown + " can't be imported: " + *problem);
         std::string stem = stage.internal;
         for (auto &c : stem)
             c = std::isalnum(static_cast<unsigned char>(c)) ? char(std::tolower(static_cast<unsigned char>(c))) : '_';
@@ -2307,6 +2330,7 @@ struct Window {
                             settings.importIso = result.loaded->image();
                             write_settings(settings_path(), settings);
                         }
+                        sourceStageProblems = std::move(result.stageProblems);
                         showSource(std::move(result.loaded), std::move(result.roster), std::move(result.identity));
                     }
                     if (result.kind == Job::saveReport)

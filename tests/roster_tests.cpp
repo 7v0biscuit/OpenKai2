@@ -414,6 +414,11 @@ int main() {
                     get32(stageFiles[3].second.data() + get32(stageFiles[3].second.data() + 0x20) + 12) == 1 &&
                     stageFiles[5].second == Bytes(20, 6) && stageFiles[7].second[4] == 8,
                 "A Budokai 3 stage was not unpacked into Budokai 2's files");
+        // Only file kinds Budokai 2's pack loader knows can be imported.
+        require(unloadable_pack_files(stageAmb).empty() && !budokai3_stage_problem(b3stageDisc, (*b3list)[0]) &&
+                    unloadable_pack_files(amb({stageTextures, marked("#AMX", 0)})) == std::vector<std::string>{"#AMX"} &&
+                    budokai3_stage_problem(b3stageDisc, (*b3list)[2]),
+                "Stage files Budokai 2 can't load were not found, or a loadable stage was refused");
         bool unpackRefused = false;
         try {
             budokai3_stage_files(b3stageDisc, (*b3list)[2]);
@@ -436,7 +441,14 @@ int main() {
                 fields.push_back({0x40 + 4 * k, "add:" + name});
                 stageOverlay.added["USR/DATA_CMN.AFS"][name] = 500 + k;
             }
+            // A stage whose pack Budokai 2 can't load is skipped with a note.
+            write(added_dir / "budo_3.bin", amb({stageTextures, marked("#AMX", 0)}));
             append_stage(stageMod, 10, "BUDO 3", fields);
+            std::vector<std::string> notes;
+            require(load_stage_mods({stageMod}, stageOverlay, &notes).empty() && notes.size() == 1 &&
+                        notes[0].find("#AMX") != std::string::npos,
+                    "A stage with files Budokai 2 can't load was applied");
+            write(added_dir / "budo_3.bin", stageAmb);
             const auto loaded = load_stage_mods({stageMod}, stageOverlay);
             auto table = stageMemory;
             const auto lines = apply_stage_mods(table.data(), table.size(), loaded);

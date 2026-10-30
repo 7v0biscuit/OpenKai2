@@ -61,8 +61,10 @@ struct StageSection {
 };
 // Reads stages.ini from each mod, in load order; later mods win a slot.
 // Throws std::runtime_error naming the file and line on bad input.
+// A stage whose #AMB pack holds a file Budokai 2 cannot load is skipped,
+// with a line in `notes` saying why, as it would stop the game.
 std::vector<StageMod> load_stage_mods(const std::vector<std::filesystem::path> &mods,
-                                      const DiscOverlay::Summary &overlay);
+                                      const DiscOverlay::Summary &overlay, std::vector<std::string> *notes = nullptr);
 // Writes the stages into the loaded USA executable's stage table. Returns a
 // line per stage for the startup log; throws if the table is not there.
 std::vector<std::string> apply_stage_mods(uint8_t *memory, size_t bytes, const std::vector<StageMod> &stages);
@@ -80,6 +82,16 @@ size_t remove_stage(const std::filesystem::path &mod, uint32_t slot);
 // Texture packs inside are marked version 1, as Budokai 2 reads them. Throws
 // when the packs are not laid out that way.
 std::vector<std::pair<uint32_t, std::vector<uint8_t>>> budokai3_stage_files(SourceDisc &disc, const DiscStage &stage);
+
+// The kinds of file Budokai 2 loads from an #AMB pack: its loader at 0x12A680
+// looks each file's mark up in the table at 0x33D680 and calls a null
+// function for any other, which stops the game.
+inline constexpr const char *budokai2_pack_kinds[] = {"AMG", "AMT", "AMM", "AMO", "AMC", "AML", "AMP"};
+// The marks of the files in an #AMB pack that Budokai 2 cannot load, e.g.
+// "#AMX"; empty when it can load them all.
+std::vector<std::string> unloadable_pack_files(const std::vector<uint8_t> &pack);
+// Why a Budokai 3 stage can't be imported, or nothing when it can.
+std::optional<std::string> budokai3_stage_problem(SourceDisc &disc, const DiscStage &stage);
 
 // Reads the stage table from a disc's own executable: Budokai 2 USA's, or
 // Budokai 3 USA's, whose stages each name their two packs at 0x10 and 0x14.

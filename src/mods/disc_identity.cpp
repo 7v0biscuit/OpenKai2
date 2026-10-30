@@ -64,6 +64,13 @@ std::vector<uint8_t> read_bytes(SourceDisc &disc, const SourceDisc::Range &entry
     const auto data = text.str();
     return std::vector<uint8_t>(data.begin(), data.end());
 }
+// A file's four-byte mark, with unprintable bytes as '?'.
+std::string printable_mark(const std::vector<uint8_t> &bytes, size_t at) {
+    std::string mark;
+    for (size_t i = at; i < at + 4 && i < bytes.size(); ++i)
+        mark += std::isprint(bytes[i]) ? char(bytes[i]) : '?';
+    return mark;
+}
 std::string printable(const ExecutableImage &image, uint32_t at, size_t limit = 31) {
     std::string text;
     for (size_t i = 0; i < limit && image.contains(at + uint32_t(i), 1); ++i) {
@@ -598,6 +605,28 @@ std::string disc_report(SourceDisc &disc) {
         for (uint32_t at = first, n = 0; n < 96 && named(at); at += budokai3_stage_bytes, ++n) {
             std::snprintf(line, sizeof line, "  0x%08X  %-16s", at, printable(*image, at).c_str());
             out << line << words(at, budokai3_stage_bytes) << '\n';
+        }
+        // Whether Budokai 2 can load each stage's files, and the marks of the
+        // files in its #AMB pack, for converting the ones it can't.
+        if (const auto stages = read_disc_stages(disc)) {
+            out << "\nStage imports (stage, problem or ok, #AMB pack file marks):\n";
+            for (const auto &stage : *stages) {
+                out << "  " << stage.internal << ": " << budokai3_stage_problem(disc, stage).value_or("ok");
+                try {
+                    for (const auto &file : budokai3_stage_files(disc, stage))
+                        if (file.first == 0x4C) {
+                            const auto &pack = file.second;
+                            const uint32_t count = std::min<uint32_t>(pack.size() >= 32 ? read32(pack, 16) : 0, 64);
+                            out << "  ·";
+                            for (uint32_t i = 0; i < count; ++i) {
+                                const uint32_t at = read32(pack, read32(pack, 20) + i * 16);
+                                out << ' ' << (at + 4 <= pack.size() ? printable_mark(pack, at) : std::string("?"));
+                            }
+                        }
+                } catch (const std::exception &) {
+                }
+                out << '\n';
+            }
         }
     }
     return out.str();

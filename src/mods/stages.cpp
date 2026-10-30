@@ -136,7 +136,46 @@ void texture_version_1(std::vector<uint8_t> &file) {
 }
 } // namespace
 
-std::vector<StageMod> load_stage_mods(const std::vector<fs::path> &mods, const DiscOverlay::Summary &overlay) {
+std::vector<std::string> unloadable_pack_files(const std::vector<uint8_t> &pack) {
+    std::vector<std::string> marks;
+    if (pack.size() < 32 || std::memcmp(pack.data(), "#AMB", 4) != 0)
+        return marks;
+    const uint32_t count = std::min<uint32_t>(get32(pack, 16), 64), records = get32(pack, 20);
+    for (uint32_t i = 0; i < count; ++i) {
+        const uint32_t at = get32(pack, records + i * 16), size = get32(pack, records + i * 16 + 4);
+        if (!size || at + 4 > pack.size())
+            continue;
+        const std::string mark(reinterpret_cast<const char *>(pack.data() + at), 4);
+        const bool known = mark[0] == '#' && std::any_of(std::begin(budokai2_pack_kinds), std::end(budokai2_pack_kinds),
+                                                         [&](const char *kind) { return mark.compare(1, 3, kind) == 0; });
+        std::string shown;
+        for (const char c : mark)
+            shown += std::isprint(static_cast<unsigned char>(c)) ? c : '?';
+        if (!known && std::find(marks.begin(), marks.end(), shown) == marks.end())
+            marks.push_back(shown);
+    }
+    return marks;
+}
+
+std::optional<std::string> budokai3_stage_problem(SourceDisc &disc, const DiscStage &stage) {
+    if (stage.files.size() != 2)
+        return std::string("it has no second pack");
+    try {
+        for (const auto &file : budokai3_stage_files(disc, stage))
+            if (const auto marks = unloadable_pack_files(file.second); !marks.empty()) {
+                std::string list;
+                for (const auto &mark : marks)
+                    list += (list.empty() ? "" : ", ") + mark;
+                return "it uses " + list + " files, which Budokai 2 can't load";
+            }
+    } catch (const std::exception &error) {
+        return std::string(error.what());
+    }
+    return std::nullopt;
+}
+
+std::vector<StageMod> load_stage_mods(const std::vector<fs::path> &mods, const DiscOverlay::Summary &overlay,
+                                      std::vector<std::string> *notes) {
     const auto key = IsoIndex::key(roster_archive).value_or(std::string());
     const auto added = overlay.added.find(key);
     std::vector<StageMod> stages;
@@ -147,6 +186,7 @@ std::vector<StageMod> load_stage_mods(const std::vector<fs::path> &mods, const D
             continue;
         unsigned number = 0;
         std::optional<StageMod> current;
+        std::vector<std::string> packNames; // the add: files of the current stage, checked when it ends
         const auto finish = [&](const std::string &where) {
             if (!current)
                 return;
@@ -155,6 +195,26 @@ std::vector<StageMod> load_stage_mods(const std::vector<fs::path> &mods, const D
                                          " to " + std::to_string(stage_count - 1));
             if (current->files.size() != (stage_files_end - stage_files_begin) / 4)
                 throw std::runtime_error(where + ": a stage needs all eight files, file.40 to file.5c");
+            // A pack Budokai 2 can't load would stop the game when the stage is chosen.
+            for (const auto &name : packNames) {
+                std::error_code missing;
+                for (fs::recursive_directory_iterator it(mod / "afs", missing), end; !missing && it != end;
+                     it.increment(missing)) {
+                    if (!it->is_regular_file(missing) || lower(it->path().filename().string()) != lower(name))
+                        continue;
+                    std::ifstream file(it->path(), std::ios::binary);
+                    const std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+                    if (const auto marks = unloadable_pack_files(bytes); !marks.empty()) {
+                        if (notes)
+                            notes->push_back("stage: skipped " + current->name + " (" + where + "): its pack holds " +
+                                             marks.front() + " files, which Budokai 2 can't load");
+                        current.reset();
+                        packNames.clear();
+                        return;
+                    }
+                }
+            }
+            packNames.clear();
             stages.erase(std::remove_if(stages.begin(), stages.end(),
                                         [&](const StageMod &other) { return other.slot == current->slot; }),
                          stages.end());
@@ -201,6 +261,7 @@ std::vector<StageMod> load_stage_mods(const std::vector<fs::path> &mods, const D
                 uint32_t entry = 0;
                 if (lower(value).rfind("add:", 0) == 0) {
                     const auto wanted = lower(trim(value.substr(4)));
+                    packNames.push_back(trim(value.substr(4)));
                     if (added == overlay.added.end() || !added->second.count(wanted))
                         throw std::runtime_error(where + ": no enabled mod adds " + value.substr(4) + " to " + roster_archive);
                     entry = added->second.at(wanted);
