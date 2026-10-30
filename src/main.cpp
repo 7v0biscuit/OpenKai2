@@ -227,8 +227,12 @@ int main(int argc, char* argv[]) {
         std::vector<std::string> stageNotes;
         const auto stages=openkai2::mods::load_stage_mods(mods,applied,&stageNotes);
         for (const auto& note : stageNotes) std::cout << "[mods] " << note << std::endl;
-        for (const auto& line : openkai2::mods::apply_stage_mods(runtime.memory().getRDRAM(),PS2_RAM_SIZE,stages))
-            std::cout << "[mods] " << line << std::endl;
+        if (!openkai2::mods::stage_mods_enabled && !stages.empty())
+            std::cout << "[mods] stage: " << stages.size() << " stage mod(s) not applied; Budokai 3 stages froze the game "
+                         "and stay off until their files are converted" << std::endl;
+        else
+            for (const auto& line : openkai2::mods::apply_stage_mods(runtime.memory().getRDRAM(),PS2_RAM_SIZE,stages))
+                std::cout << "[mods] " << line << std::endl;
         auto alternates=openkai2::mods::build_alternates(runtime.memory().getRDRAM(),PS2_RAM_SIZE,roster);
         if (!alternates.empty())
             std::cout << "[mods] select: R2 switches characters on shared spots" << std::endl;

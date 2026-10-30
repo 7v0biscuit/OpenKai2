@@ -324,7 +324,8 @@ struct Window {
     // Stages import from Budokai 3, whose packs are unpacked into the eight
     // files a Budokai 2 stage names.
     bool stageImport() const {
-        return stageView && sourceIdentity.game == mods::DragonBallGame::budokai3 && gameStages && game;
+        return mods::stage_mods_enabled && stageView && sourceIdentity.game == mods::DragonBallGame::budokai3 &&
+               gameStages && game;
     }
     // What the import tool brings into Budokai 2. Only characters are mapped
     // so far, and only from Budokai 2 discs; imports only ever add.
@@ -1028,7 +1029,11 @@ struct Window {
                 const int half = (content - 52) / 2;
                 text(dc,
                      L"This disc has " + std::to_wstring(sourceStages->size()) + L" stages. " +
-                         (sourceIdentity.game == mods::DragonBallGame::budokai3
+                         (sourceIdentity.game == mods::DragonBallGame::budokai3 && !mods::stage_mods_enabled
+                              ? std::wstring(L"Budokai 3 stages can't be imported yet. Their files load differently "
+                                             L"in Budokai 2 and froze the game, so stage imports are off until they "
+                                             L"can be converted. Stage mods made with v0.1.59 are not applied.")
+                          : sourceIdentity.game == mods::DragonBallGame::budokai3
                               ? std::wstring(L"Stages can be added once your Budokai 2 disc has been read: verify it "
                                              L"on the Play page, then open the import tool again.")
                               : std::wstring(L"These are Budokai 2's own stages, already in the game. To add one, "

@@ -44,6 +44,10 @@ struct DiscStage {
 // A stage mod turns one of them into an imported stage: its own eight files,
 // a name, and 0 at 0x60. No stage with files of its own is lost.
 inline constexpr uint32_t stage_first_variant = 9u;
+// Stage mods are not applied and the import tool does not offer stage
+// imports: a Budokai 3 stage loaded this way froze the game (it jumped to
+// 0x231712 while loading), so its files need converting first.
+inline constexpr bool stage_mods_enabled = false;
 
 // A [stage] section of a mod's stages.ini, with add: values resolved to the
 // DATA_CMN entries the overlay gave them.

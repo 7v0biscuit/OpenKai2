@@ -165,7 +165,7 @@ and the two games' differ.
 | Content    | Budokai 2 | Budokai | Budokai 3 | Infinite World |
 |------------|-----------|---------|-----------|----------------|
 | Characters | Yes       | Not yet | Textures  | Not yet        |
-| Stages     | Listed    | Not yet | Into a B stage | Not yet   |
+| Stages     | Listed    | Not yet | Listed    | Not yet        |
 | Movesets   | Yes       | Not yet | Not yet   | Not yet        |
 | Capsules   | Not yet   | Not yet | Not yet   | Not yet        |
 
@@ -320,6 +320,14 @@ current stage's index at `0x373C60` and `0x373CAC`.
 | 9 to 12 | ISLAND B, TOWN B, R&R BASE B, SNOW B | as 0, 1, 4 and 5 |
 
 ### Stage mods
+
+**Turned off since v0.1.61.** A Budokai 3 stage imported this way froze the
+game when chosen: first at Budokai 2's pack loader (`0x12A75C` calling
+address 0), then with a jump to `0x231712`. Its files need converting before
+Budokai 2 can load them, so stage mods are read but not applied
+(`stage_mods_enabled` in `src/mods/stages.h`), and the import tool's Stages
+tab only lists stages. What follows describes the format for when they are
+converted.
 
 The four B stages (records 9 to 12: ISLAND B, TOWN B, R&R BASE B and SNOW B)
 reuse another stage's files and differ from it only in the word at `0x60`, so
