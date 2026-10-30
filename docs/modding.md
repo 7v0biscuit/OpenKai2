@@ -69,10 +69,10 @@ body:
 3. Choose **Share a spot** or **Add a new spot**, and where to save, as for
    characters, then press **Import**.
 
-The textures must line up with the wearer's body: the wearer's textures must
-have the same formats and sizes, in order, as the model's first textures, or
-they would land in the wrong places. Extra Budokai 3 textures are left
-unused. Each model in the list says who it fits ("fits Krillin") or "no
+The textures are matched to the wearer's body: for each of the wearer's
+textures, in order, the tool takes the next Budokai 3 texture with the same
+format and size, skipping the rest, and builds a texture pack in the wearer's
+layout. A model fits when every one of the wearer's textures finds one. Each model in the list says who it fits ("fits Krillin") or "no
 Budokai 2 match", and choosing a model marks the spots that fit and moves to
 the first. When the chosen character doesn't fit, the sentence beside
 **Import** says why and Import stays off. Usually the same character in both
@@ -200,6 +200,20 @@ icon = 5                   ; the spot whose portrait a new spot shows
 
 The changes are made in memory after the executable loads and are listed in
 the startup log as `[mods] roster:` and `[mods] select:` lines. Later mods win.
+
+A filled ID also takes its base character's entries in the other tables the
+game indexes by character ID, where the unused IDs hold nothing:
+
+| Table | Entry | Covers | What it holds |
+|-------|-------|--------|---------------|
+| `0x376F30` | 12 bytes | IDs 0 to 40 | per form, the index of the move effects its attacks use (read at `0x20B340`); unused IDs hold -1, so their special moves draw nothing and hit nothing |
+| `0x3788D0`, `0x378960` | 4 bytes | IDs 0 to 35 | voice files in `ADX_US.AFS`, as `(2 << 16) \| entry` |
+| `0x377120` | 4 bytes | IDs 0 to 52 | the `DATA_US.AFS` entry of the name plate |
+| `0x3A1D60` | 20 bytes | IDs 0 to 40 | hair physics per costume (read at `0x200AC0`) |
+
+IDs 43 to 52 lie past the move-effects table, so the special moves of a
+character filled there may not work; the import tool uses IDs 1, 13, 14 and
+19 first and says so when it has to use a higher one.
 
 A character goes on the select screen in one of three ways:
 
