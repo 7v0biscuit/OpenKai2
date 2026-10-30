@@ -82,6 +82,14 @@ the version Budokai 2 uses, and their layout matches Budokai 2's.
 The disc report lists each model's part count and a check value of how its
 parts link, for the work on converting Budokai 3 meshes.
 
+#### Forcing a new character
+
+**Force a new character** under **On the select screen** imports the whole
+Budokai 3 model, mesh and textures, as a new character with a spot of its
+own, whether or not it fits. On the right, choose whose moves and animations
+it uses. Budokai 2 draws Budokai 3 meshes black until they can be converted,
+and the moves may not suit the body.
+
 #### Comparing versions
 
 **Compare 4 versions (test)** under **On the select screen** adds four
