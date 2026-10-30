@@ -330,4 +330,60 @@ std::vector<uint8_t> model_for_budokai2(SourceDisc &disc, size_t entry) {
     return bytes;
 }
 
+namespace {
+// The mesh and the textures of a costume model, each as its own bytes.
+std::pair<std::vector<uint8_t>, std::vector<uint8_t>> split_model(const std::vector<uint8_t> &model) {
+    const uint32_t records = read32(model, 20);
+    const auto part = [&](uint32_t record) {
+        const uint32_t offset = read32(model, records + record), size = read32(model, records + record + 4);
+        if (offset > model.size() || size > model.size() - offset)
+            throw std::runtime_error("A costume model's files run past its end");
+        return std::vector<uint8_t>(model.begin() + offset, model.begin() + offset + size);
+    };
+    return {part(0), part(16)};
+}
+void put32(std::vector<uint8_t> &bytes, size_t at, uint32_t value) {
+    for (unsigned i = 0; i < 4; ++i)
+        bytes[at + i] = uint8_t(value >> (8 * i));
+}
+// An #AMB of a mesh and textures, laid out as the games lay theirs: the
+// header, two records, then each file at a 64-byte boundary.
+std::vector<uint8_t> join_model(const std::vector<uint8_t> &header, const std::vector<uint8_t> &mesh,
+                                const std::vector<uint8_t> &textures) {
+    const auto align = [](size_t at) { return (at + 63) / 64 * 64; };
+    const size_t meshAt = 0x40, texturesAt = align(meshAt + mesh.size());
+    std::vector<uint8_t> model(texturesAt + textures.size(), 0);
+    std::copy(header.begin(), header.begin() + 0x20, model.begin());
+    put32(model, 16, 2);
+    put32(model, 20, 0x20);
+    const uint32_t records[2][3] = {{uint32_t(meshAt), uint32_t(mesh.size()), 1},
+                                    {uint32_t(texturesAt), uint32_t(textures.size()), 2}};
+    for (unsigned i = 0; i < 2; ++i)
+        for (unsigned k = 0; k < 3; ++k)
+            put32(model, 0x20 + i * 16 + k * 4, records[i][k]);
+    std::copy(mesh.begin(), mesh.end(), model.begin() + meshAt);
+    std::copy(textures.begin(), textures.end(), model.begin() + texturesAt);
+    return model;
+}
+} // namespace
+
+std::vector<uint8_t> model_version(SourceDisc &budokai3, size_t entry, SourceDisc &game, size_t own,
+                                   ModelVersion version) {
+    if (version == ModelVersion::converted)
+        return model_for_budokai2(budokai3, entry);
+    if (version == ModelVersion::unchanged) {
+        if (!model_parts(budokai3, budokai3.range(roster_archive, entry)))
+            throw std::runtime_error("Entry " + std::to_string(entry) + " is not a costume model");
+        return budokai3.read_entry(roster_archive, entry);
+    }
+    const auto theirs = model_for_budokai2(budokai3, entry);
+    if (!model_parts(game, game.range(roster_archive, own)))
+        throw std::runtime_error("Entry " + std::to_string(own) + " of the game disc is not a costume model");
+    const auto ours = game.read_entry(roster_archive, own);
+    const auto [theirMesh, theirTextures] = split_model(theirs);
+    const auto [ourMesh, ourTextures] = split_model(ours);
+    return version == ModelVersion::budokai2_textures ? join_model(theirs, theirMesh, ourTextures)
+                                                      : join_model(ours, ourMesh, theirTextures);
+}
+
 } // namespace openkai2::mods

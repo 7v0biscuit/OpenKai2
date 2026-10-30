@@ -296,6 +296,28 @@ int main() {
         expected[0x40 + 0x70 + 5 * 32 + 12] = 1;
         require(converted == expected, "The model's textures were not marked as Budokai 2's, or more changed");
 
+        // Versions for finding which part Budokai 2 draws wrongly.
+        const auto b3model = costume_model(5, 2), b2model = costume_model(5, 1);
+        const size_t mesh = 0x40, meshBytes = 0x70 + 5 * 32, textures = mesh + meshBytes;
+        const auto piece = [](const Bytes &model, size_t from, size_t bytes) {
+            return Bytes(model.begin() + from, model.begin() + from + bytes);
+        };
+        require(model_version(budokai3, 264, gameDisc, 171, ModelVersion::converted) == expected &&
+                    model_version(budokai3, 264, gameDisc, 171, ModelVersion::unchanged) == b3model,
+                "The converted or unchanged model is wrong");
+        const auto withOurTextures = model_version(budokai3, 264, gameDisc, 171, ModelVersion::budokai2_textures);
+        const auto withOurMesh = model_version(budokai3, 264, gameDisc, 171, ModelVersion::budokai2_mesh);
+        const auto ourTextures = piece(b2model, textures, 0x20), theirTextures = piece(expected, textures, 0x20);
+        require(get32(withOurTextures.data() + 16) == 2 && get32(withOurTextures.data() + 0x20) == 0x40 &&
+                    piece(withOurTextures, 0x40, meshBytes) == piece(b3model, mesh, meshBytes) &&
+                    piece(withOurTextures, get32(withOurTextures.data() + 0x30), 0x20) == ourTextures &&
+                    get32(withOurTextures.data() + 0x34) == 0x20 && get32(withOurTextures.data() + 0x30) % 64 == 0,
+                "The Budokai 3 mesh with Budokai 2 textures is wrong");
+        require(piece(withOurMesh, 0x40, meshBytes) == piece(b2model, mesh, meshBytes) &&
+                    piece(withOurMesh, get32(withOurMesh.data() + 0x30), 0x20) == theirTextures,
+                "The Budokai 2 mesh with Budokai 3 textures is wrong");
+        require(model_shape(budokai3, 264) && !model_shape(budokai3, 266), "A model's shape was misread");
+
         // A mod fills Zarbon's unused record from Goku's and puts it on the grid.
         const auto mod = root / "mods" / "SSJ4";
         fs::create_directories(mod);

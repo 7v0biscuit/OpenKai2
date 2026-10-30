@@ -61,4 +61,16 @@ std::string model_digest(SourceDisc &disc, size_t entry);
 // A model entry's bytes, with Budokai 3 texture packs marked as Budokai 2's.
 std::vector<uint8_t> model_for_budokai2(SourceDisc &disc, size_t entry);
 
+// Versions of a Budokai 3 model for finding out in game which of its parts
+// Budokai 2 draws wrongly. Each mixes the Budokai 3 model `entry` with the
+// wearer's own Budokai 2 model `own`.
+enum class ModelVersion {
+    converted,          // textures marked as Budokai 2's (model_for_budokai2)
+    unchanged,          // exactly as on the Budokai 3 disc
+    budokai2_textures,  // the Budokai 3 mesh with the wearer's textures
+    budokai2_mesh,      // the wearer's mesh with the converted Budokai 3 textures
+};
+std::vector<uint8_t> model_version(SourceDisc &budokai3, size_t entry, SourceDisc &game, size_t own,
+                                   ModelVersion version);
+
 } // namespace openkai2::mods
