@@ -13,6 +13,7 @@
 #include "mods/importer.h"
 #include "mods/mod_library.h"
 #include "mods/roster.h"
+#include "mods/stages.h"
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -305,6 +306,10 @@ struct Window {
     std::shared_ptr<mods::SourceDisc> source, game;
     // Budokai 2 discs list their characters, each with its files grouped.
     std::optional<mods::DiscRoster> sourceRoster, gameRoster;
+    std::optional<std::vector<mods::DiscStage>> sourceStages;
+    // Movesets: a Budokai 2 character's moves on another's body. Stages: the
+    // source's stages, listed until they can be added.
+    bool movesView = false, stageView = false;
     // What the import tool brings into Budokai 2. Only characters are mapped
     // so far, and only from Budokai 2 discs; imports only ever add.
     enum class Task { characters, stages, movesets, capsules } importTask = Task::characters;
@@ -666,6 +671,9 @@ struct Window {
                 position(TargetMod, contentLeft + 20, targetTop + 52, 220, 34);
                 position(SpotMode, contentLeft + 252, targetTop + 52, 260, 34);
                 position(ImportSelected, right - 20 - 160, targetTop + 52, 160, 36);
+            } else if (stageView) {
+                const int listTop = 304, listHeight = listsBottom - 14 - listTop, half = (content - 52) / 2;
+                position(SourceFiles, contentLeft + 20, listTop, half, listHeight);
             }
         } else {
             const Grid grid(content);
@@ -939,9 +947,10 @@ struct Window {
         if (characterView) {
             const int half = (content - 52) / 2;
             const bool models = sourceRoster->models;
-            caps(dc, models ? L"1   CHOOSE A MODEL" : L"1   CHOOSE A CHARACTER", contentLeft + 20, 278, half - 200,
-                 orange);
+            caps(dc, models ? L"1   CHOOSE A MODEL" : movesView ? L"1   CHOOSE WHOSE MOVES" : L"1   CHOOSE A CHARACTER",
+                 contentLeft + 20, 278, half - 200, orange);
             caps(dc, models && selected(SpotMode) == forceModel ? L"2   CHOOSE WHOSE MOVES IT USES"
+                 : movesView ? L"2   CHOOSE WHOSE BODY"
                  : models ? L"2   CHOOSE WHO WEARS IT"
                  : selected(SpotMode) == 1 ? L"2   CHOOSE WHOSE PORTRAIT THE NEW SPOT USES"
                                            : L"2   CHOOSE A SPOT TO SHARE",
@@ -958,6 +967,19 @@ struct Window {
             else if (importTask == Task::characters)
                 placeholder(L"Characters from " + wide(mods::game_name(sourceIdentity.game)) +
                             L" can't be imported yet: its character tables aren't mapped." + mapping);
+            else if (stageView) {
+                const int half = (content - 52) / 2;
+                text(dc,
+                     std::to_wstring(sourceStages->size()) + L" stages on this disc, with the DATA_CMN entries "
+                     L"they use. Adding a stage needs the game's stage table made larger and the stage select "
+                     L"screen mapped, which isn't done yet, so stages can't be imported. Budokai 3 stages are "
+                     L"packed differently, but hold the same eight files with the same versions as Budokai 2's.",
+                     contentLeft + 32 + half + 8, 310, content - 52 - half - 36, 200, fonts.caption, muted,
+                     DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
+            } else if (importTask == Task::movesets)
+                placeholder(L"Movesets from " + wide(mods::game_name(sourceIdentity.game)) +
+                            L" can't be imported: its move files are a newer version than Budokai 2 reads. Choose "
+                            L"your Budokai 2 disc (Game disc) to put one character's moves on another's body.");
             else
                 placeholder(content_name + L" aren't mapped yet, in Budokai 2 or the other games." + mapping);
         }
@@ -1008,6 +1030,18 @@ struct Window {
         const auto into = choice > 0 && size_t(choice) <= modList.size() ? L"Saved into " + wide(modList[size_t(choice - 1)].name) + L"."
                                                                          : std::wstring(L"Saved as a new mod.");
         const auto *occupant = gameRoster->find(gameRoster->grid[size_t(row)]);
+        if (movesView) {
+            if (!occupant)
+                return L"That spot is empty. Choose a spot with a character whose body the moves go on.";
+            const auto moves = gameRoster->shapes.find(character->id), body = gameRoster->shapes.find(occupant->id);
+            const bool differ = moves == gameRoster->shapes.end() || body == gameRoster->shapes.end() ||
+                                !(moves->second == body->second);
+            return L"A new character: " + wide(occupant->name) + L"'s body with " + wide(character->name) +
+                   L"'s moves, " +
+                   (selected(SpotMode) == 1 ? std::wstring(L"with a new spot of its own before Random. ")
+                                            : L"sharing spot " + std::to_wstring(row + 1) + L"; R2 switches. ") +
+                   (differ ? L"Their skeletons differ, so the body may move oddly. " : L"") + into;
+        }
         if (sourceRoster->models) {
             if (!occupant)
                 return L"That spot is empty. Choose a spot with a character to wear the model.";
@@ -1396,13 +1430,20 @@ struct Window {
         source = std::move(disc);
         sourceRoster = std::move(roster);
         sourceIdentity = std::move(identity);
+        try {
+            sourceStages = mods::read_disc_stages(*source);
+        } catch (const std::exception &) {
+            sourceStages.reset();
+        }
         SetWindowTextW(controls[EntryFilter], L"");
         setTask(importTask);
     }
     // Switches what the import tool shows for the chosen content.
     void setTask(Task next) {
         importTask = next;
-        characterView = importTask == Task::characters && sourceRoster.has_value();
+        movesView = importTask == Task::movesets && sourceRoster && !sourceRoster->models;
+        stageView = importTask == Task::stages && sourceStages.has_value();
+        characterView = (importTask == Task::characters && sourceRoster.has_value()) || movesView;
         for (int id : {TaskCharacters, TaskStages, TaskMovesets, TaskCapsules})
             InvalidateRect(controls[id], nullptr, FALSE);
         layout();
@@ -1442,6 +1483,15 @@ struct Window {
         sourceRows.clear();
         auto list = controls[SourceFiles];
         SendMessageW(list, LB_RESETCONTENT, 0, 0);
+        if (stageView) {
+            for (const auto &stage : *sourceStages) {
+                auto label = wide(mods::stage_display_name(stage.internal)) + L"   ·   files";
+                for (const auto &file : stage.files)
+                    label += L" " + std::to_wstring(file.second);
+                SendMessageW(list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
+            }
+            return;
+        }
         if (!characterView)
             return;
         std::wstring filter = textOf(EntryFilter);
@@ -1575,9 +1625,11 @@ struct Window {
                 return;
             }
     }
-    // Whether the chosen model can be worn by the character in a spot; other
-    // imports fit any spot.
+    // Whether the chosen model can be worn by the character in a spot, or a
+    // spot has a body for moves; other imports fit any spot.
     bool fits(size_t spot) const {
+        if (movesView)
+            return gameRoster && gameRoster->find(gameRoster->grid[spot]);
         if (!sourceRoster || !sourceRoster->models)
             return true;
         const auto *model = sourceCharacter();
@@ -1686,6 +1738,46 @@ struct Window {
                         return result;
                     });
     }
+    // Adds a character with one Budokai 2 character's moves (its record,
+    // animations and move effects, as its base) and the costume models of the
+    // character in the chosen spot. Nothing is copied: the roster.ini section
+    // names the body's DATA_CMN entries.
+    void importMoveset(const mods::DiscCharacter &moves, int pick) {
+        const auto *body = gameRoster->find(gameRoster->grid[size_t(pick)]);
+        if (!body)
+            throw std::runtime_error("That spot is empty; choose a spot with a character whose body the moves go on");
+        const auto costumes = mods::costume_fields(*game, *body);
+        if (costumes.empty())
+            throw std::runtime_error(utf8(wide(body->name)) + " has no costume model to lend");
+        std::vector<std::filesystem::path> folders;
+        for (const auto &mod : modList)
+            folders.push_back(mod.folder);
+        const auto slot = mods::free_roster_slot(mods::roster_slots_in_use(folders));
+        if (!slot)
+            throw std::runtime_error("Every unused character ID is already filled by a mod");
+        mods::RosterCharacter added;
+        added.slot = *slot;
+        added.base = moves.id;
+        added.name = body->internal;
+        const bool newSpot = selected(SpotMode) == 1;
+        if (newSpot) {
+            added.new_cell = true;
+            added.icon_cell = uint32_t(pick);
+        } else
+            added.alternate_cells.push_back(uint32_t(pick));
+        std::vector<std::pair<uint32_t, std::string>> fields;
+        for (const auto &[offset, entry] : costumes)
+            fields.push_back({offset, std::to_string(entry)});
+        const auto mod = importMod(body->name + " " + moves.name);
+        mods::append_roster(mod, added, fields);
+        status = L"Added " + wide(body->name) + L" with " + wide(moves.name) + L"'s moves" +
+                 (newSpot ? std::wstring(L", with a new spot of its own")
+                          : L", sharing spot " + std::to_wstring(pick + 1) + L"; press R2 there to switch") +
+                 L" (character ID " + std::to_wstring(added.slot) + L")." + movesWarning(added.slot) +
+                 L" It loads the next time the game starts.";
+        refreshMods();
+        InvalidateRect(hwnd, nullptr, FALSE);
+    }
     // Adds the character's files as new DATA_CMN entries and a roster.ini
     // section that fills an unused character ID with them. The character
     // shares a spot or gets a new one, so nobody leaves the select screen.
@@ -1700,6 +1792,8 @@ struct Window {
             throw std::runtime_error("Choose a spot on the select screen");
         if (sourceRoster->models)
             return importModel(*character, pick);
+        if (movesView)
+            return importMoveset(*character, pick);
         std::vector<std::filesystem::path> folders;
         for (const auto &mod : modList)
             folders.push_back(mod.folder);

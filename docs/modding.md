@@ -54,6 +54,29 @@ At the top, choose what to add: **Characters**, **Stages**, **Movesets** or
 4. Read the sentence beside **Import**, which says what will happen, then
    press **Import**. The character fills an unused character ID.
 
+### Movesets
+
+With Budokai 2 as the source (**Game disc**), the **Movesets** tab adds a new
+character with one character's moves and another's body:
+
+1. On the left, **choose whose moves** the character uses. It becomes the new
+   character's base, so it brings that character's record, animations, move
+   effects and voice.
+2. On the right, **choose whose body** it wears: the character in that spot
+   lends its costume models. Nothing is copied; the roster entry names the
+   body's own `DATA_CMN.AFS` entries.
+3. Choose **Share a spot** or **Add a new spot**, then press **Import**.
+
+When the two characters' skeletons differ, the sentence beside **Import** says
+so: the moves may move the body oddly. Budokai 3 and Infinite World movesets
+are a newer file version than Budokai 2 reads and are not converted.
+
+### Stages and capsules
+
+The **Stages** tab lists the source disc's stages, Budokai 2's or Budokai 3's,
+with the `DATA_CMN.AFS` entries each uses. They cannot be imported yet (see
+[Stages](#stages)). Capsules are not mapped in any game yet.
+
 ### Budokai 3 models
 
 With a Budokai 3 USA disc (SLUS-20998) as the source, the list on the left
@@ -120,8 +143,8 @@ mesh, were black.
 | Content    | Budokai 2 | Budokai | Budokai 3 | Infinite World |
 |------------|-----------|---------|-----------|----------------|
 | Characters | Yes       | Not yet | Textures  | Not yet        |
-| Stages     | Not yet   | Not yet | Not yet   | Not yet        |
-| Movesets   | Not yet   | Not yet | Not yet   | Not yet        |
+| Stages     | Listed    | Not yet | Listed    | Not yet        |
+| Movesets   | Yes       | Not yet | Not yet   | Not yet        |
 | Capsules   | Not yet   | Not yet | Not yet   | Not yet        |
 
 Each game keeps its characters, stages, movesets and capsules in tables in its
@@ -272,8 +295,14 @@ current stage's index at `0x373C60` and `0x373CAC`.
 | 9 to 12 | ISLAND B, TOWN B, R&R BASE B, SNOW B | as 0, 1, 4 and 5 |
 
 Stages cannot be imported yet: the stage select screen's list is not mapped,
-so an added stage could not be chosen. Budokai 3 names its stages 92 bytes
-apart from `0x44B078`; the disc report dumps those records to map them.
+so an added stage could not be chosen.
+
+Budokai 3 keeps 17 stage records of 92 bytes at `0x44AE50`, starting with BUDO
+(its seventh, GOKU, is at `0x44B078`). A record starts with a 16-byte name; the
+words at `0x10` and `0x14` are `DATA_CMN.AFS` entries. The first is an `#AMB`
+of the map (`#MDD`), its `#MAD` and `#MAS`, the `#SPX` and the stage's own
+`#AMB` pack; the second an `#AMB` of the other three files. They are the eight
+files a Budokai 2 stage names, with the same versions.
 
 ## Mod folder layout
 

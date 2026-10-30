@@ -348,6 +348,30 @@ int main() {
                     (*stages)[0].files[3] == std::pair<uint32_t, uint32_t>{0x4C, 5} &&
                     !read_disc_stages(budokai3),
                 "The stage table was not read");
+        // Budokai 3's: a 16-byte name and two packs per stage, on a disc that
+        // is otherwise the Budokai 3 disc above.
+        Bytes b3stages = b3memory;
+        b3stages.resize(budokai3_stages + budokai3_stage_count * budokai3_stage_bytes);
+        for (uint32_t i = 0; i < budokai3_stage_count; ++i) {
+            const uint32_t record = budokai3_stages + i * budokai3_stage_bytes;
+            const auto name = i == 0 ? std::string("BUDO") : i == 1   ? std::string("MIND & TIME B")
+                                  : i == 6   ? std::string("GOKU")
+                                             : "STAGE" + std::to_string(i);
+            std::memcpy(b3stages.data() + record, name.data(), name.size());
+            put32(b3stages, record + 0x10, 100 + 2 * i);
+            put32(b3stages, record + 0x14, i == 2 ? 0 : 101 + 2 * i);
+        }
+        write(root / "b3stages.iso", disc_image(b3stages, "SLUS_209.98", budokai3_names));
+        SourceDisc b3stageDisc(root / "b3stages.iso");
+        const auto b3list = read_disc_stages(b3stageDisc);
+        require(b3list && b3list->size() == budokai3_stage_count && (*b3list)[0].internal == "BUDO" &&
+                    (*b3list)[1].variant && (*b3list)[0].files == std::vector<std::pair<uint32_t, uint32_t>>{{0x10, 100}, {0x14, 101}} &&
+                    (*b3list)[2].files.size() == 1,
+                "Budokai 3's stage table was not read");
+        require(stage_display_name("ROOM TIME MIND") == "Hyperbolic Time Chamber" &&
+                    stage_display_name("MIND & TIME B") == "Hyperbolic Time Chamber B" &&
+                    stage_display_name("TOWN") == "TOWN",
+                "Stage names were not shown as expected");
 
         // Budokai 3 materials get the flag Budokai 2 sets; other records stay.
         const auto flagged = model_for_budokai2(budokai3, 267);
