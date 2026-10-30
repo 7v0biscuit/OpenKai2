@@ -1587,6 +1587,13 @@ struct Window {
             return gameRoster->shapes.count(wearer->id) != 0;
         return model && wearer && !modelMismatch(*model, *wearer);
     }
+    // Only IDs below 41 have move effects to take from their base.
+    static std::wstring movesWarning(uint32_t slot) {
+        return slot < mods::roster_id_tables[0].count
+                   ? std::wstring()
+                   : L" Character ID " + std::to_wstring(slot) +
+                         L" has no move effects of its own, so its special moves may not work.";
+    }
     // Adds a model from another game as a new character: a copy of the
     // Budokai 2 character in the chosen spot, wearing the model in every
     // costume. Nobody leaves the select screen.
@@ -1658,7 +1665,8 @@ struct Window {
                                             L"; press R2 there to go through them"
                               : newSpot ? std::wstring(L", with a new spot of its own")
                                         : L", sharing spot " + std::to_wstring(pick + 1) + L"; press R2 there to switch") +
-                             L" (character ID" + (compare ? L"s " : L" ") + ids + L").";
+                             L" (character ID" + (compare ? L"s " : L" ") + ids + L")." +
+                             movesWarning(added.back().slot);
         const auto mod = importMod(model.name);
         startModJob(Job::importMod, L"Importing…",
                     [disc = source, game = game, entry, own, versions, targets, mod, added, costumes,
@@ -1731,11 +1739,11 @@ struct Window {
         }
         const auto *occupant = gameRoster->find(gameRoster->grid[size_t(pick)]);
         const auto summary =
-            newSpot ? L"Added " + wide(character->name) + L" with a new spot of its own (character ID " +
+            (newSpot ? L"Added " + wide(character->name) + L" with a new spot of its own (character ID " +
                           std::to_wstring(added.slot) + L")."
                     : L"Added " + wide(character->name) + L", sharing spot " + std::to_wstring(pick + 1) +
                           (occupant ? L" with " + wide(occupant->name) : std::wstring()) + L" (character ID " +
-                          std::to_wstring(added.slot) + L"). Press R2 on that spot to switch.";
+                          std::to_wstring(added.slot) + L"). Press R2 on that spot to switch.") + movesWarning(added.slot);
         const auto mod = importMod(character->name);
         const auto files = character->files;
         startModJob(Job::importMod, L"Importing…",
