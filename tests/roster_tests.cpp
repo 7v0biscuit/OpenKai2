@@ -287,6 +287,11 @@ int main() {
             put32(materialModel, 0x40 + at + 4, 0x29BD);
             put32(materialModel, 0x40 + at + 8, 3);
         }
+        // A draw record, and one whose offset is not 16-byte aligned.
+        put32(materialModel, 0x40 + 0x70, 0x9000020C);
+        put32(materialModel, 0x40 + 0x74, 0x50);
+        put32(materialModel, 0x40 + 0x80, 0x6000020F);
+        put32(materialModel, 0x40 + 0x84, 0x54);
         write(root / "budokai3.iso", disc_image(b3memory, "SLUS_209.98", budokai3_names,
                                                 {{264, costume_model(5, 2, false, budokai3Layout)},
                                                  {267, materialModel},
@@ -380,6 +385,9 @@ int main() {
                     model_materials(budokai3, 267).find("material at mesh +000050: 000001B5 000029BD 00000003") !=
                         std::string::npos,
                 "Budokai 3 materials were not given Budokai 2's flag");
+        require(get32(flagged.data() + 0xB0) == 0x9000022C && get32(flagged.data() + 0xC0) == 0x6000020F &&
+                    draw_records(flagged).size() == 1,
+                "Budokai 3 draw records were not given Budokai 2's flag");
 
         // Mesh comparison lists codes and flags, not vertex floats.
         const auto differences = mesh_differences(budokai3, 267, budokai3, 264);

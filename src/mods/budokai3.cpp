@@ -412,6 +412,12 @@ std::string model_materials(SourceDisc &disc, size_t entry) {
                       read32(bytes, record + 12));
         text += line;
     }
+    const auto draws = draw_records(bytes);
+    size_t flagged = 0;
+    for (const auto record : draws)
+        flagged += (read32(bytes, record) & budokai2_draw_flag) != 0;
+    std::snprintf(line, sizeof line, "    draw records: %zu, %zu with Budokai 2's flag\n", draws.size(), flagged);
+    text += line;
     return text;
 }
 
@@ -464,6 +470,30 @@ std::vector<size_t> material_records(const std::vector<uint8_t> &model, bool any
     return records;
 }
 
+std::vector<size_t> draw_records(const std::vector<uint8_t> &model) {
+    // The records sit in the mesh's first block at 16-byte boundaries: a word
+    // of 0x2xx with a kind in its top four bits, then the offset in the mesh
+    // of what it draws.
+    std::vector<size_t> records;
+    const uint32_t mesh = read32(model, read32(model, 20)), size = read32(model, read32(model, 20) + 4);
+    if (mesh > model.size() || size > model.size() - mesh || read32(model, mesh + 32) == 0)
+        return records;
+    const uint32_t start = read32(model, mesh + 48);
+    uint32_t end = size;
+    for (uint32_t i = 1, blocks = std::min<uint32_t>(read32(model, mesh + 32), 64); i < blocks; ++i)
+        if (const uint32_t other = read32(model, mesh + 48 + i * 4); other > start && other < end)
+            end = other;
+    for (uint32_t at = (start + 15) / 16 * 16; at + 16 <= end; at += 16) {
+        const size_t record = size_t(mesh) + at;
+        const uint32_t word = read32(model, record), target = read32(model, record + 4);
+        const uint32_t kind = word >> 28;
+        if ((word & 0x0FFFFFC0u) == 0x200u && (kind == 0 || kind == 6 || kind == 8 || kind == 9) && target &&
+            target % 16 == 0 && target < size)
+            records.push_back(record);
+    }
+    return records;
+}
+
 std::vector<uint8_t> model_for_budokai2(SourceDisc &disc, size_t entry) {
     const auto range = disc.range(roster_archive, entry);
     const auto parts = model_parts(disc, range);
@@ -476,6 +506,9 @@ std::vector<uint8_t> model_for_budokai2(SourceDisc &disc, size_t entry) {
     // Budokai 2 sets a flag in every material that Budokai 3 leaves clear.
     for (const auto record : material_records(bytes, false))
         bytes[record + 1] |= uint8_t(budokai2_material_flag >> 8);
+    // And one in every draw record of the mesh's first block.
+    for (const auto record : draw_records(bytes))
+        bytes[record] |= uint8_t(budokai2_draw_flag);
     return bytes;
 }
 

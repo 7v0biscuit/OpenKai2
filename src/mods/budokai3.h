@@ -85,11 +85,20 @@ inline constexpr uint32_t budokai2_material_flag = 0x2000u;
 // mesh block, holding flags, 0x29BD and two texture numbers. With `any`, every
 // record with 0x29BD in its second word, whatever its flags.
 std::vector<size_t> material_records(const std::vector<uint8_t> &model, bool any);
+// The flag Budokai 2 sets in the first word of every draw record in a mesh's
+// first block (0x9000022C) and Budokai 3 leaves clear (0x9000020C); found by
+// comparing Supreme Kai's meshes word by word, where it and the material flag
+// are the only differences besides texture numbers and vertex data.
+inline constexpr uint32_t budokai2_draw_flag = 0x20u;
+// Where a model's draw records are: 16 bytes at a 16-byte boundary in the
+// mesh's first block, a word of 0x2xx with a kind of 0, 6, 8 or 9 in its top
+// four bits, then a 16-byte-aligned offset in the mesh.
+std::vector<size_t> draw_records(const std::vector<uint8_t> &model);
 // A plain-text list of a model's material records, for the disc report.
 std::string model_materials(SourceDisc &disc, size_t entry);
 
 // A model entry's bytes, with Budokai 3 texture packs marked as Budokai 2's
-// and its materials given Budokai 2's flag.
+// and its materials and draw records given Budokai 2's flags.
 std::vector<uint8_t> model_for_budokai2(SourceDisc &disc, size_t entry);
 
 // Versions of a Budokai 3 model for finding out in game which of its parts
