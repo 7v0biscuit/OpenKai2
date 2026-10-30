@@ -488,6 +488,11 @@ void checkGsWorker(){
             throw std::runtime_error("Queued native upload lost ordering, source ownership or its partial final pixel");
     if(!drawn)throw std::runtime_error("GS thread fixture drew nothing");
     if(differing)throw std::runtime_error("GS thread changed "+std::to_string(differing)+" sampled pixels");
+    // Backend hand-off materializes every GPU-owned page into the external
+    // allocation. Compare all VRAM, including bytes outside sampled targets.
+    reference->setRasterBackend(std::make_unique<GSCpuBackend>());
+    worker->setRasterBackend(std::make_unique<GSCpuBackend>());
+    if(direct!=threaded)throw std::runtime_error("GS queued uploads and draws changed video-memory bytes");
 }
 int run_gpu_checks(bool required){
     try{

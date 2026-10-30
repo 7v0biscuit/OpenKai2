@@ -53,6 +53,7 @@ void verify_melee_callbacks(PS2Runtime& runtime,uint8_t* ram){
         for(unsigned state=0;state<3u;++state)for(unsigned elapsed:{0u,10u}){
             std::memset(ram+task,0,128u);std::memset(ram+nodes,0,8192u);
             runtime.memory().write32(0x3df4e8u,actor);runtime.memory().write32(actor+0xb8u,task);runtime.memory().write32(actor+0xc4u,nodes);
+            runtime.memory().write32(0x3df4a8u,0u);runtime.memory().write32(0x3df49cu,0u);
             runtime.memory().write32(task+0x34u,state);runtime.memory().write32(task+0x48u,elapsed==10u ? 0x41200000u : 0u);
             runtime.memory().write32(marker+4u,0u);runtime.memory().write32(gp-0x783cu,actor);runtime.memory().write32(actor+0x142e4u,1u);
             runtime.memory().write32(0x374748u,1u);runtime.memory().write32(0x37474cu,2u);runtime.memory().write32(0x374750u,3u);
