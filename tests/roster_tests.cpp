@@ -285,8 +285,12 @@ int main() {
                     shapesReport.find("Goku, model 1, entry 264:\n    header: 4F4D4123") != std::string::npos &&
                     shapesReport.find("    part  4: 00000004") != std::string::npos,
                 "The disc report does not list the model shapes");
-        require(disc_report(gameDisc).find("Krillin, entry 213:\n    textures: 544D4123") != std::string::npos,
-                "The disc report does not show Krillin's textures");
+        const auto gameReport = disc_report(gameDisc);
+        require(gameReport.find("Krillin, entry 213:\n    textures: 544D4123") != std::string::npos &&
+                    gameReport.find("Check values of Krillin's") != std::string::npos &&
+                    gameReport.find("Krillin, entry 213:\n    mesh 304 bytes, check") != std::string::npos &&
+                    gameReport.find("texture pack ends: 544D4123") != std::string::npos,
+                "The disc report does not show Krillin's textures and check values");
         const auto converted = model_for_budokai2(budokai3, 264);
         auto expected = costume_model(5, 2);
         expected[0x40 + 0x70 + 5 * 32 + 12] = 1;

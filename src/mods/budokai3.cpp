@@ -239,6 +239,64 @@ std::string model_contents(SourceDisc &disc, size_t entry) {
     return text;
 }
 
+std::string model_digest(SourceDisc &disc, size_t entry) {
+    const auto range = disc.range(roster_archive, entry);
+    const auto parts = model_parts(disc, range);
+    if (!parts)
+        return {};
+    const auto bytes = disc.read_entry(roster_archive, entry);
+    const auto check = [&](uint64_t from, uint64_t size) {
+        uint32_t value = 2166136261u;
+        for (uint64_t at = from; at < from + size && at < bytes.size(); ++at)
+            value = (value ^ bytes[size_t(at)]) * 16777619u;
+        return value;
+    };
+    std::string text;
+    char line[160];
+    const auto words = [&](uint64_t from, uint64_t size) {
+        for (uint64_t at = from; at + 4 <= from + size && at + 4 <= bytes.size(); at += 4) {
+            std::snprintf(line, sizeof line, " %08X", read32(bytes, size_t(at)));
+            text += line;
+        }
+    };
+    // The #AMB records give each file's size.
+    const uint32_t mesh = parts->first, pack = parts->second;
+    const uint32_t meshSize = read32(bytes, read32(bytes, 20) + 4), packSize = read32(bytes, read32(bytes, 20) + 20);
+    std::snprintf(line, sizeof line, "    mesh %u bytes, check %08X; textures %u bytes, check %08X\n", meshSize,
+                  check(mesh, meshSize), packSize, check(pack, packSize));
+    text += line;
+    const uint32_t blocks = std::min<uint32_t>(read32(bytes, mesh + 32), 64);
+    std::vector<uint32_t> starts;
+    for (uint32_t i = 0; i < blocks; ++i)
+        starts.push_back(read32(bytes, mesh + 48 + i * 4));
+    for (uint32_t i = 0; i < blocks; ++i) {
+        uint32_t end = meshSize;
+        for (const auto other : starts)
+            if (other > starts[i] && other < end)
+                end = other;
+        std::snprintf(line, sizeof line, "    block %2u: %6u bytes, check %08X\n", i, end - starts[i],
+                      check(mesh + uint64_t(starts[i]), end - starts[i]));
+        text += line;
+    }
+    const uint32_t textures = std::min<uint32_t>(read32(bytes, pack + 16), 64), table = read32(bytes, pack + 20);
+    for (uint32_t i = 0; i < textures; ++i) {
+        const uint32_t header = pack + read32(bytes, pack + table + i * 4);
+        std::snprintf(line, sizeof line, "    texture %2u: pixels %6u bytes, check %08X; palette %4u bytes, check %08X\n",
+                      i, read32(bytes, header + 24), check(pack + uint64_t(read32(bytes, header + 20)), read32(bytes, header + 24)),
+                      read32(bytes, header + 40), check(pack + uint64_t(read32(bytes, header + 36)), read32(bytes, header + 40)));
+        text += line;
+    }
+    if (blocks > 1) {
+        text += "    block 1 starts:";
+        words(mesh + uint64_t(starts[1]), 512);
+        text += '\n';
+    }
+    text += "    texture pack ends:";
+    words(pack + uint64_t(packSize) - std::min<uint32_t>(packSize, 128), std::min<uint32_t>(packSize, 128));
+    text += '\n';
+    return text;
+}
+
 void read_model_shapes(SourceDisc &game, DiscRoster &roster) {
     for (const auto &character : roster.characters) {
         const auto costumes = costume_fields(game, character);

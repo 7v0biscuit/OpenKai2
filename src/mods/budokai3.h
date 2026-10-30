@@ -53,6 +53,11 @@ std::string model_structure(SourceDisc &disc, size_t entry);
 // first bytes of each block the mesh header lists.
 std::string model_contents(SourceDisc &disc, size_t entry);
 
+// Check values of a costume model's mesh blocks and textures, so two games'
+// models can be compared piece by piece, then the first 512 bytes of the
+// second mesh block and the last 128 bytes of the texture pack.
+std::string model_digest(SourceDisc &disc, size_t entry);
+
 // A model entry's bytes, with Budokai 3 texture packs marked as Budokai 2's.
 std::vector<uint8_t> model_for_budokai2(SourceDisc &disc, size_t entry);
 

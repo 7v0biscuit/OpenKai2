@@ -256,7 +256,7 @@ DiscIdentity identify_disc(SourceDisc &disc) {
 std::string disc_report(SourceDisc &disc) {
     std::ostringstream out;
     const auto identity = identify_disc(disc);
-    out << "OpenKai2 disc report, version 7\n\nGame: " << game_name(identity.game) << "\nSerial: " << identity.serial
+    out << "OpenKai2 disc report, version 8\n\nGame: " << game_name(identity.game) << "\nSerial: " << identity.serial
         << "\nExecutable: " << identity.executable << "\n\nFiles:\n";
     char line[160];
     const auto hex = [&](const uint8_t *bytes, size_t count) {
@@ -394,6 +394,18 @@ std::string disc_report(SourceDisc &disc) {
                     out << "\n  " << character.name << ", entry " << entry << ":\n" << model_contents(disc, entry);
                 }
         }
+        // Supreme Kai's Budokai 3 mesh is the size of Budokai 2's, and Krillin's
+        // nearly so; check values show which pieces are the same.
+        out << "\nCheck values of Krillin's and Supreme Kai's first models:\n";
+        for (const char *name : {"KULILIN", "KAIO-SHIN"})
+            for (const auto &character : roster->characters)
+                if (character.internal == name) {
+                    const auto fields = roster->models ? character.files : costume_fields(disc, character);
+                    if (!fields.empty())
+                        out << "\n  " << character.name << ", entry " << fields.front().second << ":\n"
+                            << model_digest(disc, fields.front().second);
+                    break;
+                }
     }
     std::vector<uint8_t> elf;
     try {
