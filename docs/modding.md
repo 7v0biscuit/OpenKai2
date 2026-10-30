@@ -87,8 +87,15 @@ parts link, for the work on converting Budokai 3 meshes.
 **Force a new character** under **On the select screen** imports the whole
 Budokai 3 model, mesh and textures, as a new character with a spot of its
 own, whether or not it fits. On the right, choose whose moves and animations
-it uses. Budokai 2 draws Budokai 3 meshes black until they can be converted,
-and the moves may not suit the body.
+it uses; the moves may not suit the body.
+
+A Budokai 3 mesh block matches Budokai 2's except in its material records:
+16 bytes at a 16-byte boundary holding flags, `0x29BD` and two texture
+numbers. Budokai 2 sets `0x2000` in the flags (`0x21B5`); Budokai 3 leaves it
+clear (`0x01B5`), and Budokai 2 drew those meshes black. Forced imports set
+the flag in every Budokai 3 material record. The texture numbers follow the
+model's own texture pack, which a forced import keeps. The disc report lists
+Krillin's and Supreme Kai's material records in both games.
 
 #### Comparing versions
 
@@ -96,7 +103,8 @@ and the moves may not suit the body.
 characters sharing the chosen spot, in this order after the character already
 there, to see in game which part Budokai 2 draws wrongly:
 
-- **A**: the whole Budokai 3 model, its textures marked version 1;
+- **A**: the whole Budokai 3 model, its textures marked version 1 and its
+  materials flagged as Budokai 2's;
 - **B**: the model exactly as on the Budokai 3 disc;
 - **C**: the Budokai 3 mesh with the wearer's own Budokai 2 textures;
 - **D**: the wearer's own Budokai 2 mesh with the Budokai 3 textures, as a
