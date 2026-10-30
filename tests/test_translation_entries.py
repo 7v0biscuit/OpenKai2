@@ -90,6 +90,18 @@ class TranslationEntries(unittest.TestCase):
         for address in (0x1bc0b0,0x1d8220,0x1d8240):
             self.assertIn(address, ENTRIES.MELEE_TASK_ENTRIES)
 
+    def test_state_method_tables_cover_each_handler(self):
+        self.assertIn(0x1e96f0, ENTRIES.STATE_METHOD_ENTRIES)
+        for address in ENTRIES.STATE_METHOD_ENTRIES:
+            with self.subTest(address=address), self.assertRaisesRegex(ValueError, f'missing guest entry 0x{address:08x}'):
+                self.verify_fixture('g_ps2RecompiledFunctionTable[1] = owner; // 0x167188',
+                                    '// Address: 0x167188 - 0x1671a0', omitted=(address,))
+        for base, row in ENTRIES.STATE_METHOD_TABLES:
+            for index in range(len(row)):
+                data=self.make_elf_metadata();data[base-0x100000+128+index*4]^=1
+                with self.subTest(base=base,index=index), self.assertRaisesRegex(ValueError, 'Indirect methods differ'):
+                    ENTRIES.verify_elf_metadata(data)
+
     def test_melee_task_metadata_rejects_altered_dispatch_or_code(self):
         for base, row in ENTRIES.MELEE_TASK_TABLES + ENTRIES.MELEE_TASK_WORDS:
             for index in range(len(row)):
@@ -100,7 +112,7 @@ class TranslationEntries(unittest.TestCase):
     def test_tables_have_complete_unique_coverage(self):
         self.assertEqual(len(ENTRIES.DISPATCH_TABLES), 7)
         self.assertTrue(all(len(row) == 14 for _, row in ENTRIES.DISPATCH_TABLES))
-        self.assertEqual(len(set(ENTRIES.ENTRY_POINTS)), 1134)
+        self.assertEqual(len(set(ENTRIES.ENTRY_POINTS)), 1160)
         self.assertEqual(len(ENTRIES.ZERO_RETURN_ENTRIES), 39)
         self.assertTrue(set(ENTRIES.ZERO_RETURN_ENTRIES) <= set(ENTRIES.ENTRY_POINTS))
         self.assertNotIn(0x00387110, ENTRIES.ENTRY_POINTS)
@@ -115,7 +127,7 @@ class TranslationEntries(unittest.TestCase):
             path = Path(temporary) / 'entries.h'
             ENTRIES.emit_check_header(path)
             content, changed = path.read_text(), path.stat().st_mtime_ns
-            self.assertIn('std::array<uint32_t, 1134> entries', content)
+            self.assertIn('std::array<uint32_t, 1160> entries', content)
             self.assertIn('std::array<uint32_t, 39> zero_return_entries', content)
             for address in ENTRIES.ENTRY_POINTS:
                 self.assertIn(f'0x{address:08x}u,', content)
@@ -565,7 +577,7 @@ class TranslationEntries(unittest.TestCase):
         for base, entries in (ENTRIES.DISPATCH_TABLES + ENTRIES.FILE_CALLBACK_TABLES
                               + ENTRIES.STREAM_CALLBACK_TABLES + ENTRIES.MEMORY_STREAM_TABLES + ENTRIES.FADE_CALLBACK_TABLES
                               + ENTRIES.MOVIE_CALLBACK_TABLES + ENTRIES.MOVIE_PACKET_TABLES
-                              + ENTRIES.MOVIE_TIMING_TABLES + ENTRIES.SCENE_MODE_TABLES + ENTRIES.BATTLE_COMMAND_TABLES + ENTRIES.AURA_UPDATE_TABLES + ENTRIES.BATTLE_UPDATE_TABLES + ENTRIES.BATTLE_DRAW_TABLES + ENTRIES.FIGHT_STATE_TABLES + ENTRIES.ATTACK_EFFECT_TABLES + ENTRIES.IMPACT_EFFECT_TABLES + ENTRIES.ACTOR_COMMAND_TABLES + ENTRIES.ACTOR_TIMING_TABLES + ENTRIES.ACTOR_STATE_TABLES + ENTRIES.PAUSE_MENU_TABLES + ENTRIES.STORY_CALLBACK_TABLES + ENTRIES.SCRIPT_COMMAND_TABLES + ENTRIES.SCRIPT_COMMAND_ROOTS + ENTRIES.INTERACTION_TABLES + ENTRIES.MELEE_TASK_TABLES):
+                              + ENTRIES.MOVIE_TIMING_TABLES + ENTRIES.SCENE_MODE_TABLES + ENTRIES.BATTLE_COMMAND_TABLES + ENTRIES.AURA_UPDATE_TABLES + ENTRIES.BATTLE_UPDATE_TABLES + ENTRIES.BATTLE_DRAW_TABLES + ENTRIES.FIGHT_STATE_TABLES + ENTRIES.ATTACK_EFFECT_TABLES + ENTRIES.IMPACT_EFFECT_TABLES + ENTRIES.ACTOR_COMMAND_TABLES + ENTRIES.ACTOR_TIMING_TABLES + ENTRIES.ACTOR_STATE_TABLES + ENTRIES.PAUSE_MENU_TABLES + ENTRIES.STORY_CALLBACK_TABLES + ENTRIES.SCRIPT_COMMAND_TABLES + ENTRIES.SCRIPT_COMMAND_ROOTS + ENTRIES.INTERACTION_TABLES + ENTRIES.MELEE_TASK_TABLES + ENTRIES.STATE_METHOD_TABLES):
             put(base, entries)
         for _, high_pc, high_word, low_pc, low_word, store_pc, store_word in ENTRIES.OBJECT_CALLBACK_INSTALLS:
             for pc, word in ((high_pc, high_word), (low_pc, low_word), (store_pc, store_word)):
