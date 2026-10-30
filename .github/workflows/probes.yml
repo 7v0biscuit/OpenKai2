@@ -46,7 +46,7 @@ jobs:
       - name: Build and run native component comparisons
         run: python tools/probes/run.py --skip-retail
       - name: Build ISO verification tests
-        run: cmake --build build/probes --config Release --target openkai2_disc_tests openkai2_disc_timing_tests openkai2_disc_verify openkai2_input_tests openkai2_presenter_tests openkai2_launcher_tests openkai2_content_unlock_tests --parallel 2
+        run: cmake --build build/probes --config Release --target openkai2_audio_tests openkai2_mod_tests openkai2_roster_tests openkai2_disc_tests openkai2_disc_timing_tests openkai2_disc_verify openkai2_input_tests openkai2_presenter_tests openkai2_launcher_tests openkai2_content_unlock_tests --parallel 2
       - name: Build Windows launcher interaction checks
         if: runner.os == 'Windows'
         run: cmake --build build/probes --config Release --target openkai2_launcher_ui_tests openkai2_discord_tests --parallel 2
