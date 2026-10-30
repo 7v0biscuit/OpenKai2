@@ -47,6 +47,10 @@ Settings read_settings(const std::filesystem::path &file) {
             std::string p;
             row >> std::quoted(p);
             s.iso = std::filesystem::u8path(p);
+        } else if (key == "import_iso") {
+            std::string p;
+            row >> std::quoted(p);
+            s.importIso = std::filesystem::u8path(p);
         } else if (key == "fps")
             row >> s.fps;
         else if (key == "width")
@@ -109,7 +113,8 @@ void write_settings(const std::filesystem::path &file, const Settings &s) {
         << "\naudio " << s.audio << "\nvolume " << s.volume
         << "\nauto_backups " << s.autoBackups << "\nauto_updates " << s.autoUpdates
         << "\nupdate_channel " << s.updateChannel << "\nrenderer " << std::quoted(s.renderer)
-        << "\ndiscord_presence " << s.discordPresence << '\n';
+        << "\ndiscord_presence " << s.discordPresence << "\nimport_iso " << std::quoted(path_utf8(s.importIso))
+        << '\n';
     out.close();
     if (!out)
         throw std::runtime_error("Cannot finish saving settings");

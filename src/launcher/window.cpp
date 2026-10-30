@@ -128,7 +128,8 @@ enum Id {
     TargetList = 217,
     SpotMode = 218,
     TaskCapsules = 219,
-    SaveReport = 220
+    SaveReport = 220,
+    SourceLast = 221
 };
 // Sidebar pages, then the import tool, which opens from the Mods page.
 constexpr int pageCount = 4, modsPage = 2, settingsPage = 3, importPage = 4;
@@ -477,12 +478,13 @@ struct Window {
                                                           {ModRemove, L"Remove character"},
                                                           {SourceGame, L"Game disc"},
                                                           {SourceIso, L"Choose ISO…"},
+                                                          {SourceLast, L"Last disc"},
                                                           {ImportSelected, L"Import"},
                                                           {TaskCharacters, L"Characters"},
                                                           {TaskStages, L"Stages"},
                                                           {TaskMovesets, L"Movesets"},
                                                           {TaskCapsules, L"Capsules"},
-                                                          {SaveReport, L"Save disc report…"},
+                                                          {SaveReport, L"Disc report…"},
                                                           {CloseImporter, L"Back to mods"},
                                                           {SettingsTab, L"Settings"},
                                                           {CheckUpdates, L"Check now"},
@@ -600,6 +602,10 @@ struct Window {
                                            (id != ModDown || size_t(chosenMod) + 1 < modList.size()));
         for (int id : {ModCreate, OpenImporter, SourceGame, SourceIso})
             EnableWindow(controls[id], modding && (id != SourceGame || !settings.iso.empty()));
+        std::error_code missing;
+        EnableWindow(controls[SourceLast], modding && !settings.importIso.empty() &&
+                                               std::filesystem::is_regular_file(settings.importIso, missing) &&
+                                               (!source || source->image() != settings.importIso));
         for (int id : {SourceFiles, EntryFilter, TargetList, TargetMod, SpotMode, TaskCharacters, TaskStages, TaskMovesets,
                        TaskCapsules})
             EnableWindow(controls[id], !busy());
@@ -684,8 +690,9 @@ struct Window {
             }
             position(CloseImporter, right - 20 - 130, 152, 130, 34);
             position(SourceIso, right - 20 - 130, 214, 130, 34);
-            position(SourceGame, right - 20 - 130 - 10 - 116, 214, 116, 34);
-            position(SaveReport, right - 20 - 130 - 10 - 116 - 10 - 160, 214, 160, 34);
+            position(SourceLast, right - 20 - 130 - 10 - 110, 214, 110, 34);
+            position(SourceGame, right - 20 - 130 - 10 - 110 - 10 - 116, 214, 116, 34);
+            position(SaveReport, right - 20 - 130 - 10 - 110 - 10 - 116 - 10 - 130, 214, 130, 34);
             // Lists appear only for characters from a disc whose tables are mapped.
             if (characterView) {
                 const int listTop = 304, listHeight = listsBottom - 14 - listTop, half = (content - 52) / 2;
@@ -962,7 +969,7 @@ struct Window {
         text(dc, source ? source->image().filename().wstring() + L"  ·  " + wide(mods::game_name(sourceIdentity.game))
                         : game || !disc ? L"Choose a Budokai, Budokai 2, Budokai 3 or Infinite World disc"
                                         : L"Reading your game disc…",
-             contentLeft + 20, 228, content - 480, 22, fonts.strong, ink, DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+             contentLeft + 20, 228, content - 600, 22, fonts.strong, ink, DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
         panelBox(dc, contentLeft, 264, right, listsBottom);
         const auto placeholder = [&](const std::wstring &message) {
             box(dc, {p(contentLeft + 20), p(304), p(right - 20), p(listsBottom - 14)}, field, border, 8);
@@ -1040,6 +1047,17 @@ struct Window {
                  targetTop + 10, 44, 22, fonts.strong, ink, DT_LEFT | DT_SINGLELINE | DT_NOPREFIX);
         }
         if (characterView) {
+            // How many more characters fit, and how many keep their specials.
+            const auto free = freeWithSpecials + freeWithout;
+            if (!(busy() && modJob(activeJob))) {
+                text(dc,
+                     free == 0 ? std::wstring(L"Every unused character ID is filled; remove a character on the Mods page to free one.")
+                     : std::to_wstring(free) + (free == 1 ? L" character ID free: " : L" character IDs free: ") +
+                           std::to_wstring(freeWithSpecials) + L" keep special moves" +
+                           (freeWithout ? L", " + std::to_wstring(freeWithout) + L" don't yet" : std::wstring()),
+                     contentLeft + 120, targetTop + 13, content - 120 - 200, 18, fonts.caption, free ? muted : red,
+                     DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+            }
             caps(dc, L"SAVE TO", contentLeft + 20, targetTop + 34, 220);
             caps(dc, L"ON THE SELECT SCREEN", contentLeft + 252, targetTop + 34, 260);
             // One plain sentence says what pressing Import will do.
@@ -1094,7 +1112,7 @@ struct Window {
             return wearer + (selected(SpotMode) == 1
                                  ? L" with a new spot of its own before Random (experimental). "
                                  : L" sharing spot " + std::to_wstring(row + 1) + L"; R2 switches. ") +
-                   L"Budokai 3 bodies are drawn black in Budokai 2, so only the textures come over. " + into;
+                   L"Only the textures come over. " + into;
         }
         if (selected(SpotMode) == 1)
             return wide(character->name) + L" gets a new character slot and a new spot of its own before Random, showing " +
@@ -1379,6 +1397,16 @@ struct Window {
     // it takes, then its file counts. contentSlots holds each row's character
     // ID, or nothing for rows that are not characters.
     std::vector<std::optional<uint32_t>> contentSlots;
+    std::multimap<std::string, std::wstring> importedFrom; // imports.txt source -> mod name
+    unsigned freeWithSpecials = 0, freeWithout = 0;
+    // The mod a source disc entry was already imported into, if any.
+    std::optional<std::wstring> importedInto(size_t entry) const {
+        if (!source)
+            return std::nullopt;
+        const auto key = utf8(source->image().filename().wstring()) + ":" + mods::roster_archive + "#" + std::to_string(entry);
+        const auto found = importedFrom.find(key);
+        return found == importedFrom.end() ? std::nullopt : std::optional<std::wstring>(found->second);
+    }
     void fillModContents() {
         auto list = controls[ModContents];
         SendMessageW(list, LB_RESETCONTENT, 0, 0);
@@ -1451,6 +1479,20 @@ struct Window {
             for (int id : {ModList, ModContents, ModRename, ModDelete, ModRemove})
                 ShowWindow(controls[id], modList.empty() ? SW_HIDE : SW_SHOWNA);
         fillModContents();
+        // What the import tool shows about the mods: where each source entry
+        // was imported to, and the character IDs still free.
+        importedFrom.clear();
+        std::vector<std::filesystem::path> folders;
+        for (const auto &mod : modList) {
+            folders.push_back(mod.folder);
+            for (const auto &record : mods::read_imports(mod.folder))
+                importedFrom.emplace(record.source, wide(mod.name));
+        }
+        freeWithSpecials = freeWithout = 0;
+        const auto taken = mods::roster_slots_in_use(folders);
+        for (uint32_t id = 0; id < mods::roster_count; ++id)
+            if (mods::roster_slot_unused(id) && std::find(taken.begin(), taken.end(), id) == taken.end())
+                ++(id < mods::roster_id_tables[0].count ? freeWithSpecials : freeWithout);
         auto target = controls[TargetMod];
         const auto previous = SendMessageW(target, CB_GETCURSEL, 0, 0);
         SendMessageW(target, CB_RESETCONTENT, 0, 0);
@@ -1596,6 +1638,10 @@ struct Window {
                                      : L"   ·   fits " + wide(gameRoster->find(fit.front())->name) +
                                            (fit.size() > 1 ? L" +" + std::to_wstring(fit.size() - 1) : L"");
             }
+            // Mark what is already imported, so it isn't added twice by mistake.
+            if (!movesView && !character.files.empty())
+                if (const auto mod = importedInto(character.files.front().second))
+                    label += L"   ·   already in " + *mod;
             auto lowered = label;
             std::transform(lowered.begin(), lowered.end(), lowered.begin(), ::towlower);
             if (!filter.empty() && lowered.find(filter) == std::wstring::npos)
@@ -2128,11 +2174,20 @@ struct Window {
                     refreshBackups();
                     if (result.kind == Job::readGame && result.loaded)
                         showGame(std::move(result.loaded), std::move(result.roster), std::move(result.identity));
-                    if (result.kind == Job::readSource && result.loaded)
+                    if (result.kind == Job::readSource && result.loaded) {
+                        // Another disc is remembered for Last disc next time.
+                        if (result.loaded->image() != settings.iso && result.loaded->image() != settings.importIso) {
+                            settings.importIso = result.loaded->image();
+                            write_settings(settings_path(), settings);
+                        }
                         showSource(std::move(result.loaded), std::move(result.roster), std::move(result.identity));
+                    }
                     if (result.kind == Job::saveReport)
                         ShellExecuteW(hwnd, L"open", result.image.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-                    if (result.kind == Job::importMod) refreshMods();
+                    if (result.kind == Job::importMod) {
+                        refreshMods();
+                        fillSourceList();
+                    }
                     if (!closing && result.kind == Job::launch) launch();
                 }
             } catch (const std::exception &e) {
@@ -2641,6 +2696,8 @@ struct Window {
             showSource(game, gameRoster, gameIdentity);
         else if (id == SourceGame && !settings.iso.empty())
             loadSource(settings.iso);
+        else if (id == SourceLast && !settings.importIso.empty())
+            loadSource(settings.importIso);
         else if (id == SourceIso) {
             const auto image = choose(false, true, L"Choose a PS2 ISO to import from");
             if (!image.empty())
