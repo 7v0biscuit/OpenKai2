@@ -295,11 +295,11 @@ int main() {
         auto wearers = *gameRoster;
         read_model_shapes(gameDisc, wearers);
         require(wearers.shapes.size() == 2 && wearers.shapes.at(0).parts.size() == 5 &&
-                    fitting_wearers(*models, models->characters[0].id, wearers) == std::vector<uint32_t>{0} &&
+                    fitting_wearers(*models, models->characters[0].id, wearers) == std::vector<uint32_t>{0, 4} &&
                     fitting_wearers(*models, models->characters[1].id, wearers).empty() &&
                     textures_fit(*model_shape(budokai3, 264), *model_shape(gameDisc, 171)) &&
                     !textures_fit(*model_shape(gameDisc, 171), *model_shape(budokai3, 264)) &&
-                    !textures_fit(*model_shape(budokai3, 264), *model_shape(gameDisc, 213)),
+                    !textures_fit(*model_shape(budokai3, 265), *model_shape(gameDisc, 171)),
                 "The characters that can wear a model were not found");
         const auto shapesReport = disc_report(budokai3);
         require(shapesReport.find("Costume model shapes") != std::string::npos &&
@@ -356,9 +356,43 @@ int main() {
                     get32(withOurTextures.data() + 0x34) == get32(b2model.data() + 0x34) &&
                     get32(withOurTextures.data() + 0x30) % 64 == 0,
                 "The Budokai 3 mesh with Budokai 2 textures is wrong");
+        const uint32_t matched = get32(withOurMesh.data() + 0x30);
         require(piece(withOurMesh, 0x40, meshBytes) == piece(b2model, mesh, meshBytes) &&
-                    piece(withOurMesh, get32(withOurMesh.data() + 0x30), 0x20) == theirTextures,
+                    get32(withOurMesh.data() + matched + 12) == 1 && get32(withOurMesh.data() + matched + 16) == 2 &&
+                    piece(withOurMesh, matched, 12) == piece(theirTextures, 0, 12),
                 "The Budokai 2 mesh with Budokai 3 textures is wrong");
+
+        // Matching: the wearer's slots take the model's textures in order,
+        // skipping extras, and the pack is rebuilt to the wearer's layout.
+        using Slots = std::vector<std::array<uint32_t, 2>>;
+        const Slots t1{{0x14, 8}}, body{{0x14, 8}, {0x13, 6}};
+        require(match_textures(Slots{{0x13, 6}, {0x14, 8}, {0x14, 7}, {0x13, 6}}, body) == std::vector<size_t>{1, 3} &&
+                    match_textures(Slots{{0x13, 6}, {0x14, 8}}, body).empty() && match_textures(t1, body).empty(),
+                "Textures were matched wrongly");
+        const auto texturePack = [&](const Layout &layout, uint8_t fill) {
+            auto model = costume_model(1, 2, false, layout);
+            const uint32_t at = get32(model.data() + 0x30);
+            Bytes pack(model.begin() + at, model.end());
+            // Give each texture pixels and a palette to carry over.
+            for (uint32_t i = 0; i < layout.size(); ++i) {
+                const uint32_t header = get32(pack.data() + 0x20 + i * 4);
+                put32(pack, header + 20, uint32_t(pack.size()));
+                put32(pack, header + 24, 16);
+                pack.insert(pack.end(), 16, uint8_t(fill + i));
+                put32(pack, header + 36, uint32_t(pack.size()));
+                put32(pack, header + 40, 16);
+                pack.insert(pack.end(), 16, uint8_t(fill + 0x40 + i));
+            }
+            return pack;
+        };
+        const auto theirPack = texturePack({{0x13, 6}, {0x14, 8}, {0x14, 7}, {0x13, 6}}, 0x10);
+        const auto rebuilt = match_pack(theirPack, texturePack({{0x14, 8}, {0x13, 6}}, 0x80));
+        const uint32_t second = get32(rebuilt.data() + 0x24);
+        require(get32(rebuilt.data() + 16) == 2 && get32(rebuilt.data() + 12) == 1 && get32(rebuilt.data() + second) == 1 &&
+                    get32(rebuilt.data() + second + 8) == 0x13 &&
+                    rebuilt[get32(rebuilt.data() + second + 20)] == 0x13 &&
+                    rebuilt[get32(rebuilt.data() + second + 36)] == 0x53 && get32(rebuilt.data() + second + 20) % 16 == 0,
+                "The matched texture pack is wrong");
         require(model_shape(budokai3, 264) && !model_shape(budokai3, 266), "A model's shape was misread");
 
         // A mod fills Zarbon's unused record from Goku's and puts it on the grid.
@@ -379,6 +413,12 @@ int main() {
         require(free_roster_slot(roster_slots_in_use({mod})) == 13u, "A filled slot was offered again");
 
         auto memory = memory_image();
+        // Goku's entries in the other tables indexed by character ID; ID 1 has
+        // the unused ID's -1 for its move effects.
+        for (const auto &table : roster_id_tables)
+            for (uint32_t i = 0; i < table.bytes; ++i)
+                memory[table.address + i] = uint8_t(0x10 + i);
+        memory[roster_id_tables[0].address + roster_id_tables[0].bytes] = 0xff;
         const auto log = apply_roster(memory.data(), memory.size(), characters);
         const auto *slot = character(memory, 1);
         require(log.size() == 1 && std::string(reinterpret_cast<const char *>(slot)) == "SSJ4 GOKU" &&
@@ -386,6 +426,12 @@ int main() {
                     memory[roster_select_grid + 1] == 1 && memory[roster_select_grid] == 0,
                 "The roster edit was not applied");
         require(memory[roster_costumes + 1] == 2, "A filled slot kept a costume count of 0");
+        for (const auto &table : roster_id_tables)
+            require(std::equal(memory.begin() + table.address, memory.begin() + table.address + table.bytes,
+                               memory.begin() + table.address + table.bytes),
+                    std::string("A filled slot did not take its base's ") + table.name);
+        require(log[0].find("with its base's move effects, voice, voice set, name plate and hair") != std::string::npos,
+                "The startup log does not say which tables were copied");
 
         // A shared spot: R2 on spot 2 switches Krillin to Zarbon's filled ID and back.
         file(root / "share" / "roster.ini", "[character]\nslot = 13\nbase = 4\nname = KRILLIN 2\nalternate = 1\n");

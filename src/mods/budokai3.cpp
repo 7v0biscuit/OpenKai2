@@ -100,9 +100,24 @@ std::optional<ModelShape> model_shape(SourceDisc &disc, size_t entry) {
     return shape;
 }
 
+std::vector<size_t> match_textures(const std::vector<std::array<uint32_t, 2>> &model,
+                                   const std::vector<std::array<uint32_t, 2>> &wearer) {
+    // In order: each of the wearer's slots takes the next of the model's
+    // textures with its format and size, skipping the model's extras.
+    std::vector<size_t> picks;
+    size_t next = 0;
+    for (const auto &slot : wearer) {
+        while (next < model.size() && model[next] != slot)
+            ++next;
+        if (next == model.size())
+            return {};
+        picks.push_back(next++);
+    }
+    return picks;
+}
+
 bool textures_fit(const ModelShape &model, const ModelShape &wearer) {
-    return !wearer.textures.empty() && wearer.textures.size() <= model.textures.size() &&
-           std::equal(wearer.textures.begin(), wearer.textures.end(), model.textures.begin());
+    return !wearer.textures.empty() && !match_textures(model.textures, wearer.textures).empty();
 }
 
 std::optional<DiscRoster> read_budokai3_models(SourceDisc &disc) {
@@ -379,7 +394,67 @@ std::vector<uint8_t> join_model(const std::vector<uint8_t> &header, const std::v
     std::copy(textures.begin(), textures.end(), model.begin() + texturesAt);
     return model;
 }
+// A texture pack's textures: each 48-byte header, then its pixels and its
+// palette, at the offsets the header gives from the start of the pack.
+struct PackTexture {
+    std::vector<uint8_t> header, pixels, palette;
+};
+std::vector<PackTexture> pack_textures(const std::vector<uint8_t> &pack) {
+    const auto slice = [&](uint32_t at, uint32_t size) {
+        if (at > pack.size() || size > pack.size() - at)
+            throw std::runtime_error("A texture runs past the end of its pack");
+        return std::vector<uint8_t>(pack.begin() + at, pack.begin() + at + size);
+    };
+    std::vector<PackTexture> textures;
+    const uint32_t count = std::min<uint32_t>(read32(pack, 16), 64), table = read32(pack, 20);
+    for (uint32_t i = 0; i < count; ++i) {
+        PackTexture texture;
+        texture.header = slice(read32(pack, table + i * 4), 48);
+        texture.pixels = slice(read32(texture.header, 20), read32(texture.header, 24));
+        texture.palette = slice(read32(texture.header, 36), read32(texture.header, 40));
+        textures.push_back(std::move(texture));
+    }
+    return textures;
+}
+std::vector<std::array<uint32_t, 2>> layout_of(const std::vector<PackTexture> &textures) {
+    std::vector<std::array<uint32_t, 2>> layout;
+    for (const auto &texture : textures)
+        layout.push_back({read32(texture.header, 8), read32(texture.header, 12)});
+    return layout;
+}
 } // namespace
+
+std::vector<uint8_t> match_pack(const std::vector<uint8_t> &theirs, const std::vector<uint8_t> &ours) {
+    const auto source = pack_textures(theirs), wanted = pack_textures(ours);
+    const auto picks = match_textures(layout_of(source), layout_of(wanted));
+    if (picks.empty())
+        throw std::runtime_error("The textures do not match the body's textures");
+    // A pack laid out as the games lay theirs: the 32-byte header, the offset
+    // table, the texture headers, then each texture's pixels and palette at
+    // 16-byte boundaries.
+    const auto align = [](size_t at) { return (at + 15) / 16 * 16; };
+    const uint32_t count = uint32_t(picks.size()), table = 0x20, headers = uint32_t(align(table + count * 4));
+    std::vector<uint8_t> pack(align(headers + count * 48), 0);
+    std::copy(theirs.begin(), theirs.begin() + 0x20, pack.begin());
+    put32(pack, 12, 1); // Budokai 2's version
+    put32(pack, 16, count);
+    put32(pack, 20, table);
+    for (uint32_t i = 0; i < count; ++i) {
+        auto header = source[picks[i]].header;
+        put32(header, 0, i);
+        const auto place = [&](const std::vector<uint8_t> &bytes) {
+            const auto at = uint32_t(pack.size());
+            pack.insert(pack.end(), bytes.begin(), bytes.end());
+            pack.resize(align(pack.size()), 0);
+            return at;
+        };
+        put32(header, 20, place(source[picks[i]].pixels));
+        put32(header, 36, place(source[picks[i]].palette));
+        put32(pack, table + i * 4, headers + i * 48);
+        std::copy(header.begin(), header.end(), pack.begin() + headers + i * 48);
+    }
+    return pack;
+}
 
 std::vector<uint8_t> model_version(SourceDisc &budokai3, size_t entry, SourceDisc &game, size_t own,
                                    ModelVersion version) {
@@ -397,7 +472,7 @@ std::vector<uint8_t> model_version(SourceDisc &budokai3, size_t entry, SourceDis
     const auto [theirMesh, theirTextures] = split_model(theirs);
     const auto [ourMesh, ourTextures] = split_model(ours);
     return version == ModelVersion::budokai2_textures ? join_model(theirs, theirMesh, ourTextures)
-                                                      : join_model(ours, ourMesh, theirTextures);
+                                                      : join_model(ours, ourMesh, match_pack(theirTextures, ourTextures));
 }
 
 } // namespace openkai2::mods

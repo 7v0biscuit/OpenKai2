@@ -40,11 +40,17 @@ std::optional<DiscRoster> read_budokai3_models(SourceDisc &disc);
 std::vector<std::pair<uint32_t, uint32_t>> costume_fields(SourceDisc &game, const DiscCharacter &character);
 // Reads the shape of each Budokai 2 character's first costume model.
 void read_model_shapes(SourceDisc &game, DiscRoster &roster);
-// Whether a model's textures can go on a wearer's own mesh: the wearer's
-// textures, in order, have the formats and sizes of the model's first ones,
-// so the mesh's texture coordinates land where they should. Extra textures
-// of the model are left unused.
+// For each of a wearer's texture slots, the model texture that fills it: in
+// order, the next with the slot's format and size, so the wearer's mesh finds
+// a texture of the shape it expects. The model's extra textures are skipped.
+// Empty when a slot cannot be filled.
+std::vector<size_t> match_textures(const std::vector<std::array<uint32_t, 2>> &model,
+                                   const std::vector<std::array<uint32_t, 2>> &wearer);
+// Whether a model's textures can be matched to a wearer's own mesh.
 bool textures_fit(const ModelShape &model, const ModelShape &wearer);
+// A texture pack for the wearer's mesh, built from the model's pack `theirs`
+// to the layout of the wearer's pack `ours`. Throws when they do not match.
+std::vector<uint8_t> match_pack(const std::vector<uint8_t> &theirs, const std::vector<uint8_t> &ours);
 // The IDs of the characters in `wearers` whose mesh can wear the textures of
 // the model `model` in `models`, in roster order.
 std::vector<uint32_t> fitting_wearers(const DiscRoster &models, uint32_t model, const DiscRoster &wearers);
@@ -74,7 +80,7 @@ enum class ModelVersion {
     converted,          // textures marked as Budokai 2's (model_for_budokai2)
     unchanged,          // exactly as on the Budokai 3 disc
     budokai2_textures,  // the Budokai 3 mesh with the wearer's textures
-    budokai2_mesh,      // the wearer's mesh with the converted Budokai 3 textures
+    budokai2_mesh,      // the wearer's mesh with the Budokai 3 textures matched to it
 };
 std::vector<uint8_t> model_version(SourceDisc &budokai3, size_t entry, SourceDisc &game, size_t own,
                                    ModelVersion version);
