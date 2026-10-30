@@ -941,7 +941,8 @@ struct Window {
             const bool models = sourceRoster->models;
             caps(dc, models ? L"1   CHOOSE A MODEL" : L"1   CHOOSE A CHARACTER", contentLeft + 20, 278, half - 200,
                  orange);
-            caps(dc, models ? L"2   CHOOSE WHO WEARS IT"
+            caps(dc, models && selected(SpotMode) == forceModel ? L"2   CHOOSE WHOSE MOVES IT USES"
+                 : models ? L"2   CHOOSE WHO WEARS IT"
                  : selected(SpotMode) == 1 ? L"2   CHOOSE WHOSE PORTRAIT THE NEW SPOT USES"
                                            : L"2   CHOOSE A SPOT TO SHARE",
                  contentLeft + 32 + half, 278, content - 52 - half, orange);
@@ -1010,6 +1011,11 @@ struct Window {
         if (sourceRoster->models) {
             if (!occupant)
                 return L"That spot is empty. Choose a spot with a character to wear the model.";
+            if (selected(SpotMode) == forceModel)
+                return L"A new character with a spot of its own, wearing the whole " + wide(character->name) +
+                       L" model (Budokai 3 mesh and textures) with " + wide(occupant->name) +
+                       L"'s moves, whatever the fit. Budokai 2 draws Budokai 3 meshes black for now, and the moves may "
+                       L"not suit the body. " + into;
             if (const auto why = modelMismatch(*character, *occupant))
                 return *why;
             const auto wearer = L"A new " + wide(occupant->name) + L" with " + wide(character->name) +
@@ -1410,19 +1416,21 @@ struct Window {
     }
     // How an import goes on the select screen. Models from another game can
     // also be added in every version at once, to see in game which one Budokai
-    // 2 draws correctly.
-    static constexpr int compareVersions = 2;
+    // 2 draws correctly, or forced whole onto any character as a new one.
+    static constexpr int compareVersions = 2, forceModel = 3;
     void spotModes() {
         const bool models = characterView && sourceRoster->models;
         const auto list = controls[SpotMode];
         const auto count = SendMessageW(list, CB_GETCOUNT, 0, 0);
-        if ((count == 3) == models)
+        if ((count == 4) == models)
             return;
         const auto keep = std::min<LRESULT>(SendMessageW(list, CB_GETCURSEL, 0, 0), 1);
         SendMessageW(list, CB_RESETCONTENT, 0, 0);
         std::vector<const wchar_t *> modes{L"Share a spot (R2 switches)", L"Add a new spot (experimental)"};
-        if (models)
+        if (models) {
             modes.push_back(L"Compare 4 versions (test)");
+            modes.push_back(L"Force a new character");
+        }
         for (const auto *mode : modes)
             SendMessageW(list, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(mode));
         SendMessageW(list, CB_SETCURSEL, WPARAM(std::max<LRESULT>(keep, 0)), 0);
@@ -1574,6 +1582,9 @@ struct Window {
             return true;
         const auto *model = sourceCharacter();
         const auto *wearer = gameRoster ? gameRoster->find(gameRoster->grid[spot]) : nullptr;
+        // Forcing takes any character with a costume model to replace.
+        if (model && wearer && selected(SpotMode) == forceModel)
+            return gameRoster->shapes.count(wearer->id) != 0;
         return model && wearer && !modelMismatch(*model, *wearer);
     }
     // Adds a model from another game as a new character: a copy of the
@@ -1583,16 +1594,19 @@ struct Window {
         const auto *wearer = gameRoster->find(gameRoster->grid[size_t(pick)]);
         if (!wearer)
             throw std::runtime_error("That spot is empty; choose a spot with a character to wear the model");
-        if (const auto why = modelMismatch(model, *wearer))
+        const bool force = selected(SpotMode) == forceModel;
+        if (const auto why = modelMismatch(model, *wearer); why && !force)
             throw std::runtime_error(utf8(*why));
-        const bool compare = selected(SpotMode) == compareVersions, newSpot = selected(SpotMode) == 1;
+        if (mods::costume_fields(*game, *wearer).empty())
+            throw std::runtime_error(utf8(wide(wearer->name)) + " has no costume model to replace");
+        const bool compare = selected(SpotMode) == compareVersions, newSpot = selected(SpotMode) == 1 || force;
         using Version = mods::ModelVersion;
         const std::vector<std::pair<Version, const char *>> versions =
             compare ? std::vector<std::pair<Version, const char *>>{{Version::converted, "A"},
                                                                      {Version::unchanged, "B"},
                                                                      {Version::budokai2_textures, "C"},
                                                                      {Version::budokai2_mesh, "D"}}
-                    : std::vector<std::pair<Version, const char *>>{{Version::budokai2_mesh, ""}};
+                    : std::vector<std::pair<Version, const char *>>{{force ? Version::converted : Version::budokai2_mesh, ""}};
         std::vector<std::filesystem::path> folders;
         for (const auto &mod : modList)
             folders.push_back(mod.folder);
@@ -1637,7 +1651,9 @@ struct Window {
         for (size_t i = 0; i < added.size(); ++i)
             ids += (i ? L", " : L"") + (compare ? wide(versions[i].second) + L" = " : std::wstring()) +
                    std::to_wstring(added[i].slot);
-        const auto summary = L"Added " + wide(wearer->name) + L" with " + wide(model.name) + L"'s textures" +
+        const auto summary = (force ? L"Added the whole " + wide(model.name) + L" model as a new character with " +
+                                          wide(wearer->name) + L"'s moves"
+                                    : L"Added " + wide(wearer->name) + L" with " + wide(model.name) + L"'s textures") +
                              (compare ? L" in four versions, sharing spot " + std::to_wstring(pick + 1) +
                                             L"; press R2 there to go through them"
                               : newSpot ? std::wstring(L", with a new spot of its own")
@@ -2234,6 +2250,9 @@ struct Window {
             return;
         }
         if ((id == TargetMod || id == SpotMode) && notification == CBN_SELCHANGE) {
+            // Forcing changes which spots can take a model.
+            if (id == SpotMode && characterView && sourceRoster->models)
+                showWearers();
             refreshEnabled();
             return;
         }
