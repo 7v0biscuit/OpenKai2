@@ -85,7 +85,8 @@ std::vector<std::pair<uint32_t, std::vector<uint8_t>>> budokai3_stage_files(Sour
 // Budokai 3 USA's, whose stages each name their two packs at 0x10 and 0x14.
 // Nothing for other discs.
 std::optional<std::vector<DiscStage>> read_disc_stages(SourceDisc &disc);
-// A stage's name to show, e.g. "Hyperbolic Time Chamber" for ROOM TIME MIND.
+// A stage's name to show, e.g. "Hyperbolic Time Chamber" for ROOM TIME MIND
+// and "Island B" for ISLAND B.
 std::string stage_display_name(const std::string &internal);
 
 } // namespace openkai2::mods

@@ -341,7 +341,16 @@ std::string stage_display_name(const std::string &internal) {
         suffix = " B";
     }
     const auto found = names.find(base);
-    return found == names.end() ? internal : found->second + suffix;
+    if (found != names.end())
+        return found->second + suffix;
+    // Other names in title case: ISLAND B is "Island B", R&R BASE "R&R Base".
+    std::string shown;
+    bool start = true;
+    for (const unsigned char c : internal) {
+        shown += char(start ? c : std::tolower(c));
+        start = !std::isalpha(c);
+    }
+    return shown;
 }
 
 std::optional<std::vector<DiscStage>> read_disc_stages(SourceDisc &disc) {

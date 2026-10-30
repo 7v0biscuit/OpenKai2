@@ -513,7 +513,7 @@ void delete_backup_files(const fs::path &backups, const std::vector<fs::path> &f
     }
     if (failed)
         throw std::runtime_error("Could not delete " + std::to_string(failed) +
-                                 " selected backup(s). Those files were kept.");
+                                 (failed == 1 ? " backup; it was kept." : " backups; they were kept."));
 }
 
 } // namespace openkai2::launcher

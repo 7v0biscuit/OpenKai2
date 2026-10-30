@@ -400,7 +400,7 @@ int main() {
                 "Budokai 3's stage table was not read");
         require(stage_display_name("ROOM TIME MIND") == "Hyperbolic Time Chamber" &&
                     stage_display_name("MIND & TIME B") == "Hyperbolic Time Chamber B" &&
-                    stage_display_name("TOWN") == "TOWN",
+                    stage_display_name("TOWN B") == "Town B" && stage_display_name("R&R BASE") == "R&R Base",
                 "Stage names were not shown as expected");
         // Unpacked into the eight files a Budokai 2 record names, in its order,
         // the texture pack marked version 1.

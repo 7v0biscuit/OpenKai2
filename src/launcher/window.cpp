@@ -546,7 +546,7 @@ struct Window {
         combo(UpdateChannel, {L"Stable", L"Stable and prerelease"}, int(settings.updateChannel));
         combo(AutomaticUpdates, {L"Off", L"On"}, settings.autoUpdates ? 1 : 0);
         combo(TargetMod, {}, 0);
-        combo(SpotMode, {L"Share a spot (R2 switches)", L"Add a new spot (experimental)"}, 0);
+        combo(SpotMode, {L"Share a spot (R2 switches)", L"Add a new spot"}, 0);
         controls[BackupList] = CreateWindowExW(
             0, L"LISTBOX", L"Save backups",
             WS_CHILD | WS_TABSTOP | WS_VSCROLL | LBS_NOTIFY | LBS_OWNERDRAWFIXED | LBS_HASSTRINGS | LBS_EXTENDEDSEL,
@@ -787,7 +787,7 @@ struct Window {
             L"Import, back up and restore your memory card.",
             L"Characters, movesets and stages layered over your disc. Your ISO is never changed.",
             L"Saved automatically. Game settings apply at the next launch.",
-            L"Add characters from other Dragon Ball Z games to Budokai 2, without removing anyone."};
+            L"Add characters, stages and movesets from other Dragon Ball Z games. Nothing in Budokai 2 is removed."};
         text(dc, titles[page], contentLeft, 28, content - 180, 34, fonts.heading);
         text(dc, subtitles[page], contentLeft, 66, content - 180, 20, fonts.caption, muted,
              DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
@@ -910,7 +910,7 @@ struct Window {
 
         panelBox(dc, contentLeft, 206, right, 322);
         text(dc, L"Save tools", contentLeft + 20, 218, content - 40, 22, fonts.strong);
-        text(dc, L"Manage saves, characters, stages and skill capsules. Changes are backed up first.",
+        text(dc, L"Manage your memory card and unlocks. Every change is backed up first.",
              contentLeft + 20, 290, content - 40, 18, fonts.caption, muted,
              DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
 
@@ -991,8 +991,7 @@ struct Window {
         };
         const wchar_t *contents[] = {L"Characters", L"Stages", L"Movesets", L"Capsules"};
         const std::wstring content_name = contents[int(importTask)];
-        const auto mapping = L" Save a disc report and send it to have them mapped; it lists the disc's tables and file "
-                             L"formats, not its data. Nothing in Budokai 2 is changed.";
+        const auto mapping = L" Disc report… lists the disc's tables and file formats, not its data, so they can be mapped.";
         if (characterView) {
             const int half = (content - 52) / 2;
             const bool models = sourceRoster->models;
@@ -1020,17 +1019,16 @@ struct Window {
             else if (stageImport()) {
                 const int half = (content - 52) / 2;
                 caps(dc, L"1   CHOOSE A STAGE", contentLeft + 20, 278, half, orange);
-                caps(dc, L"2   CHOOSE A B STAGE TO BECOME IT", contentLeft + 32 + half, 278, content - 52 - half, orange);
+                caps(dc, L"2   CHOOSE WHICH STAGE IT REPLACES", contentLeft + 32 + half, 278, content - 52 - half, orange);
             } else if (stageView) {
                 const int half = (content - 52) / 2;
                 text(dc,
-                     std::to_wstring(sourceStages->size()) + L" stages on this disc, with the DATA_CMN entries they "
-                     L"use. " +
+                     L"This disc has " + std::to_wstring(sourceStages->size()) + L" stages. " +
                          (sourceIdentity.game == mods::DragonBallGame::budokai3
-                              ? std::wstring(L"Reading your Budokai 2 disc's stage table first; open the import tool "
-                                             L"from the Mods page with your game disc verified.")
-                              : std::wstring(L"These are Budokai 2's own stages. Choose a Budokai 3 disc with "
-                                             L"Choose ISO to import its stages into the four B stages.")),
+                              ? std::wstring(L"Stages can be added once your Budokai 2 disc has been read: verify it "
+                                             L"on the Play page, then open the import tool again.")
+                              : std::wstring(L"These are Budokai 2's own stages, already in the game. To add one, "
+                                             L"choose your Budokai 3 disc with Choose ISO…")),
                      contentLeft + 32 + half + 8, 310, content - 52 - half - 36, 200, fonts.caption, muted,
                      DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
             } else if (importTask == Task::movesets)
@@ -1072,8 +1070,8 @@ struct Window {
             const auto free = freeIds;
             if (!(busy() && modJob(activeJob))) {
                 text(dc,
-                     free == 0 ? std::wstring(L"Every unused character ID is filled; remove a character on the Mods page to free one.")
-                     : std::to_wstring(free) + (free == 1 ? L" character ID free for imports." : L" character IDs free for imports."),
+                     free == 0 ? std::wstring(L"No room for more characters. Remove one on the Mods page to make room.")
+                     : L"Room for " + std::to_wstring(free) + (free == 1 ? L" more character." : L" more characters."),
                      contentLeft + 120, targetTop + 13, content - 120 - 200, 18, fonts.caption, free ? muted : red,
                      DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
             }
@@ -1105,15 +1103,15 @@ struct Window {
         const auto row = SendMessageW(controls.at(SourceFiles), LB_GETCURSEL, 0, 0);
         const auto target = SendMessageW(controls.at(TargetList), LB_GETCURSEL, 0, 0);
         if (!stageImport() || row < 0 || size_t(row) >= sourceStages->size() || target < 0 || target >= LRESULT(stageSlots))
-            return L"Choose a stage and the B stage it becomes.";
+            return L"Choose a stage, then the stage it replaces.";
         const auto &stage = (*sourceStages)[size_t(row)];
         const uint32_t record = mods::stage_first_variant + uint32_t(target);
         const int choice = selected(TargetMod);
         const auto into = choice > 0 && size_t(choice) <= modList.size() ? L"Saved into " + wide(modList[size_t(choice - 1)].name) + L"."
                                                                          : std::wstring(L"Saved as a new mod.");
-        return wide(mods::stage_display_name(stage.internal)) + L" from Budokai 3 takes the place of " +
-               stageName(record) + L", which only reuses another stage's files; its eight files are added and "
-               L"nothing else changes. Pick " + stageName(record) + L" on the stage select screen to play it. " + into;
+        return wide(mods::stage_display_name(stage.internal)) + L" from Budokai 3 replaces " + stageName(record) +
+               L", a copy of another stage, so no stage is lost. Choose " + stageName(record) +
+               L" on the stage select screen to play it. " + into;
     }
     std::wstring plan() const {
         const auto *character = sourceCharacter();
@@ -1140,14 +1138,13 @@ struct Window {
             if (!occupant)
                 return L"That spot is empty. Choose a spot with a character to wear the model.";
             if (selected(SpotMode) == forceModel)
-                return L"A new character with a spot of its own, wearing the whole " + wide(character->name) +
-                       L" model (Budokai 3 mesh and textures) with " + wide(occupant->name) +
-                       L"'s moves, whatever the fit. Budokai 2 draws Budokai 3 meshes black for now, and the moves may "
-                       L"not suit the body. " + into;
+                return L"A new character with its own spot: the whole Budokai 3 " + wide(character->name) +
+                       L" model with " + wide(occupant->name) + L"'s moves. Budokai 3 bodies still show black in "
+                       L"Budokai 2, and the moves may not suit the body. " + into;
             if (const auto why = modelMismatch(*character, *occupant))
                 return *why;
-            const auto wearer = L"A new " + wide(occupant->name) + L" with " + wide(character->name) +
-                                L"'s Budokai 3 textures on " + wide(occupant->name) + L"'s body and moves,";
+            const auto wearer = L"A new " + wide(occupant->name) + L" wearing the Budokai 3 " + wide(character->name) +
+                                L" textures, with " + wide(occupant->name) + L"'s body and moves,";
             if (selected(SpotMode) == compareVersions)
                 return L"Adds four versions of " + wide(character->name) + L" worn by " + wide(occupant->name) +
                        L", sharing spot " + std::to_wstring(row + 1) +
@@ -1157,17 +1154,17 @@ struct Window {
                        wide(occupant->name) + L"'s shading textures, A the whole model as forced. Uses four "
                        L"character IDs. " + into;
             return wearer + (selected(SpotMode) == 1
-                                 ? L" with a new spot of its own before Random (experimental). "
+                                 ? L" with its own spot before Random. "
                                  : L" sharing spot " + std::to_wstring(row + 1) + L"; R2 switches. ") +
                    L"Only the textures come over. " + into;
         }
         if (selected(SpotMode) == 1)
-            return wide(character->name) + L" gets a new character slot and a new spot of its own before Random, showing " +
+            return wide(character->name) + L" gets its own spot before Random, showing " +
                    (occupant ? wide(occupant->name) + L"'s" : L"spot " + std::to_wstring(row + 1) + L"'s") +
-                   L" portrait. This changes the select screen's code; report anything odd. " + into;
-        return wide(character->name) + L" gets a new character slot and shares spot " + std::to_wstring(row + 1) +
+                   L" portrait. " + into;
+        return wide(character->name) + L" shares spot " + std::to_wstring(row + 1) +
                (occupant ? L" with " + wide(occupant->name) : L"") +
-               L"; press R2 (Right Shift) on that spot to switch between them. " + into;
+               L"; press R2 (Right Shift) there to switch between them. " + into;
     }
     void paintSettings(HDC dc, int content) {
         const int right = contentLeft + content;
@@ -1498,7 +1495,7 @@ struct Window {
         } catch (const std::exception &) {
         }
         for (const auto &stage : stages)
-            add(L"Stage " + wide(stage.name) + L"   ·   in place of " + stageName(stage.slot), std::nullopt, stage.slot);
+            add(L"Stage: " + wide(stage.name) + L"   ·   replaces " + stageName(stage.slot), std::nullopt, stage.slot);
         if (mod.archive_entries)
             add(std::to_wstring(mod.archive_entries) + (mod.archive_entries == 1 ? L" archive entry" : L" archive entries"),
                 std::nullopt);
@@ -1656,7 +1653,7 @@ struct Window {
             return;
         const auto keep = std::min<LRESULT>(SendMessageW(list, CB_GETCURSEL, 0, 0), 1);
         SendMessageW(list, CB_RESETCONTENT, 0, 0);
-        std::vector<const wchar_t *> modes{L"Share a spot (R2 switches)", L"Add a new spot (experimental)"};
+        std::vector<const wchar_t *> modes{L"Share a spot (R2 switches)", L"Add a new spot"};
         if (models) {
             modes.push_back(L"Compare 4 versions (test)");
             modes.push_back(L"Force a new character");
@@ -1675,11 +1672,9 @@ struct Window {
         SendMessageW(list, LB_RESETCONTENT, 0, 0);
         if (stageView) {
             for (const auto &stage : *sourceStages) {
-                auto label = wide(mods::stage_display_name(stage.internal)) + L"   ·   files";
-                for (const auto &file : stage.files)
-                    label += L" " + std::to_wstring(file.second);
+                auto label = wide(mods::stage_display_name(stage.internal));
                 if (sourceIdentity.game == mods::DragonBallGame::budokai3 && stage.files.size() != 2)
-                    label += L"   ·   can't be imported (one pack)";
+                    label += L"   ·   can't be imported";
                 else if (sourceIdentity.game == mods::DragonBallGame::budokai3 && !stage.files.empty())
                     if (const auto mod = importedInto(stage.files.front().second))
                         label += L"   ·   already in " + *mod;
@@ -1744,7 +1739,7 @@ struct Window {
                 const auto &stages = *gameStages;
                 for (const auto &other : stages)
                     if (record < stages.size() && !other.variant && other.files == stages[record].files)
-                        label += L"   ·   reuses " + wide(mods::stage_display_name(other.internal));
+                        label += L"   ·   a copy of " + wide(mods::stage_display_name(other.internal));
                 if (const auto found = filled.find(record); found != filled.end())
                     label += L"   ·   now " + found->second;
                 SendMessageW(list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
@@ -1781,7 +1776,7 @@ struct Window {
         const auto image = settings.iso;
         startModJob(Job::readGame, L"Reading your game disc…", [image](const std::shared_ptr<Progress> &) {
             auto result = readDisc(Job::readGame, image);
-            result.message = L"Your game disc is ready. Choose a character, or another disc with Choose ISO.";
+            result.message = L"Your game disc is ready. Choose what to add, or another disc with Choose ISO…";
             return result;
         });
     }
@@ -2017,7 +2012,7 @@ struct Window {
         const auto mod = importMod(shown + " stage");
         const auto iso = utf8(source->image().filename().wstring());
         const auto summary = L"Added " + wide(shown) + L" from Budokai 3 in place of " + stageName(record) +
-                             L". Pick " + stageName(record) + L" on the stage select screen to play it.";
+                             L". Choose " + stageName(record) + L" on the stage select screen to play it.";
         startModJob(Job::importMod, L"Importing…",
                     [disc = source, stage, record, stem, name, iso, mod, summary](const std::shared_ptr<Progress> &progress) {
                         report(progress, L"Unpacking the stage", 0, 9);
@@ -2228,10 +2223,11 @@ struct Window {
                 result.message = L"Disc verified. You're ready to play.";
             } else if (kind == Job::deleteSaves) {
                 delete_card_saves(save, archive, selectedGames);
-                result.message = std::to_wstring(selectedGames.size()) + L" game save(s) deleted. Your previous card is in Backups.";
+                result.message = std::to_wstring(selectedGames.size()) + (selectedGames.size() == 1 ? L" save deleted." : L" saves deleted.") +
+                                 L" Your previous card is in Backups.";
             } else if (kind == Job::deleteBackups) {
                 delete_backup_files(archive, selectedBackups);
-                result.message = std::to_wstring(selectedBackups.size()) + L" backup(s) deleted.";
+                result.message = std::to_wstring(selectedBackups.size()) + (selectedBackups.size() == 1 ? L" backup deleted." : L" backups deleted.");
             } else if(kind==Job::unlock) {
                 const bool changed=unlock_card_content(save,archive);
                 result.message=changed ? L"Characters, stages and skill capsules unlocked. Load your save in the game. The previous card is backed up."
@@ -2337,7 +2333,7 @@ struct Window {
                           << e.what() << std::endl;
                 if (!background && modJob(activeJob)) refreshMods();
             } catch (...) {
-                (background ? updateStatus : status) = L"The operation failed unexpectedly. Details are in launcher.log.";
+                (background ? updateStatus : status) = L"Something went wrong. Details are in launcher.log.";
                 (background ? updateError : error) = true;
                 std::cerr << "[launcher:error] operation=" << int(background ? activeUpdateJob : activeJob)
                           << " failed with an unknown error" << std::endl;
@@ -2736,9 +2732,10 @@ struct Window {
             const auto count = selectedSaveRows().size();
             if (!count) return;
             const auto message = L"Delete " + std::to_wstring(count) +
-                (gameSaveList() ? L" selected game save(s)? A backup of your current card will be created first."
-                                : L" selected backup(s) permanently? This cannot be undone.");
-            if (MessageBoxW(hwnd, message.c_str(), L"Delete selected saves", MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) == IDYES)
+                (gameSaveList() ? (count == 1 ? L" save? " : L" saves? ") + std::wstring(L"Your current card is backed up first.")
+                                : (count == 1 ? L" backup? " : L" backups? ") + std::wstring(L"This can't be undone."));
+            if (MessageBoxW(hwnd, message.c_str(), gameSaveList() ? L"Delete saves" : L"Delete backups",
+                            MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) == IDYES)
                 start(gameSaveList() ? Job::deleteSaves : Job::deleteBackups);
         } else if (id == ModToggle || id == ModUp || id == ModDown || (id == ModList && notification == LBN_DBLCLK)) {
             const auto row = SendMessageW(controls[ModList], LB_GETCURSEL, 0, 0);
@@ -2790,9 +2787,9 @@ struct Window {
                     const auto line = SendMessageW(controls[ModContents], LB_GETCURSEL, 0, 0);
                     if (line >= 0 && size_t(line) < contentStages.size() && contentStages[size_t(line)]) {
                         const auto record = *contentStages[size_t(line)];
-                        const auto question = L"Remove the stage in place of " + stageName(record) + L" from " +
+                        const auto question = L"Remove the stage that replaces " + stageName(record) + L" from " +
                                               wide(mod.name) + L"?\n\nIts files are removed and " + stageName(record) +
-                                              L" goes back to how it was.";
+                                              L" comes back.";
                         if (MessageBoxW(hwnd, question.c_str(), L"Remove stage", MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) != IDYES)
                             return;
                         const auto files = mods::remove_stage(mod.folder, record);
@@ -2835,7 +2832,7 @@ struct Window {
             for (size_t i = 0; i < modList.size(); ++i)
                 if (modList[i].folder == folder)
                     refreshMods(int(i));
-            status = L"Created " + folder.filename().wstring() + L". Add files with the import tool or by hand.";
+            status = L"Created " + wide(name) + L". Add to it with the import tool, or put files in its folder.";
             error = false;
         } else if (id == OpenImporter)
             openImporter();
@@ -3079,7 +3076,7 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
         return 0;
     } catch (...) {
         // Nothing may escape into Windows' message dispatch, which would end the process.
-        self->status = L"The action failed unexpectedly. Details are in launcher.log.";
+        self->status = L"Something went wrong. Details are in launcher.log.";
         self->error = true;
         std::cerr << "[launcher:error] message=" << message << " failed with an unknown error" << std::endl;
         InvalidateRect(hwnd, nullptr, FALSE);
