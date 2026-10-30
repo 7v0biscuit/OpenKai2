@@ -98,6 +98,10 @@ function(openkai2_attach_generated_sources)
             "${project_root}/tools/native/patch-ee-branches.py"
             --directory "$ENV{OPENKAI2_WORK_DIR}/budokai2-native/output"
             COMMAND_ERROR_IS_FATAL ANY)
+        execute_process(COMMAND "${Python3_EXECUTABLE}"
+            "${project_root}/tools/native/patch-tail-jumps.py"
+            --directory "$ENV{OPENKAI2_WORK_DIR}/budokai2-native/output"
+            COMMAND_ERROR_IS_FATAL ANY)
         set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
             "${project_root}/tools/native/translation-entries.py")
     endif()
@@ -105,7 +109,8 @@ function(openkai2_attach_generated_sources)
         "${project_root}/tools/native/patch-projection.py"
         "${project_root}/tools/native/patch-vector-macros.py"
         "${project_root}/tools/native/patch-select-screen.py"
-        "${project_root}/tools/native/patch-ee-branches.py")
+        "${project_root}/tools/native/patch-ee-branches.py"
+        "${project_root}/tools/native/patch-tail-jumps.py")
     set(overlay_dir "${CMAKE_BINARY_DIR}/openkai2-overlays")
     include("${project_root}/tools/native/vector-core.cmake")
     execute_process(COMMAND "${Python3_EXECUTABLE}"
