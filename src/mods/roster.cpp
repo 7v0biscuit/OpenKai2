@@ -311,11 +311,20 @@ std::vector<std::string> apply_roster(uint8_t *memory, size_t bytes, const std::
         throw std::runtime_error("The loaded executable does not hold the Budokai 2 USA roster; roster mods were not applied");
     for (const auto &character : characters) {
         auto *target = record(memory, character.slot);
+        std::vector<std::string> copied;
         if (character.base && *character.base != character.slot) {
             std::memmove(target, record(memory, *character.base), roster_record_bytes);
             // The select screen divides by the costume count, which is 0 for unused IDs.
             if (!memory[roster_costumes + character.slot])
                 memory[roster_costumes + character.slot] = memory[roster_costumes + *character.base];
+            // The other tables indexed by character ID have nothing for an
+            // unused ID, so it takes its base's entries.
+            for (const auto &table : roster_id_tables)
+                if (character.slot < table.count && *character.base < table.count) {
+                    std::memmove(memory + table.address + character.slot * table.bytes,
+                                 memory + table.address + *character.base * table.bytes, table.bytes);
+                    copied.push_back(table.name);
+                }
         }
         if (character.name) {
             std::memset(target, 0, roster_name_bytes);
@@ -329,6 +338,14 @@ std::vector<std::string> apply_roster(uint8_t *memory, size_t bytes, const std::
             line += ", based on ID " + std::to_string(*character.base);
         if (!character.fields.empty())
             line += ", " + std::to_string(character.fields.size()) + " fields set";
+        if (!copied.empty()) {
+            line += ", with its base's";
+            for (size_t i = 0; i < copied.size(); ++i)
+                line += (i ? i + 1 == copied.size() ? " and " : ", " : " ") + copied[i];
+        }
+        if (character.base && character.slot >= roster_id_tables[0].count)
+            line += "; IDs above " + std::to_string(roster_id_tables[0].count - 1) +
+                    " have no move effects of their own, so its special moves may not work";
         if (character.select_cell) {
             const auto previous = memory[roster_select_grid + *character.select_cell];
             memory[roster_select_grid + *character.select_cell] = uint8_t(character.slot);

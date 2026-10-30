@@ -35,6 +35,23 @@ inline constexpr const char *roster_archive = "USR/DATA_CMN.AFS";
 inline constexpr uint32_t roster_id_cells = 0x3A4100u;       // select cell per ID, -1 for none
 inline constexpr uint32_t roster_costumes = 0x37B310u;       // costumes per ID
 
+// Other tables indexed by character ID, which hold nothing for the unused
+// IDs. A filled ID takes its base's entries.
+struct RosterIdTable {
+    uint32_t address, bytes, count;
+    const char *name;
+};
+inline constexpr RosterIdTable roster_id_tables[] = {
+    // A byte per form, the index of the move effects that form's attacks use
+    // (read at 0x20B340); unused IDs hold -1, so their attacks draw nothing
+    // and hit nothing. It covers IDs below 41.
+    {0x376F30u, 12u, 41u, "move effects"},
+    {0x3788D0u, 4u, 36u, "voice"},     // ADX_US files, (2 << 16) | entry
+    {0x378960u, 4u, 36u, "voice set"}, // the same
+    {0x377120u, 4u, 53u, "name plate"}, // a DATA_US entry
+    {0x3A1D60u, 20u, 41u, "hair"},      // hair physics per costume (read at 0x200AC0)
+};
+
 
 bool roster_slot_unused(uint32_t id);
 
