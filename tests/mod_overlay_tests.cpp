@@ -110,6 +110,7 @@ int main() {
         require(slice(bytes, 23 * sector, 13) == "hello world!!", "The replaced file was not read back");
 
         // The patched directory records describe the same disc on their own.
+        const auto expectedAfs = *afs;
         const auto written = root / "modded.iso";
         {
             std::ofstream out(written, std::ios::binary);
@@ -119,7 +120,7 @@ int main() {
         openkai2::IsoIndex modded(written);
         const auto *movedAfs = modded.find("USR/DATA.AFS");
         const auto *movedData = modded.find("USR/DATA.BIN");
-        require(movedAfs && movedAfs->sector == afs->sector && movedAfs->size == afs->size && movedData &&
+        require(movedAfs && movedAfs->sector == expectedAfs.sector && movedAfs->size == expectedAfs.size && movedData &&
                     movedData->size == 13,
                 "The patched directory records do not match the overlay");
 
@@ -150,6 +151,38 @@ int main() {
                 "A created mod was not added to the load order");
         // Renaming changes the shown name only; the reports folder is not a mod;
         // deleting removes the folder and its load order line.
+        file(created / "notes.txt", "original");
+        const auto originalNotes = [&] {
+            std::ifstream in(created / "notes.txt", std::ios::binary);
+            return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        };
+        { // Abandoning a multi-file import leaves every original file alone.
+            ModEdit edit(created);
+            file(edit.folder() / "notes.txt", "partial import");
+            file(edit.folder() / "stages.ini", "incomplete");
+            require(scan_mods(mods).size() == 4, "A staged import appeared as an enabled mod");
+        }
+        require(originalNotes() == "original" && !fs::exists(created / "stages.ini"),
+                "An unfinished mod edit changed the live mod");
+        bool rolledBack = false;
+        try {
+            ModEdit edit(created);
+            fs::remove_all(edit.folder()); // An installation failure after staging.
+            edit.commit();
+        } catch (const fs::filesystem_error &) { rolledBack = true; }
+        require(rolledBack && originalNotes() == "original", "A failed mod commit lost the previous mod");
+        {
+            ModEdit edit(created);
+            file(edit.folder() / "notes.txt", "complete import");
+            file(edit.folder() / "stages.ini", "complete");
+            edit.commit();
+        }
+        require(originalNotes() == "complete import" && fs::exists(created / "stages.ini"),
+                "The complete mod edit was not installed");
+        for (const auto &item : fs::directory_iterator(mods))
+            require(item.path().filename().string().rfind(".import-", 0) != 0 &&
+                    item.path().filename().string().rfind(".previous-", 0) != 0,
+                    "A completed or abandoned mod edit left temporary folders");
         rename_mod(created, "SSJ4 Goku");
         fs::create_directories(mods / reports_folder);
         list = scan_mods(mods);
@@ -160,6 +193,7 @@ int main() {
         list = scan_mods(mods);
         std::ifstream order(mods / "load-order.txt");
         const std::string orderText((std::istreambuf_iterator<char>(order)), std::istreambuf_iterator<char>());
+        order.close();
         require(!fs::exists(created) && list.size() == 3 && orderText.find("Goku_SSJ4") == std::string::npos,
                 "A deleted mod was left on disk or in the load order");
         bool refused = false;

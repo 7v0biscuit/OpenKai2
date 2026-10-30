@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SYSTEM_DLLS = set('''advapi32 avicap32 bcrypt cfgmgr32 comctl32 comdlg32 crypt32
     d3d11 d3d12 d3dcompiler_47 dbghelp dnsapi dsound dwmapi dxgi gdi32 glu32
     imm32 iphlpapi kernel32 kernelbase mf mfplat mfreadwrite mfuuid mpr msacm32
-    msvcrt ncrypt ntdll ole32 oleaut32 opengl32 powrprof propsys psapi rpcrt4
+    msimg32 msvcrt ncrypt ntdll ole32 oleaut32 opengl32 powrprof propsys psapi rpcrt4
     secur32 setupapi shell32 shlwapi user32 userenv usp10 uxtheme version winhttp
     wininet winmm winscard winspool ws2_32 wtsapi32'''.split())
 

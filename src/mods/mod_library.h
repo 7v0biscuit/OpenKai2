@@ -45,4 +45,19 @@ void delete_mod(const std::filesystem::path &directory, const std::string &id);
 // The folder under the mods directory that holds disc reports, not a mod.
 inline constexpr const char *reports_folder = "reports";
 
+// Stage a complete edit beside the mod. Only commit publishes its files and
+// manifests; an exception leaves the original folder and load order intact.
+class ModEdit {
+public:
+    explicit ModEdit(const std::filesystem::path& mod);
+    ~ModEdit();
+    ModEdit(const ModEdit&)=delete;
+    ModEdit& operator=(const ModEdit&)=delete;
+    const std::filesystem::path& folder() const { return staged_; }
+    void commit();
+private:
+    std::filesystem::path original_, staged_, backup_;
+    bool committed_=false, preserve_=false;
+};
+
 } // namespace openkai2::mods

@@ -679,6 +679,7 @@ int main() {
             const auto left = read_roster_sections(two);
             std::ifstream log(two / "imports.txt");
             const std::string text((std::istreambuf_iterator<char>(log)), std::istreambuf_iterator<char>());
+            log.close();
             require(left.size() == 1 && left[0].slot == 13 && text.find("a.bin") == std::string::npos &&
                         text.find("b.bin") != std::string::npos,
                     "Removing a character left its section or record, or dropped another's");

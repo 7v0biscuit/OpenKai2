@@ -106,6 +106,7 @@ class WindowsPackage(unittest.TestCase):
 
     def test_system_library_boundaries(self):
         self.assertTrue(PACKAGE.system_dll('kernel32.dll'))
+        self.assertTrue(PACKAGE.system_dll('msimg32.dll'))
         self.assertTrue(PACKAGE.system_dll('api-ms-win-crt-runtime-l1-1-0.dll'))
         self.assertFalse(PACKAGE.system_dll('vcruntime140.dll'))
         self.assertFalse(PACKAGE.system_dll('avcodec-61.dll'))

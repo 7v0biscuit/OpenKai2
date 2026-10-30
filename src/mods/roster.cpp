@@ -295,6 +295,7 @@ void append_roster(const fs::path &mod, const RosterCharacter &character,
         out << "new_cell = yes\n";
     if (character.icon_cell)
         out << "icon = " << *character.icon_cell << '\n';
+    out.close();
     if (!out)
         throw std::runtime_error("Cannot write " + (mod / "roster.ini").string());
 }

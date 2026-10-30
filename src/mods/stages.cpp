@@ -364,6 +364,7 @@ void append_stage(const fs::path &mod, uint32_t slot, const std::string &name,
         std::snprintf(key, sizeof key, "file.%x", offset);
         out << key << " = " << value << '\n';
     }
+    out.close();
     if (!out)
         throw std::runtime_error("Cannot write the mod's stages.ini");
 }

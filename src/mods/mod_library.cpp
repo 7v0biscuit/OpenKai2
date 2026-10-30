@@ -2,6 +2,8 @@
 #include "mods/mod_library.h"
 #include "disc_image.h"
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cctype>
 #include <fstream>
 #include <map>
@@ -65,6 +67,42 @@ ModInfo read_mod(const fs::path &folder) {
 } // namespace
 
 fs::path default_mods_directory() { return default_cache_directory().parent_path() / "mods"; }
+
+ModEdit::ModEdit(const fs::path& mod):original_(mod) {
+    if(!fs::is_directory(mod) || !fs::is_regular_file(mod/"mod.ini"))
+        throw std::runtime_error("Choose an existing mod before editing its contents");
+    static std::atomic<uint64_t> sequence{0};
+    const auto token=std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())+
+                     "-"+std::to_string(sequence.fetch_add(1));
+    staged_=mod.parent_path()/from_utf8(".import-"+token);
+    backup_=mod.parent_path()/from_utf8(".previous-"+token);
+    try {
+        for(const auto& item:fs::recursive_directory_iterator(mod))
+            if(fs::is_symlink(item.symlink_status()))
+                throw std::runtime_error("Import into a mod with regular files; linked files cannot be staged");
+        fs::copy(mod,staged_,fs::copy_options::recursive);
+    } catch(...) {std::error_code ignored;fs::remove_all(staged_,ignored);throw;}
+}
+ModEdit::~ModEdit(){
+    if(preserve_)return;
+    std::error_code ignored;fs::remove_all(staged_,ignored);
+    if(committed_)fs::remove_all(backup_,ignored);
+}
+void ModEdit::commit(){
+    if(committed_)throw std::runtime_error("This mod edit was already saved");
+    fs::rename(original_,backup_);
+    try {fs::rename(staged_,original_);}
+    catch(...) {
+        std::error_code recovery;fs::rename(backup_,original_,recovery);
+        if(recovery){
+            preserve_=true;
+            throw std::runtime_error("Could not restore the mod folder. Its original files remain in "+utf8(backup_));
+        }
+        throw;
+    }
+    committed_=true;
+    std::error_code ignored;fs::remove_all(backup_,ignored);
+}
 
 std::vector<ModInfo> scan_mods(const fs::path &directory) {
     std::map<std::string, ModInfo> found;
