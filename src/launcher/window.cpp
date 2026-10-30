@@ -1014,6 +1014,12 @@ struct Window {
                 return *why;
             const auto wearer = wide(character->name) + L" worn by " + wide(occupant->name) + L", with " +
                                 wide(occupant->name) + L"'s moves, as a new character";
+            if (selected(SpotMode) == compareVersions)
+                return L"Adds four versions of " + wide(character->name) + L" worn by " + wide(occupant->name) +
+                       L", sharing spot " + std::to_wstring(row + 1) +
+                       L". R2 goes through them in order: A as imported, B unchanged from Budokai 3, C with " +
+                       wide(occupant->name) + L"'s own textures, D with " + wide(occupant->name) +
+                       L"'s own mesh. Uses four character IDs. " + into;
             return wearer + (selected(SpotMode) == 1
                                  ? L" with a new spot of its own before Random (experimental). "
                                  : L" sharing spot " + std::to_wstring(row + 1) + L"; R2 switches. ") +
@@ -1399,7 +1405,27 @@ struct Window {
             showWearers();
         else
             fillTargetList();
+        spotModes();
         refreshEnabled();
+    }
+    // How an import goes on the select screen. Models from another game can
+    // also be added in every version at once, to see in game which one Budokai
+    // 2 draws correctly.
+    static constexpr int compareVersions = 2;
+    void spotModes() {
+        const bool models = characterView && sourceRoster->models;
+        const auto list = controls[SpotMode];
+        const auto count = SendMessageW(list, CB_GETCOUNT, 0, 0);
+        if ((count == 3) == models)
+            return;
+        const auto keep = std::min<LRESULT>(SendMessageW(list, CB_GETCURSEL, 0, 0), 1);
+        SendMessageW(list, CB_RESETCONTENT, 0, 0);
+        std::vector<const wchar_t *> modes{L"Share a spot (R2 switches)", L"Add a new spot (experimental)"};
+        if (models)
+            modes.push_back(L"Compare 4 versions (test)");
+        for (const auto *mode : modes)
+            SendMessageW(list, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(mode));
+        SendMessageW(list, CB_SETCURSEL, WPARAM(std::max<LRESULT>(keep, 0)), 0);
     }
     // The left list: characters by name, filtered by the search box.
     void fillSourceList() {
@@ -1558,49 +1584,78 @@ struct Window {
             throw std::runtime_error("That spot is empty; choose a spot with a character to wear the model");
         if (const auto why = modelMismatch(model, *wearer))
             throw std::runtime_error(utf8(*why));
+        const bool compare = selected(SpotMode) == compareVersions, newSpot = selected(SpotMode) == 1;
+        using Version = mods::ModelVersion;
+        const std::vector<std::pair<Version, const char *>> versions =
+            compare ? std::vector<std::pair<Version, const char *>>{{Version::converted, "A"},
+                                                                     {Version::unchanged, "B"},
+                                                                     {Version::budokai2_textures, "C"},
+                                                                     {Version::budokai2_mesh, "D"}}
+                    : std::vector<std::pair<Version, const char *>>{{Version::converted, ""}};
         std::vector<std::filesystem::path> folders;
         for (const auto &mod : modList)
             folders.push_back(mod.folder);
-        const auto slot = mods::free_roster_slot(mods::roster_slots_in_use(folders));
-        if (!slot)
-            throw std::runtime_error("Every unused character ID is already filled by a mod");
-        mods::RosterCharacter added;
-        added.slot = *slot;
-        added.base = wearer->id;
-        added.name = model.internal;
-        const bool newSpot = selected(SpotMode) == 1;
-        if (newSpot) {
-            added.new_cell = true;
-            added.icon_cell = uint32_t(pick);
-        } else
-            added.alternate_cells.push_back(uint32_t(pick));
+        auto taken = mods::roster_slots_in_use(folders);
+        std::vector<mods::RosterCharacter> added;
+        for (const auto &[version, letter] : versions) {
+            const auto slot = mods::free_roster_slot(taken);
+            if (!slot)
+                throw std::runtime_error(compare ? "Comparing versions needs four unused character IDs; fewer are free"
+                                                 : "Every unused character ID is already filled by a mod");
+            taken.push_back(*slot);
+            mods::RosterCharacter character;
+            character.slot = *slot;
+            character.base = wearer->id;
+            character.name = model.internal + (*letter ? std::string(" ") + letter : std::string());
+            if (newSpot) {
+                character.new_cell = true;
+                character.icon_cell = uint32_t(pick);
+            } else
+                character.alternate_cells.push_back(uint32_t(pick));
+            added.push_back(std::move(character));
+        }
         std::string stem = model.name;
         for (auto &c : stem)
             c = std::isalnum(static_cast<unsigned char>(c)) ? char(std::tolower(static_cast<unsigned char>(c))) : '_';
         const auto entry = model.files.front().second;
-        mods::ImportTarget target;
-        target.mode = mods::ImportTarget::Mode::NewEntry;
-        target.file = mods::roster_archive;
-        target.kind = mods::ContentKind::Character;
-        target.name = stem + "_" + std::to_string(entry) + ".bin";
-        target.source = utf8(source->image().filename().wstring()) + ":" + mods::roster_archive + "#" +
-                        std::to_string(entry);
         const auto costumes = mods::costume_fields(*game, *wearer);
+        const auto own = costumes.front().second;
+        std::vector<mods::ImportTarget> targets;
+        for (const auto &[version, letter] : versions) {
+            mods::ImportTarget target;
+            target.mode = mods::ImportTarget::Mode::NewEntry;
+            target.file = mods::roster_archive;
+            target.kind = mods::ContentKind::Character;
+            target.name = stem + "_" + std::to_string(entry) + (*letter ? std::string("_") + letter : std::string()) +
+                          ".bin";
+            target.source = utf8(source->image().filename().wstring()) + ":" + mods::roster_archive + "#" +
+                            std::to_string(entry);
+            targets.push_back(std::move(target));
+        }
+        std::wstring ids;
+        for (size_t i = 0; i < added.size(); ++i)
+            ids += (i ? L", " : L"") + (compare ? wide(versions[i].second) + L" = " : std::wstring()) +
+                   std::to_wstring(added[i].slot);
         const auto summary = L"Added " + wide(model.name) + L" worn by " + wide(wearer->name) +
-                             (newSpot ? L", with a new spot of its own"
-                                      : L", sharing spot " + std::to_wstring(pick + 1) + L"; press R2 there to switch") +
-                             L" (character ID " + std::to_wstring(added.slot) + L").";
+                             (compare ? L" in four versions, sharing spot " + std::to_wstring(pick + 1) +
+                                            L"; press R2 there to go through them"
+                              : newSpot ? std::wstring(L", with a new spot of its own")
+                                        : L", sharing spot " + std::to_wstring(pick + 1) + L"; press R2 there to switch") +
+                             L" (character ID" + (compare ? L"s " : L" ") + ids + L").";
         const auto mod = importMod(model.name);
         startModJob(Job::importMod, L"Importing…",
-                    [disc = source, entry, target, mod, added, costumes, summary](const std::shared_ptr<Progress> &progress) {
-                        report(progress, L"Importing the model", 0, 1);
-                        const auto written =
-                            mods::import_bytes(mod, target, mods::model_for_budokai2(*disc, entry)).filename().string();
-                        std::vector<std::pair<uint32_t, std::string>> fields;
-                        for (const auto &costume : costumes)
-                            fields.push_back({costume.first, "add:" + written});
-                        mods::append_roster(mod, added, fields);
-                        report(progress, L"Importing the model", 1, 1);
+                    [disc = source, game = game, entry, own, versions, targets, mod, added, costumes,
+                     summary](const std::shared_ptr<Progress> &progress) {
+                        for (size_t i = 0; i < versions.size(); ++i) {
+                            report(progress, L"Importing the model", i, versions.size());
+                            const auto bytes = mods::model_version(*disc, entry, *game, own, versions[i].first);
+                            const auto written = mods::import_bytes(mod, targets[i], bytes).filename().string();
+                            std::vector<std::pair<uint32_t, std::string>> fields;
+                            for (const auto &costume : costumes)
+                                fields.push_back({costume.first, "add:" + written});
+                            mods::append_roster(mod, added[i], fields);
+                        }
+                        report(progress, L"Importing the model", versions.size(), versions.size());
                         Result result{Job::importMod};
                         result.message = summary + L" It loads the next time the game starts.";
                         return result;
