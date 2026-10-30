@@ -18,10 +18,11 @@
 // starting with a DATA_CMN.AFS entry number.
 //
 // A costume model is an #AMB pack of a mesh (#AMO) and its textures (#AMT) in
-// both games. The mesh format and every texture header match; Budokai 3 marks
-// its textures version 2 where Budokai 2 uses 1, so imported models are
-// marked version 1. Movesets are not converted: the model is worn by a Budokai
-// 2 character with the same body, whose moves and animations it keeps.
+// both games, and every header matches. Budokai 3 marks its textures version 2
+// where Budokai 2 uses 1; with the mark changed, Budokai 2 draws them. It draws
+// Budokai 3 meshes all black, though, so imports put the Budokai 3 textures on
+// the wearer's own Budokai 2 mesh. Movesets are not converted: the wearer keeps
+// its moves and animations.
 namespace openkai2::mods {
 
 inline constexpr uint32_t budokai3_names = 0x4314B0u, budokai3_records = 0x447440u;
@@ -39,7 +40,12 @@ std::optional<DiscRoster> read_budokai3_models(SourceDisc &disc);
 std::vector<std::pair<uint32_t, uint32_t>> costume_fields(SourceDisc &game, const DiscCharacter &character);
 // Reads the shape of each Budokai 2 character's first costume model.
 void read_model_shapes(SourceDisc &game, DiscRoster &roster);
-// The IDs of the characters in `wearers` whose model has the same shape as
+// Whether a model's textures can go on a wearer's own mesh: the wearer's
+// textures, in order, have the formats and sizes of the model's first ones,
+// so the mesh's texture coordinates land where they should. Extra textures
+// of the model are left unused.
+bool textures_fit(const ModelShape &model, const ModelShape &wearer);
+// The IDs of the characters in `wearers` whose mesh can wear the textures of
 // the model `model` in `models`, in roster order.
 std::vector<uint32_t> fitting_wearers(const DiscRoster &models, uint32_t model, const DiscRoster &wearers);
 

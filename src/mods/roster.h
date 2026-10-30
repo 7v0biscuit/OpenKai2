@@ -74,6 +74,8 @@ struct DiscCharacter {
 // character's animations to move another character's model (budokai3.h).
 struct ModelShape {
     std::vector<std::array<uint32_t, 4>> parts;
+    // Each texture's format and size, as its header gives them.
+    std::vector<std::array<uint32_t, 2>> textures;
     bool operator==(const ModelShape &other) const { return parts == other.parts; }
 };
 

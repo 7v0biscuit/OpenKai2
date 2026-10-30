@@ -88,7 +88,21 @@ std::optional<ModelShape> model_shape(SourceDisc &disc, size_t entry) {
     for (uint32_t i = 0; i < count; ++i)
         shape.parts.push_back({read32(rows, i * 32), read32(rows, i * 32 + 8), read32(rows, i * 32 + 12),
                                read32(rows, i * 32 + 16)});
+    // The texture pack counts its textures at 16 and lists their headers
+    // from the offset at 20; a header gives the format at 8 and the size at 12.
+    const auto pack = read_bytes(disc, range, parts->second, 32);
+    const uint32_t textures = std::min<uint32_t>(read32(pack, 16), 64);
+    const auto offsets = read_bytes(disc, range, parts->second + read32(pack, 20), size_t(textures) * 4);
+    for (uint32_t i = 0; i < textures && (i + 1) * 4 <= offsets.size(); ++i) {
+        const auto header = read_bytes(disc, range, parts->second + uint64_t(read32(offsets, i * 4)), 16);
+        shape.textures.push_back({read32(header, 8), read32(header, 12)});
+    }
     return shape;
+}
+
+bool textures_fit(const ModelShape &model, const ModelShape &wearer) {
+    return !wearer.textures.empty() && wearer.textures.size() <= model.textures.size() &&
+           std::equal(wearer.textures.begin(), wearer.textures.end(), model.textures.begin());
 }
 
 std::optional<DiscRoster> read_budokai3_models(SourceDisc &disc) {
@@ -313,7 +327,7 @@ std::vector<uint32_t> fitting_wearers(const DiscRoster &models, uint32_t model, 
         return fit;
     for (const auto &character : wearers.characters)
         if (const auto theirs = wearers.shapes.find(character.id);
-            theirs != wearers.shapes.end() && theirs->second == shape->second)
+            theirs != wearers.shapes.end() && textures_fit(shape->second, theirs->second))
             fit.push_back(character.id);
     return fit;
 }

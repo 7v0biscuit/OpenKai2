@@ -121,11 +121,16 @@ Bytes disc_image(const Bytes &memory, const std::string &executable = "SLUS_207.
     return image;
 }
 
-// A costume model: an #AMB of a mesh whose parts link in a chain and its
-// textures. `twist` relinks the last part.
-Bytes costume_model(uint32_t parts, uint32_t textures, bool twist = false) {
+// Texture formats and sizes, as texture headers give them.
+using Layout = std::vector<std::pair<uint32_t, uint32_t>>;
+const Layout plainLayout{{0x14, 0x00080008}};
+
+// A costume model: an #AMB of a mesh whose parts link in a chain and a pack
+// of textures with headers in `layout`. `twist` relinks the last part.
+Bytes costume_model(uint32_t parts, uint32_t textures, bool twist = false, const Layout &layout = plainLayout) {
     const uint32_t mesh = 0x40, rows = 0x70, end = mesh + rows + parts * 32;
-    Bytes model(end + 0x20, 0);
+    const uint32_t count = uint32_t(layout.size()), table = (count * 4 + 15) / 16 * 16, pack = 0x20 + table + count * 48;
+    Bytes model(end + pack, 0);
     std::memcpy(model.data(), "#AMB ", 5);
     put32(model, 12, 3);
     put32(model, 16, 2);
@@ -134,7 +139,7 @@ Bytes costume_model(uint32_t parts, uint32_t textures, bool twist = false) {
     put32(model, 0x24, end - mesh);
     put32(model, 0x28, 1);
     put32(model, 0x30, end);
-    put32(model, 0x34, 0x20);
+    put32(model, 0x34, pack);
     put32(model, 0x38, 2);
     std::memcpy(model.data() + mesh, "#AMO0", 5);
     put32(model, mesh + 16, parts);
@@ -150,6 +155,15 @@ Bytes costume_model(uint32_t parts, uint32_t textures, bool twist = false) {
         put32(model, mesh + rows + (parts - 1) * 32 + 16, rows);
     std::memcpy(model.data() + end, "#AMT ", 5);
     put32(model, end + 12, textures);
+    put32(model, end + 16, count);
+    put32(model, end + 20, 0x20);
+    for (uint32_t i = 0; i < count; ++i) {
+        const uint32_t header = 0x20 + table + i * 48;
+        put32(model, end + 0x20 + i * 4, header);
+        put32(model, end + header, i);
+        put32(model, end + header + 8, layout[i].first);
+        put32(model, end + header + 12, layout[i].second);
+    }
     return model;
 }
 } // namespace
@@ -235,8 +249,11 @@ int main() {
 
         // Budokai 3's models are read from its table, and one fits a Budokai 2
         // character whose model links its parts the same way.
+        const Layout gokuLayout{{0x14, 0x00080008}, {0x13, 0x00060006}};
+        const Layout budokai3Layout{{0x14, 0x00080008}, {0x13, 0x00060006}, {0x14, 0x00070007}};
         write(root / "game.iso", disc_image(memory_image(), "SLUS_207.79", roster_records,
-                                            {{171, costume_model(5, 1)}, {213, costume_model(6, 1)}}));
+                                            {{171, costume_model(5, 1, false, gokuLayout)},
+                                             {213, costume_model(6, 1, false, {{0x13, 0x00060006}})}}));
         SourceDisc gameDisc(root / "game.iso");
         const auto gameRoster = read_disc_roster(gameDisc);
         require(gameRoster && !gameRoster->models, "The game disc's roster was not read");
@@ -260,7 +277,8 @@ int main() {
         put32(b3memory, ss4 + 8, lists + 0x100);
         put32(b3memory, lists + 0x100, 266);
         write(root / "budokai3.iso", disc_image(b3memory, "SLUS_209.98", budokai3_names,
-                                                {{264, costume_model(5, 2)}, {265, costume_model(5, 2, true)}}));
+                                                {{264, costume_model(5, 2, false, budokai3Layout)},
+                                                 {265, costume_model(5, 2, true, {{0x14, 0x00070007}})}}));
         SourceDisc budokai3(root / "budokai3.iso");
         require(identify_disc(budokai3).game == DragonBallGame::budokai3, "The Budokai 3 disc was not identified");
         const auto models = read_budokai3_models(budokai3);
@@ -277,7 +295,10 @@ int main() {
         read_model_shapes(gameDisc, wearers);
         require(wearers.shapes.size() == 2 && wearers.shapes.at(0).parts.size() == 5 &&
                     fitting_wearers(*models, models->characters[0].id, wearers) == std::vector<uint32_t>{0} &&
-                    fitting_wearers(*models, models->characters[1].id, wearers).empty(),
+                    fitting_wearers(*models, models->characters[1].id, wearers).empty() &&
+                    textures_fit(*model_shape(budokai3, 264), *model_shape(gameDisc, 171)) &&
+                    !textures_fit(*model_shape(gameDisc, 171), *model_shape(budokai3, 264)) &&
+                    !textures_fit(*model_shape(budokai3, 264), *model_shape(gameDisc, 213)),
                 "The characters that can wear a model were not found");
         const auto shapesReport = disc_report(budokai3);
         require(shapesReport.find("Costume model shapes") != std::string::npos &&
@@ -292,12 +313,12 @@ int main() {
                     gameReport.find("texture pack ends: 544D4123") != std::string::npos,
                 "The disc report does not show Krillin's textures and check values");
         const auto converted = model_for_budokai2(budokai3, 264);
-        auto expected = costume_model(5, 2);
+        auto expected = costume_model(5, 2, false, budokai3Layout);
         expected[0x40 + 0x70 + 5 * 32 + 12] = 1;
         require(converted == expected, "The model's textures were not marked as Budokai 2's, or more changed");
 
         // Versions for finding which part Budokai 2 draws wrongly.
-        const auto b3model = costume_model(5, 2), b2model = costume_model(5, 1);
+        const auto b3model = costume_model(5, 2, false, budokai3Layout), b2model = costume_model(5, 1, false, gokuLayout);
         const size_t mesh = 0x40, meshBytes = 0x70 + 5 * 32, textures = mesh + meshBytes;
         const auto piece = [](const Bytes &model, size_t from, size_t bytes) {
             return Bytes(model.begin() + from, model.begin() + from + bytes);
@@ -311,7 +332,8 @@ int main() {
         require(get32(withOurTextures.data() + 16) == 2 && get32(withOurTextures.data() + 0x20) == 0x40 &&
                     piece(withOurTextures, 0x40, meshBytes) == piece(b3model, mesh, meshBytes) &&
                     piece(withOurTextures, get32(withOurTextures.data() + 0x30), 0x20) == ourTextures &&
-                    get32(withOurTextures.data() + 0x34) == 0x20 && get32(withOurTextures.data() + 0x30) % 64 == 0,
+                    get32(withOurTextures.data() + 0x34) == get32(b2model.data() + 0x34) &&
+                    get32(withOurTextures.data() + 0x30) % 64 == 0,
                 "The Budokai 3 mesh with Budokai 2 textures is wrong");
         require(piece(withOurMesh, 0x40, meshBytes) == piece(b2model, mesh, meshBytes) &&
                     piece(withOurMesh, get32(withOurMesh.data() + 0x30), 0x20) == theirTextures,
