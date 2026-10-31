@@ -321,14 +321,23 @@ current stage's index at `0x373C60` and `0x373CAC`.
 
 ### Stage mods
 
-**Experimental since v0.1.62.** Budokai 3 stage packs hold `#AME` particle
-emitter files, a kind Budokai 2's pack loader (`0x12A680`) has no handler
-for: it looks each file's mark up in the table at `0x33D680` and, finding
-none, called address 0 or garbage (`0x231712`), which froze the game. The
-import tool now drops those files from the `#AMB` pack (the rest move up in
-record order at 16-byte boundaries), so the stage loads without its particle
-effects. Stage mods holding a pack with a kind the table lacks are still
-skipped with a startup log line; ones made with v0.1.59 to v0.1.61 need
+**Experimental since v0.1.62.** A Budokai 3 stage imported as it is froze the
+game when chosen, jumping to `0x231712` while loading. The import tool drops
+the `#AME` particle files from the stage's `#AMB` pack, so the stage loads
+without its particle effects. Whether that alone avoids the freeze is not yet
+confirmed in a fight.
+
+`#AME` itself is not the cause on its own: Budokai 2's own stage packs hold
+them too. Each stage `#AMB` (the file at `0x4C`) starts with one `#AMT`, then
+up to 36 `#AME` slots, some of them empty. Every `#AMB` record is 16 bytes:
+offset, size, a loader word, and 0. Budokai 2 sets the loader word to 1 for
+`#AMO`, 2 for `#AMT`, 3 for `#AMM`, 4 for `#AMP`, 5 for `#AMC`, 6 for `#AML`
+and 8 for `#SPX`, and to `0xFFFFFFFF` for files the pack loader leaves alone
+(`#AME`, `#ASE`, `#BCM`, `#BSK`, nested `#AMB` and `STD`). Budokai 3's stage
+packs use the same words, so the freeze lies elsewhere.
+
+Stage mods holding a pack with a kind the loader table at `0x33D680` lacks
+are skipped with a startup log line; ones made with v0.1.59 to v0.1.61 need
 importing again. `stage_mods_enabled` in `src/mods/stages.h` turns stage
 mods off.
 
