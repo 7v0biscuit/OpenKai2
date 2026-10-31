@@ -373,21 +373,6 @@ struct Frame {
                 pixel = blend(16, red) | blend(8, green) | blend(0, blue);
             }
     }
-    void rays(RECT clip, int corner, int cx, int cy, int inner, int outer, COLORREF color, int strength) const {
-        if (!pixels || outer <= inner)
-            return;
-        GdiFlush();
-        for (int y = std::max<int>(0, clip.top); y < std::min<int>(height, clip.bottom); ++y)
-            for (int x = std::max<int>(0, clip.left); x < std::min<int>(width, clip.right); ++x) {
-                const double d = std::hypot(double(x - cx), double(y - cy));
-                if (d < inner || d > outer || !inside(clip, corner, x, y))
-                    continue;
-                const double a = std::atan2(double(y - cy), double(x - cx));
-                const double streak = std::pow(0.5 + 0.5 * std::cos(a * 36), 6) * (0.55 + 0.45 * std::cos(a * 7 + 1.3));
-                const double fade = (d - inner) / (outer - inner);
-                light(x, y, color, int(strength * streak * (1.0 - fade) * std::min(1.0, fade * 4)));
-            }
-    }
     void halo(RECT r, int cut, int radius, COLORREF color, int strength) const {
         if (!pixels || radius <= 0)
             return;
@@ -424,7 +409,7 @@ struct Fonts {
         heading = font(26, FW_SEMIBOLD);
         brand = font(17, FW_SEMIBOLD);
         strong = font(14, FW_SEMIBOLD);
-        wordmark = font(58, FW_NORMAL, lettering);
+        wordmark = font(44, FW_NORMAL, lettering);
         title = font(40, FW_NORMAL, lettering);
         mark = font(25, FW_NORMAL, lettering);
     }
@@ -1081,16 +1066,11 @@ struct Window {
             return y == hero.top + 1 && x > hero.left + p(18) ? mix(heroFrom, gold, 60)
                                                              : mix(heroFrom, heroTo, (x - hero.left) * 255 / span);
         }, std::nullopt);
-        const int cx = right - 112, cy = heroTop + 96;
-        buffer.frame.rays(hero, p(18), p(cx), p(cy), p(50), p(300), gold, 46);
-        buffer.frame.radial(hero, p(cx), p(cy), p(190), ember, 110, p(18));
         buffer.frame.radial(hero, p(contentLeft), p(heroTop), p(260), ember, 34, p(18));
-        if (content > 620)
-            buffer.frame.ball(p(cx), p(cy), p(58), hero);
 
         caps(dc, L"DRAGON BALL Z", contentLeft + 30, heroTop + 22, 300, gold);
-        lettering(dc, L"Budokai 2", p(contentLeft + 28), p(heroTop + 82), fonts.wordmark, RGB(255, 240, 222),
-                  RGB(28, 12, 4), p(3));
+        lettering(dc, L"Budokai 2", p(contentLeft + 28), p(heroTop + 76), fonts.wordmark, RGB(255, 240, 222),
+                  RGB(28, 12, 4), p(2));
         int spec = contentLeft + 30;
         for (const wchar_t *part : {L"PLAYSTATION 2", L"NTSC-U", L"SLUS-20779"}) {
             caps(dc, part, spec, heroTop + 93, 160, RGB(206, 176, 150));
