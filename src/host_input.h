@@ -6,8 +6,6 @@
 
 namespace openkai2 {
 struct HostPadStats { uint64_t polls=0,reads=0;uint16_t pressed=0,delivered=0; };
-// Host input is sampled on the window thread. Remember presses until the EE
-// asks for a packet, including a press released between two slow game frames.
 class LatchedPadState {
 public:
     using Packet=std::array<uint8_t,32>;
@@ -51,6 +49,5 @@ void publish_host_input(int,const LatchedPadState::Packet&);
 HostPadStats host_input_stats(int);
 void verify_guest_input();
 void verify_host_input();
-// Sees each pad packet the game reads; select-screen alternates use it.
 void observe_pad_packet(int port,const uint8_t* packet);
 }

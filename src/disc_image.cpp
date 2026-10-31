@@ -318,7 +318,6 @@ public:
     }
 };
 
-// Inspect each cache component before writing, including the supplied root.
 void make_safe_directory(const std::filesystem::path& path) {
     if (path.empty()) return;
     auto current=path.root_path();
@@ -343,7 +342,7 @@ struct CacheLock {
     }
     ~CacheLock() { std::error_code ignored; std::filesystem::remove(path,ignored); }
 };
-} // namespace
+}
 
 IsoIndex::IsoIndex(const std::filesystem::path& image) : image_(image), entries_(Iso(image).entries()) {
     for (size_t i=0; i<entries_.size(); ++i)
@@ -460,4 +459,4 @@ std::filesystem::path default_cache_directory() {
 #endif
     return std::filesystem::temp_directory_path()/"openkai2/discs";
 }
-} // namespace openkai2
+}

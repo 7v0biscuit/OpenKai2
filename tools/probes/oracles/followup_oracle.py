@@ -35,8 +35,6 @@ def verified_rows(report,*,allow_stage_absent=False):
  return rows
 
 def expected(case,rows=None):
- # The predecessor is calculated by a separate opcode-driven oracle when
- # rows are present. Neither the old nor new native C++ code is executed here.
  old=list_oracle.expected(case,rows)
  out=dict(old)
  out.update(s0=hex64(case[3]),s1=hex64(case[4]),

@@ -104,7 +104,7 @@ void usage() {
 }
 
 
-} // namespace
+}
 
 int main(int argc, char* argv[]) {
     StartupLog log;
@@ -120,7 +120,6 @@ int main(int argc, char* argv[]) {
         std::string fpsLimit=displayEnvironment ? displayEnvironment : std::to_string(preferences.fps);
         std::filesystem::path image;
 #ifdef _WIN32
-        // Preserve Unicode paths supplied by Explorer or the command line.
         int count=0;
         auto arguments=CommandLineToArgvW(GetCommandLineW(),&count);
         if (!arguments) throw std::runtime_error("Cannot read command line");
@@ -208,7 +207,6 @@ int main(int argc, char* argv[]) {
         auto paths=PS2Runtime::getIoPaths();
         paths.cdImage=std::filesystem::absolute(image);
         PS2Runtime::setIoPaths(paths);
-        // Enabled mods are layered over the verified disc; the ISO is never changed.
         const auto modsDirectory=openkai2::mods::default_mods_directory();
         const auto mods=openkai2::mods::enabled_mod_folders(modsDirectory);
         const auto applied=openkai2::mods::DiscOverlay::global().configure(paths.cdImage,mods);
@@ -217,13 +215,11 @@ int main(int argc, char* argv[]) {
                   << " added_entries=" << applied.added_entries << " relocated_files=" << applied.relocated_files << std::endl;
         for (const auto& mod : mods) std::cout << "[mods] loaded " << mod.filename().string() << std::endl;
         for (const auto& note : applied.notes) std::cout << "[mods] " << note << std::endl;
-        // Roster mods edit the character tables in the loaded executable.
         const auto roster=openkai2::mods::load_roster(mods,applied);
         for (const auto& line : openkai2::mods::apply_roster(runtime.memory().getRDRAM(),PS2_RAM_SIZE,roster))
             std::cout << "[mods] " << line << std::endl;
         for (const auto& line : openkai2::mods::configure_select_screen(runtime.memory().getRDRAM(),PS2_RAM_SIZE,roster))
             std::cout << "[mods] " << line << std::endl;
-        // Stage mods fill the B stages' records with imported stages.
         std::vector<std::string> stageNotes;
         const auto stages=openkai2::mods::load_stage_mods(mods,applied,&stageNotes);
         for (const auto& note : stageNotes) std::cout << "[mods] " << note << std::endl;

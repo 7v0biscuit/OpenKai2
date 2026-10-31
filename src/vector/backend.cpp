@@ -32,7 +32,7 @@ void submit(void *context, const uint8_t *packet, uint32_t size) {
     RuntimeWorkTimer graphics(RuntimeWork::path1);
     static_cast<PS2Memory *>(context)->submitGifPacket(GifPathId::Path1, packet, size);
 }
-} // namespace
+}
 bool run_vector_backend(VU1State &state, uint8_t *code, uint32_t codeSize, uint8_t *data,
                         uint32_t dataSize, GS &, PS2Memory *memory, uint32_t budget, bool fresh) {
     if (!memory || code != memory->getVU1Code() || codeSize != 0x4000u || dataSize != 0x4000u ||
@@ -55,4 +55,4 @@ VectorReferenceScope::VectorReferenceScope() : previous_(referenceBackend) {
     referenceBackend = true;
 }
 VectorReferenceScope::~VectorReferenceScope() { referenceBackend = previous_; }
-} // namespace openkai2
+}

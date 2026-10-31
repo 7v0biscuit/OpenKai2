@@ -1,8 +1,4 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// Indexed-texture draws with depth rejection and changing palettes.
-// Modes 18..23 exercise small draws with two palettes, sixteen palettes, and
-// palette reloads. The earlier modes retain visible and hidden draw coverage.
-// Output is per-draw host time and a complete VRAM checksum, not game FPS.
 #include "runtime/gs/gs_cpu_backend.h"
 #include "raster_workers.h"
 #include <vector>

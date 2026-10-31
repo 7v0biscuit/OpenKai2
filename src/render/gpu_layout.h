@@ -8,9 +8,6 @@ namespace openkai2::gpu {
 inline constexpr unsigned VramBytes=4u*1024u*1024u,PageBytes=8192u,PageCount=VramBytes/PageBytes;
 inline constexpr unsigned CommandWords=96u,VertexWord=40u,VertexWords=16u,TileSize=8u;
 using Command=std::array<uint32_t,CommandWords>;
-// Each format descriptor contains page width/height, pixel stride and read
-// widths in bits, a sub-word shift, its page lookup-table offset, and the
-// base-two page width/height exponents used by texture and transfer shaders.
 const std::vector<uint32_t>& address_tables();
 uint32_t bit_address(unsigned psm,unsigned base,unsigned width,unsigned x,unsigned y);
 std::bitset<PageCount> rectangle_pages(unsigned psm,unsigned base,unsigned width,unsigned x,unsigned y,unsigned w,unsigned h);

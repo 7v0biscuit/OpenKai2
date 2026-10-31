@@ -8,8 +8,6 @@ from pathlib import Path
 VFTOI = ('__m128i res_i = _mm_cvttps_epi32(src);', '__m128i res_i = ps2_vftoi(src);')
 VDIV = ('ctx->vu0_q = (ft != 0.0f) ? (fs / ft) : 0.0f;', 'ctx->vu0_q = ps2_vdiv(fs, ft);')
 VSQRT = ('ctx->vu0_q = sqrtf(std::max(0.0f, ft));', 'ctx->vu0_q = ps2_vsqrt(ft);')
-# RSQRT is translated as 1 / sqrt(ft) and drops its numerator, so the numerator
-# register is recovered from the instruction word in the comment above it.
 RSQRT = re.compile(
     r'(    // 0x[0-9a-f]+: 0x(?P<word>[0-9a-f]{8})  vrsqrt[^\n]*\n(?:[^\n]*\n)??)'
     r'    \{ float ft = (?P<ft>[^;]+); ctx->vu0_q = \(ft > 0\.0f\) \? \(1\.0f / sqrtf\(ft\)\) : 0\.0f; \}\n')

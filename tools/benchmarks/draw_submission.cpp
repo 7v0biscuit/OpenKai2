@@ -1,6 +1,4 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// Compare GS submission with full and sampled draw diagnostics. Timings cover
-// synthetic host work and do not represent retail game frame rates.
 #include "runtime/gs/gs_frontend.h"
 #include "guest_timing.h"
 #include <chrono>

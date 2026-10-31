@@ -23,7 +23,7 @@ class WrapperChainTests(unittest.TestCase):
    self.assertEqual(ans[2],PORTS[case[0]])
    self.assertEqual(ans[3],case[7])
    self.assertEqual(ans[4],case[9])
-   self.assertEqual(ans[12],PORTS[case[0]]) # integrated v0/v1/a2/a0/a1 positions
+   self.assertEqual(ans[12],PORTS[case[0]])
    self.assertEqual(ans[13],case[7])
    self.assertEqual(ans[14],case[9])
    self.assertEqual(ans[15],case[10])

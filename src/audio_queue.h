@@ -7,8 +7,6 @@
 #include <span>
 
 namespace openkai2 {
-// One EE producer and one device callback consumer. Full queues drop new
-// frames; the producer never overwrites a frame the callback may be reading.
 class StereoAudioQueue {
 public:
     static constexpr uint64_t capacity=65536u;
@@ -37,8 +35,6 @@ public:
         const auto write=written_.load(std::memory_order_acquire);
         return write>=read ? write-read : 0u;
     }
-    // Consumer-only operations: honor the stop boundary before checking a
-    // prefill or dropping old latency. Only the callback advances the reader.
     uint64_t available()const{
         const auto read=std::max(read_.load(std::memory_order_relaxed),stopBoundary());
         return written_.load(std::memory_order_acquire)-read;

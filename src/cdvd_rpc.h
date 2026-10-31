@@ -19,4 +19,4 @@ public:
     bool canBind(uint32_t sid) const noexcept;
     ps2x::iop::RpcResult handle(const ps2x::iop::RpcRequest& request);
 };
-} // namespace openkai2
+}

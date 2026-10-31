@@ -24,8 +24,6 @@ void verify_empty_graphics_dma() {
         memory.write32(status,0x3ffu);memory.consumeCompletedDmacCauses();
         memory.write32(channel,0u);memory.write32(channel+0x10u,tags);
         memory.write32(channel+0x20u,variant==4u ? 1u : 0u);memory.write32(channel+0x30u,tags);
-        // Normal zero-QWC, END(0), REFE(0), and IRQ-terminated CNT(0).
-        // Include ordinary nonempty normal/chain transfers to retain their IRQ behavior.
         const uint64_t tag=variant==1u ? 0x70000000ull : variant==3u ? 0x90000000ull
             : variant==5u ? 0x70000001ull : 0ull;
         memory.write64(tags,tag);memory.write64(tags+8u,0u);
@@ -43,7 +41,7 @@ void verify_empty_graphics_dma() {
         memory.write32(channel,0u);memory.write32(status,0x3ffu);memory.consumeCompletedDmacCauses();
         memory.write32(channel+0x20u,0u);
         memory.write32(channel+0x30u,variant ? PS2_RAM_SIZE : tags);
-        memory.write64(tags,(uint64_t(tags)<<32u)|0x20000000u); // Endless NEXT(0).
+        memory.write64(tags,(uint64_t(tags)<<32u)|0x20000000u);
         memory.write32(channel,0x105u);memory.processPendingTransfers();
         require(memory.consumeCompletedDmacCauses().empty() && (memory.read32(status)&(1u<<cause))==0u
                 && (memory.read32(channel)&0x100u)!=0u && (memory.read32(channel)&0x100u)!=0u,
@@ -54,8 +52,6 @@ void verify_ipu_input_dma() {
     PS2Runtime runtime;auto& memory=runtime.memory();
     require(memory.initialize(),"Cannot allocate IPU DMA regression memory");
     constexpr uint32_t channel=0x1000b400u,status=0x1000e010u,source=0x26000u,tags=0x27000u;
-    // The reset command is self-clearing, including when CRI saves/restores
-    // IPU control around a picture. Preserve unrelated channel status bits.
     memory.write32(0x10002010u,0x40000000u);
     require((memory.read32(0x10002010u)&0xc0000000u)==0u,"IPU reset or busy bit remained set");
     memory.write32(channel+0x10u,0xa0000000u|source);
@@ -68,8 +64,6 @@ void verify_ipu_input_dma() {
         const uint32_t address=test==0u ? PS2_RAM_SIZE-16u : source;
         memory.write32(channel+0x10u,address);memory.write32(channel+0x20u,test==1u ? 0u : 2u);
         memory.write32(channel+0x30u,tags);
-        // A non-terminating NEXT chain must exhaust its bounded tag budget
-        // without delivering partial bytes or inventing completion.
         memory.write64(tags,uint64_t(tags)<<32u | 0x20000000u);
         const uint32_t start=test==1u ? 0x105u : test==2u ? 0x109u : test==3u ? 0x100u : 0x101u;
         memory.write32(channel,start);
@@ -91,7 +85,7 @@ void verify_scratchpad_dma() {
         context.r[4]=_mm_cvtsi32_si128(selector);
         context.r[5]=_mm_cvtsi32_si128(address);
         context.r[6]=_mm_cvtsi32_si128(count);
-        context.r[7]=_mm_cvtsi32_si128(12); // Retail caller leaves this unused argument set.
+        context.r[7]=_mm_cvtsi32_si128(12);
         ps2_stubs::sceDmaRecvN(ram,&context,&runtime);
         return int32_t(getRegU32(&context,2));
     };
@@ -99,17 +93,17 @@ void verify_scratchpad_dma() {
     const std::vector<uint8_t> original(scratch,scratch+PS2_SCRATCHPAD_SIZE);
     struct Transfer { uint32_t selector,address,start,count; };
     const Transfer cases[]={
-        {channel,destination,0u,0x400u}, // Exact channel, address and count from the startup log.
-        {8u,0x803c4200u,0x3ff0u,3u}, // Cached alias, wrapping scratchpad source.
-        {channel,0xa03c4200u,0x120u,17u}, // Uncached alias, nonzero scratchpad offset.
+        {channel,destination,0u,0x400u},
+        {8u,0x803c4200u,0x3ff0u,3u},
+        {channel,0xa03c4200u,0x120u,17u},
         {channel,destination,0x230u,0u},
     };
     for (const auto& transfer:cases) {
         const uint32_t bytes=transfer.count*16u;
         std::memset(ram+destination-16,0xcc,PS2_SCRATCHPAD_SIZE+32);
-        memory.writeIORegister(0x1000e010u,1u<<8); // Clear the previous completion status.
+        memory.writeIORegister(0x1000e010u,1u<<8);
         memory.writeIORegister(channel+0x80,transfer.start);
-        memory.writeIORegister(channel,0xcdu); // Preserve unrelated bits, clear DIR and MOD.
+        memory.writeIORegister(channel,0xcdu);
         require(receive(transfer.selector,transfer.address,transfer.count)==0,
                 "Scratchpad receive was rejected");
         for (uint32_t i=0;i<bytes;++i)
@@ -131,7 +125,6 @@ void verify_scratchpad_dma() {
         ps2_stubs::sceDmaSync(ram,&context,&runtime);
         require(getRegU32(&context,2)==0,"Completed receive still polls busy");
     }
-    // Exercise both SDK directions rather than testing only direct register writes.
     constexpr uint32_t source=0x24000u;
     for (uint32_t i=0;i<64;++i) ram[source+i]=uint8_t(255u-i);
     memory.writeIORegister(0x1000d480u,0x3fe0u);
@@ -153,7 +146,6 @@ void verify_scratchpad_dma() {
     try { receive(3u,destination,1u); }
     catch (const std::runtime_error&) { unsupported=true; }
     require(unsupported,"Unmodeled receive device reported success");
-    // A pending channel must not be overwritten by a second submission.
     memory.writeIORegister(0x1000e000u,0);
     memory.writeIORegister(0x1000e010u,1u<<8);
     memory.writeIORegister(channel,0x100u);

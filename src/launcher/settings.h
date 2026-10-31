@@ -6,22 +6,20 @@
 namespace openkai2::launcher {
 struct Settings {
     std::filesystem::path iso;
-    std::filesystem::path importIso; // the last other disc the import tool read
+    std::filesystem::path importIso;
     unsigned fps = 240, width = 1280, height = 720;
-    unsigned windowMode = 0;    // windowed, borderless
-    unsigned antialiasing = 0;  // off, FXAA
-    unsigned textureFilter = 0; // game, nearest, bilinear
-    unsigned upscaler = 1;      // nearest, bilinear, bicubic, FSR 1
-    unsigned aspect = 0;        // 4:3, 16:9, stretch, native pixels
+    unsigned windowMode = 0;
+    unsigned antialiasing = 0;
+    unsigned textureFilter = 0;
+    unsigned upscaler = 1;
+    unsigned aspect = 0;
     bool vsync = true, autoBackups = true;
     bool audio = true;
-    unsigned volume = 100;      // percent
+    unsigned volume = 100;
     bool autoUpdates = true;
     bool discordPresence = true;
-    unsigned updateChannel = 1; // stable, stable and prerelease
+    unsigned updateChannel = 1;
     std::string renderer = "auto";
-    // Where the launcher window was last closed, in screen pixels; a width of
-    // 0 means it opens centred.
     int windowLeft = 0, windowTop = 0, windowWidth = 0, windowHeight = 0;
     bool windowMaximized = false;
 };
@@ -29,6 +27,5 @@ std::filesystem::path settings_path();
 Settings read_settings(const std::filesystem::path &file);
 void write_settings(const std::filesystem::path &file, const Settings &settings);
 void validate_settings(const Settings &settings);
-// Windows command-line quoting, including trailing slashes and embedded quotes.
 std::wstring quote_argument(const std::wstring &value);
-} // namespace openkai2::launcher
+}

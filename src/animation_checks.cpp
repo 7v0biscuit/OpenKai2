@@ -12,8 +12,6 @@ void verify_skeletal_transforms(PS2Runtime& runtime,uint8_t* ram){
     auto require=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
     constexpr uint32_t entry=0x145880u,input=0x730000u,translation=input+32u,returned=0x1be1c4u;
     require(runtime.hasFunction(entry),"Original quaternion transform is not registered");
-    // Use a separate kernel so starting and restarting this worker cannot
-    // modify the scheduler used by other translated-code regression fixtures.
     auto owner=std::make_unique<PS2Runtime>();auto& scheduler=owner->eeScheduler();
     require(owner->memory().initialize(),"Cannot allocate skeletal worker fixture");
     R5900Context caller{};caller.r[29]=_mm_cvtsi32_si128(0x1ffffc0u);
@@ -30,8 +28,6 @@ void verify_skeletal_transforms(PS2Runtime& runtime,uint8_t* ram){
             std::memset(ram+input-16u,0xa5,80u);std::memcpy(ram+input,q,sizeof(q));std::memcpy(ram+translation,offset,sizeof(offset));
             auto c=initial;c.pc=entry;c.r[4]=_mm_cvtsi32_si128(input);c.r[5]=_mm_cvtsi32_si128(moved ? translation : 0u);
             c.r[31]=_mm_cvtsi32_si128(returned);
-            // Columns of a parent with translation, plus a rotated/scaled
-            // parent. The oracle multiplies independent double matrices.
             const double p[4][4]={{parent ? 0.0 : 1.0,parent ? 2.0 : 0.0,0,0},
                 {parent ? -3.0 : 0.0,parent ? 0.0 : 1.0,0,0},
                 {0,0,parent ? 4.0 : 1.0,0},{5,-3,9,1}};

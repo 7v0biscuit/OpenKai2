@@ -12,8 +12,6 @@ from .entry_oracle import (BASE,Mem,hex64,s32,extract_verified_words,
 PC_START=0x11379c
 PC_LAST=0x1137ac
 FIVE_WORD_SHA='fbdd4cdf2c2c45c3b2b8d54321d4b1415d09fd89c16be74d3b6caca61118f5e1'
-# case name, SP, RA, S0, S1, S2, A0, state-sign, handler-list ptr,
-# synthetic mmio value, memory node+32 value
 CASES=[
  ('negative_zero',0x200080,0x1111111122222222,0x123,0x456,0x789,0xabc,0xffffffff,0,0x81234567,0x1122334455667788),
  ('negative_ptr',0x200100,0xabcdef,0xdef,0xaaa,0xabc123,0x22,0xffffffff,0x210040,0x80000001,0x0123456789abcdef),
@@ -34,7 +32,6 @@ def verified_rows(report):
     if any(v is None for v in words):raise ValueError('missing verified 5-word successor')
     digest=hashlib.sha256(b''.join(struct.pack('<I',x) for x in words)).hexdigest()
     if digest!=FIVE_WORD_SHA:raise ValueError('successor word SHA mismatch')
-    # Decode structural operation categories, without hardcoding full raw words.
     expected=[0x0f,0x0d,0x23,0x15,0x37]
     for i,(w,op) in enumerate(zip(words,expected)):
         if w>>26!=op:raise ValueError(f'unexpected opcode at successor slot {i}')
@@ -61,14 +58,11 @@ def expected(case,rows=None):
             out['branch_likely_taken']=True;out['next_pc']=hex64(0x1137dc)
         else:out['next_pc']=hex64(0x1137b0)
         return out
-    # Interpret the verified successor words. This is not a copy of the native
-    # C++ branch statement; target and register operands come from original MIPS.
     registers=[0]*32
     registers[2]=int(got['v0'],16)
     registers[6]=int(got['a2'],16)
     registers[18]=case[5]
     mem=Mem()
-    # The independent model uses only these bounded read locations.
     extra={}
     for base,val,width in ((0x10001010,case[9],4),(0x210040+32,case[10],8)):
         for j in range(width):extra[base+j]=(val>>(8*j))&0xff

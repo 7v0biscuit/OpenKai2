@@ -1,6 +1,4 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// Compare draw-cache routing for direct/indexed textures, filtering, feedback,
-// and perspective coordinates. Timings are synthetic host costs, not game FPS.
 #include "runtime/gs/gs_cpu_backend.h"
 #include "raster_workers.h"
 #include <chrono>

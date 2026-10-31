@@ -64,14 +64,11 @@ void verify_asset_relocation(PS2Runtime& runtime, uint8_t* memory) {
         require(std::memcmp(expected.data(), memory+object-16, expected.size())==0,
                 "already relocated asset was modified again");
     };
-    // Every original table entry must work through its tag dispatcher, including
-    // the empty handlers and positive counts with a null record pointer.
     for (unsigned handler=0; handler<7; ++handler) {
         reset(handler, 0u); snapshot(); check();
         reset(handler, 2u); snapshot(); check();
     }
 
-    // Recreate AMM at the logged address, with pair and triple pointer records.
     reset(2, 4); put(0x14,0x40); put(0x18,2); put(0x1c,0x300);
     put(0x40,9); put(0x4c,0x100); put(0x50,25); put(0x5c,0x180);
     put(0x60,0x77); put(0x6c,0x240);
@@ -81,7 +78,6 @@ void verify_asset_relocation(PS2Runtime& runtime, uint8_t* memory) {
     for (auto offset:{0x14u,0x1cu,0x4cu,0x5cu,0x6cu,0x100u,0x10cu,0x180u,0x188u,0x190u}) relocate(offset);
     check();
 
-    // AMT is an original no-op handler: its offsets must remain relative.
     reset(1,2); put(0x14,0x40); put(0x1c,0x300); put(0x4c,0x100); put(0x100,0x200);
     snapshot(); check();
 
@@ -90,7 +86,6 @@ void verify_asset_relocation(PS2Runtime& runtime, uint8_t* memory) {
     put(0x104,0x280); put(0x10c,0x2c0);
     snapshot();
     for (auto offset:{0x14u,0x1cu,0x74u,0x78u,0x80u,0x104u,0x10cu}) relocate(offset);
-    // The geometry handler assigns each record its own 16-bit index.
     expect(0xd8,1u);
     check();
 
@@ -114,8 +109,6 @@ void verify_asset_relocation(PS2Runtime& runtime, uint8_t* memory) {
     for (auto offset:{0x14u,0x1cu,0x4cu,0x100u,0x108u}) relocate(offset);
     check();
 
-    // AMO recursively dispatches an embedded AMM before relocating its own
-    // records. Verify both object-relative bases and both completion markers.
     reset(3,1); put(0x14,0x40); put(0x18,1); put(0x1c,0x300); put(0x20,1); put(0x24,0x280);
     put(0x44,0x100); put(0x48,0x180); put(0x4c,0x200); put(0x50,0x240);
     put(0x108,0x2c0); put(0x300,0x400);

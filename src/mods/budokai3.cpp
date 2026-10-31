@@ -26,8 +26,6 @@ std::vector<uint8_t> read_bytes(SourceDisc &disc, const SourceDisc::Range &entry
 bool starts(const std::vector<uint8_t> &bytes, const char *magic) {
     return bytes.size() >= 4 && std::memcmp(bytes.data(), magic, 4) == 0;
 }
-// Where the mesh and the textures of a costume model start: an #AMB of two
-// files whose 16-byte records give their offsets.
 std::optional<std::pair<uint32_t, uint32_t>> model_parts(SourceDisc &disc, const SourceDisc::Range &range) {
     const auto head = read_bytes(disc, range, 0, 32);
     if (head.size() < 32 || !starts(head, "#AMB") || read32(head, 16) != 2)
@@ -64,7 +62,7 @@ std::string budokai3_name(std::string internal) {
     const auto known = roster_display_name(internal);
     return known != internal ? known : title_case(internal);
 }
-} // namespace
+}
 
 std::optional<ModelShape> model_shape(SourceDisc &disc, size_t entry) {
     const auto &entries = disc.entries(roster_archive);
@@ -74,9 +72,6 @@ std::optional<ModelShape> model_shape(SourceDisc &disc, size_t entry) {
     const auto parts = model_parts(disc, range);
     if (!parts)
         return std::nullopt;
-    // The mesh header counts its parts at 16 and lists them from the offset
-    // at 20, 32 bytes each: the part's number, its data, then the parts it
-    // links to.
     const auto head = read_bytes(disc, range, parts->first, 32);
     const uint32_t count = read32(head, 16), table = read32(head, 20);
     if (!count || count > 256)
@@ -88,8 +83,6 @@ std::optional<ModelShape> model_shape(SourceDisc &disc, size_t entry) {
     for (uint32_t i = 0; i < count; ++i)
         shape.parts.push_back({read32(rows, i * 32), read32(rows, i * 32 + 8), read32(rows, i * 32 + 12),
                                read32(rows, i * 32 + 16)});
-    // The texture pack counts its textures at 16 and lists their headers
-    // from the offset at 20; a header gives the format at 8 and the size at 12.
     const auto pack = read_bytes(disc, range, parts->second, 32);
     const uint32_t textures = std::min<uint32_t>(read32(pack, 16), 64);
     const auto offsets = read_bytes(disc, range, parts->second + read32(pack, 20), size_t(textures) * 4);
@@ -102,8 +95,6 @@ std::optional<ModelShape> model_shape(SourceDisc &disc, size_t entry) {
 
 std::vector<size_t> match_textures(const std::vector<std::array<uint32_t, 2>> &model,
                                    const std::vector<std::array<uint32_t, 2>> &wearer) {
-    // In order: each of the wearer's slots takes the next of the model's
-    // textures with its format and size, skipping the model's extras.
     std::vector<size_t> picks;
     size_t next = 0;
     for (const auto &slot : wearer) {
@@ -149,7 +140,6 @@ std::optional<DiscRoster> read_budokai3_models(SourceDisc &disc) {
     roster.models = true;
     for (uint32_t i = 0; i < budokai3_count; ++i) {
         const uint32_t record = budokai3_records + i * budokai3_record_bytes, name = budokai3_names + i * budokai3_name_bytes;
-        // Forms that share another record's models have no list of their own.
         if (word(record) != name || !word(record + 8))
             continue;
         const auto internal = name_at(name);
@@ -182,7 +172,6 @@ std::optional<DiscRoster> read_budokai3_models(SourceDisc &disc) {
 }
 
 std::vector<std::pair<uint32_t, uint32_t>> costume_fields(SourceDisc &game, const DiscCharacter &character) {
-    // The costume models come first in the record, from 0x74.
     std::vector<std::pair<uint32_t, uint32_t>> fields;
     for (const auto &[offset, entry] : character.files)
         if (offset < 0x110u && model_shape(game, entry))
@@ -233,9 +222,6 @@ std::string model_contents(SourceDisc &disc, size_t entry) {
             text += line;
         }
     };
-    // Textures: a 32-byte header counting them at 16, offsets from 20, then a
-    // 48-byte header each whose pixels are at 20 and palette at 36, both from
-    // the start of the pack.
     const uint64_t pack = parts->second;
     const auto head = read_bytes(disc, range, pack, 32);
     text += "    textures:";
@@ -254,8 +240,6 @@ std::string model_contents(SourceDisc &disc, size_t entry) {
         words(read_bytes(disc, range, pack + read32(texture, 36), 64));
         text += '\n';
     }
-    // Mesh blocks: the mesh header counts them at 32 and lists their offsets
-    // from 48.
     const auto mesh = read_bytes(disc, range, parts->first, 48);
     const uint32_t blocks = std::min<uint32_t>(read32(mesh, 32), 64);
     const auto list = read_bytes(disc, range, parts->first + 48, size_t(blocks) * 4);
@@ -288,7 +272,6 @@ std::string model_digest(SourceDisc &disc, size_t entry) {
             text += line;
         }
     };
-    // The #AMB records give each file's size.
     const uint32_t mesh = parts->first, pack = parts->second;
     const uint32_t meshSize = read32(bytes, read32(bytes, 20) + 4), packSize = read32(bytes, read32(bytes, 20) + 20);
     std::snprintf(line, sizeof line, "    mesh %u bytes, check %08X; textures %u bytes, check %08X\n", meshSize,
@@ -334,8 +317,6 @@ std::string mesh_differences(SourceDisc &budokai3, size_t entry, SourceDisc &gam
     const auto theirs = budokai3.read_entry(roster_archive, entry), ours = game.read_entry(roster_archive, own);
     const uint32_t theirMesh = theirParts->first, ourMesh = ourParts->first;
     const uint32_t size = std::min(theirParts->second - theirMesh, ourParts->second - ourMesh);
-    // Vertex data is floats; a word that is not a float of a plausible size
-    // on either side is a count, a flag or a GIF or VIF code.
     const auto plain = [](uint32_t word) {
         const uint32_t exponent = word >> 23 & 0xFF;
         return word == 0 || word == 0x80000000u || (exponent >= 0x60 && exponent <= 0x9F);
@@ -443,10 +424,6 @@ std::vector<uint32_t> fitting_wearers(const DiscRoster &models, uint32_t model, 
 }
 
 std::vector<size_t> material_records(const std::vector<uint8_t> &model, bool any) {
-    // The mesh header counts its blocks at 32 and lists them from 48; a block
-    // runs to the next one or to the end of the mesh. Material records sit at
-    // 16-byte boundaries inside the blocks: flags, 0x29BD, then two texture
-    // numbers.
     std::vector<size_t> records;
     const uint32_t mesh = read32(model, read32(model, 20)), size = read32(model, read32(model, 20) + 4);
     if (mesh > model.size() || size > model.size() - mesh)
@@ -471,9 +448,6 @@ std::vector<size_t> material_records(const std::vector<uint8_t> &model, bool any
 }
 
 std::vector<size_t> draw_records(const std::vector<uint8_t> &model) {
-    // The records sit in the mesh's first block at 16-byte boundaries: a word
-    // of 0x2xx with a kind in its top four bits, then the offset in the mesh
-    // of what it draws.
     std::vector<size_t> records;
     const uint32_t mesh = read32(model, read32(model, 20)), size = read32(model, read32(model, 20) + 4);
     if (mesh > model.size() || size > model.size() - mesh || read32(model, mesh + 32) == 0)
@@ -503,14 +477,12 @@ std::vector<uint8_t> model_for_budokai2(SourceDisc &disc, size_t entry) {
     const size_t version = size_t(parts->second) + 12;
     if (version + 4 <= bytes.size() && read32(bytes, version) == 2)
         bytes[version] = 1;
-    // Budokai 2 sets a flag in every material that Budokai 3 leaves clear.
     for (const auto record : material_records(bytes, false))
         bytes[record + 1] |= uint8_t(budokai2_material_flag >> 8);
     return bytes;
 }
 
 namespace {
-// The mesh and the textures of a costume model, each as its own bytes.
 std::pair<std::vector<uint8_t>, std::vector<uint8_t>> split_model(const std::vector<uint8_t> &model) {
     const uint32_t records = read32(model, 20);
     const auto part = [&](uint32_t record) {
@@ -525,8 +497,6 @@ void put32(std::vector<uint8_t> &bytes, size_t at, uint32_t value) {
     for (unsigned i = 0; i < 4; ++i)
         bytes[at + i] = uint8_t(value >> (8 * i));
 }
-// An #AMB of a mesh and textures, laid out as the games lay theirs: the
-// header, two records, then each file at a 64-byte boundary.
 std::vector<uint8_t> join_model(const std::vector<uint8_t> &header, const std::vector<uint8_t> &mesh,
                                 const std::vector<uint8_t> &textures) {
     const auto align = [](size_t at) { return (at + 63) / 64 * 64; };
@@ -544,18 +514,11 @@ std::vector<uint8_t> join_model(const std::vector<uint8_t> &header, const std::v
     std::copy(textures.begin(), textures.end(), model.begin() + texturesAt);
     return model;
 }
-// How many bytes a texture's pixels or palette take in its pack. The header
-// gives where they start and the size of the data, but the data follows 32
-// bytes that send it to the console's video memory: three zero words, a VIF
-// DIRECT code for the GIF tag and the data, then the GIF tag's first half.
 uint32_t transfer_bytes(const std::vector<uint8_t> &pack, uint32_t at, uint32_t size) {
     const bool sent = size % 16 == 0 && size_t(at) + 32 <= pack.size() &&
                       read32(pack, at + 12) == (0x50000000u | (size / 16 + 1));
     return sent && size_t(at) + size + 32 <= pack.size() ? size + 32 : size;
 }
-// A texture pack's textures: each 48-byte header, then its pixels and its
-// palette, each with the 32 bytes that send it, at the offsets the header
-// gives from the start of the pack.
 struct PackTexture {
     std::vector<uint8_t> header, pixels, palette;
 };
@@ -578,11 +541,6 @@ std::vector<PackTexture> pack_textures(const std::vector<uint8_t> &pack) {
     }
     return textures;
 }
-// Whether a texture shades the body rather than colouring it: Budokai 2 and
-// Budokai 3 mark their 256-colour shading textures with the top bit of the
-// header's second word, and keep other textures whose palette is black with
-// only the transparency changing. Each game shares its own across every
-// character, and they differ between the games.
 bool lighting_texture(const PackTexture &texture) {
     if (read32(texture.header, 4) & 0x80000000u)
         return true;
@@ -601,18 +559,15 @@ std::vector<std::array<uint32_t, 2>> layout_of(const std::vector<PackTexture> &t
         layout.push_back({read32(texture.header, 8), read32(texture.header, 12)});
     return layout;
 }
-} // namespace
+}
 
 namespace {
-// A pack laid out as the games lay theirs: the 32-byte header (from `like`),
-// the offset table, the texture headers, then each texture's pixels and
-// palette at 16-byte boundaries.
 std::vector<uint8_t> build_pack(const std::vector<uint8_t> &like, const std::vector<PackTexture> &textures) {
     const auto align = [](size_t at) { return (at + 15) / 16 * 16; };
     const uint32_t count = uint32_t(textures.size()), table = 0x20, headers = uint32_t(align(table + count * 4));
     std::vector<uint8_t> pack(align(headers + count * 48), 0);
     std::copy(like.begin(), like.begin() + 0x20, pack.begin());
-    put32(pack, 12, 1); // Budokai 2's version
+    put32(pack, 12, 1);
     put32(pack, 16, count);
     put32(pack, 20, table);
     for (uint32_t i = 0; i < count; ++i) {
@@ -631,7 +586,7 @@ std::vector<uint8_t> build_pack(const std::vector<uint8_t> &like, const std::vec
     }
     return pack;
 }
-} // namespace
+}
 
 std::vector<uint8_t> match_pack(const std::vector<uint8_t> &theirs, const std::vector<uint8_t> &ours,
                                 bool ourLighting) {
@@ -648,8 +603,6 @@ std::vector<uint8_t> match_pack(const std::vector<uint8_t> &theirs, const std::v
 std::vector<uint8_t> with_budokai2_lighting(const std::vector<uint8_t> &theirs, const std::vector<uint8_t> &ours) {
     auto textures = pack_textures(theirs);
     const auto own = pack_textures(ours);
-    // The n-th shading texture of a format and size takes the wearer's n-th
-    // of that format and size, or its last one.
     std::map<std::array<uint32_t, 2>, size_t> seen;
     for (auto &texture : textures) {
         if (!lighting_texture(texture))
@@ -695,4 +648,4 @@ std::vector<uint8_t> model_version(SourceDisc &budokai3, size_t entry, SourceDis
     }
 }
 
-} // namespace openkai2::mods
+}

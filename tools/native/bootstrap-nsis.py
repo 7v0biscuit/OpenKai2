@@ -47,7 +47,6 @@ def install(destination):
                                 env=env, check=True, capture_output=True, text=True)
         if result.stdout.strip() != 'v3.11-1':
             raise ValueError('The packaging compiler reports an unexpected version')
-        # Nothing is installed until both archives and the compiler are checked.
         root.replace(destination)
     print(f'NSIS 3.11 verified: {destination / "usr/bin/makensis"}')
 

@@ -21,11 +21,10 @@ void put16(std::vector<uint8_t> &bytes, size_t at, uint16_t value) {
 uint64_t align(uint64_t value) { return (value + afs_alignment - 1u) / afs_alignment * afs_alignment; }
 [[noreturn]] void fail(const std::string &message) { throw std::runtime_error("AFS archive: " + message); }
 
-// A name table must hold one 48-byte record per entry inside the archive.
 bool plausible_names(uint64_t offset, uint32_t size, size_t count, uint64_t archive) {
     return offset && size >= count * afs_name_bytes && offset <= archive && size <= archive - offset;
 }
-} // namespace
+}
 
 bool is_afs(const ReadFn &read, uint64_t size) {
     if (size < 16u)
@@ -56,8 +55,6 @@ AfsArchive parse_afs(const ReadFn &read, uint64_t size) {
         if (entry.size)
             first = std::min(first, entry.offset);
     }
-    // The name table location follows the entry table, or in some archives
-    // sits in the last 8 bytes before the first entry.
     uint64_t pointer = 8u + uint64_t(count) * 8u;
     uint64_t names = le32(table.data() + count * 8u);
     uint32_t namesSize = le32(table.data() + count * 8u + 4u);
@@ -127,4 +124,4 @@ AfsLayout layout_afs(const std::vector<AfsEntry> &entries, bool named) {
     return layout;
 }
 
-} // namespace openkai2::mods
+}

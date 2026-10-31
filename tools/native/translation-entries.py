@@ -8,8 +8,6 @@ import re
 import struct
 
 ELF_SHA256 = '431568221bb744a6affc47dc91144b24892839d4d1ab8236bee1e03d83e6b898'
-# The startup dispatcher at 0x0019DF48 walks seven active subsystem tables
-# rooted at 0x00385748. Each table has 14 verified indirect method entries.
 DISPATCH_TABLES = (
     (0x00387110, (
         0x001908E0, 0x001908E8, 0x001908F0, 0x00190918,
@@ -54,7 +52,6 @@ DISPATCH_TABLES = (
         0x0019F6E8, 0x0019F708,
     )),
 )
-# These callbacks are JR $ra with DADDU $v0, $zero, $zero in the delay slot.
 ZERO_RETURN_ENTRIES = (
     0x001908E0, 0x001908E8, 0x00190918, 0x00190920,
     0x00190928, 0x00190930, 0x00190938, 0x00190940,
@@ -67,8 +64,6 @@ ZERO_RETURN_ENTRIES = (
     0x0019F410, 0x0019F660, 0x0019F668, 0x0019F670,
     0x0019F678, 0x0019F680, 0x0019F708,
 )
-# The file-driver interface starts at 0x0035FB38. Its last known slot
-# (offset 0x60) is queried by the compiled caller at 0x00164940.
 FILE_CALLBACK_TABLES = ((0x0035FB38, (
     0x00167110, 0x00167188, 0x001672A0, 0x00000000,
     0x001673C8, 0x00167550, 0x001675A8, 0x00167640,
@@ -79,8 +74,6 @@ FILE_CALLBACK_TABLES = ((0x0035FB38, (
     0x00167AF8,
 )),)
 FILE_CALLBACK_ENTRIES = tuple(address for _, row in FILE_CALLBACK_TABLES for address in row if address)
-# SJRBF stream interface used by the indirect cleanup caller at 0x00156FE8.
-# Preserve its three reserved null slots and all nine callable methods.
 STREAM_CALLBACK_TABLES = ((0x00367B68, (
     0x00000000, 0x00000000, 0x00000000,
     0x0016D310, 0x0016D350, 0x0016D368,
@@ -88,8 +81,6 @@ STREAM_CALLBACK_TABLES = ((0x00367B68, (
     0x0016D3B0, 0x0016D868, 0x0016D358,
 )),)
 STREAM_CALLBACK_ENTRIES = tuple(address for _, row in STREAM_CALLBACK_TABLES for address in row if address)
-# SJMEM backs the movie player's secondary memory stream. Teardown at
-# 0x00183C4C calls its destructor through slot 0x0c.
 MEMORY_STREAM_TABLES = ((0x003676A8, (
     0, 0, 0, 0x0016CDA0, 0x0016CDD8, 0x0016CDF0,
     0x0016CE48, 0x0016CFA0, 0x0016CF08, 0x0016CE00,
@@ -97,18 +88,12 @@ MEMORY_STREAM_TABLES = ((0x003676A8, (
 )),)
 MEMORY_STREAM_ENTRIES = tuple(address for _, row in MEMORY_STREAM_TABLES for address in row if address)
 
-# This SDK routine submits SIF DMA and optionally waits for completion. Its
-# numeric SIF syscalls are supported; the named runtime stub is unimplemented.
 TRANSLATED_SDK_ENTRIES = (
     ('sceSdTransToIOP', 0x00116268),
-    # Sofdec also calls private MPEG helpers that inspect this SDK version's
-    # work area and callback records. The generic host layout is incompatible.
     ('sceMpegCreate', 0x00107978), ('sceMpegReset', 0x00107D18),
     ('sceMpegClearRefBuff', 0x00107D78), ('sceMpegAddCallback', 0x00107DD0),
     ('sceIpuSync', 0x00109390),
 )
-# The dispatcher at 0x0012A680 selects asset relocation routines by a
-# three-letter tag. Each eight-byte record is a function and a terminated tag.
 ASSET_RELOCATION_BASE = 0x0033D680
 ASSET_RELOCATION_HANDLERS = (
     (0x0012A860, b'AMG\0'), (0x0012AC20, b'AMT\0'),
@@ -119,8 +104,6 @@ ASSET_RELOCATION_HANDLERS = (
 ASSET_RELOCATION_ENTRIES = tuple(address for address, _ in ASSET_RELOCATION_HANDLERS)
 ASSET_RELOCATION_WORDS = tuple(value for address, tag in ASSET_RELOCATION_HANDLERS
                                for value in (address, int.from_bytes(tag, 'little'))) + (0, 0)
-# Fade modes 0..19 share four renderers. Slot zero selects a separate custom
-# callback, and the repeated slots are intentional.
 FADE_CALLBACK_TABLES = ((0x003786E0, (
     0x00000000,
     *([0x002487D0] * 8),
@@ -129,8 +112,6 @@ FADE_CALLBACK_TABLES = ((0x003786E0, (
 )),)
 FADE_CALLBACK_ENTRIES = tuple(dict.fromkeys(address for _, slots in FADE_CALLBACK_TABLES
                                            for address in slots if address))
-# Sofdec movie interface: three reserved leading slots, fourteen methods,
-# and the trailing null word before the next data object.
 MOVIE_CALLBACK_TABLES = ((0x00370AE0, (
     0, 0, 0, 0x0018A8C8, 0x0018AAC0, 0x00183BB8,
     0x00185AA0, 0x00185D70, 0x00186A48, 0x00186DA0,
@@ -138,15 +119,10 @@ MOVIE_CALLBACK_TABLES = ((0x00370AE0, (
     0x00186FA0, 0x00185C58, 0x00185BA8, 0,
 )),)
 MOVIE_CALLBACK_ENTRIES = tuple(address for _, slots in MOVIE_CALLBACK_TABLES for address in slots if address)
-# The demultiplexer's packet-type dispatcher at 0x00191154 selects one
-# of these four handlers. Slot two is the logged private-stream callback.
 MOVIE_PACKET_TABLES = ((0x00387180, (
     0x00191218, 0x00191390, 0x001915F0, 0x00191880,
 )),)
 MOVIE_PACKET_ENTRIES = tuple(address for _, slots in MOVIE_PACKET_TABLES for address in slots)
-# The time-code dispatcher at 0x0019D3A8 selects a pair of conversion
-# handlers for each rate. Preserve the reserved rate-zero pair and repeated
-# integer-rate entries as well as the fractional/drop-frame methods.
 MOVIE_TIMING_RATES = (1, 23976, 24000, 25000, 29970, 30000, 50000, 59940, 60000)
 MOVIE_TIMING_TABLES = ((0x00387448, (
     0, 0,
@@ -161,8 +137,6 @@ MOVIE_TIMING_TABLES = ((0x00387448, (
 )),)
 MOVIE_TIMING_ENTRIES = tuple(dict.fromkeys(address for _, slots in MOVIE_TIMING_TABLES
                                          for address in slots if address))
-# Render setup selected by 0x001A9460 and invoked by the packet builder's
-# JALR at 0x0013A20C. The depth initializer was hidden after an earlier JR.
 DRAW_SETUP_WORDS = (
     (0x001A9380, (0xC7808094, 0x03E00008, 0xE4800024)),
     (0x001A9390, (0xC780877C, 0xE4800088, 0xC7808780, 0x03E00008, 0xE480008C)),
@@ -174,8 +148,6 @@ DRAW_SETUP_WORDS = (
     (0x001A9440, (0xC780877C, 0xE4800260, 0xC7808780, 0x03E00008, 0xE4800264)),
 )
 DRAW_SETUP_ENTRIES = tuple(address for address, _ in DRAW_SETUP_WORDS)
-# Character animation callback selected during versus setup; its tail calls
-# the original model renderer after advancing the per-character frame.
 VERSUS_ANIMATION_ENTRY = 0x002AEAC0
 VERSUS_ANIMATION_WORDS = (
     0x80850030,0x3C023F80,0x44820000,0x27838FD8,0x00051080,0x00621021,0x8C430000,
@@ -184,7 +156,6 @@ VERSUS_ANIMATION_WORDS = (
     0x46011081,0x46011034,0,0,0,0x4500FFFA,0,0x10000004,0,0,0x46000886,0,
     0x080AB8A8,0xE462005C,
 )
-# Battle startup stages selected by the original dispatcher after level select.
 BATTLE_INIT_TABLES = ((0x00375230, (
     0x001B2560,0x001E7260,0x001CE280,0x001BEA10,
     0x001CB190,0x00212BA0,0x00213B00,0x0020C1A0,
@@ -211,8 +182,6 @@ BATTLE_INIT_WORDS = (
     0x00852021,0x000420C0,0x00852023,0x00042080,0x00641821,0x8C630000,0xAC233CAC,
     0x00000000,0xDFBF0000,0x03E00008,0x27BD0010,
 )
-# Battle-specific BCM animation and BSK skeleton relocation. The dispatcher
-# at 0x001D65E0 uses 16-byte records, including a null record terminator.
 BATTLE_ASSET_TABLE_BASE = 0x003939E0
 BATTLE_ASSET_TABLE_WORDS = (0x001D21D0,0x004D4342,0x00000000,0x00000000,0x001D2100,0x004B5342,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000)
 BATTLE_ASSET_WORDS = (
@@ -235,8 +204,6 @@ BATTLE_ASSET_WORDS = (
     )),
 )
 BATTLE_ASSET_ENTRIES = tuple(address for address, _ in BATTLE_ASSET_WORDS)
-# Scene modes selected by the original JALR at 0x001AF798. Preserve
-# repeated methods and reserved slots in both halves of the table.
 SCENE_MODE_TABLES = ((0x00373A60, (
     0x001B3070,0x001B3AE0,0x001B35B0,0x001B2DA0,
     0x001B2C60,0x001B38F0,0x001B2E30,0x00000000,
@@ -342,8 +309,6 @@ SCENE_MODE_WORDS = (
 )
 SCENE_MODE_ENTRIES = tuple(address for address, _ in SCENE_MODE_WORDS)
 
-# Battle command dispatcher at 0x001C89A0: 45 command slots, with shared
-# handlers and reserved nulls. Its two local switches keep their original targets.
 BATTLE_COMMAND_TABLES = (
     (0x00374FA0, (
         0x001C8900,0x001C88F0,0x001C88E0,0x001C8880,0x001C8850,
@@ -509,8 +474,6 @@ BATTLE_COMMAND_WORDS = (
 )
 BATTLE_COMMAND_ENTRIES = tuple(address for address, _ in BATTLE_COMMAND_WORDS)
 
-# Primary and secondary aura update methods selected by the original
-# character dispatcher. Preserve both reserved slots and every delay slot.
 AURA_UPDATE_TABLES = (
     (0x00377330, (0x002120E0,0x00211FC0,0x00211E00,0x00000000)),
     (0x00377340, (0x00211DF0,0x00211D20,0x00211C20,0x00000000)),
@@ -578,8 +541,6 @@ AURA_UPDATE_WORDS = (
 )
 AURA_UPDATE_ENTRIES = tuple(address for address, _ in AURA_UPDATE_WORDS)
 
-# Primary and secondary battle-state updates selected at 0x001BE500.
-# Include tail-jump aliases, the shared update body, and reserved null slots.
 BATTLE_UPDATE_TABLES = (
     (0x003747D0, (
         0x001C6E10,0x001C6E00,0x001C6E10,0x001C6B50,
@@ -819,8 +780,6 @@ BATTLE_UPDATE_WORDS = (
 )
 BATTLE_UPDATE_ENTRIES = tuple(address for address, _ in BATTLE_UPDATE_WORDS)
 
-# Battle draw selectors called at 0x001BE0D0. The secondary table has
-# fourteen slots; the following words are a separate numeric lookup table.
 BATTLE_DRAW_TABLES = (
     (0x003746D0, (
         0x001C58E0,0x001C5800,0x001C58E0,0x001C5700,
@@ -1130,7 +1089,6 @@ BATTLE_DRAW_WORDS = (
 )
 BATTLE_DRAW_ENTRIES = tuple(address for address, _ in BATTLE_DRAW_WORDS)
 
-# Fight-mode initialization, updates, and result-rule callbacks.
 FIGHT_STATE_TABLES = (
     (0x00393960, (
         0x001D5340,0x001D5070,0x001D4E80,0x001D4510,
@@ -1535,7 +1493,6 @@ FIGHT_STATE_WORDS = (
 )
 FIGHT_STATE_ENTRIES = tuple(address for address, _ in FIGHT_STATE_WORDS)
 
-# Attack-effect constructors and their installed update callbacks.
 ATTACK_EFFECT_TABLES = ((0x003A21A0, (
     0x002097D0,0x00209560,0x002091A0,0x002091A0,
     0x002091A0,0x00208F10,0x00208F10,0x00208F10,
@@ -1847,7 +1804,6 @@ ATTACK_EFFECT_WORDS = (
 )
 ATTACK_EFFECT_ENTRIES = tuple(address for address, _ in ATTACK_EFFECT_WORDS)
 
-# Impact-effect lifecycle methods and adjacent aura callbacks.
 IMPACT_EFFECT_TABLES = (
     (0x003772B0, (
         0x00210C00,0x00210260,0x0020FDA0,0x0020F9E0,
@@ -2483,8 +2439,6 @@ IMPACT_EFFECT_WORDS = (
 )
 IMPACT_EFFECT_ENTRIES = tuple(sorted({entry for _, slots in IMPACT_EFFECT_TABLES for entry in slots if entry}))
 
-# Actor command callback bank selected by the original dispatcher at 0x0014C978.
-# The logged slot 17 is 0x001FB010. Preserve all forty adjacent callable slots.
 ACTOR_COMMAND_TABLES = ((0x00375550, (
     0x001FBED0,0x001FB770,0x001FB6F0,0x001FB650,0x001FB220,
     0x001FBC80,0x001FB170,0x001FB0F0,0x001FB610,0x001FB580,
@@ -2859,8 +2813,6 @@ ACTOR_COMMAND_WORDS = (
 )
 ACTOR_COMMAND_ENTRIES = tuple(sorted({entry for _, slots in ACTOR_COMMAND_TABLES for entry in slots}))
 
-# Actor timing methods selected through the first command bank, plus the two
-# update continuations installed by its wait commands.
 ACTOR_TIMING_TABLES = ((0x00375520, (0x001FC3A0,0x001FC390,0x001FC380,0x001FC340,0x001FC2C0,0x001FC250,0x001FC220,0x001FC210,0x001FC200,0x001FC1E0,0x00000000,0x00000000)),)
 ACTOR_TIMING_ENTRIES = tuple(sorted({x for _, row in ACTOR_TIMING_TABLES for x in row if x}
     | {0x001FC270,0x001FC2E0}))
@@ -2915,7 +2867,6 @@ ACTOR_TIMING_WORDS = (
     (0x00375990, (0x00375520,0x00375550)),
 )
 
-# Actor state and battle transition commands selected by bank 18.
 ACTOR_STATE_TABLES = ((0x003758C0, (0x001F9530,0x001F94F0,0x001F94B0,0x001F9470,0x001F9290,0x001C7D40,0x001C7D00,0x001C7B70,0x001C7AC0,0x001F9410,0x001F9390,0x001F9320,0x001F92E0,0x00000000,0x00000000,0x00000000)), )
 ACTOR_STATE_ENTRIES = tuple(sorted({x for _, row in ACTOR_STATE_TABLES for x in row if x}))
 ACTOR_STATE_WORDS = (
@@ -3036,8 +2987,6 @@ ACTOR_STATE_WORDS = (
     )),
 )
 
-# Pause-menu input at 0x001C2170 selects one of six callbacks from each
-# 40-byte descriptor. Keep all 21 rows, including the terminal empty row.
 PAUSE_MENU_TABLES = (
     (0x003748A0, (0x00000000,0x00000041,0x00000004,0x00374850,0x00000000,0x001C0BD0,0x001C1190,0x001C0E90,0x001C0D70,0x001C0C60)),
     (0x003748C8, (0x00000000,0x00000046,0x00000005,0x00374860,0x00000000,0x001C0BD0,0x001C1190,0x001C0E90,0x001C0D70,0x001C0C60)),
@@ -3246,8 +3195,6 @@ PAUSE_MENU_WORDS = (
     )),
 )
 
-# Dragon World callbacks installed through the original bank at 0x0037A6C0.
-# Preserve its reserved boundary words and all 86 callable slots.
 STORY_CALLBACK_TABLES = ((0x0037A6C0, (
     0x00000000,0x002961F0,0x00296190,0x00296140,0x00296130,0x00296120,0x00296110,0x002960C0,
     0x00295F80,0x00295F40,0x00295F00,0x00295EC0,0x00295E80,0x00295E10,0x00295DA0,0x00295D30,
@@ -3269,9 +3216,6 @@ STORY_CALLBACK_WORDS = (
     )),
 )
 
-# Preserve ordering and share the argument-store callback between both groups.
-# Additional animation-script banks reached by the original command dispatcher.
-# Preserve padding and adjacent methods around the pod and actor-state commands.
 SCRIPT_COMMAND_TABLES = (
     (0x00375520, (
         0x001FC3A0,0x001FC390,0x001FC380,0x001FC340,0x001FC2C0,0x001FC250,0x001FC220,0x001FC210,
@@ -3449,7 +3393,6 @@ SCRIPT_COMMAND_TABLES = (
         0x00224600,0x00000000,
     )),
 )
-# Preserve the dynamic BSS bank root without inventing its runtime contents.
 SCRIPT_COMMAND_ROOTS = (
     (0x00375990, (0x00375520,0x00375550,0x00375590,0x003755D0,0x003755F0,0x00375630,0x00375660,0x00375690,0x003756D0,0x00375710,0x00375740,0x00375760,0x003757A0,0x003757C0,0x003757D0,0x00375810,0x00375850,0x00375890,0x003758C0,0x00375900,0x00375940,0x00375960,0x00375970)),
     (0x00379E40, (0x00379A10,0x00379A50,0x00379A70,0x00379AB0,0x00379AF0,0x00379B30,0x00379B40,0x00379B60,0x00379B70,0x00379BB0,0x00379BD0,0x00379BF0,0x00379C10,0x00379C40,0x00379C70,0x00379C90,0x00379CA0,0x00379CD0,0x00379D10,0x00379D30,0x00379D70,0x00379DA0,0x003A5284,0x00379DE0,0x00379E00,0x003A47B8,0x00379E20)),
@@ -3460,9 +3403,6 @@ SCRIPT_COMMAND_WORDS = (
     (0x001FAD00, (0x8CA4002C,0x3C010002,0x8F8387C4,0x24020001,0x8C840000,0x00042080,0x00831821,0x00610821,0x8C239C54,0x80630A07,0x03E00008,0xACA30000)),
 )
 
-# Object callbacks installed in fields 0x0c, 0x10 and 0x14 by original
-# constructors. Keep each address-producing pair and its store instruction;
-# data-buffer pointers passed to SDK routines are not callable entries.
 OBJECT_CALLBACK_INSTALLS = (
     (0x0010BD68, 0x0010BEE8, 0x3C030011, 0x0010BEF4, 0x2463BD68, 0x0010BF04, 0xAC83000C),
     (0x001E7760, 0x001E7934, 0x3C02001E, 0x001E793C, 0x24427760, 0x001E7948, 0xAC820010),
@@ -3590,8 +3530,6 @@ OBJECT_CALLBACK_WORDS = (
     (0x00225990, (0x8CA6002C,0x3C030022,0x24635930,0x24020003,0x8CC60000,0x27858858,0xAC860024,0x8C860000,0x8CC60000,0x00063080,0x00A62821,0xC4A00000,0xE480002C,0x03E00008,0xAC830010,0x00000000)),
 )
 
-# Story interaction commands selected by the signed-byte dispatcher at
-# 0x002769e0, and the adjacent UI method bank. Preserve reserved null slots.
 INTERACTION_TABLES = (
     (0x00379780, (0x002765C0,0x00276570,0x00276220,0x00275F50,0x00275E50,0x00275D90,0x00275D50,0x00275C50,0x00275BD0,0x00275B30,0x00276180,0x00276120,0x002760E0,0x00276050,0x00275ED0,0x00275AF0,0x00275AC0,0x00275A60,0x00275A10,0x002759B0,0x00275980,0x00275FE0,0x00000000,0x00000000)),
     (0x003797E0, (0x00274570,0x00274480,0x00274420,0x002743B0,0x002742B0,0x00274240,0x00274170,0x002740D0,0x00273FA0,0x00000000,0x00000000,0x00000000)),
@@ -3602,8 +3540,6 @@ INTERACTION_WORDS = (
     (0x002769E0, (0x82230000,0x3C020038,0x24429780,0x0220202D,0x00031880,0x00431021,0x8C420000,0x0040F809,0x0200282D)),
 )
 
-# Battle task dispatch and the three melee interaction method banks. The
-# neutral, update and entry banks share indices, including their null slot.
 MELEE_TASK_TABLES = (
     (0x003746C0, (
         0x001BC480,0x001BC0B0,0x001BB9F0,0x001BB4B0,
@@ -3635,11 +3571,6 @@ MELEE_TASK_TABLES = (
 )
 MELEE_TASK_ENTRIES = tuple(sorted({x for _, row in MELEE_TASK_TABLES for x in row if x}))
 
-# Method tables the game calls through `jalr` whose functions no direct call
-# reaches, found by scanning the data for runs of pointers to function starts
-# without a translated entry. 0x003942D0 holds the battle player's four state
-# handlers (after the "[PLY] SHWD DRAW" string); a beam struggle or clash
-# switches to 0x001E96F0, and without an entry the main thread stopped there.
 STATE_METHOD_TABLES = (
     (0x003609D8, (0x00168F80,0x00169108,0x001691B8,0x00169250,0x00169288)),
     (0x00372790, (0x001A59F0,0x001A5990)),
@@ -3655,7 +3586,6 @@ MELEE_TASK_WORDS = (
     (0x001D8240, (0x27BDFFE0,0xFFBF0010,0x7FB00000,0x0C07C7E4,0x0080802D,0x0200202D,0x0000282D,0x0C07D804,0x0000302D,0xDFBF0010,0x7BB00000,0x03E00008,0x27BD0020,0x00000000,0x00000000,0x00000000)),
 )
 
-# Camera horizontal scale load and its original branch delay slot.
 PROJECTION_WORDS = ((0x001317F0, (0xC6150010,0x8382868C,0x10400007,0x00000000)), )
 
 ENTRY_POINTS = tuple(dict.fromkeys((0x00167188,)

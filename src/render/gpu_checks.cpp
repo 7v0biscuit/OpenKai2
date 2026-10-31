@@ -92,7 +92,6 @@ void checkPaletteReuse(){
         t.cld=2u;load();t.cld=1u;const auto before=pair.gpu->stats();load();
         if(pair.gpu->stats().paletteLoads!=before.paletteLoads+1u)
             throw std::runtime_error("CBP-register load reused a prior palette key");
-        // CPU writes, transfer uploads and GPU draws may all edit a palette.
         const unsigned x=csm?unsigned(tc.cou)*16u:0u,y=csm?tc.cov:0u;
         pair.write(cpsm,t.cbp,1u,x,y,cpsm?0xffffu:0x80a07030u);
         auto prior=pair.gpu->stats().paletteLoads;load();pair.draw(batch);
@@ -154,8 +153,6 @@ void checkPresentationReadbacks(){
             if(copied!=2u*gpu::PageBytes)throw std::runtime_error("Color presentation copied more than its two physical pages");
             std::cout<<"GPU presentation fixture: copied "<<copied<<" bytes; retained depth and offscreen targets.\n";
         }
-        // Presentation reads into its own copy of VRAM, so the depth page is
-        // still deferred and a later CPU read fetches it once.
         const auto depth=pair.gpu->ReadVram(GS_PSM_Z32,168u*32u,8u,4u,4u);
         if(depth!=pair.cpu->ReadVram(GS_PSM_Z32,168u*32u,8u,4u,4u) || pair.gpu->stats().readbacks-before!=copied+gpu::PageBytes)
             throw std::runtime_error("Presentation lost a deferred depth page: "+std::to_string(variant));
@@ -237,7 +234,7 @@ void checkFormats(){
             if(i&512u)c.test|=1u<<14u;if(i&256u)c.test|=1u<<15u;
             unsigned x=i%128u,y=i/128u;p.vertices[0].x=float(x);p.vertices[0].y=float(y);p.vertices[1].x=float(x+1u);p.vertices[1].y=float(y+1u);
             p.vertices[1].a=uint8_t(i*37u);p.vertices[1].z=(i&16u) ? 0xf0009876u : 0x1234u;
-            pair.draw(p);pair.draw(p); // Read the format-truncated destination on the next draw.
+            pair.draw(p);pair.draw(p);
         }
         pair.compare("GPU target formats "+std::to_string(frame)+":"+std::to_string(depth));
         if(pair.gpu->stats().gpuDraws!=cases*2u)throw std::runtime_error("Target format fixture fell back to CPU rendering");
@@ -256,8 +253,6 @@ void checkCoherence(){
     transfer.direction=2u;transfer.bitbltbuf.sbp=112u*32u;transfer.bitbltbuf.sbw=8u;transfer.bitbltbuf.spsm=0u;transfer.bitbltbuf.dbp=56u*32u;transfer.trxpos.ssax=3u;transfer.trxpos.ssay=5u;
     pair.cpu->BeginTransfer(transfer);pair.gpu->BeginTransfer(transfer);pair.compare("GPU local-to-local transfer");
 }
-// Copies between render targets and textures move only their own pages, while
-// draws issued before the copy still observe the previous texture contents.
 void checkTransferPages(){
     Comparison pair;auto p=material(8u,false);p.state.prim.tme=false;p.state.prim.iip=false;p.state.prim.abe=false;
     pair.draw(p);
@@ -282,8 +277,6 @@ void checkTransferPages(){
     pair.compare("GPU local-to-host transfer");
     std::cout<<"GPU transfer page checks passed: render-target copies, pending samplers and host readback.\n";
 }
-// Uploads into drawn pages and copies out of them must match the CPU renderer
-// without reading GPU VRAM back.
 void checkGpuTransfers(){
     constexpr unsigned formats[]={GS_PSM_CT32,GS_PSM_CT24,GS_PSM_CT16,GS_PSM_CT16S,GS_PSM_T8,GS_PSM_T4,GS_PSM_T8H,GS_PSM_T4HL,GS_PSM_T4HH,48u,50u};
     unsigned cases=0u;
@@ -336,8 +329,6 @@ void checkLines(){
 }
 void checkRebind(){
     Comparison pair(false);auto p=material(0u,false);p.state.prim.tme=false;pair.draw(p);
-    // Release the previous host allocation while its draw remains queued.
-    // Rebinding must never read back through the released pointer.
     {std::vector<uint8_t> replacement(gpu::VramBytes,0x53u);pair.actual.swap(replacement);}
     std::fill(pair.expected.begin(),pair.expected.end(),0x53u);
     pair.cpu->Initialize(pair.expected.data(),unsigned(pair.expected.size()));pair.gpu->Initialize(pair.actual.data(),unsigned(pair.actual.size()));
@@ -416,9 +407,6 @@ void checkDepthPlanes(){
         for(auto& v:back.vertices){v.z-=2.0;v.r=199u;v.g=17u;v.b=31u;}
         pair.draw(back);pair.compare("Nearby depth plane occlusion");unsigned covered=0u;
         for(unsigned y=0;y<64u;++y)for(unsigned x=0;x<64u;++x)if(pair.cpu->ReadVram(0u,56u*32u,8u,x,y)){
-            // Vertex depths lie on z=base+64*(x-3.25)+128*(y-4.5).
-            // At pixel centres its exact value is an integer, independent of
-            // barycentric evaluation or triangle winding.
             const auto expected=uint32_t(int64_t(base)+int64_t(x)*64+int64_t(y)*128-688);
             if(pair.cpu->ReadVram(48u,168u*32u,8u,x,y)!=expected || pair.gpu->ReadVram(48u,168u*32u,8u,x,y)!=expected)
                 throw std::runtime_error("Large depth plane differs from its exact integer equation");
@@ -429,7 +417,6 @@ void checkDepthPlanes(){
 }
 
 }
-// Strips at varying places and states, submitted as GIF packets.
 std::vector<std::vector<uint64_t>> gifStrips(unsigned count){
     std::vector<std::vector<uint64_t>> packets;
     for(unsigned k=0;k<count;++k){
@@ -455,19 +442,14 @@ std::unique_ptr<GS> gifTarget(std::vector<uint8_t>& vram){
     gs->writeRegister(0x06u,uint64_t(10240u)|(uint64_t(2u)<<14u)|(uint64_t(7u)<<26u)|(uint64_t(7u)<<30u)|(1ull<<34u));
     return gs;
 }
-// The GS thread must leave VRAM exactly as processing each packet on submission does.
 void checkGsWorker(){
     const auto packets=gifStrips(600u);
     std::vector<uint8_t> direct(gpu::VramBytes,0x35u),threaded(gpu::VramBytes,0x35u);
     auto reference=gifTarget(direct),worker=gifTarget(threaded);worker->startWorker();
-    // The worker's packets are queued in a burst, so the register write in the
-    // middle must wait for the queue to drain before it applies.
     for(GS* gs:{worker.get(),reference.get()})for(unsigned i=0;i<packets.size();++i){
         const auto& packet=packets[i];
         gs->processGIFPacket(reinterpret_cast<const uint8_t*>(packet.data()),uint32_t(packet.size()*8u));
         if(i%23u==0u){
-            // Uploads must retain their position among draws, and must own a
-            // copy even if the caller immediately reuses its source buffer.
             std::array<uint8_t,257> pixels{};
             for(unsigned j=0;j<pixels.size();++j)pixels[j]=uint8_t(i*17u+j*13u);
             const uint64_t psm=(i/23u)%2u ? 2u : 0u;
@@ -488,8 +470,6 @@ void checkGsWorker(){
             throw std::runtime_error("Queued native upload lost ordering, source ownership or its partial final pixel");
     if(!drawn)throw std::runtime_error("GS thread fixture drew nothing");
     if(differing)throw std::runtime_error("GS thread changed "+std::to_string(differing)+" sampled pixels");
-    // Backend hand-off materializes every GPU-owned page into the external
-    // allocation. Compare all VRAM, including bytes outside sampled targets.
     reference->setRasterBackend(std::make_unique<GSCpuBackend>());
     worker->setRasterBackend(std::make_unique<GSCpuBackend>());
     if(direct!=threaded)throw std::runtime_error("GS queued uploads and draws changed video-memory bytes");
@@ -508,8 +488,6 @@ int run_gpu_checks(bool required){
         checkFlatDepth();checkDepthPlanes();checkPaletteReuse();checkPresentationReadbacks();checkEmptyTriangles();checkMaterials();checkIntegerPipeline();checkFormats();checkLines();checkCoherence();checkTransferPages();checkGpuTransfers();checkRebind();checkClears();checkSourceChanges();checkPartialReadbacks();checkGsWorker();
         const auto before=gpu_render_statistics().gpuDraws;verify_vector_runtime_gpu();
         if(gpu_render_statistics().gpuDraws-before!=8u)throw std::runtime_error("VIF/PATH1 integration did not execute eight GPU triangles");
-        // A failed asynchronous submission must propagate to its caller and
-        // still allow context teardown, rather than leaving a waiting future.
         auto device=gpu::current_device();device->post([](gpu::Api&){throw std::runtime_error("GPU failure propagation fixture");});
         try{device->invoke([](gpu::Api&){});}catch(const std::exception&){}
         bool propagated=false;
@@ -557,8 +535,6 @@ int benchmark_gpu_submission(unsigned draws){
         gpu::shutdown_device();return 0;
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';gpu::shutdown_device();return 1;}
 }
-// Textured, Gouraud-shaded triangle strips sent as packed GIF packets, the
-// shape VU1 XGKICKs take in fights, through the GS frontend into the GPU.
 int benchmark_gif_submission(unsigned packets){
     try{
         if(!packets)throw std::runtime_error("Packet count must be positive");
@@ -575,7 +551,7 @@ int benchmark_gif_submission(unsigned packets){
         gs->writeRegister(0x06u,uint64_t(10240u)|(uint64_t(2u)<<14u)|(uint64_t(7u)<<26u)|(uint64_t(7u)<<30u)|(1ull<<34u));
         constexpr unsigned strip=24u;
         std::vector<uint64_t> packet;
-        const uint64_t prim=4u|(1u<<3u)|(1u<<4u); // triangle strip, Gouraud, textured
+        const uint64_t prim=4u|(1u<<3u)|(1u<<4u);
         packet.push_back(uint64_t(strip)|0x8000u|(1ull<<46u)|(prim<<47u)|(3ull<<60u));packet.push_back(0x512u);
         for(unsigned i=0;i<strip;++i){
             const unsigned x=200u+(i/2u)*6u,y=200u+(i&1u)*9u;

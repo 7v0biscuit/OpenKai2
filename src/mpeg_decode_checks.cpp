@@ -110,13 +110,9 @@ void verify_native_movie(bool refill,bool workers=false,bool fullSize=false) {
         invoke_native(runtime,entry,args);
     };
     invoke(0x00107978u,{handle,work,0x4000u,0,0,0});
-    // Use the original CRI ring constructor, copy routine, and DMA submission.
-    // No host sceMpegAddBs call or injected decoded frame supplies the decoder.
     invoke(0x001974d0u,{descriptor,input,tags,slots,0u,0u});
     constexpr uint32_t backend=0x002f0000u,video=descriptor-0xa48u;
     if (refill) {
-        // The supported executable supplies four standard MPEG sequence-end
-        // codes at the constant address used by the original CRI callback.
         for (unsigned i=0;i<4u;++i) {
             const std::array<uint8_t,4> end{0,0,1,0xb7};
             std::memcpy(memory+0x00387248u+i*4u,end.data(),end.size());
@@ -139,7 +135,6 @@ void verify_native_movie(bool refill,bool workers=false,bool fullSize=false) {
       initialized{runtime,0x001908e8u,runtime.lookupFunction(0x001908e8u)},
       serviced{runtime,0x00190920u,runtime.lookupFunction(0x00190920u)},
       callback{runtime,0x0018a808u,runtime.lookupFunction(0x0018a808u)};
-    // Observe the real decoder return; input and picture decoding stay native.
     runtime.replaceFunction(finish,[](uint8_t*,R5900Context* context,PS2Runtime* active) {
         auto* memory=active->memory().getRDRAM();auto& ee=active->eeScheduler();
         auto& result=*observation;const unsigned pictures=result.pictures;
@@ -171,8 +166,6 @@ void verify_native_movie(bool refill,bool workers=false,bool fullSize=false) {
         if (result.workers) {
             require(ee.currentThreadId()==5 && ee.currentThread()->currentPriority==1,
                     "native movie decoding left its synchronous worker");
-            // A movie service call can decode multiple queued pictures. Keep
-            // its original caller active until all input and EOF are handled.
             if (result.returns<4u) {
                 context->pc=0x00107bd0u;context->r[4]=_mm_cvtsi32_si128(handle);
                 context->r[5]=_mm_cvtsi32_si128(image);context->r[6]=_mm_cvtsi32_si128(result.width*result.height/256u);
@@ -183,14 +176,9 @@ void verify_native_movie(bool refill,bool workers=false,bool fullSize=false) {
             return;
         }
         if (result.returns==4u) { active->requestStop();return; }
-        // The retail caller pauses IPU DMA after each picture and restores it
-        // before the next. An IPU reset bit incorrectly retained on reads
-        // would discard queued pictures during this ordinary context switch.
         invoke_native(*active,0x00197a48u,{descriptor,0,0,0,0,0});
         invoke_native(*active,0x00197b48u,{descriptor,0,0,0,0,0});
         invoke_native(*active,0x00197848u,{descriptor,0,0,0,0,0});
-        // CRI schedules presentation itself. Buffered decoding must not wait
-        // for a display tick inside its synchronous service worker.
         context->pc=0x00107bd0u;context->r[4]=_mm_cvtsi32_si128(handle);
         context->r[5]=_mm_cvtsi32_si128(image);context->r[6]=_mm_cvtsi32_si128(result.width*result.height/256u);
         context->r[31]=_mm_cvtsi32_si128(finish);
@@ -206,9 +194,6 @@ void verify_native_movie(bool refill,bool workers=false,bool fullSize=false) {
         });
         runtime.replaceFunction(0x0018a808u,[](uint8_t*,R5900Context* context,PS2Runtime*) {
             auto& result=*observation;
-            // The live backend remains busy until the main thread consumes
-            // its result. Its service callback therefore continues returning
-            // one, as in the logged post-movie state.
             if (result.returns==4u) { context->r[2]=_mm_cvtsi32_si128(1u);context->pc=getRegU32(context,31);return; }
             result.caller=*context;result.stack=getRegU32(context,29);result.gp=getRegU32(context,28);
             context->pc=0x00107bd0u;context->r[4]=_mm_cvtsi32_si128(handle);
@@ -264,8 +249,6 @@ void verify_native_movie(bool refill,bool workers=false,bool fullSize=false) {
         require(memory[image-16u+i]==0xa5 && memory[image+imageBytes+i]==0xa5,
                 "decoded picture crossed its destination bounds");
     require(std::memcmp(memory+source,movie.data(),movie.size())==0,"DMA changed its source stream");
-    // The original no-data callback fills the rest of the input ring to force
-    // a final transfer; ordinary input submits only its complete blocks.
     const uint32_t dmaBytes=refill ? 8192u : uint32_t(movie.size());
     require(runtime.memory().read32(0x1000b410u)==input+dmaBytes
             && runtime.memory().read32(0x1000b420u)==0u

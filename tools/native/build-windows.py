@@ -92,7 +92,6 @@ def main():
         if hashlib.sha256(executable.read_bytes()).hexdigest() != ELF_SHA256:
             raise RuntimeError('Disc verification did not return the supported USA executable.')
 
-    # Analysis tools do not need the game or desktop runtime dependencies.
     run('cmake', '-S', upstream, '-B', build, *generator,
         '-DPS2X_BUILD_RUNTIME=OFF', '-DPS2X_BUILD_STUDIO=OFF', '-DPS2X_BUILD_TEST=OFF',
         '-DPS2X_BUILD_RECOMP=ON', '-DPS2X_BUILD_ANALYZER=ON',

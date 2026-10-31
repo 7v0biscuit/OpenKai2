@@ -36,8 +36,6 @@ void verify_sound_transfer(PS2Runtime& runtime, uint8_t* memory) {
         context.r[29]=_mm_cvtsi32_si128(stack);
         context.r[31]=_mm_cvtsi32_si128(caller ? 0x00146b10u : returned);
         if (caller) {
-            // Reconstruct the logged caller frame, then execute its real
-            // continuation and epilogue after the original SDK returns.
             std::memcpy(memory+stack+0x10, &saved.r[16], 16);
             runtime.memory().write64(stack+0x20, returned);
             runtime.memory().write32(gp-0x7a14u, 0u);

@@ -60,7 +60,6 @@ void verify_gif_vertices() {
         send(packet({{14u,0x80836147u|(uint64_t(bits(5.0f))<<32u),1u},stq,vertex}));
         require(last().q==5.0f,"Packed AD RGBAQ did not retain its explicit Q across STQ");
         if(!native){
-            // REGLIST RGBAQ supplies its own Q; ST has no Q component.
             send({1u|0x8000u|(1ull<<58u)|(1ull<<60u),1u,0x80836147u|(uint64_t(bits(4.0f))<<32u),0u});
             send({1u|0x8000u|(1ull<<58u)|(1ull<<60u),2u,uint64_t(bits(.25f))|(uint64_t(bits(.125f))<<32u),0u});
             send(packet({vertex}));require(last().q==4.0f && last().s==.25f && last().t==.125f,"REGLIST ST or a tag boundary changed explicit RGBAQ Q");
@@ -73,12 +72,10 @@ void verify_gif_vertices() {
             const auto& b=out->batches.back();require(b.vertexCount==3u,"Packed XYZ3 fixture lost triangle assembly");
             for(const auto& v:b.vertices)require(v.z==double(depth),"Packed XYZ3 lost 32-bit vertex depth precision");
         }
-        // PRE is meaningful only on nonempty PACKED tags. Ignored tag bits
-        // must neither switch context nor discard a partially assembled sprite.
         for(unsigned format=0u;format<3u;++format)for(unsigned loops:{0u,1u}) {
             if((native && format!=0u) || (format==0u && loops!=0u))continue;
             out->batches.clear();gs.writeRegister(0u,6u|(1u<<9u));
-            gs.writeRegister(0x4du,7u|(1ull<<16u)); // Distinguish context 1.
+            gs.writeRegister(0x4du,7u|(1ull<<16u));
             send(packet({vertex}));
             std::vector<uint64_t> ignored={uint64_t(loops)|0x8000u|(1ull<<46u)
                 |(uint64_t(format)<<58u)|(1ull<<60u),15u};

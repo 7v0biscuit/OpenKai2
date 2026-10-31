@@ -21,14 +21,10 @@ void verify_movie_timing(PS2Runtime& runtime,uint8_t* memory) {
                 translation::movie_timing_rates.size()*4);
     std::memcpy(memory+0x00387448u,translation::movie_timing_slots.data(),
                 translation::movie_timing_slots.size()*4);
-    // Hours, minutes, seconds, frames, and the additional frame term used by
-    // the original converter. Include minute/ten-minute boundaries and 32-bit
-    // wrapping at long durations. No decoder or host timing helper is involved.
     const std::array<uint32_t,5> times[]={
         {0,0,0,0,0}, {0,0,1,0,0}, {0,1,0,0,0}, {0,9,59,17,1},
         {0,10,0,0,0}, {1,0,0,0,0}, {23,59,59,29,1},
     };
-    // Exercise the exact logged rate first: index four, ordinary time code.
     for (unsigned rateIndex:{4u,0u,1u,2u,3u,5u,6u,7u,8u}) {
         const uint32_t rate=translation::movie_timing_rates[rateIndex];
         for (uint32_t mode:{0u,1u}) for (const auto& time:times) {
@@ -130,9 +126,7 @@ void verify_movie_packets(PS2Runtime& runtime,uint8_t* memory) {
         std::memset(memory+stack-0x810u,0xa5,0x830u);
         for (uint32_t i=0;i<length;++i) memory[payload+i]=uint8_t(i*17u+(i>>5));
         put(backend+0x1aecu,work);put(backend+0x1b00u,1u);
-        put(work,parser);put(parser,2u); // Valid original parser instance.
-        // The real packet-info query copies these eight words into the
-        // dispatcher's frame. Type two and the 0x7ee-byte body match the log.
+        put(work,parser);put(parser,2u);
         put(parser+0xa4u,test.type);put(parser+0xa8u,2u);
         put(parser+0xbcu,test.bytes);
         put(backend+0x1150u+0x74u+2u*16u,ring);
@@ -208,8 +202,6 @@ void verify_movie_callbacks(PS2Runtime& runtime, uint8_t* memory) {
     }
     put(object,table); put(object+4,1u); put(object+0x0c,1u); put(object+0x40,backend);
     put(backend+0x48,1u); put(backend+0x9b8,1u);
-    // Reconstruct the original audio binding installed by mwPly's stream
-    // setup: real pan/volume adapters, ADX handle, decoder, and sound state.
     put(backend+0x1c84,backend+0x2a5c); put(backend+0x1b74,bridge); put(bridge,adx);
     put(backend+0x2a60,0x0018b1c8u); put(backend+0x2a64,0x0018b1e8u);
     put(backend+0x2a68,0x0018b208u); put(backend+0x2a6c,0x0018b228u);
@@ -243,7 +235,6 @@ void verify_movie_callbacks(PS2Runtime& runtime, uint8_t* memory) {
         R5900Context context{};
         context.pc=caller ? 0x002a4eecu : translation::movie_callback_slots[slot];
         context.r[4]=_mm_cvtsi32_si128(object);
-        // EE integer arguments occupy signed 64-bit lanes, including pan.
         context.r[5]=_mm_cvtsi64_si128(int64_t(int32_t(a1)));
         context.r[6]=_mm_cvtsi64_si128(int64_t(int32_t(a2)));
         context.r[28]=_mm_cvtsi32_si128(gp); context.r[29]=_mm_cvtsi32_si128(stack);
@@ -252,9 +243,6 @@ void verify_movie_callbacks(PS2Runtime& runtime, uint8_t* memory) {
             context.r[reg]=_mm_set_epi32(0x4400+reg,0x3300+reg,0x2200+reg,0x1100+reg);
         const uint32_t finish=caller ? 0x002a4f00u : returned;
         if (caller) {
-            // Resume after the real caller has computed the movie-record
-            // address. Execute its table loads, JALR, and complete SDK chain,
-            // stopping at the continuation before it opens the movie file.
             context.r[2]=_mm_cvtsi32_si128(0x003b4f80u);
             context.r[16]=_mm_setzero_si128();
             context.r[17]=_mm_cvtsi32_si128(0x003b5a30u);
@@ -272,8 +260,6 @@ void verify_movie_callbacks(PS2Runtime& runtime, uint8_t* memory) {
             require(std::memcmp(&context.r[reg],&saved.r[reg],16)==0, "movie call changed a saved register");
         return getRegU32(&context,2);
     };
-    // The reported volume is zero. Include attenuation and SDK clamping while
-    // checking the exact ADX halfword and the final ADXS sound-state word.
     for (int32_t volume:{0,-123,-999,-2000,15}) {
         snapshot(); expect(adx+0x40,uint32_t(volume),2);
         expect(sound+0x30,uint32_t(std::clamp(volume,-999,0)),4);
@@ -292,7 +278,6 @@ void verify_movie_callbacks(PS2Runtime& runtime, uint8_t* memory) {
             require(invoke(14,channel)==uint32_t(pan), "movie pan getter lost its channel or signed value"); check();
         }
     }
-    // An initialized movie with no audio stream leaves audio state unchanged.
     put(backend+0x9b8,0u); snapshot(); invoke(11,uint32_t(-200)); check();
     for (uint32_t state:{0u,1u,3u}) {
         put(object+8,state); snapshot();

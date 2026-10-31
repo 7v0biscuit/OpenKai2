@@ -21,4 +21,4 @@ class PresentationFilter {
     RenderTexture2D target_{}, fsrTarget_{}, output_{};
 };
 int test_presentation_filters();
-} // namespace openkai2
+}

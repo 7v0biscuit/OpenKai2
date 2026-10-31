@@ -42,8 +42,6 @@ void add_vif(Hash& h,PS2Memory& m){
     h.add(r.itops);h.add(r.base);h.add(r.ofst);h.add(r.tops);h.add(r.itop);h.add(r.top);h.add(r.row);h.add(r.col);
 }
 }
-// Sixty-four affine vertex transforms using the four-column FMAC sequence.
-// Expected positions come from a separate double-precision matrix product.
 HotpathResult matrix_workload(unsigned group,unsigned iterations) {
     if(group>=16u || !iterations)throw std::runtime_error("Invalid matrix workload");
     auto m=std::make_unique<PS2Memory>();if(!m->initialize())throw std::runtime_error("Matrix memory initialization failed");
@@ -78,8 +76,6 @@ HotpathResult matrix_workload(unsigned group,unsigned iterations) {
     Hash hash;add_state(hash,vu->state());hash.bytes(data,dataSize);return {hash.value,uint64_t(iterations)*64u,double(elapsed)/(iterations*64.0)};
 }
 void verify_vector_matrices() {
-    // State/cycle/data snapshots from the pinned original interpreter. Every
-    // workload also checks its output against an independent matrix product.
     constexpr uint64_t expected[]={
         0x6a0a21437a656e1bull,0x261ad8af848e7841ull,0x6c9f3e069c62ba15ull,0x168838f9ea8f5f71ull,
         0xd0f9c3f1f5e58e7ull,0x8732811a1e5a93cdull,0xb240dbd046e38bb1ull,0x8e74380cab88ee5dull,
@@ -103,8 +99,6 @@ void verify_vector_matrices() {
         if(matrix_workload(group,counts[i]).hash!=expected[group*4u+i])
             throw std::runtime_error("Original vector matrix reference mismatch: "+std::to_string(group));
 }
-// Short programs with repeated MPG-style writes. Include unchanged uploads,
-// executed and unused edits, both units, and edits between resume slices.
 HotpathResult code_update_workload(unsigned group,unsigned iterations) {
     if(group>=16u || !iterations)throw std::runtime_error("Invalid vector code update workload");
     auto m=std::make_unique<PS2Memory>();if(!m->initialize())throw std::runtime_error("Code update memory initialization failed");
@@ -114,7 +108,7 @@ HotpathResult code_update_workload(unsigned group,unsigned iterations) {
     const unsigned base=vu0 ? PS2_VU0_CODE_BASE : PS2_VU1_CODE_BASE;
     const unsigned codeSize=vu0 ? PS2_VU0_CODE_SIZE : PS2_VU1_CODE_SIZE,dataSize=vu0 ? PS2_VU0_DATA_SIZE : PS2_VU1_DATA_SIZE;
     auto* code=vu0 ? m->getVU0Code() : m->getVU1Code();auto* data=vu0 ? m->getVU0Data() : m->getVU1Data();
-    const uint32_t upper=0x80000000u|(15u<<21u)|(1u<<11u)|(3u<<6u)|0x22u; // ADDi + LOI
+    const uint32_t upper=0x80000000u|(15u<<21u)|(1u<<11u)|(3u<<6u)|0x22u;
     for(unsigned i=0;i<32u;++i)m->write64(base+i*8u,uint64_t((i==17u ? (upper&~(31u<<6u))|(4u<<6u) : upper)|(i==30u ? 0x40000000u : 0u))<<32u|0x3f000000u);
     for(unsigned lane=0;lane<4u;++lane)vu->state().vf[1][lane]=float(lane+1u)*.125f;
     auto edit=[&](unsigned iteration){
@@ -134,7 +128,6 @@ HotpathResult code_update_workload(unsigned group,unsigned iterations) {
     return {hash.value,uint64_t(iterations)*32u,double(elapsed)/(iterations*32.0)};
 }
 void verify_vector_code_updates() {
-    // Complete state, cycle and data snapshots from the pinned interpreter.
     constexpr uint64_t expected[]={
         0x10fea05cb9dc63feull,0x36b80a4e3fd34dd8ull,0x2e4e35374dfc021cull,0xe0509ece8f105b8aull,
         0x10fea05cb9dc63feull,0x36b80a4e3fd34dd8ull,0x2e4e35374dfc021cull,0xe0509ece8f105b8aull,
@@ -176,8 +169,6 @@ HotpathResult product_workload(unsigned group,unsigned iterations) {
     const auto elapsed=std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now()-start).count();
     Hash hash;add_state(hash,vu->state());return {hash.value,uint64_t(iterations)*32u,double(elapsed)/(iterations*32.0)};
 }
-// Exercise selected FMAC operands while other registers retain large or
-// denormal bit patterns. Inactive lanes must not affect the selected result.
 HotpathResult operand_workload(unsigned group,unsigned iterations) {
     if(group>=32u || !iterations)throw std::runtime_error("Invalid operand workload");
     auto m=std::make_unique<PS2Memory>();if(!m->initialize())throw std::runtime_error("Operand memory initialization failed");
@@ -206,7 +197,6 @@ HotpathResult operand_workload(unsigned group,unsigned iterations) {
     Hash hash;add_state(hash,vu->state());return {hash.value,uint64_t(iterations)*32u,double(ns)/(iterations*32.0)};
 }
 void verify_vector_operands() {
-    // Full state and cycle snapshots from the pinned original interpreter.
     constexpr uint64_t expected[]={
         0xf2454ec8b810bba9ull,0xdc8ae1bce9f5df0bull,0x90da31b813f35fefull,0xf0a9df8f2cead159ull,
         0x2859d5a02666d04eull,0x0ee296f15403ba28ull,0xc331e6ec7e013b0cull,0x81ed18ac9e5af53aull,
@@ -246,7 +236,6 @@ void verify_vector_operands() {
         if(operand_workload(group,counts[i]).hash!=expected[group*4u+i])throw std::runtime_error("Original selected-operand snapshot differs: "+std::to_string(group*4u+i));
 }
 void verify_vector_products() {
-    // Original pipeline snapshots, including zeros, signed products and cross lanes.
     constexpr uint64_t expected[32]={
         0xd1b0f842b2da4957ull,0xe76b654e80f525f5ull,0x3b4b8287662a2211ull,0xd96ff96349661167ull,
         0x516244d3ac2e8c4dull,0xff3c978ea4b9c65full,0xcbf33539fca2951bull,0x7147192d0e2fd2dull,
@@ -347,8 +336,6 @@ void verify_vector_arithmetic(){
     const auto& expected=std::numeric_limits<long double>::digits==53 ? binary64 : extended;
     for(unsigned group=0;group<8u;++group)if(arithmetic_workload(group,1u).hash!=expected[group])throw std::runtime_error("Original arithmetic reference mismatch: "+std::to_string(group));
 }
-// V2 writes X Y X Y, V3 takes W from the next element and V4-5 widens each
-// field to eight bits, on both the contiguous and the masked paths.
 void verify_vif_unpack_lanes(){
     auto m=std::make_unique<PS2Memory>();if(!m->initialize())throw std::runtime_error("Unpack lane memory initialization failed");
     const auto lanes=[&](unsigned vector){std::array<uint32_t,4> out{};std::memcpy(out.data(),m->getVU1Data()+vector*16u,16u);return out;};
@@ -356,11 +343,11 @@ void verify_vif_unpack_lanes(){
         std::vector<uint8_t> setup;append(setup,0x01000101u);append(setup,0x20000000u);append(setup,0u);m->processVIF1Data(setup.data(),unsigned(setup.size()));
         const uint32_t mask=masked ? 0x10u : 0u;
         std::vector<uint8_t> packet;
-        append(packet,((0x64u|mask)<<24u)|(2u<<16u)|10u); // V2-32 x2 at 10
+        append(packet,((0x64u|mask)<<24u)|(2u<<16u)|10u);
         for(uint32_t v:{11u,12u,21u,22u})append(packet,v);
-        append(packet,((0x69u|mask)<<24u)|(2u<<16u)|20u); // V3-16 x2 at 20, then 2 more halfwords
+        append(packet,((0x69u|mask)<<24u)|(2u<<16u)|20u);
         for(uint16_t v:{uint16_t(1),uint16_t(2),uint16_t(3),uint16_t(0xfffc),uint16_t(5),uint16_t(6),uint16_t(7),uint16_t(8)}){const auto old=packet.size();packet.resize(old+2u);std::memcpy(packet.data()+old,&v,2u);}
-        append(packet,((0x6fu|mask)<<24u)|(1u<<16u)|30u); // V4-5 at 30
+        append(packet,((0x6fu|mask)<<24u)|(1u<<16u)|30u);
         append(packet,0x0000ffffu&uint32_t(0x8000u|(31u<<10u)|(2u<<5u)|1u));
         m->processVIF1Data(packet.data(),unsigned(packet.size()));
         const auto v2=lanes(10u),v2b=lanes(11u),v3=lanes(20u),v3b=lanes(21u),c=lanes(30u);
@@ -370,13 +357,10 @@ void verify_vif_unpack_lanes(){
             throw std::runtime_error("V3 unpack did not take W from the next element");
         if(c!=std::array<uint32_t,4>{8u,16u,248u,128u})throw std::runtime_error("V4-5 unpack did not widen its fields");
     }
-    // CL=1, WL=2 without a mask: each fill cycle repeats the next source vector,
-    // and the last one, with no source left, takes the row.
     std::vector<uint8_t> fill;
-    append(fill,0x30000000u);for(uint32_t v:{90u,91u,92u,93u})append(fill,v); // STROW
-    append(fill,0x01000201u);append(fill,(0x6cu<<24u)|(4u<<16u)|40u); // STCYCL 1,2; V4-32 x4 at 40
+    append(fill,0x30000000u);for(uint32_t v:{90u,91u,92u,93u})append(fill,v);
+    append(fill,0x01000201u);append(fill,(0x6cu<<24u)|(4u<<16u)|40u);
     for(uint32_t v:{1u,2u,3u,4u,5u,6u,7u,8u})append(fill,v);
-    // MODE 3 latches the data as the row, which MODE 1 then adds.
     append(fill,0x01000101u);append(fill,0x05000003u);append(fill,(0x6cu<<24u)|(1u<<16u)|50u);
     for(uint32_t v:{9u,9u,9u,9u})append(fill,v);
     append(fill,0x05000001u);append(fill,(0x6cu<<24u)|(1u<<16u)|51u);
@@ -391,8 +375,6 @@ void verify_vif_unpack_lanes(){
 }
 void verify_vif_unpack(){
     verify_vif_unpack_lanes();
-    // Recorded after V2, V3 and V4-5 unpacks gained their console lane values,
-    // and MODE 3 (group 1) and fill cycles (group 5) followed PCSX2.
     constexpr uint64_t expected[8]={0x8e8827894e9ecd8dull,0x62aa12fcebce8d21ull,0x0d7358bc27679521ull,0xb4f4a0be8aaa9c32ull,0x9ff9c9c7816202d0ull,0xd695de83a68d9839ull,0x18f4348b003bfe6dull,0x781863fc6ff3da05ull};
     for(unsigned group=0;group<8u;++group)if(unpack_workload(group,1u).hash!=expected[group])throw std::runtime_error("VIF unpack reference mismatch: "+std::to_string(group));
 }

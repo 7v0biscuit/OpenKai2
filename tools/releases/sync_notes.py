@@ -22,8 +22,6 @@ def gh(*arguments):
 
 
 def assets_of(release):
-    # The API URL contains the asset ID. Renaming a release must preserve every
-    # existing download, rather than uploading replacements with new identities.
     return sorted((a['apiUrl'], a['name'], a['size']) for a in release['assets'])
 
 
@@ -48,9 +46,6 @@ def synchronize(tag, published_tags, command=gh, notes_root=ROOT / 'docs/release
             if resolved != commit:
                 raise RuntimeError(f'{target} points to a different commit; preserved without changes')
         else:
-            # Automation may edit releases but cannot create a tag at an older
-            # workflow commit. Require the repository's normal tag publishing
-            # credentials to create the replacement before moving the release.
             raise RuntimeError(f'Create {target} at {commit} before synchronizing {tag}')
     arguments = ['release', 'edit', tag, '--title', target]
     if target != tag:

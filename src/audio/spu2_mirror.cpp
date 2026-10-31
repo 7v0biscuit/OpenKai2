@@ -11,7 +11,6 @@
 #include <iostream>
 #include <utility>
 
-// State the PCSX2 SPU2 core expects from the rest of the emulator.
 psxRegisters psxRegs{};
 psxCounter psxCounters[8]{};
 s32 psxNextDeltaCounter = 0;
@@ -23,10 +22,6 @@ const StereoOut32 StereoOut32::Empty(0, 0);
 namespace {
 u8 *iopMemory = nullptr;
 std::vector<int16_t> mixed;
-// AutoDMA streams are read from IOP memory as they play, as on the console,
-// so a driver may still be writing ahead of the read position. Whatever is
-// unread when the transfer completes is kept, since the driver may then
-// reuse its buffer.
 std::array<std::vector<u16>, 2> remainders;
 struct StreamCounts { uint64_t transfers = 0, bytes = 0, unread = 0; };
 std::array<StreamCounts, 2> streamCounts;
@@ -36,7 +31,7 @@ void reportStream(unsigned core) {
         std::cerr << "[audio:adma] core=" << core << " transfers=" << c.transfers << " bytes=" << c.bytes
                   << " unread_at_completion=" << c.unread << '\n';
 }
-} // namespace
+}
 
 u8 *iopPhysMem(u32 address) { return iopMemory ? iopMemory + (address & 0x1fffffu) : nullptr; }
 void spu2DMA4Irq() {}
@@ -54,7 +49,7 @@ bool SPU2::IsRunningPSXMode() { return false; }
 namespace openkai2::spu2 {
 namespace {
 void clock(uint64_t now) { psxRegs.cycle = static_cast<u32>(now); }
-} // namespace
+}
 
 void reset(uint8_t *iopRam, uint64_t now) {
     iopMemory = iopRam;
@@ -64,7 +59,6 @@ void reset(uint8_t *iopRam, uint64_t now) {
     streamCounts = {};
     std::memset(spu2regs, 0, sizeof(spu2regs));
     std::memset(_spu2mem, 0, sizeof(_spu2mem));
-    // The BIOS leaves these blocks looping so idle voices stay silent.
     std::memset(_spu2mem + 0x2800, 7, 0x10);
     std::memset(_spu2mem + 0xe870, 7, 0x10);
     Spdif.Info = 0;
@@ -125,4 +119,4 @@ void take_output(std::vector<int16_t> &samples) {
     samples.clear();
     std::swap(samples, mixed);
 }
-} // namespace openkai2::spu2
+}

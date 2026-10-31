@@ -21,17 +21,17 @@ STOP_INVALID_MMIO=3
 def synthetic_words():
     words=cp0_words()
     words.update({
-        0x1133dc:(16<<26)|(4<<21)|(31<<16)|(30<<11),  # mtc0 ra,ErrorEPC
-        0x1133e0:(16<<6)|15,                         # sync 0x10
-        0x1133e4:(16<<26)|(16<<21)|0x18,             # eret, NOT jr ra
-        0x1133e8:(31<<21)|8,                        # jr ra, unreachable after eret
-        0x1133ec:0,                                # nop, unreachable after eret
+        0x1133dc:(16<<26)|(4<<21)|(31<<16)|(30<<11),
+        0x1133e0:(16<<6)|15,
+        0x1133e4:(16<<26)|(16<<21)|0x18,
+        0x1133e8:(31<<21)|8,
+        0x1133ec:0,
     })
     assert len(words)==28
     return words
 
 def checked_retail(blob):
-    retail=read_retail_window(blob) # full retail ELF identity + full 64-word digest
+    retail=read_retail_window(blob)
     model=synthetic_words()
     for pc,w in model.items():
         if retail[pc]!=w:
@@ -39,8 +39,6 @@ def checked_retail(blob):
     return {pc:retail[pc] for pc in model}
 
 def scenarios():
-    # Diversify CP0 transitions, wrapper-produced addresses, malformed addresses,
-    # return addresses (including high 64-bit bits), and original EPC snapshots.
     for i,previous in enumerate(previous_cases()):
         for variant,address in enumerate(MMIO_ADDRS+INVALID_ADDRS):
             init,e1,e2,v0,v1,a2,_a0,a1,ra,sp=previous
@@ -86,9 +84,9 @@ def oracle(words,case):
             if pending is not None:raise ValueError('MMIO inside branch delay slot')
             return output(STOP_INVALID_MMIO)
         old_pending=pending;pending=None
-        if op==16 and rs==0 and rd==12: # MFC0 Status
+        if op==16 and rs==0 and rd==12:
             regs[rt]=sx32(cp0[12]);reads+=1;event(1)
-        elif op==15 and rs==0:regs[rt]=sx32(imm<<16) # LUI sign extends on EE
+        elif op==15 and rs==0:regs[rt]=sx32(imm<<16)
         elif op==0 and funct==36:regs[rd]=regs[rs]&regs[rt]
         elif op==0 and funct==37:regs[rd]=(regs[rs]|regs[rt])&MASK
         elif op in (4,5):
@@ -98,7 +96,7 @@ def oracle(words,case):
             offset=((imm-65536) if imm&0x8000 else imm)<<2
             pending=pc+4+offset if cond else pc+8
         elif w==0:pass
-        elif w==0x42000039: # EI, fixture-supplied transition only
+        elif w==0x42000039:
             if eis>=2:raise ValueError('Unbounded EI scenario')
             cp0[12]=((e1 if eis==0 else e2)&0xffffffff)
             eis+=1;event(2)
@@ -107,17 +105,17 @@ def oracle(words,case):
         elif op==14:regs[rt]=(regs[rs]^imm)&MASK
         elif op==16 and rs==4 and rd==12:
             cp0[12]=regs[rt]&0xffffffff;status_writes+=1;event(4)
-        elif op==43: # SW low 32-bit word to VIRTUAL whitelisted address
+        elif op==43:
             store_addr=(regs[rs]+((imm-65536) if imm&0x8000 else imm))&MASK
             store_value=regs[rt]&0xffffffff
             virtual_stores+=1;event(5)
-        elif op==16 and rs==4 and rd==30: # MTC0 ra,ErrorEPC
+        elif op==16 and rs==4 and rd==30:
             cp0[30]=regs[rt]&0xffffffff;error_epc_writes+=1;event(6)
-        elif w==0x42000018: # ERET; no instruction delay slot, so jr ra unreachable
+        elif w==0x42000018:
             if old_pending is not None:raise ValueError('ERET in branch delay slot')
             eret_count+=1;event(7)
-            if cp0[12]&4:pc=cp0[30];cp0[12]&=~4 # ERL -> ErrorEPC
-            else:pc=cp0[14];cp0[12]&=~2 # EXL -> EPC
+            if cp0[12]&4:pc=cp0[30];cp0[12]&=~4
+            else:pc=cp0[14];cp0[12]&=~2
             return output(STOP_ERET)
         else:raise ValueError('Unimplemented opcode '+hex(w)+' at '+hex(pc))
         regs[0]=0

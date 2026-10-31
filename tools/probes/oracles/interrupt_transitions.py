@@ -23,14 +23,11 @@ def observed_checkpoint(status,mask,index):
     return status&~EIE if mask&(1<<(index-1)) else status
 
 def transitions(status,mask):
-    # These checkpoints are supplied external test events; NOT EI instruction effects.
     e1=observed_checkpoint(ei_effect(status),mask,1)
     e2=observed_checkpoint(ei_effect(e1),mask,2)
     return e1,e2
 
 def scenarios():
-    # Exercise both wrappers, 16 Status-mode combinations, four injected event
-    # plans, and 3 independent GPR/EPC variants = 384 cases.
     for entry in (0x113400,0x113410):
         for si,status in enumerate(STATES):
             for mode in range(4):
@@ -47,7 +44,6 @@ def scenarios():
 def independent_oracle(words,case):
     entry,status,mode,v0,v1,a2,a0,a1,ra,sp,epc,old_eepc=case
     e1,e2=transitions(status,mode)
-    # Bounded decoder of actual verified MIPS words is independent of C++.
     previous=(entry,status,e1,e2,v0,v1,a2,a0,a1,ra,sp,epc,old_eepc)
     result=chain_oracle(words,previous)
     return (e1,e2,*result)
@@ -77,8 +73,8 @@ def compare_native(exe,words):
                              'checkpoint_mode':case[2],
                              'expected':[hex(x) for x in expected],
                              'actual':[hex(x) for x in got]})
-        stop=expected[24]  # 2 transition fields + 5 wrapper prefix + shared[17]
-        eis=expected[19]   # 2 + 5 + shared[12]
+        stop=expected[24]
+        eis=expected[19]
         if stop==STOP_ERET:returns+=1;mode_outcomes[str(case[2])]['return']+=1
         elif stop==STOP_EI_LIMIT:spins+=1;mode_outcomes[str(case[2])]['poll_limit']+=1
         else:raise ValueError(f'Unexpected stop={stop}')

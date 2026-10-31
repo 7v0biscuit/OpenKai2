@@ -51,7 +51,6 @@ def extract_verified_words(report):
      report.get('target_pc')!=hx(ENTRY) or report.get('handler_registered') is not False or
      report.get('stage_registry_audit')!='PASS'):
   raise ValueError('retail identity or stage registry mismatch')
- # Check full window control metadata through the conservative source scanner.
  cfg=survey(report)
  if cfg.get('status')!='PINNED_ENTRY_CFG_SURVEY_COMPLETE_NOT_NATIVE_TRANSLATION' or cfg.get('reachable_word_count')!=100:
   raise ValueError('retail source window failed cfg validation')
@@ -73,17 +72,17 @@ def oracle_words(rows,case):
   w=rows[pc];op=w>>26;rs=(w>>21)&31;rt=(w>>16)&31;rd=(w>>11)&31;imm=w&0xffff
   signimm=imm-0x10000 if imm&0x8000 else imm
   next_pc=pc+4
-  if op==0x09:  # addiu
+  if op==0x09:
    if rt:r[rt]=s32(r[rs]+signimm)
-  elif op==0x0f:  # lui
+  elif op==0x0f:
    if rt:r[rt]=s32(imm<<16)
-  elif op==0x3f:  # sd
+  elif op==0x3f:
    m.write((r[rs]+signimm)&0xffffffff,r[rt],8)
-  elif op==0x23:  # lw
+  elif op==0x23:
    if rt:r[rt]=s32(m.read((r[rs]+signimm)&0xffffffff,4))
-  elif op==0 and (w&0x3f)==0x2d:  # daddu
+  elif op==0 and (w&0x3f)==0x2d:
    if rd:r[rd]=(r[rs]+r[rt])&MASK
-  elif op==1 and rt==1:  # bgez executes its delay slot unconditionally
+  elif op==1 and rt==1:
    target=(pc+4+(signimm<<2))&0xffffffff
    taken=(r[rs]>>63)==0
    next_pc=target if taken else pc+8

@@ -5,8 +5,6 @@ namespace openkai2::launcher {
 struct CapsuleRange {
     unsigned first, last, copies;
 };
-// USA capsule definitions: capacity byte +0x0d in each 32-byte record.
-// Zero-capacity entries, the null item and unused character capsules are omitted.
 inline constexpr std::array<CapsuleRange, 24> capsule_ranges{
     {{0x1, 0x3, 9},     {0x4, 0x4, 1},     {0x5, 0x16, 9},    {0x17, 0x17, 1},   {0x18, 0x25, 9},
      {0x27, 0x28, 9},   {0x2a, 0xc0, 9},   {0xc1, 0xc1, 1},   {0xc2, 0xc6, 9},   {0xd5, 0xdb, 9},
@@ -19,4 +17,4 @@ inline unsigned capsule_capacity(unsigned item) {
             return range.copies;
     return 0;
 }
-} // namespace openkai2::launcher
+}

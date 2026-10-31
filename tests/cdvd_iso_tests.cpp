@@ -254,8 +254,6 @@ int main() {
         require(getRegU32(&cpu,2)==1 && std::memcmp(memory.data()+0x3000,"abcdef",6)==0,
                 "EE original-ISO sector read failed");
 
-        // A mod that outgrows a file moves it past the end of the image; the
-        // EE search and sector reads follow it there.
         const auto mod=root/"mods"/"Bigger";
         fs::create_directories(mod/"files");
         {

@@ -47,18 +47,15 @@ def ball():
     inside = Image.new('L', (CANVAS, CANVAS), 0)
     ImageDraw.Draw(inside).ellipse(disc(c, c, r), fill=255)
 
-    # Pale rim, then the body inset from it, warmer toward the lower right.
     image.alpha_composite(layer(lambda d: d.ellipse(disc(c, c, r), fill=255), (255, 236, 196, 255)))
     image.alpha_composite(layer(lambda d: d.ellipse(disc(c + r * 0.03, c + r * 0.03, r * 0.95), fill=255),
                                 (255, 150, 20, 255)))
-    # Deep orange crescent hugging the lower-right edge.
     crescent = layer(lambda d: d.ellipse(disc(c + r * 0.07, c + r * 0.07, r * 0.86), fill=255),
                      (246, 92, 10, 255), blur=3)
     cut = Image.new('L', (CANVAS, CANVAS), 255)
     ImageDraw.Draw(cut).ellipse(disc(c - r * 0.06, c - r * 0.1, r * 0.78), fill=0)
     crescent.putalpha(ImageChops.multiply(crescent.getchannel('A'), cut.filter(ImageFilter.GaussianBlur(10))))
     image.alpha_composite(crescent)
-    # Lighter inner sphere seen through the shell.
     image.alpha_composite(layer(lambda d: d.ellipse(disc(c - r * 0.1, c - r * 0.12, r * 0.66), fill=255),
                                 (255, 178, 24, 255), blur=4))
     image.alpha_composite(layer(lambda d: d.ellipse(disc(c - r * 0.2, c - r * 0.24, r * 0.38), fill=255),
@@ -70,7 +67,6 @@ def ball():
         star(draw, c + r * sx, c + r * sy, r * 0.235, rotation, (236, 46, 34, 255), (160, 16, 20, 255))
     image.alpha_composite(stars)
 
-    # Gloss: a broad soft highlight on the upper left and a small sharp glint.
     gloss = layer(lambda d: d.ellipse([c - r * 0.84, c - r * 0.9, c - r * 0.14, c - r * 0.3], fill=255),
                   (255, 255, 248, 225), blur=5)
     hollow = Image.new('L', (CANVAS, CANVAS), 255)

@@ -10,7 +10,6 @@ MACROS = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(MACROS)
 
 LANE = '_mm_cvtss_f32(_mm_shuffle_ps(ctx->vu0_vf[{0}], ctx->vu0_vf[{0}], _MM_SHUFFLE(0,0,0,{1})))'
-# Instruction text as PS2Recomp emits it for the USA executable.
 RSQRT = ('    // 0x141470: 0x4a6303be  vrsqrt      $Q, $vf0w, $vf3x\n'
          '    ctx->pc = 0x141470u;\n'
          '    { float ft = ' + LANE.format(3, 0) + '; ctx->vu0_q = (ft > 0.0f) ? (1.0f / sqrtf(ft)) : 0.0f; }\n')
@@ -33,7 +32,6 @@ class VectorMacroPatch(unittest.TestCase):
         self.assertTrue(patched.startswith(RSQRT.splitlines(True)[0]))
 
     def test_rsqrt_numerator_comes_from_the_instruction_word(self):
-        # vrsqrt $Q, $vf5y, $vf2x: fs=5 in bits 11..15, fsf=1 in bits 21..22.
         word = 0x4a0003be | (1 << 21) | (2 << 16) | (5 << 11)
         text = RSQRT.replace('0x4a6303be', f'0x{word:08x}')
         self.assertIn('float fs = ' + LANE.format(5, 1) + ';', MACROS.patch_text(text))

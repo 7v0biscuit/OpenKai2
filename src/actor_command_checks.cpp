@@ -58,8 +58,6 @@ void verify_actor_commands(PS2Runtime& runtime,uint8_t* ram) {
                     "Camera correction modified its input parameters");
         }
     }
-    // The constructor installs its update callback in the JR delay slot. Run
-    // both original routines around the half-frame completion boundary.
     for(auto alias:{0u,0x80000000u,0xa0000000u})for(unsigned index:{0u,2u,7u})
     for(int threshold:{-1,0,5})for(float edge:{-0.75f,-0.5f,-0.25f}){
         std::memset(ram+context,0xa5,0x100u);std::memset(ram+state,0x5a,0x100u);
@@ -143,8 +141,6 @@ void verify_actor_commands(PS2Runtime& runtime,uint8_t* ram) {
         for(unsigned i=0;i<16u;++i)require(ram[sp-0x100u+i]==0xa5u && ram[sp+i]==0xa5u,"Actor callback changed stack guards");
         ++cases;
     }
-    // Run the original caller's command-selection continuation with each bank
-    // method recorded independently. Return zero to finish its current command.
     for(auto at:translation::actor_command_entries)restore.replace(at,[](uint8_t*,R5900Context* c,PS2Runtime* r){
         auto& memory=r->memory();
         if(c->pc!=memory.read32(marker+4u) || getRegU32(c,4)!=memory.read32(marker+8u) || getRegU32(c,5)!=memory.read32(marker+12u))
@@ -156,7 +152,6 @@ void verify_actor_commands(PS2Runtime& runtime,uint8_t* ram) {
         m.write32(context,descriptor|alias);m.write32(descriptor+0x44u,control|alias);
         for(unsigned i=0;i<3u;++i)m.write32(control+i*4u,0x375550u+i*64u);
         for(unsigned i=0;i<40u;++i)m.write32(0x375550u+i*4u,translation::actor_command_slots[i]);
-        // Case zero of the original caller's return switch exits through its epilogue.
         m.write32(0x37fdd0u,0x14c9e0u);
         m.write32(marker+4u,translation::actor_command_slots[slot]);m.write32(marker+8u,context|alias);m.write32(marker+12u,state|alias);
         R5900Context c{};c.pc=0x14c978u;c.r[5]=_mm_cvtsi32_si128(((slot/16u)<<12u)|((slot%16u)<<8u)|7u);
@@ -207,8 +202,6 @@ void verify_actor_commands(PS2Runtime& runtime,uint8_t* ram) {
         m.write128(sp-0x50u,_mm_setzero_si128());m.write128(sp-0x40u,_mm_setzero_si128());m.write128(sp-0x30u,_mm_setzero_si128());m.write64(sp-0x20u,returned);m.write32(sp-4u,0x6b0000u|alias);
         run(c);timingFrame(c);require(m.read32(marker)==1u && m.read32(state+0x24u)==(0x6b0000u|alias),"Actor timing bank did not preserve its command stream");++cases;
     }
-    // Original command 0x001F9290 reads the selected actor's state and applies
-    // the game's optional side inversion. Preserve raw 32-bit subtraction.
     for(unsigned invert=0;invert<2u;++invert)for(unsigned index=0;index<3u;++index)
         for(uint32_t value:{0u,1u,2u,0xffffffffu})for(auto alias:{0u,0x80000000u,0xa0000000u}){
         resetTiming();m.write32(0x3a4cb4u,control|alias);m.write32(state+0x2cu,descriptor|alias);m.write32(descriptor,index);

@@ -11,8 +11,6 @@
 #include "frame_pacing.h"
 
 namespace openkai2 {
-// Presentation may wait on the raster lock. Keep that work off the window
-// thread so event polling and close requests continue while rendering is busy.
 class FramePresenter {
 public:
     explicit FramePresenter(std::function<void(uint64_t)> render);
@@ -40,8 +38,6 @@ private:
     std::atomic<uint64_t> completed_{0},workUs_{0},rendered_{0};
     std::thread worker_;
 };
-// Bind on the guest executor thread. VBlank can then request a completed
-// field independently of window swaps or the selected display refresh limit.
 class FieldPresentationScope {
 public:
     explicit FieldPresentationScope(FramePresenter&);

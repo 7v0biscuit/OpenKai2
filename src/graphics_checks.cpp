@@ -43,16 +43,14 @@ uint64_t palette_pipeline_hash(unsigned variant,unsigned workers=1u) {
     fill(23u);tex.cld=2u;backend.LoadClut(tex,clut);
     uint64_t hash=14695981039346656037ull;
     auto draw=[&](GSCpuBackend& target){target.Submit(b);for(auto byte:vram)hash=(hash^byte)*1099511628211ull;};
-    draw(backend);draw(backend); // Reuse the same latched palette and lookup key.
-    fill(67u);tex.cld=4u;backend.LoadClut(tex,clut);draw(backend); // CBP0 match: retain the old palette.
+    draw(backend);draw(backend);
+    fill(67u);tex.cld=4u;backend.LoadClut(tex,clut);draw(backend);
     s.texa.ta0=53u;s.texa.ta1=211u;s.texa.aem=true;draw(backend);
-    tex.cld=3u;backend.LoadClut(tex,clut);draw(backend); // Explicit reload also remembers CBP1.
-    fill(101u);tex.cld=5u;backend.LoadClut(tex,clut);draw(backend); // CBP1 match: retain latched bytes.
+    tex.cld=3u;backend.LoadClut(tex,clut);draw(backend);
+    fill(101u);tex.cld=5u;backend.LoadClut(tex,clut);draw(backend);
     tex.csa^=31u;draw(backend);tex.cld=1u;backend.LoadClut(tex,clut);draw(backend);
-    // A second backend has a different palette, even with identical TEX0/TEXA.
     fill(149u);other.LoadClut(tex,clut);draw(other);draw(backend);
     backend.Reset();draw(backend);backend.LoadClut(tex,clut);draw(backend);
-    // Reinitialize at the same backend address and change lookup state again.
     backend.Initialize(vram.data(),uint32_t(vram.size()));s.texa.aem=false;s.texa.ta0=127u;
     draw(backend);tex.csm^=1u;backend.LoadClut(tex,clut);draw(backend);
     return hash;
@@ -91,8 +89,6 @@ void check_draw_history_sampling() {
 }
 
 void check_prepared_palette() {
-    // Full VRAM snapshots of fourteen draws per fixture from the previous
-    // renderer, covering all indexed formats, palette formats, and CSM modes.
     constexpr uint64_t expected[]={
         0x6faa381880d34ff1ull,0x399b4f485fcdef41ull,0xfafc5238b0dadc8bull,0xa641a60bb2990cedull,
         0xd0d33d5aa12e5c8bull,0xd48f1060b6f32b93ull,0x8abbfdabb9c43b78ull,0x6432a1721517ead2ull,
@@ -169,9 +165,6 @@ uint64_t early_depth_hash(unsigned variant,unsigned workers=1u,bool smallDepthOr
         backend.Submit(prime);vram[c.tex0.tbp0*256u+17u]^=255u;}
     backend.Submit(batch);
     if(smallDepthOracle){
-        // Preserve exactly the same pass/equal/fail comparisons using small
-        // integer depths that cannot suffer the large-Z interpolation error.
-        // Restore the original depth encoding before hashing complete VRAM.
         for(unsigned y=0;y<224u;++y)for(unsigned x=0;x<512u;++x){
             const auto z=backend.ReadVram(c.zbuf.psm,c.zbuf.zbp*32u,8u,x,y);
             if(z!=1000u && z!=1001u && z!=2000u)throw std::runtime_error("Small-depth oracle generated an unexpected depth");
@@ -187,7 +180,6 @@ uint64_t early_depth_hash(unsigned variant,unsigned workers=1u,bool smallDepthOr
 }
 
 void check_early_depth() {
-    // Complete VRAM and dependent-sample snapshots from the previous renderer.
     constexpr uint64_t expected[]={
         0xee60935c6fc4f47aull,0xfea67fc77ad6e7c4ull,0x4b99100f0f054ce4ull,0xf7722b6735237d64ull,
         0x310386ab08354ce4ull,0x7886ed23780b4764ull,0xbd668f9037e4c4a7ull,0x60edd660b37ec644ull,
@@ -205,8 +197,6 @@ void check_early_depth() {
     for(unsigned i=0;i<47u;++i)for(auto workers:{1u,4u})
         if(early_depth_hash(i,workers)!=expected[i])
             throw std::runtime_error("Early depth changed VRAM or final texture cache state: "+std::to_string(i));
-    // The previous case-47 snapshot encoded the constant-depth bug. Compare
-    // its large unsigned depth with an independent small-integer depth oracle.
     for(auto workers:{1u,4u})if(early_depth_hash(47u,workers)!=early_depth_hash(47u,workers,true))
         throw std::runtime_error("Large constant depth differs from the small-depth visibility oracle");
 }
@@ -260,14 +250,12 @@ uint64_t prepared_pipeline_hash(unsigned variant) {
     backend.Submit(batch);
     uint64_t hash=14695981039346656037ull;
     auto snapshot=[&](){for(auto byte:vram)hash=(hash^byte)*1099511628211ull;};snapshot();
-    // Observe the final texture cache after another upload and sample.
     backend.WriteVram(c.tex0.psm,c.tex0.tbp0,1u,0u,0u,0x8013579bu);
     for(auto& v:batch.vertices)v.u=v.v=8u;
     backend.Submit(batch);snapshot();return hash;
 }
 
 void check_prepared_pipeline() {
-    // Full VRAM and dependent-sample snapshots from the prior renderer.
     constexpr uint64_t expected[]={
         0x87f3619483a8c214ull,0x3b57af5338f35980ull,0x960b13bf7b1273b1ull,0xb889f647550dcdacull,
         0x471638406f116531ull,0x102678ea12eaa5dull,0xac5cba3ab4d547b1ull,0x61f0ead46514de14ull,
@@ -290,8 +278,6 @@ void check_prepared_pipeline() {
         throw std::runtime_error("Prepared pixel path changed VRAM or cached texture state: "+std::to_string(i));
 }
 
-// Compare prepared sprite/triangle writes with the unchanged scalar point
-// pipeline. This oracle retains the original alpha/depth/write-mask ordering.
 void check_tested_pixels() {
     std::vector<uint8_t> expected(4u*1024u*1024u),actual(expected.size());
     auto reference=std::make_unique<GSCpuBackend>(),candidate=std::make_unique<GSCpuBackend>();
@@ -432,8 +418,6 @@ uint64_t triangle_pipeline_hash(unsigned variant,unsigned workers=4u,bool checkD
     if(variant>=16u){batch.vertices[1].x=511.25f;batch.vertices[2].y=447.25f;
         batch.vertices[1].u=8188u;batch.vertices[2].v=7164u;}
     if(variant==38u)std::swap(batch.vertices[1],batch.vertices[2]);
-    // A stale initial page must retain its bytes until the serial sampler
-    // first evicts it, even on the immutable-source path.
     if((variant>=16u && variant<32u) || variant==36u){auto prime=batch;prime.vertices[1].x=2;prime.vertices[2].y=2;
         for(auto& v:prime.vertices)v.u=v.v=8u;
         backend.Submit(prime);vram[c.tex0.tbp0*256u+17u]^=255u;}
@@ -457,8 +441,6 @@ uint64_t triangle_pipeline_hash(unsigned variant,unsigned workers=4u,bool checkD
 }
 
 void check_triangle_pipeline() {
-    // Complete VRAM snapshots from the previous serial renderer at small
-    // fixed depths, before and after a dependent sample that observes the final cached page.
     constexpr uint64_t expected[]={
         0x308cc64e246791c0ull,0x10af1f51b16627edull,0x83816d7d02ecb748ull,0x8f60fefe665f3279ull,
         0x423d60b0c126c258ull,0x8d944d8fb66232c7ull,0xe83493e64ffe80a8ull,0xc7fd8f68b458b628ull,
@@ -555,7 +537,7 @@ void check_parallel_sprites() {
             state.prim.abe=true;ctx.alpha=0x44u;ctx.tex0.tfx=0u;
             for(auto& v:batch.vertices)v.a=0u;
             if(variant==59u)ctx.tex0.tcc=false;
-            if(variant==60u)ctx.alpha=0x64u; // FIX=0 also preserves destination RGB.
+            if(variant==60u)ctx.alpha=0x64u;
             if(variant==61u)state.pabe=1u;
             if(variant==62u)ctx.test|=1u|(5u<<1u)|(127u<<4u)|(3u<<12u);
             if(variant==63u){ctx.zbuf.zmask=false;ctx.zbuf.psm=GS_PSM_Z32;}
@@ -589,8 +571,6 @@ void check_parallel_sprites() {
         if(raster_workers().count()>1u && (raster_parallel_batches()!=before)!=eligible)
             throw std::runtime_error("Parallel sprite bypassed an eligibility or stale-cache guard: "+std::to_string(variant));
         if(serialVram!=parallelVram)throw std::runtime_error("Parallel sprite changed complete VRAM output: "+std::to_string(variant));
-        // Mutate the last tap's texel without TEXFLUSH, then read that exact
-        // page first. Evicting it before this read would hide a lost cache.
         const unsigned sampleX=state.linearFilter ? 0u : 511u;
         const unsigned sampleY=state.linearFilter ? 448u : 447u;
         const auto changed=serial->ReadVram(ctx.tex0.psm,ctx.tex0.tbp0,ctx.tex0.tbw,sampleX,sampleY)^0x80ff13a7u;
@@ -645,9 +625,6 @@ void check_field_stability() {
     GSPresentationRequest request{};
     request.pmode=0xffa1u;request.smode2=3u;request.dispfb1=0x1000u;
     request.display1=0x1bf1ff0003227cull;
-    // A stationary vertical ramp sampled at alternating even and odd source
-    // lines must retain its position. Duplicating each field row shifts it by
-    // one output line every field, reproducing the reported slight shake.
     for (uint64_t tick:{0ull,1ull,2ull,3ull}) {
         request.vsyncTick=tick;
         for (uint32_t y=0;y<224u;++y) for (uint32_t x=0;x<512u;++x) {
@@ -681,9 +658,6 @@ void check_sprite_coordinates() {
     state.context.tex0.tfx=1u;state.textureWidth=64u;state.textureHeight=32u;
     state.colclamp=1u;
     for (auto& vertex:batch.vertices) vertex.r=vertex.g=vertex.b=vertex.a=128u;
-    // Retail logos start at -7/16, -1/2 relative to XYOFFSET. Pixel centers
-    // are integral GS coordinates: ceil the edges and interpolate from the
-    // original fractional position, retaining all four UV fraction bits.
     for (unsigned variant=0;variant<3u;++variant) {
         backend.ClearFramebuffer(state.context,0x80abcdefu);
         const float left=variant==0u ? -0.4375f : 0.0f;
@@ -810,21 +784,21 @@ uint64_t sprite_pipeline_hash(unsigned variant) {
     ctx.tex0.psm=GS_PSM_CT32;ctx.tex0.tfx=1u;ctx.tex0.tcc=true;
     state.textureWidth=128u;state.textureHeight=64u;
     switch ((variant/2u)%16u) {
-    case 1: state.prim.abe=true;ctx.alpha=0u;break; // Identity blend.
+    case 1: state.prim.abe=true;ctx.alpha=0u;break;
     case 2: state.prim.abe=true;ctx.alpha=0x44u;break;
     case 3: ctx.test|=1u|(5u<<1u)|(100u<<4u);break;
     case 4: ctx.fba=1u;break;
     case 5: ctx.frame.fbmsk=0x00ff00ffu;break;
     case 6: ctx.test|=1u<<14u;break;
     case 7: state.prim.fge=true;state.fogR=71;state.fogG=83;state.fogB=97;break;
-    case 8: ctx.test=0x50000u;break; // GE depth comparison.
+    case 8: ctx.test=0x50000u;break;
     case 9: ctx.test=0x70000u;ctx.zbuf.psm=GS_PSM_Z16;break;
-    case 10: ctx.test=0x10000u;break; // Never pass depth.
+    case 10: ctx.test=0x10000u;break;
     case 11: ctx.frame.psm=GS_PSM_CT24;break;
     case 12: ctx.zbuf.zmask=false;ctx.tex0.tfx=0u;ctx.tex0.tcc=false;break;
     case 13: ctx.tex0.tbp0=4097u;ctx.tex0.psm=GS_PSM_CT24;state.texa.ta0=73u;break;
     case 14: ctx.clamp=3u|(3u<<2u)|(63ull<<4u)|(31ull<<24u);break;
-    case 15: ctx.tex0.tbp0=56u*32u;break; // Framebuffer/texture feedback.
+    case 15: ctx.tex0.tbp0=56u*32u;break;
     }
     for (unsigned y=0;y<64u;++y) for (unsigned x=0;x<128u;++x) {
         backend.WriteVram(ctx.frame.psm,56u*32u,8u,x,y,0x80907050u);
@@ -840,7 +814,6 @@ uint64_t sprite_pipeline_hash(unsigned variant) {
     batch.vertices[0].u=batch.vertices[0].v=8u;
     batch.vertices[1].u=128u*16u+8u;batch.vertices[1].v=64u*16u+8u;
     backend.Submit(batch);
-    // Change VRAM without TEXFLUSH, then cross cache-page and wrap boundaries.
     for (unsigned i=0;i<8u;++i)
         backend.WriteVram(ctx.tex0.psm,ctx.tex0.tbp0,2u,(i*23u)%128u,(i*11u)%64u,0x8071e219u+i);
     batch.vertices[0].x=-0.4375f;batch.vertices[0].y=-0.5f;
@@ -854,9 +827,6 @@ uint64_t sprite_pipeline_hash(unsigned variant) {
     return hash;
 }
 void check_sprite_pipeline() {
-    // Complete VRAM snapshots from the preceding scalar renderer (9ce860a),
-    // covering fast-path eligibility, depth, masks, blending, cache feedback,
-    // texel centers, fractional coordinates, page crossings, and wrapping.
     constexpr uint64_t expected[]={
         0x6dc38cd12c2caad7ull,0xcf069afb661d0adcull,0x6dc38cd12c2caad7ull,0xcf069afb661d0adcull,
         0x857be7086093fbabull,0xea10bbc36f895c34ull,0x3d61446891bed2ebull,0x12cb6605727376eeull,
@@ -893,9 +863,6 @@ void verify_interlaced_presentation() {
     std::vector<uint8_t> vram(4u*1024u*1024u);
     GSCpuBackend backend;
     backend.Initialize(vram.data(),uint32_t(vram.size()));
-    // The retail game reserves pages 0..55 for its 512x224 display and starts
-    // its 512x448 render target immediately afterwards, at page 56. Reading
-    // 448 display rows therefore exposes two unrelated images on screen.
     for (uint32_t y=0;y<448u;++y) for (uint32_t x=0;x<512u;++x)
         backend.WriteVram(0u,56u*32u,8u,x,y,0x80ff00ffu);
     for (uint32_t y=0;y<224u;++y) for (uint32_t x=0;x<512u;++x)
@@ -909,8 +876,6 @@ void verify_interlaced_presentation() {
         request.vsyncTick=tick;
         check_interlaced_rows(backend.Present(request),448u,uint32_t(request.vsyncTick&1u));
     }
-    // Both read circuits and nonzero DBX/DBY must use the same memory-row
-    // convention, with the offsets applied before field interpolation.
     request.pmode=0xffa3u;
     check_interlaced_rows(backend.Present(request),448u,uint32_t(request.vsyncTick&1u));
     request.dispfb1|=(uint64_t(9u)<<32)|(uint64_t(13u)<<43);
@@ -925,8 +890,6 @@ void verify_interlaced_presentation() {
             check_interlaced_rows(backend.Present(request),height,uint32_t(tick),0u,0u,500u);
         }
     }
-    // A black display is a valid fade, even when a neighboring context or a
-    // heuristic preferred render target still contains an older image.
     request.dispfb1=0x1000u;request.display1=request.display2;
     request.hasPreferredSource=true;request.preferredDestFbp=0u;
     request.preferredSource.fbp=56u*32u;request.preferredSource.fbw=8u;
@@ -939,12 +902,10 @@ void verify_interlaced_presentation() {
         require(pixel[0]==0u && pixel[1]==0u && pixel[2]==0u && pixel[3]==255u,
                 "a black display leaked a stale render target");
     }
-    // Progressive output with FFMD set still reads a full framebuffer.
     request.hasPreferredSource=false;request.smode2=2u;
     for (uint32_t y=0;y<448u;++y) for (uint32_t x=0;x<512u;++x)
         backend.WriteVram(0u,0u,8u,x,y,pattern(x,y));
     check(backend.Present(request),448u,1u);
-    // Interlaced field mode reads alternating rows from a full-height buffer.
     request.smode2=1u;
     for (uint64_t tick:{0ull,1ull}) {
         request.vsyncTick=tick;

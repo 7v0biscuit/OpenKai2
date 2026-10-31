@@ -40,7 +40,7 @@ u8 *GetVU0Rec();
 u8 *GetVU1Rec();
 u8 *GetVU0RecEnd();
 u8 *GetVU1RecEnd();
-} // namespace SysMemory
+}
 #define VUM_LOG(...) ((void)0)
 #define CPU_LOG(...) ((void)0)
 #define VIF_LOG(...) ((void)0)

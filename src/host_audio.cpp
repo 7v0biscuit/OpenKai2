@@ -13,9 +13,6 @@
 
 namespace openkai2 {
 namespace {
-// SPU2 output runs at 48 kHz. The device stream uses the same rate and 32-bit
-// float samples, so PCM reaches the mixer without resampling or requantizing.
-// Each core's stream is time-stretched to the rate the game produces it.
 constexpr unsigned outputRate = 48000u, chunkFrames = 1024u;
 HostAudioOptions options;
 
@@ -26,8 +23,6 @@ struct Output {
     float gain = 1.0f;
 };
 
-// Both cores may peak together. Above the knee the excess is compressed into
-// the remaining headroom instead of being clipped at full scale.
 float limit(float value) {
     constexpr float knee = 0.9f, room = 1.0f - knee;
     const float magnitude = std::fabs(value);
@@ -69,7 +64,7 @@ void deviceCallback(void *buffer, unsigned int frames) {
 }
 
 float gainFor(unsigned volume) { return float(std::min(volume, 100u)) / 100.0f; }
-} // namespace
+}
 
 void set_host_audio_options(const HostAudioOptions &value) {
     if (value.volume > 100u)
@@ -78,8 +73,6 @@ void set_host_audio_options(const HostAudioOptions &value) {
 }
 const HostAudioOptions &host_audio_options() noexcept { return options; }
 
-// The runtime leaves the playback device to this module, so a disabled
-// setting never opens one. deviceOpen reports a device opened by the caller.
 void start_host_audio(const void *owner, bool deviceOpen) {
     if (!options.enabled) {
         std::cerr << "[audio:output] enabled=0 reason=settings\n";
@@ -115,8 +108,6 @@ void stop_host_audio(const void *owner) {
     if (!output || owner != activeOwner)
         return;
     active.store(nullptr, std::memory_order_release);
-    // raylib holds its mixer lock while it runs stream callbacks, so no
-    // callback can still be reading the queues once the stream is unloaded.
     StopAudioStream(stream);
     UnloadAudioStream(stream);
     uint64_t dropped = 0, underruns = 0;
@@ -157,8 +148,6 @@ int test_host_audio() {
         };
         auto check = std::make_unique<Output>();
         check->gain = gainFor(50u);
-        // Two cores of constant PCM at full speed: once primed, the stream
-        // must carry their sum at half volume.
         std::vector<int16_t> first(16384u * 2u, 8192), second(16384u * 2u, 4096);
         check->queues[0].push(first);
         check->queues[1].push(second);
@@ -172,7 +161,6 @@ int test_host_audio() {
         require(limit(0.5f) == 0.5f && limit(4.0f) <= 1.0f && limit(1.0f) < 1.0f && limit(1.0f) > 0.95f &&
                     limit(-4.0f) == -limit(4.0f),
                 "Limiter changed quiet samples or clipped loud ones");
-        // A tone produced at 70% of real time is stretched, not interrupted.
         auto slow = std::make_unique<Output>();
         std::vector<int16_t> tone(48000u * 2u);
         for (unsigned i = 0; i < 48000u; ++i)
@@ -191,7 +179,6 @@ int test_host_audio() {
         }
         require(gaps == 0u, "Slow PCM left silent gaps instead of being stretched");
         require(slow->playback[0].speed() < 0.85, "Playback rate did not follow the slower stream");
-        // A fight running at 40% of real time still plays continuously.
         auto crawl = std::make_unique<Output>();
         fed = gaps = 0;
         for (unsigned step = 0; step < 100u; ++step) {
@@ -205,9 +192,6 @@ int test_host_audio() {
                     gaps += std::fabs(block[i * 2u]) + std::fabs(block[(i + 16u) * 2u]) + std::fabs(block[(i + 32u) * 2u]) < 1.0e-4f;
         }
         require(gaps == 0u, "PCM at 40% speed left silent gaps");
-        // A game held at 93% speed delivers audio in irregular bursts. The
-        // tempo must follow it steadily, never dropping towards half speed
-        // each time the queue runs low.
         auto bursty = std::make_unique<Output>();
         uint32_t seed = 1u;
         double owed = 0.0, slowest = 1.0;
@@ -231,9 +215,6 @@ int test_host_audio() {
             }
         }
         require(gaps == 0u && slowest > 0.7, "Audio at 93% speed lost its tempo or ran dry");
-        // A full-speed game that hitches for 100 ms every two seconds, then
-        // catches up: the buffer absorbs each stall, the tempo never moves and
-        // the stretcher is never used.
         auto hitching = std::make_unique<Output>();
         played = 0;
         gaps = 0;
@@ -256,8 +237,6 @@ int test_host_audio() {
         }
         require(gaps == 0u && !touched && hitching->playback[0].underruns() == 0u,
                 "100 ms hitches changed the tempo or left gaps");
-        // A game that runs at 80% for a while and then at full speed again
-        // returns to the untouched stream, without a gap.
         auto recovering = std::make_unique<Output>();
         played = 0;
         gaps = 0;
@@ -281,7 +260,6 @@ int test_host_audio() {
         require(stretchedWhileSlow, "Audio at 80% speed was not stretched");
         require(gaps == 0u && !recovering->playback[0].stretching() && recovering->playback[0].speed() == 1.0,
                 "Audio back at full speed did not return to the untouched stream");
-        // At full speed the stretcher is transparent: output equals input.
         auto steady = std::make_unique<Output>();
         steady->gain = 1.0f;
         size_t pushed = StretchedPlayback::prefill + 512u;
@@ -293,8 +271,6 @@ int test_host_audio() {
             steady->queues[0].push(std::span<const int16_t>(tone.data() + pushed * 2u, count * 2u));
             pushed += count;
         }
-        // Find where output frame 12000 sits in the tone, then compare 8000
-        // frames; the window sum leaves only float rounding (about -90 dB).
         const auto input = [&](size_t frame) { return limit(float(tone[frame * 2u]) / 32768.0f); };
         size_t lag = 0;
         double worst = 1.0;
@@ -322,4 +298,4 @@ int test_host_audio() {
         return 1;
     }
 }
-} // namespace openkai2
+}

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #pragma once
 namespace openkai2::launcher {
-// Runs in the Windows inbox PowerShell 5.1 host. No downloaded script is executed.
 inline constexpr char update_script[] = R"OPENKAI2(
 param(
     [Parameter(Mandatory=$true)][int]$ParentId,

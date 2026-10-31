@@ -12,7 +12,6 @@ import argparse
 from pathlib import Path
 import re
 
-# (jump instruction, target): the melee entry's tail call into its reset.
 TAIL_JUMPS = ((0x001D8230, 0x001F4AF0),)
 
 

@@ -37,7 +37,6 @@ VectorWorkResult vector_transfer_workload(unsigned seed,unsigned budget,unsigned
     auto snapshot=[&]{const auto& s=vu->state();add(s.vf);add(s.vi);add(s.acc);add(s.q);add(s.p);add(s.i);add(s.r);add(s.pc);add(s.mac);add(s.clip);add(s.status);add(s.cycles);add(s.ebit);add(s.branchPending);add(s.branchTarget);add(s.branchDelay);addBytes(data,size);};
     memory->setGifPacketCallback([&](const uint8_t* bytes,uint32_t count){
         ++packets;add(count);add(vu->state().cycles);addBytes(bytes,count);
-        // The next kick must observe writes made by the preceding callback.
         if(second){uint32_t changed=0xa5b6c7d8u;std::memcpy(data+4112u,&changed,4u);}
     });
     const auto started=std::chrono::steady_clock::now();
@@ -59,8 +58,6 @@ VectorWorkResult vector_transfer_workload(unsigned seed,unsigned budget,unsigned
 }
 void verify_vector_transfers() {
     constexpr unsigned budgets[]={1u,3u,17u,4096u};
-    // Golden hashes from the pinned, unmodified interpreter. Include complete
-    // packet bytes, callback cycles, intermediate resumes and VU data memory.
     constexpr uint64_t expected[]={
         0x61fdd7d9d367351full,0x279c064aa0e3fce1ull,0x63ac4b8e86b7774bull,0xaf7b069f50b0e7b7ull,
         0x9c27d25adb57ed17ull,0xb0e593189defb35eull,0x677283835f65fdafull,0xca2ead42f37ef7ebull,

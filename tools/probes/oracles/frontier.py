@@ -32,12 +32,10 @@ def frontier(stage:Path,source_root:Path|None=None,limit:int=DEFAULT_CAP)->dict:
   result['issues'].append('STAGED_REGISTRY_DID_NOT_MATCH_KNOWN_65_BINDING_BASELINE')
   result['status']='BASELINE_MISMATCH';return result
  source_root=(source_root or stage.parent).resolve()
- # Scope is deliberately constrained to the actual staged files; never scan user's full disk.
  candidates=[];inspected=[];seen=set();counts=collections.Counter()
  for p in sorted(source_root.rglob('*.cpp')):
   if len(inspected)>=limit:break
   if not p.is_file() or p.stat().st_size>3_000_000:continue
-  # Reject sources which are unrelated to the locally staged translation.
   if not (p.name.startswith('B2_') or 'recompiled' in p.name.lower()):continue
   try:body=p.read_text(encoding='utf8',errors='replace')
   except OSError:continue
@@ -59,7 +57,7 @@ def frontier(stage:Path,source_root:Path|None=None,limit:int=DEFAULT_CAP)->dict:
  for c in candidates:c['observed_callsite_mentions']=counts[int(c['address'],16)]
  result['source_scan_completed']=True
  result['scan_file_count']=len(inspected)
- result['scan_basenames']=inspected[:100] # Do not include absolute user paths
+ result['scan_basenames']=inspected[:100]
  result['observed_direct_jal_candidate_count']=len(candidates)
  result['unregistered_call_candidates']=[c for c in candidates if not c['registered']][:100]
  result['registered_call_candidates']=[c for c in candidates if c['registered']][:40]

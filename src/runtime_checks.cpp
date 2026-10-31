@@ -71,16 +71,14 @@ void verify_compiled_empty_dma_queue() {
         require(context.pc==returned && getRegU32(&context,29)==stack && getRegU32(&context,28)==gp,
                 "compiled queue lost its caller frame");
     };
-    call(0x0014a2e0u); // Original frame-wait initialization.
-    call(0x001432e0u,{0u,6u}); // Queue zero owns VIF1 and GIF.
+    call(0x0014a2e0u);
+    call(0x001432e0u,{0u,6u});
     memory.write32(0x003a4abcu,16u);memory.write32(0x003a4ac0u,queue);
     memory.write32(0x003a4c20u,0xffffffffu);memory.write32(0x003a4c24u,0xffffffffu);
-    memory.write32(0x0033e0d8u,0x1000a000u); // Original channel-register table slot.
-    memory.write32(0x0033e108u,0x1000a000u); // Original completion-handler table slot.
+    memory.write32(0x0033e0d8u,0x1000a000u);
+    memory.write32(0x0033e108u,0x1000a000u);
     std::memset(memory.getRDRAM()+0x003b4b00u,0xff,0x40u);
     memory.write64(tags,0x70000000u);memory.write64(tags+8u,0u);
-    // Two valid END(0) chains: one active, one queued behind it. Completion
-    // must run the game's real handlers, which retire and start the next item.
     call(0x001435f0u,{0u,2u,1u,1u,0u,0u,0u,tags});
     call(0x001435f0u,{0u,2u,1u,1u,0u,0u,0u,tags});
     require(memory.read16(0x003b4b44u)==1u && memory.read32(0x003a4c20u)==1u,
@@ -103,9 +101,6 @@ void verify_compiled_empty_dma_queue() {
     require(memory.read8(0x003a4b70u)==0u && memory.read8(0x003a4b6cu)==0u,
             "original VBlank handler did not release the next frame after DMA completed");
 
-    // Dispatch real completion handlers at translated call boundaries. Manual
-    // handler calls above cannot expose an interrupt delivered between CHCR
-    // submission and publication of the queue owner inside the DI/EI region.
     constexpr uint32_t finish=0x001908e8u;
     const auto original=runtime.lookupFunction(finish);
     struct Restore {
@@ -163,14 +158,7 @@ void verify_compiled_worker_setup() {
         if (ee.currentThreadId()!=1 || ee.currentThread()->currentPriority!=24)
             throw std::runtime_error("Runtime regression: compiled CRI initialization or frame service did not restore main priority 24");
         if (stage==0u) {
-            // Use the real VBlank callback and all four compiled workers.
-            // Each frame runs the synchronous service handoff, then the same
-            // resume/sleep sequence as the retail main loop. This exercises
-            // priority restoration and wake acknowledgment together.
             ee.setGsVSyncCallback(0x00159758u,0x003ac4f0u,0x01fefe00u);
-            // The original movie callbacks mark pending work in the VBlank
-            // worker and service it in worker 5. Keep only the native stream
-            // preparation driver active; this needs no disc or movie assets.
             constexpr uint32_t player=0x00370cb8u,backend=0x00800000u;
             memory.write32(0x00370c4cu,1u);
             memory.write32(player,0x00370ae0u);
@@ -181,7 +169,7 @@ void verify_compiled_worker_setup() {
             memory.write32(backend+0x9b4u,1u);memory.write32(backend+0x9b8u,1u);
             memory.write32(backend+0x1aacu,0x00387110u);
             memory.write32(0x00387118u,0x001908f0u);
-            memory.write32(0x00387408u,0x00199060u); // Original preparation-state branch.
+            memory.write32(0x00387408u,0x00199060u);
             memory.write32(0x003c05e0u+2u*48u,0x0018a740u);
             memory.write32(0x003c05e0u+6u*48u,0x0018a808u);
         }
@@ -205,7 +193,7 @@ void verify_compiled_worker_setup() {
         }
     });
     R5900Context context{};
-    context.pc=0x0010a8b8u; // Original translated SDK InitThread entry.
+    context.pc=0x0010a8b8u;
     context.r[29]=_mm_cvtsi32_si128(PS2_RAM_SIZE-16u);
     context.r[28]=_mm_cvtsi32_si128(0x003ac4f0u);
     context.r[31]=_mm_cvtsi32_si128(bridge);
@@ -281,9 +269,6 @@ void verify_compiled_critical_priority() {
             throw std::runtime_error("Runtime regression: compiled nested CRI critical section lost priority, depth, or caller frame");
     }
 }
-// The original CRI caller resumes a suspended service worker, then wakes it
-// only when ResumeThread returned that worker's ID. A zero success result
-// leaves a worker that was both sleeping and suspended asleep indefinitely.
 void verify_compiled_worker_wakeup() {
     auto owned=std::make_unique<PS2Runtime>();
     auto& runtime=*owned;
@@ -315,8 +300,6 @@ void verify_compiled_worker_wakeup() {
             if (getRegU32(&context,reg)!=0x1000u+reg)
                 throw std::runtime_error("Runtime regression: compiled worker wake caller changed saved registers");
     };
-    // No ready-queue entry exists for this dormant fixture; reproduce the
-    // scheduler's sleeping-and-suspended state before entering the real code.
     worker->status=EeThreadStatus::WaitingSuspended;
     worker->suspendCount=1;
     worker->wait={EeWaitReason::Sleep,std::monostate{}};
@@ -324,8 +307,6 @@ void verify_compiled_worker_wakeup() {
     if (worker->status!=EeThreadStatus::Ready || worker->suspendCount!=0
         || worker->wait.reason!=EeWaitReason::None || worker->wakeupCount!=0u)
         throw std::runtime_error("Runtime regression: compiled CRI resume caller left its movie service worker asleep");
-    // The main-thread wake helper likewise compares WakeupThread's result
-    // against its target ID before acknowledging the pending wake request.
     scheduler.suspendThread(id,false);
     worker->status=EeThreadStatus::WaitingSuspended;
     worker->wait={EeWaitReason::Sleep,std::monostate{}};
@@ -374,9 +355,6 @@ void verify_file_callbacks(PS2Runtime& runtime,uint8_t* memory) {
     }
     constexpr uint32_t bank=0x22000u;
     std::memcpy(memory+bank,translation::file_callback_slots.data(),translation::file_callback_slots.size()*4);
-    // Enter the caller after its device lookup, with the saved return frame it
-    // would have at this resume label. A real constant-return callback makes
-    // executing slot 0x60 observable as well as checking the null query path.
     const std::pair<uint32_t,uint32_t> variants[]={
         {0x00167af8u,0u}, {0x00167958u,2048u}, {0u,0u}};
     for (const auto& variant : variants) {
@@ -547,8 +525,6 @@ int run_runtime_checks() {
     verify_mpeg_decode();
     std::cout << "Runtime MPEG decode regression passed: generated MPEG-2 pictures, original CRI input ring, IPU DMA, SDK frame return, and pixel layout.\n";
     std::cout << "Runtime MPEG scheduling regression passed: synchronous decoding, end of stream, compiled worker handoff, priority restoration, and continuing frames at 32x32 and 512x448.\n";
-    // Run the original compiled scratchpad-copy caller with the retail size
-    // and destination, including its SADR write and receive SDK invocation.
     {
         constexpr uint32_t destination=0x003c4200u, stack=0x01fffe40u;
         auto* scratch=runtime.memory().getScratchpad();
@@ -593,8 +569,6 @@ int run_runtime_checks() {
             context.r[17]=_mm_cvtsi32_si128(0x1011);
             context.r[29]=_mm_cvtsi32_si128(stack);
             context.r[31]=_mm_cvtsi32_si128(returned);
-            // Tail jumps intentionally unwind to the EE dispatcher. Resume
-            // exact compiled labels until the outer caller has returned.
             for (unsigned step=0;step<128 && context.pc!=returned;++step) {
                 auto function=runtime.lookupFunction(context.pc);
                 function(memory,&context,&runtime);
@@ -661,9 +635,6 @@ int run_runtime_checks() {
             if (memory[stack-64+offset]!=0xA5)
                 throw std::runtime_error("Runtime regression: leaf method changed the caller's stack");
     }
-    // Run the actual startup dispatcher against two isolated method tables.
-    // Both original leaf methods return zero, so it must advance to the second
-    // table and then return through its own saved caller frame.
     const uint32_t tables[]={0x21000u,0x21100u,0u};
     const uint32_t methods[]={0x001908e0u,0x00192390u};
     std::memcpy(memory+0x20000,tables,sizeof(tables));
@@ -690,4 +661,4 @@ int run_runtime_checks() {
     std::cout << "Runtime callback stack regression passed: disjoint stacks and compiled interrupt return.\n";
     return 0;
 }
-} // namespace openkai2
+}

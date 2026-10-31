@@ -9,8 +9,6 @@ namespace openkai2::launcher {
 namespace {
 constexpr size_t saveBytes = 0xab0u;
 constexpr std::array<uint8_t, 8> signature = {'#', 'S', 'P', 'F', ' ', '1', '.', '0'};
-// Character-capsule lookup at 0x379fd0, used by the USA game's 0x283680
-// handler; stage capsules cover all nine bits in its stage lookup table.
 constexpr std::array<unsigned, 29> characterBits = {0, 2,  28, 26, 3,  27, 5,  6,  4,  7,  8,  24, 21, 33, 35,
                                                     9, 10, 12, 11, 15, 16, 17, 18, 25, 20, 32, 29, 30, 31};
 void validate(const std::vector<uint8_t> &data) {
@@ -37,7 +35,7 @@ std::array<uint8_t, 16> sum(const std::vector<uint8_t> &b, size_t start) {
         result[(i - start) & 15u] = uint8_t(result[(i - start) & 15u] + b[i]);
     return result;
 }
-} // namespace
+}
 std::vector<uint8_t> decode_progress_save(const std::vector<uint8_t> &encrypted) {
     validate(encrypted);
     const auto outer = sum(encrypted, 0x20u);
@@ -79,7 +77,6 @@ bool unlock_progress_content(std::vector<uint8_t> &data) {
             auto &count = data[0x89eu + item];
             if (count < range.copies) { count = uint8_t(range.copies); changed = true; }
         }
-    // The original handler raises the tournament level for its three capsules.
     if (data[0xb0u] < 2u) { data[0xb0u] = 2u; changed = true; }
     for (unsigned i = 0; i < characterBits.size(); ++i) {
         const auto bit = characterBits[i];
@@ -100,4 +97,4 @@ bool unlock_progress_content(std::vector<uint8_t> &data) {
     }
     return changed;
 }
-} // namespace openkai2::launcher
+}

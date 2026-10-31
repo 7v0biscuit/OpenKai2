@@ -6,8 +6,6 @@
 
 namespace openkai2 {
 enum class PresenceStatus { off, waiting, connected };
-// Local Discord IPC only. Connection and I/O run on a worker; a missing or
-// unresponsive Discord client never holds up launch, rendering or shutdown.
 class DiscordPresence {
   public:
     explicit DiscordPresence(std::wstring testPipe = {});
@@ -15,8 +13,6 @@ class DiscordPresence {
     DiscordPresence(const DiscordPresence &) = delete;
     DiscordPresence &operator=(const DiscordPresence &) = delete;
     void enable(bool enabled);
-    // A game process can follow the launcher's saved switch without touching
-    // its render thread. Reader exceptions retain the previous choice.
     void watch_enabled(std::function<bool()> reader);
     void update(std::string details, std::string state);
     PresenceStatus status() const noexcept;
@@ -30,5 +26,5 @@ inline constexpr char application_id[] = "1565006652468625510";
 inline constexpr char image_asset[] = "openkai2";
 std::string activity_payload(unsigned pid, const std::string &details, const std::string &state,
                              long long started, unsigned long long nonce, bool clear = false);
-} // namespace discord
-} // namespace openkai2
+}
+}

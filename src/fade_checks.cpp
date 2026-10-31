@@ -26,8 +26,6 @@ void verify_fade_callbacks(PS2Runtime& runtime, uint8_t* memory) {
     auto put=[&](uint32_t address, uint32_t value) { runtime.memory().write32(address,value); };
     auto real=[&](uint32_t address, float value) { std::memcpy(memory+address,&value,4); };
     auto read_real=[&](uint32_t address) { float value; std::memcpy(&value,memory+address,4); return value; };
-    // Screen-rectangle/color fixtures for the two solid overlays. These are
-    // ordinary coordinates and colors; the original emitters build the packets.
     for (uint32_t address=0x00378770u; address<0x003787e0u; address+=16) {
         std::memset(memory+address,0,16);
         real(address+12,1.0f);
@@ -47,8 +45,6 @@ void verify_fade_callbacks(PS2Runtime& runtime, uint8_t* memory) {
         std::memset(memory+queue,0xcc,capacity);
         put(gp-0x7b80u,queue); put(gp-0x7b40u,0xffffffffu);
         put(gp-0x7b20u,0u); put(gp-0x7b1cu,0u); put(gp-0x7b18u,0u);
-        // Use the game's batched queue mode, retaining the completed packets
-        // in EE RAM for inspection without requiring a host graphics device.
         put(gp-0x7b28u,1u); put(gp-0x7b24u,queue);
         put(gp-0x7fe0u,0x01234560u);
     };
@@ -98,8 +94,6 @@ void verify_fade_callbacks(PS2Runtime& runtime, uint8_t* memory) {
         require(std::all_of(memory+queue+0xa0,memory+queue+capacity,[](uint8_t b){return b==0xcc;}),
                 "solid fade wrote beyond its packet");
     };
-    // Execute the actual caller from the log, including its floating-point
-    // delay-slot argument and the continuation after JALR at 0x00249B84.
     setup(10,0.75f,0.25f); invoke(0x00249af0u);
     require(read_real(gp-0x7594u)==0.5f, "fade update did not advance its level");
     check_quad(0x40000000u);
@@ -123,8 +117,6 @@ void verify_fade_callbacks(PS2Runtime& runtime, uint8_t* memory) {
     require(radial_end>queue && radial_end<=queue+capacity && ((radial_end-queue)&15u)==0u
             && read_real(gp-0x7574u)<0.5f, "active radial fade did not build a bounded draw queue");
 
-    // Cover every shared slot's transparent path and the textured renderer's
-    // initial delay without constructing unrelated texture resources.
     for (uint32_t mode=1; mode<20; ++mode) {
         if (mode==9 || mode==10) continue;
         setup(mode,mode<12 ? 0.0f : 0.1f,0.0f); invoke(0x00249af0u);
@@ -132,13 +124,11 @@ void verify_fade_callbacks(PS2Runtime& runtime, uint8_t* memory) {
         if (mode<12) require(read_real(gp-0x7574u)<0.5f, "shared radial fade callback did not execute");
     }
 
-    // Follow an original solid overlay through DMA, GIF decoding, rasterization,
-    // and host presentation. No host window or disc assets are needed.
     setup(9,1.0f,0.0f);
     put(gp-0x7fe0u,0u);
     invoke(0x00249af0u);
     std::memset(memory+queue+0xa0u,0,16);
-    put(queue+0xa0u,0x70000000u); // Terminate the generated CNT DMA chain.
+    put(queue+0xa0u,0x70000000u);
     require(runtime.syncCoreSubsystems(), "graphics subsystem initialization failed");
     const auto writes=runtime.memory().gsWriteCount();
     runtime.memory().write64(0x12000000u,1u);
@@ -147,12 +137,11 @@ void verify_fade_callbacks(PS2Runtime& runtime, uint8_t* memory) {
     runtime.memory().write32(0x12000004u,0u);
     require(runtime.memory().gsWriteCount()==writes+4u,
             "32/64-bit display writes were missing from the GS counter");
-    runtime.gs().writeRegister(0x4cu,uint64_t(10u)<<16); // FRAME_1, PSMCT32
-    runtime.gs().writeRegister(0x4eu,uint64_t(1u)<<32); // Mask depth writes.
+    runtime.gs().writeRegister(0x4cu,uint64_t(10u)<<16);
+    runtime.gs().writeRegister(0x4eu,uint64_t(1u)<<32);
     runtime.memory().write32(0x1000e000u,1u);
     R5900Context dmaContext{};
     runtime.kickGifDmaChainFromMMIO(memory,&dmaContext,0u,0u,queue,0x105u);
-    // A field is presented once the GS thread has drawn what came before it.
     runtime.gs().fence();
     runtime.gs().latchHostPresentationFrame();
     std::vector<uint8_t> pixels;
@@ -172,12 +161,9 @@ void verify_fade_callbacks(PS2Runtime& runtime, uint8_t* memory) {
             || report.str().find("nonblack_pixels=286720")==std::string::npos
             || report.str().find("kind=draw")==std::string::npos)
         throw std::runtime_error("Runtime fade callback regression: unexpected graphics report: "+report.str());
-    // A new original packet must update the presented frame, not reuse the
-    // previous white frame. Full black also exercises zero-valued RGB output.
     setup(10,1.0f,0.0f); put(gp-0x7fe0u,0u); invoke(0x00249af0u);
     std::memset(memory+queue+0xa0u,0,16); put(queue+0xa0u,0x70000000u);
     runtime.kickGifDmaChainFromMMIO(memory,&dmaContext,0u,0u,queue,0x105u);
-    // A field is presented once the GS thread has drawn what came before it.
     runtime.gs().fence();
     runtime.gs().latchHostPresentationFrame();
     require(runtime.gs().copyLatchedHostPresentationFrame(pixels,width,height),

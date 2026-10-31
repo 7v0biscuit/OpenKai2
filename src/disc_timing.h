@@ -5,10 +5,6 @@
 #include <cstdint>
 
 namespace openkai2 {
-// Seek and transfer time of the PS2 DVD drive, measured in IOP cycles so it
-// follows guest time rather than host speed. The drive spins at a constant
-// angular velocity: a sector passes the head faster the further out it is,
-// from about 1.65x DVD speed at the hub to 4x at the edge of the layer.
 class DiscTiming {
 public:
     static constexpr uint64_t clock = 36'864'000;
@@ -42,7 +38,6 @@ public:
     bool busy(uint64_t now) const { return now < ready_; }
     uint64_t ready() const { return ready_; }
     uint32_t head() const { return head_; }
-    // Commands issued while the drive is busy queue behind the current one.
     uint64_t read(uint64_t now, uint32_t lsn, uint32_t sectors) {
         const uint64_t start = std::max(now, ready_);
         ready_ = start + seek(head_, lsn) + transfer(lsn, sectors);
@@ -60,4 +55,4 @@ private:
     uint64_t ready_ = 0;
     uint32_t head_ = 0;
 };
-} // namespace openkai2
+}

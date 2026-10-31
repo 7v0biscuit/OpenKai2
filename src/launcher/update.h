@@ -16,7 +16,6 @@ struct UpdateRelease {
     bool prerelease = false;
     std::vector<UpdateAsset> assets;
 };
-// Strict semantic version precedence; returns -1, 0 or 1, and rejects malformed versions.
 int compare_versions(const std::string &a, const std::string &b);
 std::optional<UpdateRelease> select_release(const std::string &json,
                                            const std::string &current, bool prereleases);
@@ -32,7 +31,6 @@ struct StagedUpdate {
 #ifdef _WIN32
 std::optional<UpdateRelease> check_for_updates(bool prereleases);
 StagedUpdate stage_update(const UpdateRelease &, const std::function<void(const std::string &)> &);
-// Starts the local update worker and waits for its ready signal before the launcher exits.
 void apply_update(const StagedUpdate &);
 #endif
-} // namespace openkai2::launcher
+}

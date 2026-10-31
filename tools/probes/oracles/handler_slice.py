@@ -48,8 +48,6 @@ def handler_snapshot(blob:bytes, *, expected_sha:str=EXPECTED_SHA256, handler_pc
         x['relative_word_index']=(addr-handler_pc)//4
         x['is_target_entry']=addr==handler_pc
         x['is_prior_context']=addr<handler_pc
-        # The upstream minimal decoder calls unrecognized instructions .word; don't
-        # confuse them with nonexistent/invalid retail instructions.
         x['decoder_coverage']='partial' if x['mnemonic'].startswith('.word') else 'recognized'
         rows.append(x)
     branch=[x for x in rows if x['kind']]

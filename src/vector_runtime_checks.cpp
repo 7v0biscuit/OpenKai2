@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// Root-header-first inclusion reproduces the production runtime's include order.
 #include "ps2_runtime.h"
 #include "runtime_layout.h"
 #include "runtime/gs/ps2_gs_psmct32.h"
@@ -12,7 +11,7 @@
 namespace openkai2 {
 namespace {
 constexpr uint32_t nop=0x2ffu;
-constexpr uint32_t kick=0x80000efcu; // XGKICK vi1.
+constexpr uint32_t kick=0x80000efcu;
 uint32_t integer(unsigned reg,unsigned value) {return 0x10000000u|(reg<<16u)|(value&2047u);}
 void upload_program(PS2Memory& memory,unsigned first,unsigned second) {
     const std::array<uint32_t,13> packet={
@@ -38,8 +37,6 @@ void upload_triangle(PS2Memory& memory,uint32_t color) {
     memory.processVIF1Data(packet.data(),unsigned(packet.size()));
 }
 uint32_t pixel(PS2Runtime& runtime,unsigned x,unsigned y) {
-    // No CRT is configured in this fixture. Request the actual offscreen pixel
-    // through GS so deferred GPU contents are synchronized for this consumer.
     return runtime.gs().ReadVram(GS_PSM_CT32,0u,1u,x,y);
 }
 }

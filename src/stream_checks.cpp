@@ -22,8 +22,6 @@ void verify_stream_callbacks(PS2Runtime& runtime,uint8_t* memory) {
     for (const auto address:translation::stream_callback_entries)
         require(runtime.hasFunction(address),"SJRBF method is not registered");
     std::memcpy(memory+table,translation::stream_callback_slots.data(),translation::stream_callback_slots.size()*4);
-    // Exercise the actual stream methods with their optional critical-section
-    // hooks unset. Those hooks belong to the independent EE scheduler checks.
     runtime.memory().write32(0x003c07a0u,0u);
     runtime.memory().write32(0x003c07a8u,0u);
     auto call=[&](uint32_t entry,std::array<uint32_t,4> args) {
@@ -55,8 +53,6 @@ void verify_stream_callbacks(PS2Runtime& runtime,uint8_t* memory) {
     auto memory_method=[&](unsigned slot,uint32_t object,uint32_t a1=0u,uint32_t a2=0u,uint32_t a3=0u) {
         return call(translation::memory_stream_slots[slot],{object,a1,a2,a3});
     };
-    // Recreate the logged memory-stream object, then run the original
-    // movie teardown continuation through its indirect destructor call.
     std::memset(memory+memory_object-4u,0xa5,0x2cu);
     runtime.memory().write32(memory_object,memory_table);
     runtime.memory().write32(memory_object+4u,1u);
@@ -109,8 +105,6 @@ void verify_stream_callbacks(PS2Runtime& runtime,uint8_t* memory) {
     require(memory_method(9,memory_stream,7u)==0u && runtime.memory().read32(0x0035fb24u)==record
             && runtime.memory().read32(0x0035fb28u)==0xfffffffdu,"memory-stream error callback lost its arguments");
     memory_method(3,memory_stream);
-    // Recreate the logged caller and its object at the original pool address.
-    // The caller clears record+8, calls slot 0x0c, then restores its own frame.
     constexpr uint32_t retail_object=0x00367ea0u;
     std::memset(memory+record,0x5a,64);
     runtime.memory().write32(record,0x301u);
@@ -165,7 +159,6 @@ void verify_stream_callbacks(PS2Runtime& runtime,uint8_t* memory) {
     require(available(0)==64u && available(1)==0u && runtime.memory().read32(object+0x14u)==0u,
             "returning an unfilled chunk did not restore free capacity");
 
-    // Exercise contiguous spill bytes across the physical end of the ring.
     reset();
     runtime.memory().write32(object+0x14u,60u);
     runtime.memory().write32(object+0x18u,60u);

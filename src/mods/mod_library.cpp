@@ -62,7 +62,7 @@ ModInfo read_mod(const fs::path &folder) {
     mod.archive_entries = count_files(folder / "afs");
     return mod;
 }
-} // namespace
+}
 
 fs::path default_mods_directory() { return default_cache_directory().parent_path() / "mods"; }
 
@@ -176,4 +176,4 @@ void delete_mod(const fs::path &directory, const std::string &id) {
     save_load_order(directory, scan_mods(directory));
 }
 
-} // namespace openkai2::mods
+}

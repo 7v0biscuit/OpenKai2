@@ -29,7 +29,6 @@ def retail_instructions(blob):
  return out
 
 def synthetically_assembled(entry):
- # These are MIPS ISA encoders, not copied retail instruction streams.
  r=lambda rs,rt,rd,fn: (rs<<21)|(rt<<16)|(rd<<11)|fn
  i=lambda op,rs,rt,imm: (op<<26)|(rs<<21)|(rt<<16)|(imm&0xffff)
  jump=(2<<26)|((TARGET>>2)&0x03ffffff)

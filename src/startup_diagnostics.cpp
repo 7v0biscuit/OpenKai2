@@ -73,7 +73,6 @@ void report_startup_graphics(GS& gs,uint64_t elapsed_ms,std::ostream& out) {
     }
     const auto history=gs.getDebugHistory();
     unsigned reported=0;
-    // Prefer recent drawing/transfer events over per-frame presentation noise.
     for (auto at=history.rbegin();at!=history.rend() && reported<8;++at) {
         const auto& event=*at;
         if (event.kind!=GSDebugEventKind::Draw && event.kind!=GSDebugEventKind::Transfer) continue;
@@ -118,8 +117,6 @@ public:
             if (scene!=0u && range(scene,0x20u,physical)) result.scene_callback=word(physical+0x1cu);
         }
         if (!range(record,0x108u,physical)) return result;
-        // The game stores its one active player in this record at 0x146008;
-        // the logged caller loads it at 0x2A4EEC. Do not assume a pool slot.
         result.player=word(physical);
         if (result.player==0u || !range(result.player,0x128u,result.physical)
                 || !range(word(result.physical),4u,table_physical) || table_physical!=table) return result;
@@ -127,8 +124,6 @@ public:
         result.state=word(result.physical+8u);
         result.backend=word(result.physical+0x40u);
         result.backend_valid=result.backend!=0u && range(result.backend,0x9bcu,result.backend_physical);
-        // mwPlyGetStat reads a word at +0x48 (0x19BD0C). Byte +1 belongs
-        // to a different ADX interface and is not the movie backend's status.
         if (result.backend_valid) result.backend_state=word(result.backend_physical+0x48u);
         return result;
     }
@@ -167,9 +162,6 @@ void report_movie_wait(const uint8_t* ram,size_t size,std::ostream& out) {
         text << '\n';
         uint32_t backend=0;
         if (movie.backend_valid && memory.range(movie.backend,0x1cd0u,backend)) {
-            // The preparation loop at 0x199210 tests parameters 5/6 and
-            // driver 6/7 status words. Record those exact inputs and the
-            // bounded native driver table without calling guest code.
             text << "[startup:movie-pipeline] requested_state=" << memory.word(backend+0x4cu)
                  << " pending=" << memory.word(backend+0x44u);
             for (uint32_t index:{5u,6u,7u})
@@ -310,9 +302,6 @@ bool SaveWaitDiagnostics::sample(uint64_t elapsed_ms,const uint8_t* ram,size_t s
 }
 void sample_movie_wait(PS2Runtime& runtime,const uint8_t* ram,size_t size,uint32_t return_pc,std::ostream& out) {
     if (return_pc!=0x00186450u) return;
-    // This is the common CRI frame yield, including logo frames before any
-    // movie exists. Observe activation immediately and time later snapshots
-    // from activation, rather than spending the movie samples on the logos.
     static thread_local const auto begin=std::chrono::steady_clock::now();
     static thread_local MovieWaitDiagnostics diagnostics;
     static thread_local SaveWaitDiagnostics saveDiagnostics;
@@ -347,8 +336,6 @@ void reset_guest_progress() {
 }
 void capture_guest_progress(const EeKernelSnapshot& state,const uint8_t* ram,size_t size,PS2Runtime* runtime) {
     if(!ram || size<0x003b4b54u)return;
-    // Only the EE executor calls this hook. Publish at most four copies per
-    // second; keep all guest RAM reads on that executor.
     const auto now=std::chrono::steady_clock::now();
     if(now<nextCapture)return;
     nextCapture=now+std::chrono::milliseconds(250);
@@ -376,8 +363,6 @@ void capture_guest_progress(const EeKernelSnapshot& state,const uint8_t* ram,siz
         copy.queued[i]=read(queue+head*24u+4u*i);
     copy.owner=read(0x003b4b00u);
     if(runtime) {
-        // These modeled graphics channel registers do not acknowledge IRQs
-        // or advance transfers on reads. Stay on the EE executor.
         constexpr uint32_t channels[]={0x10008000u,0x10009000u,0x1000a000u};
         for(unsigned i=0;i<3u;++i) {
             auto& words=copy.dma[i];const auto base=channels[i];

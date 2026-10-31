@@ -31,15 +31,13 @@ void file(const fs::path &path, const std::string &text) {
 }
 uint8_t *character(Bytes &memory, uint32_t id) { return memory.data() + roster_records + id * roster_record_bytes; }
 
-// Guest memory holding the parts of the USA roster the code checks.
 Bytes memory_image() {
     Bytes memory(roster_select_grid + 64, 0);
-    // Every record has a name, as in the game; a few are set below.
     for (uint32_t id = 0; id < roster_count; ++id) {
         const auto name = "VEGETA " + std::to_string(id);
         std::memcpy(character(memory, id), name.data(), name.size());
     }
-    std::memcpy(memory.data() + 0x3A40C0u, "BASLUS-20779DBZ2", 16); // the memory card folder
+    std::memcpy(memory.data() + 0x3A40C0u, "BASLUS-20779DBZ2", 16);
     std::memset(character(memory, 0), 0, roster_name_bytes);
     std::memcpy(character(memory, 0), "GOKOU", 5);
     for (const auto &[id, name] : {std::pair<uint32_t, const char *>{4, "KULILIN"}, {13, "ZARBON"},
@@ -51,7 +49,7 @@ Bytes memory_image() {
     put32(memory, roster_records + 0x1dc, 97);
     put32(memory, roster_records + 0x1bc, 0xffffffffu);
     put32(memory, roster_records + 4 * roster_record_bytes + 0x74, 213);
-    memory[roster_costumes] = 2; // Goku has two costumes; unused IDs have none
+    memory[roster_costumes] = 2;
     const uint8_t grid[] = {0, 4};
     std::memcpy(memory.data() + roster_select_grid, grid, 2);
     std::memset(memory.data() + roster_select_grid + 2, 6, roster_select_cells - 2);
@@ -63,9 +61,6 @@ Bytes memory_image() {
     return memory;
 }
 
-// An ISO whose executable is the memory from `start` as one ELF segment,
-// with a DATA_CMN.AFS of 300 entries beside it: entry 0 is a small #AMB and
-// `files` gives others; the rest are empty.
 Bytes disc_image(const Bytes &memory, const std::string &executable = "SLUS_207.79", uint32_t start = roster_records,
                  const std::map<uint32_t, Bytes> &files = {}) {
     const uint32_t bytes = uint32_t(memory.size() - start);
@@ -81,7 +76,6 @@ Bytes disc_image(const Bytes &memory, const std::string &executable = "SLUS_207.
     put32(elf, 72, bytes);
     std::memcpy(elf.data() + 0x100, memory.data() + start, bytes);
 
-    // The archive: its entry table, entry 0 at 3072, then the given files.
     const uint32_t entries = 300;
     Bytes afs(2 * sector, 0);
     std::memcpy(afs.data(), "AFS\0", 4);
@@ -122,12 +116,9 @@ Bytes disc_image(const Bytes &memory, const std::string &executable = "SLUS_207.
     return image;
 }
 
-// Texture formats and sizes, as texture headers give them.
 using Layout = std::vector<std::pair<uint32_t, uint32_t>>;
 const Layout plainLayout{{0x14, 0x00080008}};
 
-// A costume model: an #AMB of a mesh whose parts link in a chain and a pack
-// of textures with headers in `layout`. `twist` relinks the last part.
 Bytes costume_model(uint32_t parts, uint32_t textures, bool twist = false, const Layout &layout = plainLayout) {
     const uint32_t mesh = 0x40, rows = 0x70, end = mesh + rows + parts * 32;
     const uint32_t count = uint32_t(layout.size()), table = (count * 4 + 15) / 16 * 16, pack = 0x20 + table + count * 48;
@@ -148,7 +139,7 @@ Bytes costume_model(uint32_t parts, uint32_t textures, bool twist = false, const
     for (uint32_t i = 0; i < parts; ++i) {
         const uint32_t at = mesh + rows + i * 32;
         put32(model, at, i);
-        put32(model, at + 4, 0x1000 + i * 0x130); // where the part's data is; free to differ
+        put32(model, at + 4, 0x1000 + i * 0x130);
         put32(model, at + 8, i + 1 < parts ? rows + (i + 1) * 32 : 0);
         put32(model, at + 16, i ? rows + (i - 1) * 32 : 0);
     }
@@ -167,17 +158,16 @@ Bytes costume_model(uint32_t parts, uint32_t textures, bool twist = false, const
     }
     return model;
 }
-} // namespace
+}
 
 int main() {
     try {
         const auto root = fs::temp_directory_path() / "openkai2-roster-tests";
         fs::remove_all(root);
         fs::create_directories(root);
-        { // Close all disc streams before removing their files on Windows.
+        {
 
 
-        // The import tool reads characters, their files and the grid from a disc.
         const auto iso = root / "budokai2.iso";
         write(iso, disc_image(memory_image()));
         SourceDisc source(iso);
@@ -190,7 +180,6 @@ int main() {
                     goku[1] == std::pair<uint32_t, uint32_t>{0x1dc, 97},
                 "A character's files were not found, or -1 and out-of-range values were kept");
 
-        // The disc is identified by its memory card folder, and its table found.
         const auto identity = identify_disc(source);
         require(identity.game == DragonBallGame::budokai2 && identity.serial == "SLUS-20779" &&
                     identity.executable == "SLUS_207.79",
@@ -204,7 +193,6 @@ int main() {
                     report.find("         0  00000030 00000010 00000000 00000000  23414d4f") != std::string::npos &&
                     report.find("#AMO version 0, USR/DATA_CMN.AFS entry 0 file 0:\n    +000 4F4D4123") != std::string::npos,
                 "The disc report is missing the table or files");
-        // Budokai 3 keeps its names in a list and its records point at them.
         auto third = memory_image();
         std::memset(third.data() + roster_records, 0, roster_count * roster_record_bytes);
         std::memcpy(third.data() + 0x3A40C0u, "BASLUS-21234DBZ3", 16);
@@ -215,11 +203,10 @@ int main() {
             std::memcpy(third.data() + list + 32 * i, thirdNames[i], std::strlen(thirdNames[i]));
             put32(third, records + 0x1a0 * i, list + 32 * i);
             put32(third, records + 0x1a0 * i + 0x40, 100 + i);
-            // and a pointer to a list of the character's files
             put32(third, records + 0x1a0 * i + 8, roster_records + 0x4000 + 32 * i);
             put32(third, roster_records + 0x4000 + 32 * i, 500 + i);
         }
-        put32(third, records + 0x1a0 * 10 + 4, 7); // a record without a name ends the list
+        put32(third, records + 0x1a0 * 10 + 4, 7);
         write(root / "b3.iso", disc_image(third, "SLUS_212.34"));
         SourceDisc b3(root / "b3.iso");
         require(identify_disc(b3).game == DragonBallGame::budokai3 && !read_disc_roster(b3),
@@ -248,8 +235,6 @@ int main() {
         SourceDisc unrelated(root / "other.iso");
         require(identify_disc(unrelated).game == DragonBallGame::none, "A disc without Dragon Ball data was accepted");
 
-        // Budokai 3's models are read from its table, and one fits a Budokai 2
-        // character whose model links its parts the same way.
         const Layout gokuLayout{{0x14, 0x00080008}, {0x13, 0x00060006}};
         const Layout budokai3Layout{{0x14, 0x00080008}, {0x13, 0x00060006}, {0x14, 0x00070007}};
         write(root / "game.iso", disc_image(memory_image(), "SLUS_207.79", roster_records,
@@ -267,7 +252,7 @@ int main() {
         std::memcpy(b3memory.data() + budokai3_names + 0x2000, "BASLUS-20998DBZ3", 16);
         const uint32_t lists = budokai3_names + 0x1000;
         put32(b3memory, budokai3_records, budokai3_names);
-        b3memory[budokai3_records + 4] = 3; // three forms of one costume
+        b3memory[budokai3_records + 4] = 3;
         b3memory[budokai3_records + 5] = 1;
         put32(b3memory, budokai3_records + 8, lists);
         for (const auto [k, entry] : {std::pair{0u, 264u}, {1u, 265u}, {2u, 264u}})
@@ -277,8 +262,6 @@ int main() {
         b3memory[ss4 + 4] = b3memory[ss4 + 5] = 1;
         put32(b3memory, ss4 + 8, lists + 0x100);
         put32(b3memory, lists + 0x100, 266);
-        // A model whose mesh block holds a Budokai 3 material record and
-        // another record that is not one.
         auto materialModel = costume_model(5, 2, false, budokai3Layout);
         put32(materialModel, 0x40 + 32, 1);
         put32(materialModel, 0x40 + 48, 0x50);
@@ -287,7 +270,6 @@ int main() {
             put32(materialModel, 0x40 + at + 4, 0x29BD);
             put32(materialModel, 0x40 + at + 8, 3);
         }
-        // A draw record, and one whose offset is not 16-byte aligned.
         put32(materialModel, 0x40 + 0x70, 0x9000020C);
         put32(materialModel, 0x40 + 0x74, 0x50);
         put32(materialModel, 0x40 + 0x80, 0x6000020F);
@@ -334,7 +316,6 @@ int main() {
         expected[0x40 + 0x70 + 5 * 32 + 12] = 1;
         require(converted == expected, "The model's textures were not marked as Budokai 2's, or more changed");
 
-        // The stage table: names, files and the B stages that reuse them.
         Bytes stageMemory(stage_records + stage_count * stage_record_bytes, 0);
         const char *stageNames[] = {"ISLAND", "TOWN", "ROOM TIME MIND", "BUDO", "R&R BASE", "SNOW", "GARDEN",
                                     "NAMEC", "KAIOH SHIN", "ISLAND B", "TOWN B", "R&R BASE B", "SNOW B"};
@@ -353,8 +334,6 @@ int main() {
                     (*stages)[0].files[3] == std::pair<uint32_t, uint32_t>{0x4C, 5} &&
                     !read_disc_stages(budokai3),
                 "The stage table was not read");
-        // Budokai 3's: a 16-byte name and two packs per stage, on a disc that
-        // is otherwise the Budokai 3 disc above.
         Bytes b3stages = b3memory;
         b3stages.resize(budokai3_stages + budokai3_stage_count * budokai3_stage_bytes);
         for (uint32_t i = 0; i < budokai3_stage_count; ++i) {
@@ -366,8 +345,6 @@ int main() {
             put32(b3stages, record + 0x10, 100 + 2 * i);
             put32(b3stages, record + 0x14, i == 2 ? 0 : 101 + 2 * i);
         }
-        // BUDO's two packs: the five marked files in Budokai 3's order, with a
-        // version 2 texture pack inside the #AMB, then three more.
         const auto amb = [](const std::vector<Bytes> &files) {
             Bytes pack(0x20 + 16 * files.size(), 0);
             std::memcpy(pack.data(), "#AMB", 4);
@@ -389,7 +366,6 @@ int main() {
         Bytes stageTextures = marked("#AMT", 0);
         put32(stageTextures, 12, 2);
         const auto stageAmb = amb({stageTextures});
-        // Budokai 3's stage pack also holds #AME particle files, which are dropped.
         const auto firstPack = amb({marked("#MDD", 1), marked("#MAD", 2), marked("#MAS", 3), marked("#SPX", 4),
                                     amb({marked("#AME", 9), stageTextures, marked("#AME", 10)})});
         const auto secondPack = amb({Bytes(20, 6), marked("IECS", 7), marked("IECS", 8)});
@@ -404,8 +380,6 @@ int main() {
                     stage_display_name("MIND & TIME B") == "Hyperbolic Time Chamber B" &&
                     stage_display_name("TOWN B") == "Town B" && stage_display_name("R&R BASE") == "R&R Base",
                 "Stage names were not shown as expected");
-        // Unpacked into the eight files a Budokai 2 record names, in its order,
-        // the texture pack marked version 1.
         const auto stageFiles = budokai3_stage_files(b3stageDisc, (*b3list)[0]);
         std::vector<uint32_t> offsets;
         for (const auto &file : stageFiles)
@@ -417,13 +391,10 @@ int main() {
                     get32(stageFiles[3].second.data() + get32(stageFiles[3].second.data() + 0x20) + 12) == 1 &&
                     stageFiles[5].second == Bytes(20, 6) && stageFiles[7].second[4] == 8,
                 "A Budokai 3 stage was not unpacked into Budokai 2's files");
-        // Only file kinds Budokai 2's pack loader knows can be imported.
         require(unloadable_pack_files(stageAmb).empty() && !budokai3_stage_problem(b3stageDisc, (*b3list)[0]) &&
                     unloadable_pack_files(amb({stageTextures, marked("#AMX", 0)})) == std::vector<std::string>{"#AMX"} &&
                     budokai3_stage_problem(b3stageDisc, (*b3list)[2]),
                 "Stage files Budokai 2 can't load were not found, or a loadable stage was refused");
-        // Dropping files keeps the rest in order at 16-byte boundaries, with
-        // their records' other words.
         {
             auto pack = amb({marked("#AME", 1), marked("#AMG", 2), Bytes(20, 3), marked("#AMO", 4)});
             put32(pack, 0x3C, 0x1234);
@@ -454,8 +425,6 @@ int main() {
         }
         require(unpackRefused, "A stage without two packs was unpacked");
 
-        // A stage mod turns a B stage into the imported one, and can be
-        // listed and removed again.
         {
             const auto stageMod = root / "mods" / "Stage";
             const auto added_dir = stageMod / "afs" / "USR" / "DATA_CMN.AFS" / "add";
@@ -468,7 +437,6 @@ int main() {
                 fields.push_back({0x40 + 4 * k, "add:" + name});
                 stageOverlay.added["USR/DATA_CMN.AFS"][name] = 500 + k;
             }
-            // A stage whose pack Budokai 2 can't load is skipped with a note.
             write(added_dir / "budo_3.bin", amb({stageTextures, marked("#AMX", 0)}));
             append_stage(stageMod, 10, "BUDO 3", fields);
             std::vector<std::string> notes;
@@ -503,7 +471,6 @@ int main() {
             fs::remove_all(stageMod);
         }
 
-        // Budokai 3 materials get the flag Budokai 2 sets; other records stay.
         const auto flagged = model_for_budokai2(budokai3, 267);
         require(get32(flagged.data() + 0x90) == 0x21B5 && get32(flagged.data() + 0xA0) == 0x3A7 &&
                     material_records(flagged, true).size() == 2 && material_records(flagged, false).size() == 1 &&
@@ -513,14 +480,12 @@ int main() {
         require(get32(flagged.data() + 0xB0) == 0x9000020C && draw_records(flagged).size() == 1,
                 "Budokai 3 draw records were changed or not found");
 
-        // Mesh comparison lists codes and flags, not vertex floats.
         const auto differences = mesh_differences(budokai3, 267, budokai3, 264);
         require(differences.find("00000000 -> 000001B5") != std::string::npos &&
                     differences.find("00000000 -> 000029BD") != std::string::npos &&
                     differences.find("0 of them both vertex-like floats") != std::string::npos,
                 "The mesh comparison does not list the material record");
 
-        // Versions for finding which part Budokai 2 draws wrongly.
         const auto b3model = costume_model(5, 2, false, budokai3Layout), b2model = costume_model(5, 1, false, gokuLayout);
         const size_t mesh = 0x40, meshBytes = 0x70 + 5 * 32, textures = mesh + meshBytes;
         const auto piece = [](const Bytes &model, size_t from, size_t bytes) {
@@ -543,7 +508,6 @@ int main() {
                     get32(withOurMesh.data() + matched + 12) == 1 && get32(withOurMesh.data() + matched + 16) == 2 &&
                     piece(withOurMesh, matched, 12) == piece(theirTextures, 0, 12),
                 "The Budokai 2 mesh with Budokai 3 textures is wrong");
-        // The versions keeping the wearer's shading textures.
         const auto lit = model_version(budokai3, 264, gameDisc, 171, ModelVersion::budokai2_lighting);
         const auto wholeLit = model_version(budokai3, 264, gameDisc, 171, ModelVersion::converted_budokai2_lighting);
         const auto packCount = [](const Bytes &model) { return get32(model.data() + get32(model.data() + 0x30) + 16); };
@@ -553,8 +517,6 @@ int main() {
                     packCount(wholeLit) == packCount(expected),
                 "The versions keeping Budokai 2's shading textures are wrong");
 
-        // Matching: the wearer's slots take the model's textures in order,
-        // skipping extras, and the pack is rebuilt to the wearer's layout.
         using Slots = std::vector<std::array<uint32_t, 2>>;
         const Slots t1{{0x14, 8}}, body{{0x14, 8}, {0x13, 6}};
         require(match_textures(Slots{{0x13, 6}, {0x14, 8}, {0x14, 7}, {0x13, 6}}, body) == std::vector<size_t>{1, 3} &&
@@ -564,7 +526,6 @@ int main() {
             auto model = costume_model(1, 2, false, layout);
             const uint32_t at = get32(model.data() + 0x30);
             Bytes pack(model.begin() + at, model.end());
-            // Give each texture pixels and a palette to carry over.
             for (uint32_t i = 0; i < layout.size(); ++i) {
                 const uint32_t header = get32(pack.data() + 0x20 + i * 4);
                 put32(pack, header + 20, uint32_t(pack.size()));
@@ -586,10 +547,6 @@ int main() {
                 "The matched texture pack is wrong");
         require(model_shape(budokai3, 264) && !model_shape(budokai3, 266), "A model's shape was misread");
 
-        // Pixels and palettes follow the 32 bytes that send them to video
-        // memory, which the header's sizes leave out; all of it is carried
-        // over. Shading textures (top bit of the second header word) stay the
-        // wearer's when asked.
         const auto sentPack = [&](const Layout &layout, uint8_t fill, int shading) {
             auto model = costume_model(1, 2, false, layout);
             const uint32_t at = get32(model.data() + 0x30);
@@ -626,7 +583,6 @@ int main() {
         require(texel(relit, 1, 20, 40) == 0x81 && texel(relit, 0, 20, 40) == 0x10,
                 "The model's shading texture was not replaced by the wearer's");
 
-        // A mod fills Zarbon's unused record from Goku's and puts it on the grid.
         const auto mod = root / "mods" / "SSJ4";
         fs::create_directories(mod);
         RosterCharacter added;
@@ -643,8 +599,6 @@ int main() {
                 "add: was not resolved to the added entry");
         require(free_roster_slot(roster_slots_in_use({mod})) == 13u, "A filled slot was offered again");
 
-        // A mod's characters are listed, and one can be removed with the
-        // added files only it uses and their imports.txt lines.
         {
             const auto two = root / "mods" / "Two";
             const auto added_dir = two / "afs" / "USR" / "DATA_CMN.AFS" / "add";
@@ -693,8 +647,6 @@ int main() {
         }
 
         auto memory = memory_image();
-        // Goku's entries in the other tables indexed by character ID; ID 1 has
-        // the unused ID's -1 for its move effects.
         for (const auto &table : roster_id_tables)
             for (uint32_t i = 0; i < table.bytes; ++i)
                 memory[table.address + i] = uint8_t(0x10 + i);
@@ -713,7 +665,6 @@ int main() {
         require(log[0].find("with its base's move effects, voice, voice set, name plate and hair") != std::string::npos,
                 "The startup log does not say which tables were copied");
 
-        // A shared spot: R2 on spot 2 switches Krillin to Zarbon's filled ID and back.
         file(root / "share" / "roster.ini", "[character]\nslot = 13\nbase = 4\nname = KRILLIN 2\nalternate = 1\n");
         auto shared = load_roster({root / "share"}, overlay);
         Bytes ram(0x400000, 0);
@@ -725,7 +676,7 @@ int main() {
                     alternates.spots[0] == std::vector<uint8_t>{0},
                 "Shared spots were not built");
         const uint32_t state = 0x200000;
-        put32(ram, select_state_pointers, 0x80000000u | state); // a kernel-segment pointer
+        put32(ram, select_state_pointers, 0x80000000u | state);
         ram[state + 88] = 0;
         put32(ram, state + 192, 1);
         ram[state + 128] = 4;
@@ -747,7 +698,6 @@ int main() {
         require(!cycle_alternate(ram.data(), ram.size(), 0, alternate_button, alternates),
                 "A state that disagrees with the grid was written");
 
-        // Without new spots the select screen keeps its original numbers.
         auto plain = memory_image();
         require(configure_select_screen(plain.data(), plain.size(), characters).empty() && select_cells() == 30 &&
                     select_last() == 29 && select_offset(1600) == 1600 && select_offset(1648) == 1648 &&
@@ -756,7 +706,6 @@ int main() {
                     preview_id(44) == 36 && preview_row(44) == 44 && preview_row(3) == 3,
                 "The unmodded select screen changed");
 
-        // Two new spots go before Random, which moves to the end.
         file(root / "wheel" / "roster.ini", "[character]\nslot = 13\nbase = 4\nnew_cell = yes\n"
                                             "[character]\nslot = 44\nbase = 0\nnew_cell = yes\nicon = 6\n");
         auto wheel = load_roster({root / "wheel"}, overlay);
@@ -783,7 +732,6 @@ int main() {
         reset_select_screen();
         require(id_table_row(44) == 44, "A reset select screen kept a move-effects row");
 
-        // Bad input names the line; other executables are never patched.
         file(root / "bad" / "roster.ini", "[character]\nslot = 13\nselect = 29\n");
         bool rejected = false;
         try {

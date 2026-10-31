@@ -11,8 +11,6 @@ def corrected(source):
     replacements = []
     annotations = list(ANNOTATION.finditer(source))
     for match in annotations:
-        # Branches decoded inside another branch's delay slot do not have an
-        # independent predicate. Their existing translator handling is retained.
         if '(Delay Slot)' in source[match.end():source.find('\n', match.end())]:
             continue
         address, word, mnemonic = int(match[1], 16), int(match[2], 16), match[3]

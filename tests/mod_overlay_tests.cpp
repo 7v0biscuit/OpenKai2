@@ -20,7 +20,6 @@ void put32(Bytes &bytes, size_t at, uint32_t value) {
     for (unsigned i = 0; i < 4; ++i)
         bytes[at + i] = uint8_t(value >> (8 * i));
 }
-// The base fixture plus USR/DATA.AFS: three named entries at sector 24.
 Bytes disc() {
     auto image = fixture();
     records(image, 20, {record(std::string(1, '\0'), 20, sector, 2), record(std::string(1, '\1'), 18, sector, 2),
@@ -59,20 +58,19 @@ AfsArchive archive_at(const std::string &bytes, uint64_t start, uint64_t size) {
     };
     return parse_afs(read, size);
 }
-} // namespace
+}
 
 int main() {
     try {
         const auto root = fs::temp_directory_path() / "openkai2-mod-tests";
         fs::remove_all(root);
         fs::create_directories(root);
-        { // Close all disc streams before removing their files on Windows.
+        {
 
         const auto image = root / "game.iso";
         write(image, disc());
         const auto mods = root / "mods";
 
-        // An entry that fits where the original was is written in place.
         file(mods / "Small" / "afs" / "USR" / "DATA.AFS" / "0001_vegeta.bin", std::string(2000, 'X'));
         auto summary = DiscOverlay::global().configure(image, {mods / "Small"});
         openkai2::IsoIndex index(image);
@@ -85,8 +83,6 @@ int main() {
                     slice(bytes, 24 * sector + 0x800, 100) == std::string(100, 'A') && archive.entries[1].name == "vegeta.bin",
                 "The in-place entry or its neighbours are wrong");
 
-        // A larger entry, an added one and a whole-file replacement move the
-        // archive past the end of the image; a later mod wins.
         file(mods / "Big" / "afs" / "USR" / "DATA.AFS" / "0000.bin", std::string(5000, 'Y'));
         file(mods / "Big" / "afs" / "USR" / "DATA.AFS" / "add" / "cell.bin", "new!!!!");
         file(mods / "Big" / "files" / "USR" / "DATA.BIN", "hello world!!");
@@ -109,7 +105,6 @@ int main() {
                 "The rebuilt archive lost or changed entries");
         require(slice(bytes, 23 * sector, 13) == "hello world!!", "The replaced file was not read back");
 
-        // The patched directory records describe the same disc on their own.
         const auto written = root / "modded.iso";
         {
             std::ofstream out(written, std::ios::binary);
@@ -123,7 +118,6 @@ int main() {
                     movedData->size == 13,
                 "The patched directory records do not match the overlay");
 
-        // An entry number past the end of an archive is an error, not a guess.
         file(mods / "Bad" / "afs" / "USR" / "DATA.AFS" / "0009.bin", "x");
         bool rejected = false;
         try {
@@ -134,7 +128,6 @@ int main() {
         require(rejected, "A missing entry number was accepted");
         DiscOverlay::global().clear();
 
-        // The load order keeps disabled mods and appends new ones enabled.
         file(mods / "Small" / "mod.ini", "name=Small swap\nauthor=Tester\n");
         auto list = scan_mods(mods);
         require(list.size() == 3 && list[0].id == "Bad" && list[1].id == "Big" && list[2].name == "Small swap",
@@ -148,8 +141,6 @@ int main() {
         const auto created = create_mod(mods, "Goku SSJ4!", "Me", "Test");
         require(created.filename() == "Goku_SSJ4" && scan_mods(mods).back().name == "Goku SSJ4!",
                 "A created mod was not added to the load order");
-        // Renaming changes the shown name only; the reports folder is not a mod;
-        // deleting removes the folder and its load order line.
         rename_mod(created, "SSJ4 Goku");
         fs::create_directories(mods / reports_folder);
         list = scan_mods(mods);
@@ -169,8 +160,6 @@ int main() {
             refused = true;
         }
         require(refused && fs::exists(mods), "Deleting outside the mods folder was not refused");
-        // The import tool reads another disc and writes its entries into a mod
-        // that the overlay then applies to this one.
         SourceDisc source(image);
         const auto &listed = source.files();
         require(listed.size() == 4 && listed[2].path == "USR/DATA.AFS" && listed[2].archive && listed[2].entries == 3 &&
@@ -187,7 +176,6 @@ int main() {
         ImportTarget extra{ImportTarget::Mode::NewEntry, "USR/DATA.AFS", 0, "stage.bin", ContentKind::Stage, "B3"};
         for (int i = 0; i < 3; ++i)
             import_bytes(port, extra, std::vector<uint8_t>(size_t(10 + i), uint8_t('0' + i)));
-        // Streamed imports report every byte and leave no temporary file behind.
         uint64_t streamed = 0;
         ImportTarget copy{ImportTarget::Mode::NewEntry, "USR/DATA.AFS", 0, "vegeta.bin", ContentKind::Character, "B3"};
         const auto copied = import_from_disc(source, "USR/DATA.AFS", 1, port, copy, [&](uint64_t bytes) { streamed += bytes; });

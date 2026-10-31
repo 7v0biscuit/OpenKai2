@@ -71,8 +71,6 @@ void verify_battle_updates(PS2Runtime& runtime,uint8_t* ram) {
         m.write32(root+0xd0u,selection ? mode : 0u);m.write32(root+0xd4u,selection && mode ? 15u : mode);
         m.write32(root+0xc8u,0x6c0000u);m.write32(root+0xc4u,0x6c0100u);m.write32(0x6c000cu,0x6d0000u);m.write32(0x6c010cu,0x6d1000u);
         m.write32(root+0xd8u,(variant&1u) ? 50u : 0u);m.write32(root+0xdcu,30u);if(mode==5u)putFloat(root+0xdcu,1.0f);m.write32(root+0xe0u,(variant&4u) ? 0xffffffffu : 0u);
-        // This secondary method tail-calls the pure original clip helper directly.
-        // Supply a short synthetic clip and verify its actual frame advance.
         m.write32(0x6d00a0u,10u);m.write32(0x6d00a4u,10u);
         putFloat(root+0xe4u,10.0f);m.write32(root+0xe8u,controlFlags[variant&7u]);
         m.write32(0x3df5c8u,(variant&2u) ? 31u : 29u);
@@ -140,8 +138,6 @@ void verify_battle_updates(PS2Runtime& runtime,uint8_t* ram) {
             for(unsigned i=first;i<last;++i){const auto call=m.read32(0x29010u+i*24u);commands+=call==0x1c89a0u;models+=call==0x1a7ce0u;stats+=call==0x1be300u;}
             require(stats==1u && models==unsigned(!(variant&4u) && (variant&2u)) && commands==unsigned(variant>=8u && !(variant&1u)),"Secondary battle update changed input/reset callback conditions");}
     }
-    // A paused frame still snapshots and rebinds; an absent context returns
-    // before table selection or copying. Retail asset dependencies stay bounded.
     for(unsigned mode=0;mode<16u;++mode)for(unsigned selection=0;selection<2u;++selection){
         seed(mode,selection,0u,true,false);auto c=context(0x1be500u);run(c);
         require(m.read32(0x29000u)==0u && m.read32(0x29820u)==1u,"Paused battle update executed an active method or skipped its snapshot");}
@@ -192,7 +188,6 @@ void verify_battle_draws(PS2Runtime& runtime,uint8_t* ram) {
         require(std::all_of(ram+sp-0x40u,ram+sp-0x20u,[](uint8_t v){return v==0xa5;})
             && std::all_of(ram+sp,ram+sp+0x10u,[](uint8_t v){return v==0xa5;}),"Battle draw changed its stack guards");
     }
-    // Restore original methods before executing the failing intro method.
     for(auto entry:translation::battle_draw_entries)
         for(const auto& old:restore.entries)if(old.first==entry){runtime.replaceFunction(entry,old.second);break;}
     constexpr uint32_t dependencies[]={0x148ef0u,0x1a8d10u,0x1be300u,0x1be260u};

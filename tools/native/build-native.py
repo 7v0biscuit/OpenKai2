@@ -38,8 +38,6 @@ def inputs():
     return result
 
 def main():
-    # A Git commit does not itself make CMake reconfigure. Refresh the stamp
-    # before reading/building the retained graph so logs identify this source.
     revision = subprocess.check_output(['git', '-C', str(SOURCE.parents[1]),
                                         'rev-parse', 'HEAD'], text=True).strip()
     stamp = BUILD / 'openkai2_build_revision.h'

@@ -43,7 +43,6 @@ def main():
     env['MESA_SHADER_CACHE_DIR'] = str(work / 'gpu-shader-cache')
     compiler_options = []
     if platform.machine().lower() in {'x86_64', 'amd64'}:
-        # The runtime uses SSE4.1 intrinsics, including in public inline helpers.
         compiler_options.append('-DCMAKE_CXX_FLAGS=-msse4.1 -fno-strict-aliasing -fwrapv')
     run('cmake', '-S', upstream, '-B', build, '-G', 'Ninja',
         '-DCMAKE_BUILD_TYPE=RelWithDebInfo', '-DPS2X_BUILD_RUNTIME=ON',

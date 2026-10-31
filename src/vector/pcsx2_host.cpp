@@ -34,17 +34,13 @@ std::array<char, 512> vectorError{};
 bool jitActive = false, initialized = false, nativeInitialized = false,
      initializationFailed = false, previousBusy = false;
 u8 *externalData = nullptr;
-// The memory VU1.Mem addresses: the runtime's own VU1 data when it comes from
-// the nearby pool, otherwise a copy in nativeData.
 u8 *dataMemory = nativeData.data();
 uint64_t codeGeneration = ~uint64_t(0);
 const u8 *codeSource = nullptr;
 const void *activeOwner = nullptr;
 std::recursive_mutex executionMutex;
 bool executing = false;
-} // namespace
-// Executable caches and directly addressed VU data both sit within 2 GiB of
-// the register file, since compiled blocks reach them with 32-bit offsets.
+}
 static u8 *nearby(size_t bytes, bool executable) {
     const uintptr_t anchor = reinterpret_cast<uintptr_t>(&vuRegs) & ~uintptr_t(0xffffu);
     for (uintptr_t distance = 64u * 1024u * 1024u; distance <= 1536u * 1024u * 1024u;
@@ -79,7 +75,7 @@ std::mutex dataMutex;
 bool directData(const u8 *data) {
     return dataRegion && data >= dataRegion && data < dataRegion + dataBlockBytes * dataBlocks;
 }
-} // namespace
+}
 namespace openkai2 {
 uint8_t *allocate_vector_data() {
     {
@@ -109,7 +105,7 @@ void release_vector_data(uint8_t *data) {
     }
     delete[] data;
 }
-} // namespace openkai2
+}
 namespace SysMemory {
 u8 *cache(unsigned unit) {
     if (!caches[unit])
@@ -120,21 +116,21 @@ u8 *GetVU0Rec() { return cache(0); }
 u8 *GetVU1Rec() { return cache(1); }
 u8 *GetVU0RecEnd() { return cache(0) + cacheBytes; }
 u8 *GetVU1RecEnd() { return cache(1) + cacheBytes; }
-} // namespace SysMemory
+}
 namespace Perf {
 Group any{nullptr}, ee{nullptr}, iop{nullptr}, vu0{nullptr}, vu1{nullptr}, vif{nullptr};
 void Group::Register(const void *, size_t, const char *) {}
 void Group::RegisterPC(const void *, size_t, u32) {}
 void Group::RegisterKey(const void *, size_t, const char *, u64) {}
-} // namespace Perf
+}
 namespace FileSystem {
 std::FILE *OpenCFile(const char *name, const char *mode, Error *) { return std::fopen(name, mode); }
-} // namespace FileSystem
+}
 namespace Path {
 std::string Combine(std::string_view left, std::string_view right) {
     return std::string(left) + "/" + std::string(right);
 }
-} // namespace Path
+}
 void pxOnAssertFail(const char *file, int line, const char *, const char *message) {
     std::cerr << file << ':' << line << ' ' << message << '\n';
     std::abort();
@@ -322,9 +318,6 @@ void bridgeRun(VU1State &state, u8 *code, u8 *data, u32 budget, bool fresh, uint
         codeSource = code;
         codeGeneration = generation;
     }
-    // VU1 data from the nearby pool is executed in place. Compiled blocks embed
-    // its address, so binding another buffer discards them; a runtime keeps
-    // one VU1 memory for its lifetime.
     u8 *const memory = directData(data) ? data : nativeData.data();
     if (memory != dataMemory) {
         if (previousBusy)

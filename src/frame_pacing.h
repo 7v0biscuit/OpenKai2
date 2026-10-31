@@ -9,8 +9,6 @@ struct FramePacingSummary {
     uint64_t p50Us=0,p95Us=0,p99Us=0;
     double fps() const {return elapsedUs ? double(intervals)*1000000.0/double(elapsedUs) : 0.0;}
 };
-// Measure completed game presentations. Window redraws never enter these
-// samples. Percentile values are upper bounds in 1 ms buckets.
 class FramePacing {
 public:
     void restart(uint64_t nowUs) {

@@ -28,7 +28,6 @@ def cases():
      for flags in GATE_FLAGS:
       for second in SECOND_STATES:
        base=list(nodes_for(code))
-       # First retail prelude consumes node0; traversal starts at node1.
        head=(BASE+0x40,0x10,0x20,0x100)
        nodes=tuple(head)+tuple(base[4:])
        args=(flags,0x200080,0x80001234,0x12345678,0x54321,0x98765432,
@@ -47,7 +46,6 @@ def expected(case,list_words=None,chain_words=None,post_words=None,handler_words
  if not dispatch:return (flags,0,pending,0,*zero,*chain_zero,0)
  if g28!=0xffffffff or g24!=BASE or nodes[0]!=BASE+0x40:
   raise ValueError('fixture failed original entry path preconditions')
- # Execute original prelude register/memory effects (113770...1137F0).
  saved_sp=s32(sp-64)
  first_node=nodes[0:4]
  after_pre=(first_node[3]+first_node[1]-first_node[2])&MASK
@@ -59,8 +57,6 @@ def expected(case,list_words=None,chain_words=None,post_words=None,handler_words
  if list_output[0]!=0x113860 or list_output[-1]!=1:
   raise ValueError('expected bounded traversal to terminate at threshold decision')
  v0,v1,v4,v5,v6,v7,walk_s0,walk_s1,walk_s2=list_output[1:10]
- # Original threshold BEQ + unconditional LUI delay slot, then original JAL.
- # Assert the expected opcode properties when the owned retail report is used.
  if handler_words is not None:
   branch=handler_words[0x113860];lui=handler_words[0x113864]
   if (branch>>26)!=4 or (branch>>21)&31!=2 or (branch>>16)&31 or (lui>>26)!=15:
@@ -108,7 +104,7 @@ def compare_native(exe,list_words=None,chain_words=None,post_words=None,handler_
   if got!=want:mismatches.append({'case':c[0],'want':list(map(hex,want)), 'got':list(map(hex,got))})
   suppressed+=int(want[1]==0)
   walks+=int(want[3]==1)
-  loops+=int(want[3]==1 and want[20]==2) # list stop_code at index 20
+  loops+=int(want[3]==1 and want[20]==2)
   if want[22]==0x113400:path400+=1
   if want[22]==0x113410:path410+=1
   if want[24]==2:first_polls+=1

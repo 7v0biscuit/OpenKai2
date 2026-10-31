@@ -21,8 +21,6 @@ def cases():
 def mutated_original(c):
  original=list(c[:-3]);node,field,value=c[-3:]
  if node:
-  # original original-case node words begin at original tuple index 12;
-  # node1 is fields 16..19, node2 is fields 20..23.
   original[12+node*4+field]=value & (0xffffffff if field==0 else 0xffffffffffffffff)
  return tuple(original)
 

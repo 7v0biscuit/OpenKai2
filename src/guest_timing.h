@@ -5,7 +5,6 @@ namespace openkai2 {
 enum class GuestWork : unsigned { dispatch, iop, vu0 };
 uint64_t begin_guest_sample(GuestWork work) noexcept;
 void finish_guest_sample(GuestWork work,uint32_t target,uint64_t started) noexcept;
-// Timings are sampled inclusive call durations, not game-frame counts.
 class GuestTimingScope {
 public:
     GuestTimingScope(GuestWork work,uint32_t target) noexcept

@@ -61,7 +61,6 @@ void verify_scene_modes(PS2Runtime& runtime,uint8_t* ram) {
             });
             R5900Context c{};c.pc=0x1af720u;c.r[28]=_mm_cvtsi32_si128(0x3ac4f0u);c.r[29]=_mm_cvtsi32_si128(sp+0x50u);
             for(unsigned i=16;i<=18;++i)c.r[i]=_mm_set_epi32(0x4400+i,0x3300+i,0x2200+i,0x1100+i);
-            // The dispatcher saves s0 before invoking the mode; s1/s2 remain live.
             const auto saved=c;
             try{runtime.lookupFunction(c.pc)(ram,&c,&runtime);}catch(const EeDispatcherTransfer&){}
             runtime.replaceFunction(target,original);
@@ -98,7 +97,7 @@ void verify_battle_assets(PS2Runtime& runtime,uint8_t* ram) {
         std::memset(ram+base-16u,0xa5,0x840u);
         std::memset(ram+base,0,0x800u);
         auto word=[&](unsigned offset,uint32_t value){runtime.memory().write32(base+offset,value);};
-        word(0,kind ? 0x4b534223u : 0x4d434223u); // #BSK / #BCM
+        word(0,kind ? 0x4b534223u : 0x4d434223u);
         std::array<uint8_t,0x840u> expected{};
         if(!kind){
             word(4,variant ? 3u : 0u);word(8,0x10u);
@@ -153,8 +152,6 @@ void verify_battle_initialization(PS2Runtime& runtime,uint8_t* ram) {
     constexpr uint32_t init=0x001b2560u,returned=0x001d5780u,sp=0x01ffff70u;
     for(auto address:translation::battle_init_entries)
         if(!runtime.hasFunction(address))throw std::runtime_error("Battle initialization stage is not registered");
-    // Bound the asset operations while executing the original surrounding
-    // copy/clear logic. A complete battle also requires the retail geometry.
     constexpr uint32_t dependencies[]={0x1b1570u,0x1b1470u,0x1b0fd0u,0x1b0e20u,0x1b10c0u};
     struct Restore {
         PS2Runtime& runtime;std::vector<std::pair<uint32_t,PS2Runtime::RecompiledFunction>> entries;
@@ -195,7 +192,6 @@ void verify_battle_initialization(PS2Runtime& runtime,uint8_t* ram) {
                 || runtime.memory().read32(0x29008u+i*8u)!=(i==4u ? 0x373c60u : 0x373d38u))
                 throw std::runtime_error("Battle initializer passed an incorrect asset argument");
     }
-    // Stop at the callback return before later stages consume retail assets.
     constexpr uint32_t bridge=0x001908e8u,object=0x003ba3b0u;
     restore.entries.emplace_back(bridge,runtime.lookupFunction(bridge));
     restore.entries.emplace_back(init,runtime.lookupFunction(init));
@@ -219,8 +215,6 @@ void verify_versus_animation(PS2Runtime& runtime,uint8_t* ram) {
         PS2Runtime& runtime;PS2Runtime::RecompiledFunction original;
         ~Restore(){runtime.replaceFunction(draw,original);}
     } restore{runtime,runtime.lookupFunction(draw)};
-    // Observe the tail call before rendering needs retail character geometry.
-    // All frame arithmetic and the scene dispatch use original instructions.
     runtime.replaceFunction(draw,[](uint8_t*,R5900Context* context,PS2Runtime* active) {
         active->memory().write32(0x29000u,getRegU32(context,4));
         active->memory().write32(0x29004u,getRegU32(context,5));
@@ -303,8 +297,6 @@ void verify_draw_setup(PS2Runtime& runtime,uint8_t* ram) {
         for(unsigned i=0;i<6u;++i)require(memory.read32(globals[i])==expectedGlobals[i],
                 "Draw setup changed the wrong shared float fields");
     }
-    // Recreate the logged selector and the actual packet-builder JALR. The
-    // object is the uncached 0x20000000 RAM alias seen in the retail trace.
     memory.write32(gp-0x7b48u,1u);
     R5900Context selector{};selector.pc=0x001a9460u;
     selector.r[4]=_mm_cvtsi32_si128(0x27000u);selector.r[6]=_mm_cvtsi32_si128(0x10802a1du);
@@ -316,9 +308,6 @@ void verify_draw_setup(PS2Runtime& runtime,uint8_t* ram) {
     memory.write32(sp+0xd8u,0u);memory.write32(sp+0xd4u,0u);
     R5900Context caller{};caller.pc=0x0013a1f0u;
     caller.r[18]=_mm_cvtsi32_si128(alias);caller.r[28]=_mm_cvtsi32_si128(gp);caller.r[29]=_mm_cvtsi32_si128(sp);
-    // Stop at the callback's return boundary, before the rest of the packet
-    // builder consumes the scene's geometry. Run the original callback first;
-    // the dispatcher transfer only bounds this isolated caller fixture.
     constexpr uint32_t bridge=0x001908e8u,initializer=0x001a9380u;
     struct Restore {
         PS2Runtime& runtime;uint32_t entry;PS2Runtime::RecompiledFunction original;

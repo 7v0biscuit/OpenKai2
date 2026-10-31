@@ -3,8 +3,6 @@
 #include "audio_queue.h"
 
 namespace openkai2 {
-// Device-thread state. Keep sample rate and channel order unchanged; buffer
-// jitter and ramp discontinuities rather than replaying or stretching audio.
 class StereoAudioPlayback {
 public:
     static constexpr unsigned prefill=2048u,fadeFrames=128u;
@@ -19,7 +17,6 @@ public:
         const auto drops=queue.dropped();
         if(drops!=drops_){
             drops_=drops;trimmed_.fetch_add(queue.trimPending(prefill*2u),std::memory_order_relaxed);
-            // Crossfade to the retained queue head after discarding old latency.
             primed_=false;fadeIn_=0;beginFade();
         }
         for(size_t first=0;first<output.size()/2u;first+=512u){
@@ -63,8 +60,6 @@ public:
 private:
     bool primed_=false;
     unsigned fadeIn_=0,fadeOut_=0;
-    // A new boundary starts from what the device actually heard. Keep that
-    // anchor separate from the continually updated output of an active fade.
     void beginFade(){tail_=last_;fadeOut_=fadeFrames;}
     std::array<int32_t,2> last_{},tail_{};
     uint64_t boundary_=0,drops_=0;

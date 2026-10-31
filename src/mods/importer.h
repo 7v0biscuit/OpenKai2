@@ -11,23 +11,18 @@
 #include <string>
 #include <vector>
 
-// Reads files and archive entries from any PS2 ISO, such as Budokai 2 or
-// Budokai 3, and writes them into a mod folder in the layout described in
-// mod_library.h. Characters, movesets and stages are archive entries, so
-// importing one is copying its bytes into the matching place in a mod.
 namespace openkai2::mods {
 
 enum class ContentKind { Character, Moveset, Stage, Other };
 const char *content_name(ContentKind kind);
 
 struct SourceFile {
-    std::string path; // disc path, e.g. "USR/DATA.AFS"
+    std::string path;
     uint64_t size = 0;
     bool archive = false;
     size_t entries = 0;
 };
 
-// Called with the number of bytes just copied, for progress bars.
 using Progress = std::function<void(uint64_t bytes)>;
 
 class SourceDisc {
@@ -35,17 +30,13 @@ public:
     struct Range {
         uint64_t offset = 0, size = 0;
     };
-    // Throws std::runtime_error if the image is not a readable ISO.
     explicit SourceDisc(const std::filesystem::path &image);
     const std::filesystem::path &image() const { return image_; }
     const std::vector<SourceFile> &files() const { return files_; }
-    // The entries of an archive; empty when the file is not an AFS archive.
     const std::vector<AfsEntry> &entries(const std::string &path);
     std::vector<uint8_t> read_file(const std::string &path);
     std::vector<uint8_t> read_entry(const std::string &path, size_t index);
-    // Where a file, or one of its entries, lies in the image.
     Range range(const std::string &path, std::optional<size_t> entry = std::nullopt);
-    // Copies a range to `out` in 1 MiB pieces, without holding it in memory.
     void copy(const Range &range, std::ostream &out, const Progress &progress = {});
 
 private:
@@ -64,33 +55,25 @@ private:
 };
 
 struct ImportTarget {
-    // Replace a whole file, replace entries from `entry` on, or add new entries.
     enum class Mode { File, Entry, NewEntry } mode = Mode::NewEntry;
-    std::string file;  // disc path in the game being modded
-    size_t entry = 0;  // for Mode::Entry
-    std::string name;  // file name to keep; for added entries it becomes the AFS name
+    std::string file;
+    size_t entry = 0;
+    std::string name;
     ContentKind kind = ContentKind::Other;
-    std::string source; // where the bytes came from, for imports.txt
+    std::string source;
 };
 
-// Writes bytes into the mod and returns the file written. Data goes to a
-// temporary file first, so a failed import leaves the mod unchanged.
-// Replacing an entry removes any earlier file this mod held for the same
-// entry; added entries get a free name, so there is no limit on how many
-// are added.
 std::filesystem::path import_bytes(const std::filesystem::path &mod, const ImportTarget &target,
                                    const std::vector<uint8_t> &bytes);
 std::filesystem::path import_host_file(const std::filesystem::path &mod, const ImportTarget &target,
                                        const std::filesystem::path &source, const Progress &progress = {});
-// Streams a file, or one of its archive entries, from a disc into the mod.
 std::filesystem::path import_from_disc(SourceDisc &disc, const std::string &path, std::optional<size_t> entry,
                                        const std::filesystem::path &mod, const ImportTarget &target,
                                        const Progress &progress = {});
 
-// One line per import in the mod's imports.txt, so a mod records what it holds.
 struct ImportRecord {
     std::string kind, target, source;
 };
 std::vector<ImportRecord> read_imports(const std::filesystem::path &mod);
 
-} // namespace openkai2::mods
+}

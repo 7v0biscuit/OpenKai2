@@ -26,8 +26,6 @@ int main() {
         put(0x2000u, "Goku");
         put(0x2100u, "Piccolo");
         const double ratio = 2.5;
-        // A variadic EE function stores each argument register in an 8-byte
-        // slot and passes their address as the va_list.
         put64(0x3000u, 0x2000u);
         put64(0x3008u, 0x2100u);
         put64(0x3010u, 7u);
@@ -40,8 +38,6 @@ int main() {
         ps2_stubs::vsprintf(ram.data(), &ctx, nullptr);
         require(text(0x4000u) == "Goku met Piccolo at 7.05 (2.5)", "vsprintf read a va_list as 4-byte slots: " + text(0x4000u));
 
-        // Fixed arguments: a 64-bit double fills one register, and arguments
-        // past t3 come from 8-byte stack slots at the caller's $sp.
         put(0x1100u, "%d %d %d %d %d %d %.2f %s");
         R5900Context call{};
         setRegister(call, 4, 0x5000u);
@@ -55,7 +51,6 @@ int main() {
         ps2_stubs::sprintf(ram.data(), &call, nullptr);
         require(text(0x5000u) == "1 2 3 4 5 6 0.75 Goku", "sprintf misread EE argument slots: " + text(0x5000u));
 
-        // Long dialogue lines are formatted whole.
         const std::string line(600u, 'A');
         put(0x7000u, line);
         put(0x1200u, "%s");

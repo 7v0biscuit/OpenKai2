@@ -17,4 +17,4 @@ bool texture_filter_enabled(bool original, bool sprite) noexcept {
         return original;
     return options.textureFilter == 0 ? original : options.textureFilter == 2;
 }
-} // namespace openkai2
+}

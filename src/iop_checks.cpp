@@ -47,9 +47,6 @@ public:
     void log(LogLevel,std::string_view text) override { logs.emplace_back(text); }
 };
 
-// A synthetic MIPS ELF starts a thread, then registers a real interpreted RPC
-// handler. Each selected call loads one of its arguments in the JAL delay slot.
-// No retail executable or game data is used by these checks.
 void make_image(CheckHost& host, unsigned delayed) {
     auto half=[&](size_t at,uint16_t value) {
         host.bytes.at(at)=uint8_t(value); host.bytes.at(at+1)=uint8_t(value>>8);
@@ -67,28 +64,28 @@ void make_image(CheckHost& host, unsigned delayed) {
     };
     const auto jal=[](uint32_t address) { return 0x0C000000u | (address>>2); };
     program(0,{
-        0x03E08021u,                         // move s0, ra
-        0x3C080001u,0x35080300u,              // t0 = pointer table
+        0x03E08021u,
+        0x3C080001u,0x35080300u,
         0x3C040001u, delayed==1 ? 0x00002021u : 0x34840320u,
-        jal(0x10214u),0x8D040000u,           // CreateThread; lw a0, 0(t0)
-        0x00402021u,                         // a0 = returned thread id
+        jal(0x10214u),0x8D040000u,
+        0x00402021u,
         0x24050000u | (delayed==2 ? 0u : 0x1234u),
-        jal(0x1021Cu),0x8D050004u,           // StartThread; lw a1, 4(t0)
-        0x00001021u,0x02000008u,0x00000000u, // return success
+        jal(0x1021Cu),0x8D050004u,
+        0x00001021u,0x02000008u,0x00000000u,
     });
     program(0x80,{
-        0x03E08821u,                         // move s1, ra
-        0x3C100001u,0x36100300u,              // s0 = pointer table
-        0xAE040080u,                         // save thread argument
-        jal(0x10224u), delayed==4 ? 0x8E02000Cu : 0u, // GetThreadId; optional lw v0
-        0u,0xAE020084u,                      // save imported return after load delay
-        0x3C040001u,0x34840400u,              // server descriptor
-        0x3C058000u,0x34A50597u,              // requested SID
+        0x03E08821u,
+        0x3C100001u,0x36100300u,
+        0xAE040080u,
+        jal(0x10224u), delayed==4 ? 0x8E02000Cu : 0u,
+        0u,0xAE020084u,
+        0x3C040001u,0x34840400u,
+        0x3C058000u,0x34A50597u,
         0x3C060001u, delayed==3 ? 0x00003021u : 0x34C60100u,
-        0x3C070001u,0x34E70480u,              // RPC buffer
-        0xAFA00010u,0xAFA00014u,0xAFA00018u, // callback, callback buffer, queue
-        jal(0x10254u),0x8E060008u,           // RegisterRpc; lw a2, 8(s0)
-        0x02200008u,0u,                      // return from worker
+        0x3C070001u,0x34E70480u,
+        0xAFA00010u,0xAFA00014u,0xAFA00018u,
+        jal(0x10254u),0x8E060008u,
+        0x02200008u,0u,
     });
     program(0x100,{0x24820001u,0xACA20000u,0x00A01021u,0x03E00008u,0u});
     program(0x200,{0x41E00000u,0,0x101u,0x61626874u,0x00006573u,
@@ -111,13 +108,11 @@ void make_startup_image(CheckHost& host,bool busy,bool delayed=false) {
     };
     const auto jal=[](uint32_t address) { return 0x0C000000u | (address>>2); };
     std::copy_n(host.bytes.begin()+payload+0x80,0x5C,host.bytes.begin()+payload+0x180);
-    // The registered worker uses SID 0x11 and sleeps after registration.
     program(0x1A8,{0x3C050000u,0x34A50011u});
     program(0x1D4,{jal(0x1022Cu),0u,0x3C080001u,0x24090001u,
                    0xAD090388u,0x1000FFFAu,0u});
-    program(0x22C,{0x03E00008u,0x24000018u,0u}); // thbase:SleepThread
+    program(0x22C,{0x03E00008u,0x24000018u,0u});
     program(0x340,{0,0,0x10180u,0x400u,40});
-    // Module startup starts a parent, which starts the actual server worker.
     program(0x80,{
         0x3C040001u,0x34840340u,jal(0x10214u),0u,
         0x00402021u,0x24051234u,jal(0x1021Cu),0u,
@@ -125,9 +120,9 @@ void make_startup_image(CheckHost& host,bool busy,bool delayed=false) {
     });
     if (busy) program(0x80,{0x1000FFFFu,0u});
     if (delayed) {
-        program(0x234,{0x03E00008u,0x24000021u,0u}); // thbase:DelayThread
+        program(0x234,{0x03E00008u,0x24000021u,0u});
         program(0x80,{
-            0x24042710u,jal(0x10234u),0u, // DelayThread(10000 microseconds)
+            0x24042710u,jal(0x10234u),0u,
             0x3C040001u,0x34840340u,jal(0x10214u),0u,
             0x00402021u,0x24051234u,jal(0x1021Cu),0u,
             jal(0x1022Cu),0u,0x1000FFFDu,0u,
@@ -181,7 +176,6 @@ void verify_iop_module_startup() {
     require(iop.handleRpc(request).handled && host.readGuest(0x3000u,&answer,4) && answer==42u,
             "Startup bind did not reach a real interpreted RPC handler");
     require(!iop.canBindRpc(0x12u),"Startup scheduling fabricated an unregistered server");
-    // The worker writes this marker only after returning from SleepThread.
     uint32_t resumed=0;
     require(iop.readMemory(0x10388u,&resumed,4) && resumed==0u,
             "Module startup resumed a sleeping worker without a wakeup");
@@ -204,8 +198,6 @@ void verify_iop_module_startup() {
             "Module startup fast-forwarded a delayed worker's wake deadline");
     iop.runEeCycles(4'000'000u);
     require(iop.canBindRpc(0x11u),"Delayed startup worker did not register after its real wake deadline");
-    // Clock fragmentation must not skip a delayed wake or invent instructions
-    // during idle time. Compare a large charge with sub-IOP-cycle charges.
     CheckHost bulkHost,fragmentedHost;
     make_startup_image(bulkHost,false,true);make_startup_image(fragmentedHost,false,true);
     IopSubsystem bulk(bulkHost),fragmented(fragmentedHost);
@@ -234,4 +226,4 @@ void verify_iop_module_startup() {
         "An idle IOP did not service an external RPC request");
 
 }
-} // namespace openkai2
+}

@@ -1,6 +1,4 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// Synthetic GS draws with visible, half-rejected, and fully rejected pixels.
-// Output is per-draw host time and a complete VRAM checksum, not game FPS.
 #include "runtime/gs/gs_cpu_backend.h"
 #include "raster_workers.h"
 #include <vector>

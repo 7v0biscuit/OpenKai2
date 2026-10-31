@@ -59,7 +59,6 @@ def main():
         if reason is None:
             reason = 'TIME_LIMIT_WITHOUT_BOOT_PROOF'
         stop()
-        # Ensure a stuck child cannot keep its stdout pipe open indefinitely.
         killer = threading.Timer(5, lambda: stop(force=True))
         killer.daemon = True
         killer.start()

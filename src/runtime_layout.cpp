@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// Include the enclosing runtime first, matching the production runtime unit.
 #include "ps2_runtime.h"
 #include "runtime_layout.h"
 #include <stdexcept>

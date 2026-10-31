@@ -51,7 +51,7 @@ class MipsELF:
             raise AuditError('Expected ELFCLASS32 and little-endian ELF')
         (etype, machine, version, entry, phoff, shoff, flags, ehsize, phentsize,
          phnum, shentsize, shnum, shstrndx) = struct.unpack_from('<HHIIIIIHHHHHH', blob, 16)
-        if machine != 8:  # EM_MIPS
+        if machine != 8:
             raise AuditError('Not a MIPS executable (e_machine=%d)' % machine)
         if phentsize < 32 or phnum < 1 or phnum > 256 or phoff + phentsize * phnum > len(blob):
             raise AuditError('Malformed ELF program header table')
@@ -131,7 +131,6 @@ def function_audit(elf):
             break
     if not words or not any(r['at_checkpoint'] for r in words):
         raise AuditError('Both stage-3 function and checkpoint must be mapped to file-backed executable bytes')
-    # Linear decode is not a control-flow graph. These are potential references only.
     calls = [r for r in words if r['kind'] in ('direct_call','branch_and_link','indirect_call')]
     control = [r for r in words if r['kind']]
     return words, calls, control
@@ -200,8 +199,6 @@ def find_input_in_root(root):
 
 
 def search_elf(path_arg, roots):
-    # An explicit path always takes precedence. Do not silently switch to a
-    # different game file if the user specified an unusable path.
     if path_arg:
         p = Path(path_arg.strip().strip('"').strip("'")).expanduser()
         return find_input_in_root(p) if p.is_dir() else (p if p.is_file() else None)
@@ -317,7 +314,6 @@ def load_retail_elf(path):
             if len(direct) > 1:
                 raise AuditError('Ambiguous ZIP: more than one SLUS_207.79')
             if len(images) == 1 and images[0].file_size <= 9 * 1024**3:
-                # Python ZipExtFile is seekable: no multi-GB temporary image.
                 with z.open(images[0], 'r') as raw_iso:
                     return read_iso9660_elf_stream(raw_iso), 'zip_contained_iso9660_disc_image'
             raise AuditError('ZIP must contain one SLUS_207.79 or one Budokai 2 ISO/BIN; this may be an audit/output ZIP')
@@ -376,7 +372,6 @@ def source_evidence(files, directory):
             if any(p.search(line) for p in patterns):
                 hits.append(dict(line=i+1, text=line.strip()[:300]))
         results.append(dict(name=key,path=str(path),sha256=before,length_lines=len(lines),hits=hits[:70]))
-        # Scrape no entire generated retail source: small relevant snippets only.
         after = sha256_file(path)
         if after != before:
             raise AuditError('Source changed during read: ' + str(path))
@@ -389,8 +384,6 @@ def source_evidence(files, directory):
     return results
 
 
-# All entries below come from comments in the *local generated source*.
-# They are not trusted as retail ELF bytes or evidence of executed control flow.
 GENERATED_INSTRUCTION_RE = re.compile(r'^\s*//\s*0x([0-9a-fA-F]{6,8}):\s*0x([0-9a-fA-F]{8})\s+(.*)$')
 
 
@@ -466,7 +459,6 @@ def save_tables(directory, words, calls, control):
         f.write('Anchor entry %s; slow-path checkpoint %s\n\n'%(hx(ENTRY),hx(CHECKPOINT)))
         for r in words:
             f.write('%s  %s  %-31s %-20s %s%s\n' % (r['pc'],r['word'],r['mnemonic'],r['kind'],r['target'], '   <-- CHECKPOINT' if r['at_checkpoint'] else ''))
-    # Prioritize *observed decoded* JAL sites after checkpoint, not invented names.
     near = [r for r in calls if int(r['pc'],16) >= CHECKPOINT]
     near.sort(key=lambda r: int(r['pc'],16))
     with (directory / 'REGISTRY_VALIDATION_TARGET_TRIAGE.md').open('w',encoding='utf-8') as f:

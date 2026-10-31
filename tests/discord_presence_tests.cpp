@@ -79,7 +79,7 @@ void send(HANDLE pipe, unsigned op, const std::string &text) {
     auto data = frame(op, text);
     require(io(pipe, true, data.data(), DWORD(data.size())), "Cannot send IPC fixture");
 }
-} // namespace
+}
 int main() {
     try {
         const auto base = L"\\\\?\\pipe\\OpenKai2.DiscordTest." + std::to_wstring(GetCurrentProcessId());

@@ -81,9 +81,6 @@ EXPECTED = {
 def apply_overlay_patch(directory, patch):
     directory = Path(directory).resolve()
     environment = os.environ.copy()
-    # A build directory may be inside the source checkout. Git otherwise
-    # discovers that parent repository and can silently skip diff --git paths
-    # outside its current-directory prefix, even with --no-index.
     for name in ('GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_PREFIX'):
         environment.pop(name, None)
     environment['GIT_CEILING_DIRECTORIES'] = str(directory.parent)
@@ -106,7 +103,6 @@ def main():
     parser.add_argument('--output', required=True, type=Path)
     args = parser.parse_args()
     for name, expected in EXPECTED.items():
-        # Git may check out Windows source with CRLF; verify canonical text.
         data = (args.upstream / name).read_bytes().replace(b'\r\n', b'\n')
         if hashlib.sha256(data).hexdigest() != expected:
             raise SystemExit(f'Unexpected upstream source; preserved without modification: {name}')
@@ -119,9 +115,6 @@ def main():
         shutil.copy2(args.upstream / 'ps2xIOP/include/ps2x/iop/iop_host.h',temporary / 'ps2x/iop/iop_host.h')
         for name in ('ps2_iop_host.cpp','ps2_iop_host.h'):
             shutil.copy2(args.upstream / 'ps2xRuntime/src/lib' / name,temporary / 'runtime' / name)
-        # Quoted includes resolve relative to the including header before -I
-        # paths. Mirror the complete public tree so enclosing runtime headers
-        # cannot silently pull the unpatched vector class into a translation.
         shutil.copytree(args.upstream / 'ps2xRuntime/include', temporary / 'include')
         shutil.copy2(args.upstream / 'ps2xRuntime/src/lib/ps2_vif1_interpreter.cpp', temporary / 'runtime/ps2_vif1_interpreter.cpp')
         shutil.copy2(args.upstream / 'ps2xRuntime/src/lib/ps2_memory.cpp', temporary / 'runtime/ps2_memory.cpp')

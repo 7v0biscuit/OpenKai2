@@ -88,8 +88,6 @@ VectorWorkResult vector_workload(unsigned mode,unsigned iterations) {
     add(capture);add(packets);for(unsigned i=0;i<dataSize;++i)hash=(hash^data[i])*1099511628211ull;
     return {hash,state.cycles,packets,elapsed/double(iterations)};
 }
-// VF00 is read-only during a dual-issued pair, including the lower half.
-// Checking only its value after execute() misses transient upper writes.
 void verify_vector_zero_register() {
     for(bool vu0:{false,true})for(unsigned operation=0;operation<3u;++operation)for(unsigned lower=0;lower<3u;++lower){
         auto m=std::make_unique<PS2Memory>();if(!m->initialize())throw std::runtime_error("Zero register memory initialization failed");
@@ -98,8 +96,8 @@ void verify_vector_zero_register() {
         auto* code=vu0 ? m->getVU0Code() : m->getVU1Code();auto* data=vu0 ? m->getVU0Data() : m->getVU1Data();
         const unsigned codeSize=vu0 ? PS2_VU0_CODE_SIZE : PS2_VU1_CODE_SIZE,dataSize=vu0 ? PS2_VU0_DATA_SIZE : PS2_VU1_DATA_SIZE;
         const uint32_t upperWord=operation==0u ? upper(0x28u,0u,1u,2u) : operation==1u ? upper(0x2bu,0u,1u,2u)
-            : (15u<<21u)|(1u<<11u)|0x13cu; // ITOF0 -> VF00
-        const uint32_t lowerWord=lower==0u ? 0x02000000u|(15u<<21u) : lower==1u ? 0x8000033cu|(15u<<21u)|(4u<<16u) : 0x806303bcu; // SQ/MOVE/DIV from VF00
+            : (15u<<21u)|(1u<<11u)|0x13cu;
+        const uint32_t lowerWord=lower==0u ? 0x02000000u|(15u<<21u) : lower==1u ? 0x8000033cu|(15u<<21u)|(4u<<16u) : 0x806303bcu;
         const uint64_t pair=lowerWord|(uint64_t(upperWord|0x40000000u)<<32u),delay=uint64_t(nop)<<32u;
         std::memcpy(code,&pair,8u);std::memcpy(code+8u,&delay,8u);
         constexpr float a[]={-2,0,3,4},b[]={1,0,-3,-8},constant[]={0,0,0,1};
@@ -133,8 +131,6 @@ void verify_vector_rounding() {
         if(expectedSse==4u)throw std::runtime_error("Unsupported host rounding mode");
         vu->execute(code,PS2_VU1_CODE_SIZE,memory->getVU1Data(),PS2_VU1_DATA_SIZE,*gs,memory.get(),0u,0u,0u,8u);
         const unsigned outgoing=_mm_getcsr();
-        // Match the original CRT contract: restore the mode reported by its
-        // fegetround implementation and retain sticky exception flags.
         if(std::fegetround()!=expectedMode || (outgoing&0x6000u)!=(expectedSse<<13u)
             || (outgoing&~0x6000u)!=(incoming&~0x6000u))
             throw std::runtime_error("Vector host floating-point controls changed: "+std::to_string(cases));
@@ -154,8 +150,6 @@ void verify_vector_live_code() {
     unsigned callbacks=0u;
     memory->setGifPacketCallback([&](const uint8_t*,uint32_t count){
         if(count!=16u || ++callbacks!=1u)throw std::runtime_error("Live-code fixture received an invalid packet");
-        // The current decoded pair stays stable; the next fetch must observe
-        // these tracked writes, including a newly introduced E bit.
         memory->write64(PS2_VU1_CODE_BASE,uint64_t(0xffffffffu)<<32u);
         memory->write64(PS2_VU1_CODE_BASE+8u,integer(2u,0u,99u)|(uint64_t(nop|0x40000000u)<<32u));
     });
@@ -165,7 +159,6 @@ void verify_vector_live_code() {
 }
 void verify_vector_execution() {
     verify_vector_rounding();verify_vector_live_code();
-    // Complete synthetic state and packet snapshots from the original interpreter.
     constexpr uint64_t expected[]={
         0xd6d2f3974219e088ull,0xc616eb640647885cull,0x301b4e8c9e01ead0ull,0x06043d9053426324ull,
         0x25ac3c709bd80ac0ull,0xe8c6742e3896b33eull,0x5cf63bffc0edef85ull,0xbea2dd534137754cull,

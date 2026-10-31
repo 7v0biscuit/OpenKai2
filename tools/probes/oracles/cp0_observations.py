@@ -26,7 +26,6 @@ def expected(kind,before,value=0,event=0,epc=0,error_epc=0):
     return after&0xffffffff,pc&0xffffffff
 
 def native_cases():
-    # Each case uses explicit, predetermined events; NO assertion about timing.
     for k in (1,2,3):
         for si,s in enumerate(STATES):
             for event in (0,1,2):

@@ -12,4 +12,4 @@ class SessionLock {
     void *handle_{};
 };
 bool session_active() noexcept;
-} // namespace openkai2::launcher
+}

@@ -29,7 +29,7 @@ class IrqHandler(unittest.TestCase):
   c,f,s,b,_=self.sample
   self.assertEqual(expected(c,f,s,b,7)[2],1)
   self.assertEqual(expected(c,f,s,b,15)[2],0)
-  self.assertEqual(expected(c,f,s,b,9)[2],1)  # ack without route/handler
+  self.assertEqual(expected(c,f,s,b,9)[2],1)
  def test_both_original_calls_are_observed(self):
   calls=set();poll=False;returns=False
   for c,f,s,b,flags in cases():

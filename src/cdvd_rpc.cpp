@@ -55,8 +55,6 @@ ps2x::iop::RpcResult CdvdRpc::handle(const ps2x::iop::RpcRequest& request) {
         return result;
     };
     if (!readable || !canBind(request.sid)) return fail();
-    // CDVDFSV supports the old 32-byte descriptor and newer 36-byte form;
-    // the 300-byte request adds a layer number after the EE destination.
     const size_t metadata=request.send.size==292u ? 32u : 36u;
     const auto* name=packet.data()+metadata;
     const auto* end=std::find(name,name+256,uint8_t(0));
@@ -92,4 +90,4 @@ ps2x::iop::RpcResult CdvdRpc::handle(const ps2x::iop::RpcRequest& request) {
     host_.log(LogLevel::Info,message.str());
     return result;
 }
-} // namespace openkai2
+}

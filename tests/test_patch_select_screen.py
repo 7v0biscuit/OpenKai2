@@ -45,7 +45,6 @@ class PatchSelectScreen(unittest.TestCase):
                     self.assertIn(replacement, text)
 
     def test_a_file_patched_by_an_earlier_version_gains_the_new_edits(self):
-        # An older version made only the first edit in this file.
         edits = self.files()['sub_002AF000_0x2af000']
         text = translated(edits).replace(edits[0][2], edits[0][3], 1)
         text = module.INCLUDE + module.MARKER + '\n' + text
@@ -58,7 +57,7 @@ class PatchSelectScreen(unittest.TestCase):
     def test_the_offset_edits_cover_the_fields_after_the_cells(self):
         offsets = [edit for edit in module.EDITS if 'select_offset' in edit[3]]
         self.assertEqual(len(offsets), 19)
-        self.assertNotIn(0x2aec28, [edit[1] for edit in module.EDITS])  # a preview-table row, not a cell
+        self.assertNotIn(0x2aec28, [edit[1] for edit in module.EDITS])
 
     def test_a_changed_or_missing_instruction_is_refused(self):
         name, edits = next(iter(self.files().items()))

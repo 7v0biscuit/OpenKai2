@@ -100,8 +100,6 @@ def survey(report:dict)->dict:
     for e in edges:
         if e['to'] and int(e['to'],16) in delay:
             ambiguities.append({'pc':e['from'],'problem':'explicit_control_target_is_another_delay_slot'})
-    # The source window includes a previous function and potentially a next function.
-    # Only entry-reachable PCs may be called this candidate handler's body.
     returns=sorted(int(x['site'],16) for x in exits if x['kind']=='return_via_ra')
     last_return=max(returns) if returns else None
     boundary_candidate=last_return+8 if last_return is not None else None
@@ -113,7 +111,6 @@ def survey(report:dict)->dict:
                for p in partial if advisory_decode(int(rows[p]['word'],16))]
     unrecognized=[hx(p) for p in partial if advisory_decode(int(rows[p]['word'],16)) is None]
     external_exits=sorted({e['target'] for e in exits if e['kind']=='outside_handler_window'})
-    # Distinguish calls from control transfers: direct calls are dependencies, not exits.
     out.update(status='PINNED_ENTRY_CFG_SURVEY_COMPLETE_NOT_NATIVE_TRANSLATION',
         inspected_instruction_count=len(rows),reachable_word_count=len(seen),
         unreachable_window_word_count=len(rows)-len(seen),

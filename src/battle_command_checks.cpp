@@ -13,8 +13,6 @@ void verify_battle_commands(PS2Runtime& runtime,uint8_t* ram) {
     auto require=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
     for(auto entry:translation::battle_command_entries)
         require(runtime.hasFunction(entry),"Battle command handler is not registered");
-    // Bound model/audio dependencies while executing the original command
-    // handlers and both dispatcher switches. Retail objects are not included.
     constexpr uint32_t dependencies[]={0x1c62f0u,0x1c6080u,0x1bdaa0u,0x1bda40u,0x1bda70u,
         0x1bdbc0u,0x1bdb50u,0x1bdb10u,0x1bd8e0u,0x1c6220u,0x1c5d50u,0x1c5ca0u,
         0x1c5bf0u,0x1bdf00u,0x1bdc70u,0x1c59b0u,0x1c25d0u,0x1c5a60u,0x1c6050u,0x1c6150u};

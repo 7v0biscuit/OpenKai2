@@ -52,7 +52,6 @@
 
 namespace openkai2::launcher {
 namespace {
-// Budokai 2's menus: deep night blue, with ember orange and gold for what matters.
 constexpr COLORREF background = RGB(9, 11, 19), sidebar = RGB(12, 14, 24), panel = RGB(17, 20, 33);
 constexpr COLORREF field = RGB(22, 26, 42), raised = RGB(29, 34, 53), hover = RGB(39, 45, 69);
 constexpr COLORREF border = RGB(35, 41, 61), ink = RGB(242, 238, 230), muted = RGB(148, 153, 174);
@@ -61,7 +60,6 @@ constexpr COLORREF red = RGB(255, 112, 102), green = RGB(98, 214, 152);
 constexpr COLORREF ember = RGB(255, 112, 24), sky = RGB(70, 110, 255);
 constexpr COLORREF heroFrom = RGB(64, 24, 8), heroTo = RGB(15, 17, 31);
 
-// Layout is expressed in 96-DPI units and scaled with p().
 constexpr int sidebarWidth = 220, contentLeft = 252, margin = 32;
 constexpr int heroTop = 124, heroBottom = 316, discTop = 332, discBottom = 420;
 constexpr int tilesTop = 436, tilesBottom = 516, keysTop = 540;
@@ -134,10 +132,8 @@ enum Id {
     SaveReport = 220,
     SourceLast = 221
 };
-// Sidebar pages, then the import tool, which opens from the Mods page.
 constexpr int pageCount = 4, modsPage = 2, settingsPage = 3, importPage = 4;
 constexpr std::array<unsigned, 4> audioVolumes{100u, 75u, 50u, 25u};
-// Off, then the volume steps; a hand-edited volume selects the nearest step.
 int audioChoice(const Settings &settings) {
     if (!settings.audio)
         return 0;
@@ -182,7 +178,6 @@ void ellipse(HDC dc, int cx, int cy, int radius, COLORREF color) {
     SelectObject(dc, oldBrush);
     SelectObject(dc, oldPen);
 }
-// Title lettering: the display face with a dark edge traced around it. y is the baseline.
 void lettering(HDC dc, const std::wstring &value, int x, int y, HFONT font, COLORREF color, COLORREF edge,
                int stroke) {
     auto oldFont = SelectObject(dc, font);
@@ -198,8 +193,15 @@ void lettering(HDC dc, const std::wstring &value, int x, int y, HFONT font, COLO
     SetTextAlign(dc, oldAlign);
     SelectObject(dc, oldFont);
 }
-// Light added over a painted 32-bit frame, screen-blended so it brightens
-// without washing colours out.
+std::array<POINT, 6> cutCorners(RECT r, int cut) {
+    return {POINT{r.left + cut, r.top}, POINT{r.right - 1, r.top}, POINT{r.right - 1, r.bottom - 1 - cut},
+            POINT{r.right - 1 - cut, r.bottom - 1}, POINT{r.left, r.bottom - 1}, POINT{r.left, r.top + cut}};
+}
+HRGN cutRegion(RECT r, int cut) {
+    const std::array<POINT, 6> points{POINT{r.left + cut, r.top}, POINT{r.right, r.top}, POINT{r.right, r.bottom - cut},
+                                      POINT{r.right - cut, r.bottom}, POINT{r.left, r.bottom}, POINT{r.left, r.top + cut}};
+    return CreatePolygonRgn(points.data(), int(points.size()), WINDING);
+}
 struct Frame {
     uint32_t *pixels = nullptr;
     int width = 0, height = 0;
@@ -212,14 +214,10 @@ struct Frame {
         pixel = screen(pixel >> 16 & 255, GetRValue(color)) << 16 | screen(pixel >> 8 & 255, GetGValue(color)) << 8 |
                 screen(pixel & 255, GetBValue(color));
     }
-    // Whether (x, y) lies inside `r` with corners rounded by `corner`.
-    static bool inside(RECT r, int corner, int x, int y) {
-        const double qx = std::max(0.0, std::abs(x + 0.5 - (r.left + r.right) / 2.0) - ((r.right - r.left) / 2.0 - corner));
-        const double qy = std::max(0.0, std::abs(y + 0.5 - (r.top + r.bottom) / 2.0) - ((r.bottom - r.top) / 2.0 - corner));
-        return std::hypot(qx, qy) <= corner;
+    static bool inside(RECT r, int cut, int x, int y) {
+        return x >= r.left && x < r.right && y >= r.top && y < r.bottom && (x - r.left) + (y - r.top) >= cut &&
+               (r.right - 1 - x) + (r.bottom - 1 - y) >= cut;
     }
-    // A soft round light, strongest at the centre, limited to `clip` with its
-    // corners rounded by `corner`.
     void radial(RECT clip, int cx, int cy, int radius, COLORREF color, int strength, int corner = 0) const {
         if (!pixels || radius <= 0)
             return;
@@ -235,14 +233,11 @@ struct Frame {
                     light(x, y, color, int(strength * (1.0 - d) * (1.0 - d)));
             }
     }
-    // The two-star Dragon Ball: a glassy orange sphere lit from the upper left,
-    // with two red stars, drawn per pixel with smooth edges.
     void ball(int cx, int cy, int radius, RECT clip) const {
         if (!pixels || radius < 4)
             return;
         GdiFlush();
         const double r = radius;
-        // Five-pointed star test, in units of the ball's radius.
         double star[10][2];
         for (int i = 0; i < 10; ++i) {
             const double angle = -1.5707963 + i * 0.6283185, length = i % 2 ? 0.42 : 1.0;
@@ -259,11 +254,10 @@ struct Frame {
                     in = !in;
             return in;
         };
-        const double lx = -0.42, ly = -0.55, lz = 0.72; // light, normalised enough
+        const double lx = -0.42, ly = -0.55, lz = 0.72;
         for (int y = std::max<int>({0, int(clip.top), cy - radius - 1}); y < std::min<int>({height, int(clip.bottom), cy + radius + 1}); ++y)
             for (int x = std::max<int>({0, int(clip.left), cx - radius - 1}); x < std::min<int>({width, int(clip.right), cx + radius + 1}); ++x) {
                 double red = 0, green = 0, blue = 0, cover = 0;
-                // Four samples a pixel, for smooth edges and star points.
                 for (int s = 0; s < 4; ++s) {
                     const double nx = (x + 0.25 + 0.5 * (s & 1) - cx) / r, ny = (y + 0.25 + 0.5 * (s >> 1) - cy) / r;
                     const double d2 = nx * nx + ny * ny;
@@ -271,7 +265,6 @@ struct Frame {
                         continue;
                     const double nz = std::sqrt(1.0 - d2);
                     const double diffuse = std::max(0.0, nx * lx + ny * ly + nz * lz);
-                    // Light passing through the glass gathers at the lower right.
                     const double through = std::max(0.0, nx * 0.45 + ny * 0.5 + nz * 0.25);
                     double cr = 150 + 105 * diffuse + 40 * through, cg = 50 + 95 * diffuse + 60 * through,
                            cb = 6 + 20 * diffuse + 20 * through;
@@ -298,8 +291,6 @@ struct Frame {
                 pixel = blend(16, red) | blend(8, green) | blend(0, blue);
             }
     }
-    // Aura streaks bursting out from (cx, cy), fading between `inner` and
-    // `outer`, limited to `clip` with its corners rounded by `corner`.
     void rays(RECT clip, int corner, int cx, int cy, int inner, int outer, COLORREF color, int strength) const {
         if (!pixels || outer <= inner)
             return;
@@ -310,35 +301,33 @@ struct Frame {
                 if (d < inner || d > outer || !inside(clip, corner, x, y))
                     continue;
                 const double a = std::atan2(double(y - cy), double(x - cx));
-                // Uneven streaks: a fine pattern broken up by a slower one.
                 const double streak = std::pow(0.5 + 0.5 * std::cos(a * 36), 6) * (0.55 + 0.45 * std::cos(a * 7 + 1.3));
                 const double fade = (d - inner) / (outer - inner);
                 light(x, y, color, int(strength * streak * (1.0 - fade) * std::min(1.0, fade * 4)));
             }
     }
-    // A glow around a rounded rectangle, fading out over `radius` pixels.
-    void halo(RECT r, int corner, int radius, COLORREF color, int strength) const {
+    void halo(RECT r, int cut, int radius, COLORREF color, int strength) const {
         if (!pixels || radius <= 0)
             return;
         GdiFlush();
-        const double cx = (r.left + r.right) / 2.0, cy = (r.top + r.bottom) / 2.0;
-        const double hx = (r.right - r.left) / 2.0 - corner, hy = (r.bottom - r.top) / 2.0 - corner;
         for (int y = std::max<int>(0, r.top - radius); y < std::min<int>(height, r.bottom + radius); ++y)
             for (int x = std::max<int>(0, r.left - radius); x < std::min<int>(width, r.right + radius); ++x) {
-                const double qx = std::max(0.0, std::abs(x + 0.5 - cx) - hx), qy = std::max(0.0, std::abs(y + 0.5 - cy) - hy);
-                const double d = std::hypot(qx, qy) - corner;
+                const double px = x + 0.5, py = y + 0.5;
+                const double qx = std::max({0.0, r.left - px, px - r.right}), qy = std::max({0.0, r.top - py, py - r.bottom});
+                const double d = std::max({std::hypot(qx, qy), (cut - (px - r.left) - (py - r.top)) / 1.4142,
+                                           (cut - (r.right - px) - (r.bottom - py)) / 1.4142});
                 if (d > 0 && d < radius)
                     light(x, y, color, int(strength * (1.0 - d / radius) * (1.0 - d / radius)));
             }
     }
 };
 struct Fonts {
-    HFONT body{}, caption{}, label{}, heading{}, brand{}, strong{}, wordmark{};
+    HFONT body{}, caption{}, label{}, heading{}, brand{}, strong{}, wordmark{}, title{}, mark{};
     void clear() {
-        for (auto f : {body, caption, label, heading, brand, strong, wordmark})
+        for (auto f : {body, caption, label, heading, brand, strong, wordmark, title, mark})
             if (f)
                 DeleteObject(f);
-        body = caption = label = heading = brand = strong = wordmark = nullptr;
+        body = caption = label = heading = brand = strong = wordmark = title = mark = nullptr;
     }
     void make(unsigned dpi, const wchar_t *lettering) {
         clear();
@@ -354,13 +343,15 @@ struct Fonts {
         brand = font(17, FW_SEMIBOLD);
         strong = font(14, FW_SEMIBOLD);
         wordmark = font(58, FW_NORMAL, lettering);
+        title = font(40, FW_NORMAL, lettering);
+        mark = font(25, FW_NORMAL, lettering);
     }
     ~Fonts() { clear(); }
 };
 struct Progress {
     std::mutex mutex;
     std::wstring text;
-    uint64_t done = 0, total = 0; // bytes, for the import tool's progress bar
+    uint64_t done = 0, total = 0;
 };
 enum class Job {
     verify, launch, backup, importSave, restore, afterExit, checkUpdate, downloadUpdate, unlock,
@@ -377,7 +368,6 @@ struct Result {
     std::shared_ptr<mods::SourceDisc> loaded;
     std::optional<mods::DiscRoster> roster;
     mods::DiscIdentity identity;
-    // For a Budokai 3 disc, why each stage can't be imported, if it can't.
     std::vector<std::optional<std::string>> stageProblems;
 };
 struct Grid {
@@ -397,8 +387,6 @@ struct Window {
     const wchar_t *letteringFace = L"Bangers";
     unsigned dpi = 96;
     int page = 0, hotButton = 0;
-    // The last painted frame. Owner-drawn controls copy what lies behind
-    // their rounded corners from it, so they sit on lit surfaces cleanly.
     struct FrameBuffer {
         HDC dc{};
         HBITMAP bitmap{};
@@ -436,8 +424,9 @@ struct Window {
         }
         ~FrameBuffer() { release(); }
     } buffer;
-    std::vector<uint32_t> ambient; // the lit background, kept while the size stays
+    std::vector<uint32_t> ambient;
     int paintedPage = -1;
+    std::vector<int> paintedGlow;
     std::pair<int, int> paintedSize;
     Settings settings;
     DiscordPresence presence;
@@ -455,29 +444,19 @@ struct Window {
         {1280, 720}, {1600, 900}, {1920, 1080}, {2560, 1440}, {3840, 2160}};
     std::vector<std::filesystem::path> backups;
     std::vector<mods::ModInfo> modList;
-    // The import tool reads a source disc and writes into a mod; the game
-    // disc supplies the archives and entries an import can target.
     std::shared_ptr<mods::SourceDisc> source, game;
-    // Budokai 2 discs list their characters, each with its files grouped.
     std::optional<mods::DiscRoster> sourceRoster, gameRoster;
     std::optional<std::vector<mods::DiscStage>> sourceStages;
-    // Movesets: a Budokai 2 character's moves on another's body. Stages: the
-    // source's stages, listed until they can be added.
     bool movesView = false, stageView = false;
-    // The game disc's own stage table, for the B stages a stage import fills.
     std::optional<std::vector<mods::DiscStage>> gameStages;
-    std::vector<std::optional<std::string>> sourceStageProblems; // per source stage, from readDisc
-    // Stages import from Budokai 3, whose packs are unpacked into the eight
-    // files a Budokai 2 stage names.
+    std::vector<std::optional<std::string>> sourceStageProblems;
     bool stageImport() const {
         return mods::stage_mods_enabled && stageView && sourceIdentity.game == mods::DragonBallGame::budokai3 &&
                gameStages && game;
     }
-    // What the import tool brings into Budokai 2. Only characters are mapped
-    // so far, and only from Budokai 2 discs; imports only ever add.
     enum class Task { characters, stages, movesets, capsules } importTask = Task::characters;
     mods::DiscIdentity sourceIdentity, gameIdentity;
-    bool characterView = false; // characters from a disc whose tables are mapped
+    bool characterView = false;
     std::vector<size_t> sourceRows;
     std::vector<std::string> savedGames;
     HANDLE child{};
@@ -525,7 +504,6 @@ struct Window {
         DrawTextW(dc, value.c_str(), int(value.size()), &r, flags);
         SelectObject(dc, old);
     }
-    // Small spaced capitals used for section and field labels.
     void caps(HDC dc, const std::wstring &value, int x, int y, int w, COLORREF color = muted,
               UINT flags = DT_LEFT) {
         const int spacing = SetTextCharacterExtra(dc, p(1));
@@ -539,21 +517,21 @@ struct Window {
         SelectObject(dc, old);
         return unscale(size.cx);
     }
+    int cut(int radius) const { return std::max(2, p(radius) * 3 / 5); }
     void box(HDC dc, RECT rect, COLORREF color, COLORREF outline = border, int radius = 10) {
         SetDCBrushColor(dc, color);
         SetDCPenColor(dc, outline);
         auto oldBrush = SelectObject(dc, GetStockObject(DC_BRUSH));
         auto oldPen = SelectObject(dc, GetStockObject(DC_PEN));
-        RoundRect(dc, rect.left, rect.top, rect.right, rect.bottom, p(radius), p(radius));
+        const auto points = cutCorners(rect, cut(radius));
+        Polygon(dc, points.data(), int(points.size()));
         SelectObject(dc, oldBrush);
         SelectObject(dc, oldPen);
     }
     void panelBox(HDC dc, int left, int top, int right, int bottom) {
         box(dc, {p(left), p(top), p(right), p(bottom)}, panel, mix(panel, border, 150), 12);
-        // A lighter top edge, as if lit from above.
-        fill(dc, {p(left + 8), p(top) + 1, p(right - 8), p(top) + 2}, mix(panel, ink, 16));
+        fill(dc, {p(left) + cut(12) + 1, p(top) + 1, p(right) - 2, p(top) + 2}, mix(panel, ink, 16));
     }
-    // A visible control's rectangle in the window, in device pixels.
     std::optional<RECT> controlRect(int id) const {
         const auto found = controls.find(id);
         if (found == controls.end() || !(GetWindowLongPtrW(found->second, GWL_STYLE) & WS_VISIBLE))
@@ -563,8 +541,6 @@ struct Window {
         MapWindowPoints(nullptr, hwnd, reinterpret_cast<POINT *>(&r), 2);
         return r;
     }
-    // Paints what lies behind `control` from the last frame, or a flat
-    // surface before the first one.
     void backdrop(HDC dc, HWND control, const RECT &r, COLORREF fallback) {
         RECT bounds{};
         GetWindowRect(control, &bounds);
@@ -575,9 +551,8 @@ struct Window {
         else
             fill(dc, r, fallback);
     }
-    // The primary buttons' fill: gold at the top warming to orange.
     void emberFill(HDC dc, RECT r, int radius, bool pressed, bool hot) {
-        auto region = CreateRoundRectRgn(r.left, r.top, r.right + 1, r.bottom + 1, p(radius), p(radius));
+        auto region = cutRegion(r, cut(radius));
         SelectClipRgn(dc, region);
         const COLORREF top = pressed ? RGB(236, 120, 22) : hot ? RGB(255, 214, 110) : RGB(255, 186, 70);
         const COLORREF bottom = pressed ? RGB(214, 96, 14) : hot ? RGB(255, 150, 44) : RGB(250, 126, 22);
@@ -640,8 +615,6 @@ struct Window {
         GetClassNameW(c, type, 32);
         int allocatedHeight = p(h);
         if (lstrcmpiW(type, L"ComboBox") == 0) {
-            // The height given to a native combo includes its drop list, while
-            // GetWindowRect later reports only the collapsed field.
             const auto rows = std::min<LRESULT>(8, SendMessageW(c, CB_GETCOUNT, 0, 0));
             allocatedHeight = std::max(allocatedHeight, p(36)) + int(rows) * p(34) + p(8);
             SendMessageW(c, CB_SETITEMHEIGHT, WPARAM(-1), p(h - 6));
@@ -780,7 +753,6 @@ struct Window {
         const auto rowCount = SendMessageW(controls[BackupList], LB_GETCOUNT, 0, 0);
         SetWindowTextW(controls[SelectSaves], rowCount > 0 && selections == size_t(rowCount) ? L"Clear all" : L"Select all");
         EnableWindow(controls[BackupList], !busy() && !child);
-        // Mods are read when the game starts, so they change only while it is closed.
         const bool modding = !busy() && !running();
         const auto chosenMod = SendMessageW(controls[ModList], LB_GETCURSEL, 0, 0);
         const bool modChosen = chosenMod >= 0 && size_t(chosenMod) < modList.size();
@@ -809,8 +781,6 @@ struct Window {
                             (stageImport() && spot >= 0 && SendMessageW(controls[SourceFiles], LB_GETCURSEL, 0, 0) >= 0 &&
                              !stageProblem(size_t(SendMessageW(controls[SourceFiles], LB_GETCURSEL, 0, 0))));
         EnableWindow(controls[ImportSelected], modding && picked);
-        // Preferences stay editable while a disc check or game session runs;
-        // the next game process reads them.
         EnableWindow(controls[Resolution], settings.windowMode == 0);
         for (int id : {UpdateChannel, AutomaticUpdates, CheckUpdates, InstallUpdate})
             EnableWindow(controls[id], !updating() &&
@@ -858,7 +828,6 @@ struct Window {
             const int panelBottom = h - 64;
             position(OpenImporter, right - 20 - 140, 142, 140, 36);
             position(ModFolder, right - 20 - 140 - 12 - 160, 142, 160, 36);
-            // The load order on the left, what the chosen mod adds on the right.
             const int half = (content - 52) / 2, contentsLeft = contentLeft + 32 + half;
             position(ModList, contentLeft + 20, 252, half, std::max(80, panelBottom - 64 - 252));
             position(ModContents, contentsLeft, 252, half, std::max(60, panelBottom - 112 - 252));
@@ -889,7 +858,6 @@ struct Window {
             position(SourceLast, right - 20 - 130 - 10 - 110, 214, 110, 34);
             position(SourceGame, right - 20 - 130 - 10 - 110 - 10 - 116, 214, 116, 34);
             position(SaveReport, right - 20 - 130 - 10 - 110 - 10 - 116 - 10 - 130, 214, 130, 34);
-            // Lists appear only for characters from a disc whose tables are mapped.
             if (characterView) {
                 const int listTop = 304, listHeight = listsBottom - 14 - listTop, half = (content - 52) / 2;
                 position(EntryFilter, contentLeft + 20 + half - 190, 276, 180, 20);
@@ -954,12 +922,13 @@ struct Window {
         fill(dc, {p(sidebarWidth) - 1, 0, p(sidebarWidth), p(h)}, mix(sidebar, border, 170));
         buffer.frame.radial({0, 0, p(sidebarWidth) - 1, p(h)}, p(38), p(48), p(40), ember, 90);
         buffer.frame.ball(p(38), p(48), p(15), {0, 0, p(sidebarWidth), p(h)});
-        text(dc, L"OpenKai2", 64, 28, 150, 24, fonts.brand);
-        text(dc, L"Budokai 2 for PC", 64, 51, 150, 18, fonts.caption, muted);
-        // The current page: warm light from the left edge of its row.
+        lettering(dc, L"OpenKai2", p(64), p(46), fonts.mark, ink, RGB(6, 7, 12), p(1));
+        text(dc, L"Budokai 2 for PC", 64, 52, 150, 18, fonts.caption, muted);
         const int chosen = page == importPage ? modsPage : page;
         const RECT row{p(12), p(104 + chosen * 58), p(sidebarWidth - 12), p(154 + chosen * 58)};
-        auto region = CreateRoundRectRgn(row.left, row.top, row.right + 1, row.bottom + 1, p(10), p(10));
+        const int slant = p(10);
+        const POINT band[] = {{row.left + slant, row.top}, {row.right, row.top}, {row.right - slant, row.bottom}, {row.left, row.bottom}};
+        auto region = CreatePolygonRgn(band, 4, WINDING);
         SelectClipRgn(dc, region);
         const int span = std::max(1L, row.right - row.left);
         for (int x = row.left; x < row.right; x += 2)
@@ -967,9 +936,14 @@ struct Window {
                  mix(mix(sidebar, orange, 40), sidebar, (x - row.left) * 255 / span));
         SelectClipRgn(dc, nullptr);
         DeleteObject(region);
-        const RECT bar{row.left, row.top + p(13), row.left + p(3), row.bottom - p(13)};
-        fill(dc, bar, orange);
-        buffer.frame.halo(bar, 0, p(12), ember, 120);
+        const POINT edge[] = {{row.left + slant, row.top}, {row.left + slant + p(2), row.top}, {row.left + p(2), row.bottom},
+                              {row.left, row.bottom}};
+        SetDCBrushColor(dc, orange);
+        auto oldBrush = SelectObject(dc, GetStockObject(DC_BRUSH));
+        auto oldPen = SelectObject(dc, GetStockObject(NULL_PEN));
+        Polygon(dc, edge, 4);
+        SelectObject(dc, oldBrush);
+        SelectObject(dc, oldPen);
 
         const int top = h - 162;
         line(dc, p(24), p(top - 10), p(sidebarWidth - 48), border);
@@ -990,10 +964,9 @@ struct Window {
             L"Characters, movesets and stages layered over your disc. Your ISO is never changed.",
             L"Saved automatically. Game settings apply at the next launch.",
             L"Add characters, stages and movesets from other Dragon Ball Z games. Nothing in Budokai 2 is removed."};
-        text(dc, titles[page], contentLeft, 28, content - 180, 34, fonts.heading);
-        text(dc, subtitles[page], contentLeft, 66, content, 20, fonts.caption, muted,
+        lettering(dc, titles[page], p(contentLeft), p(60), fonts.title, ink, RGB(6, 7, 12), p(2));
+        text(dc, subtitles[page], contentLeft, 72, content, 20, fonts.caption, muted,
              DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
-        // The state of the game, quietly, at the right of the title.
         const auto label = stateLabel();
         const int labelWidth = measure(dc, label, fonts.caption), left = w - margin - labelWidth;
         ellipse(dc, p(left - 12), p(47), p(3), stateColor());
@@ -1001,7 +974,6 @@ struct Window {
         text(dc, label, left, 38, labelWidth + 4, 20, fonts.caption, muted, DT_LEFT | DT_SINGLELINE | DT_NOPREFIX);
         rule(dc, contentLeft, 104, content);
     }
-    // A hairline that fades out towards its right end.
     void rule(HDC dc, int x, int y, int width) {
         const int steps = 24;
         for (int i = 0; i < steps; ++i)
@@ -1021,16 +993,15 @@ struct Window {
     void paintPlay(HDC dc, int content) {
         const int right = contentLeft + content;
         const RECT hero{p(contentLeft), p(heroTop), p(right), p(heroBottom)};
-        auto region = CreateRoundRectRgn(hero.left, hero.top, hero.right + 1, hero.bottom + 1, p(14), p(14));
+        auto region = cutRegion(hero, p(18));
         SelectClipRgn(dc, region);
         const int span = std::max(1L, hero.right - hero.left);
         for (int x = hero.left; x < hero.right; x += 2)
             fill(dc, {x, hero.top, x + 2, hero.bottom}, mix(heroFrom, heroTo, (x - hero.left) * 255 / span));
-        // The two-star ball, glowing at the right of the banner.
         const int cx = right - 112, cy = heroTop + 96;
-        buffer.frame.rays(hero, p(7), p(cx), p(cy), p(50), p(300), gold, 46);
-        buffer.frame.radial(hero, p(cx), p(cy), p(190), ember, 110, p(7));
-        buffer.frame.radial(hero, p(contentLeft), p(heroTop), p(260), ember, 34, p(7));
+        buffer.frame.rays(hero, p(18), p(cx), p(cy), p(50), p(300), gold, 46);
+        buffer.frame.radial(hero, p(cx), p(cy), p(190), ember, 110, p(18));
+        buffer.frame.radial(hero, p(contentLeft), p(heroTop), p(260), ember, 34, p(18));
         if (content > 620)
             buffer.frame.ball(p(cx), p(cy), p(58), hero);
         fill(dc, {hero.left, hero.top + 1, hero.right, hero.top + 2}, mix(heroFrom, gold, 60));
@@ -1063,7 +1034,6 @@ struct Window {
             headline = L"No disc selected";
             detail = L"Choose your USA ISO below to get started.";
         }
-        // On its own, the headline sits level with the Play button.
         text(dc, headline, contentLeft + 214, heroBottom - (detail.empty() ? 59 : 69), content - 400, 22, fonts.strong);
         text(dc, detail, contentLeft + 214, heroBottom - 47, content - 400, 20, fonts.caption,
              RGB(214, 196, 180), DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
@@ -1145,7 +1115,6 @@ struct Window {
                  content-72,38,fonts.caption,muted,DT_CENTER|DT_WORDBREAK|DT_NOPREFIX);
         }
     }
-    // Edit controls have no frame of their own; this draws the field around one.
     void editFrame(HDC dc, int id) {
         auto control = controls.at(id);
         if (!(GetWindowLongPtrW(control, GWL_STYLE) & WS_VISIBLE))
@@ -1267,8 +1236,6 @@ struct Window {
             total = progress->total;
         }
         if (busy() && modJob(activeJob)) {
-            // A bar fills with the bytes copied; reading a disc has no total, so
-            // a short segment sweeps across instead.
             const int left = contentLeft + 130, width = content - 150 - 52, top = targetTop + 17;
             box(dc, {p(left), p(top), p(left + width), p(top + 8)}, field, border, 8);
             int from = 0, to = 0;
@@ -1286,7 +1253,6 @@ struct Window {
                  targetTop + 10, 44, 22, fonts.strong, ink, DT_LEFT | DT_SINGLELINE | DT_NOPREFIX);
         }
         if (characterView) {
-            // How many more characters fit.
             const auto free = freeIds;
             if (!(busy() && modJob(activeJob))) {
                 text(dc,
@@ -1297,7 +1263,6 @@ struct Window {
             }
             caps(dc, L"SAVE TO", contentLeft + 20, targetTop + 34, 220);
             caps(dc, L"ON THE SELECT SCREEN", contentLeft + 252, targetTop + 34, 260);
-            // One plain sentence says what pressing Import will do.
             text(dc, plan(), contentLeft + 20, targetTop + 94, content - 40, 36, fonts.caption, ink,
                  DT_LEFT | DT_WORDBREAK | DT_END_ELLIPSIS | DT_NOPREFIX);
         } else if (stageImport()) {
@@ -1309,10 +1274,8 @@ struct Window {
                  contentLeft + 20, targetTop + 48, content - 40, 20, fonts.caption, muted,
                  DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
     }
-    // The B stage record a target row stands for, and the stage it reuses.
     static constexpr uint32_t stageSlots = mods::stage_count - mods::stage_first_variant;
     std::wstring stageName(uint32_t record) const {
-        // Budokai 2 USA's stage names, until its stage table has been read.
         static const char *const names[] = {"ISLAND", "TOWN", "ROOM TIME MIND", "BUDO", "R&R BASE", "SNOW", "GARDEN",
                                             "NAMEC", "KAIOH SHIN", "ISLAND B", "TOWN B", "R&R BASE B", "SNOW B"};
         if (gameStages && record < gameStages->size())
@@ -1454,7 +1417,6 @@ struct Window {
         if (ambient.size() != pixels) {
             fill(memory, rect, background);
             fill(memory, {0, 0, p(sidebarWidth), rect.bottom}, sidebar);
-            // Faint ambient light: warm from above the title, cool from below the sidebar.
             buffer.frame.radial(rect, rect.right * 3 / 4, -p(160), p(620), ember, 30);
             buffer.frame.radial(rect, 0, rect.bottom + p(60), p(440), sky, 22);
             ambient.assign(buffer.frame.pixels, buffer.frame.pixels + pixels);
@@ -1486,18 +1448,19 @@ struct Window {
             ellipse(memory, p(contentLeft + 4), p(footer + 9), p(3), red);
         text(memory, message, contentLeft + (error ? 14 : 0), footer, content - (error ? 14 : 0), 20,
              fonts.caption, error ? red : muted, DT_LEFT | DT_END_ELLIPSIS | DT_SINGLELINE | DT_NOPREFIX);
-        // The actions that matter glow.
         const int task[] = {TaskCharacters, TaskStages, TaskMovesets, TaskCapsules};
+        std::vector<int> glowing;
         for (int id : {int(Play), int(ImportSelected), task[int(importTask)]})
-            if (const auto r = controlRect(id); r && IsWindowEnabled(controls.at(id)))
-                buffer.frame.halo(*r, p(id == Play ? 6 : 5), p(id == Play ? 22 : 14), ember, id == Play ? 120 : 80);
+            if (const auto r = controlRect(id); r && IsWindowEnabled(controls.at(id))) {
+                buffer.frame.halo(*r, cut(id == Play ? 12 : 10), p(id == Play ? 22 : 14), ember, id == Play ? 120 : 80);
+                glowing.push_back(id);
+            }
         BitBlt(dc, 0, 0, rect.right, rect.bottom, memory, 0, 0, SRCCOPY);
         EndPaint(hwnd, &ps);
-        // Controls show the frame behind their corners; a new page or size
-        // changes it.
-        if (paintedPage != page || paintedSize != std::pair<int, int>{rect.right, rect.bottom}) {
+        if (paintedPage != page || paintedSize != std::pair<int, int>{rect.right, rect.bottom} || paintedGlow != glowing) {
             paintedPage = page;
             paintedSize = {rect.right, rect.bottom};
+            paintedGlow = glowing;
             for (auto [id, control] : controls)
                 InvalidateRect(control, nullptr, FALSE);
         }
@@ -1567,12 +1530,10 @@ struct Window {
             COLORREF label;
             const bool lit = (primary || taskChoice || id == ImportSelected) && enabled;
             if (navigation) {
-                // The page's own row is lit by the window; others only on hover.
                 if (hot && !chosen)
                     box(dc, r, mix(sidebar, ink, 10), mix(sidebar, ink, 10), 10);
                 label = chosen || hot ? ink : muted;
             } else if (lit) {
-                // The chosen task and the Import action stand out like Play.
                 emberFill(dc, r, primary ? 12 : 10, pressed, hot);
                 label = RGB(36, 16, 4);
             } else {
@@ -1580,7 +1541,7 @@ struct Window {
                 const COLORREF outline = !enabled ? mix(panel, border, 140) : hot ? mix(border, orange, 110) : border;
                 box(dc, r, color, outline, 10);
                 if (enabled && !pressed)
-                    fill(dc, {r.left + p(6), r.top + 1, r.right - p(6), r.top + 2}, mix(color, ink, 18));
+                    fill(dc, {r.left + cut(10) + 1, r.top + 1, r.right - 1, r.top + 2}, mix(color, ink, 18));
                 label = enabled ? ink : faint;
                 if (id == DeleteSelected && enabled) label = red;
             }
@@ -1610,13 +1571,14 @@ struct Window {
                 DrawTextW(dc, text, -1, &textRect, DT_SINGLELINE | DT_VCENTER | DT_CENTER | DT_NOPREFIX);
             }
             SelectObject(dc, old);
-            if ((item.itemState & ODS_FOCUS) && !(item.itemState & ODS_NOFOCUSRECT)) {
+            if ((item.itemState & ODS_FOCUS) && !(item.itemState & ODS_NOFOCUSRECT) && !chosen) {
                 RECT focus = r;
                 InflateRect(&focus, -p(3), -p(3));
                 SetDCPenColor(dc, lit ? RGB(36, 16, 4) : navigation ? mix(sidebar, orange, 70) : orange);
                 auto pen = SelectObject(dc, GetStockObject(DC_PEN));
                 auto brush = SelectObject(dc, GetStockObject(NULL_BRUSH));
-                RoundRect(dc, focus.left, focus.top, focus.right, focus.bottom, p(8), p(8));
+                const auto points = cutCorners(focus, cut(8));
+                Polygon(dc, points.data(), int(points.size()));
                 SelectObject(dc, pen);
                 SelectObject(dc, brush);
             }
@@ -1643,8 +1605,6 @@ struct Window {
         SetBkMode(dc, TRANSPARENT);
         r.left += p(14);
         r.right -= p(10);
-        // A label's parts, joined by middle dots, show as columns: the first
-        // in full ink, the rest quieter. A mod's On or Off shows as a dot.
         std::vector<std::wstring> parts;
         for (size_t start = 0;;) {
             const size_t end = value.find(L'\u00b7', start);
@@ -1679,7 +1639,6 @@ struct Window {
         backups = disc ? list_backups(backupPath()) : std::vector<std::filesystem::path>{};
         SendMessageW(controls[BackupList], LB_RESETCONTENT, 0, 0);
         if (!gameSaveList()) for (const auto &p : backups) {
-            // Show the local modification time; the filename stays the stable ID.
             const auto time = std::filesystem::last_write_time(p);
             const auto system = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
                 time - std::filesystem::file_time_type::clock::now() + std::chrono::system_clock::now());
@@ -1714,14 +1673,10 @@ struct Window {
         auto text = std::to_wstring(value);
         return std::wstring(text.size() < 4 ? 4 - text.size() : 0, L'0') + text;
     }
-    // What the chosen mod adds: a row per character it fills, with the spot
-    // it takes, then its file counts. contentSlots holds each row's character
-    // ID, or nothing for rows that are not characters.
     std::vector<std::optional<uint32_t>> contentSlots;
-    std::vector<std::optional<uint32_t>> contentStages; // stage record per row, for stage rows
-    std::multimap<std::string, std::wstring> importedFrom; // imports.txt source -> mod name
+    std::vector<std::optional<uint32_t>> contentStages;
+    std::multimap<std::string, std::wstring> importedFrom;
     unsigned freeIds = 0;
-    // The mod a source disc entry was already imported into, if any.
     std::optional<std::wstring> importedInto(size_t entry) const {
         if (!source)
             return std::nullopt;
@@ -1811,8 +1766,6 @@ struct Window {
             for (int id : {ModList, ModContents, ModRename, ModDelete, ModRemove})
                 ShowWindow(controls[id], modList.empty() ? SW_HIDE : SW_SHOWNA);
         fillModContents();
-        // What the import tool shows about the mods: where each source entry
-        // was imported to, and the character IDs still free.
         importedFrom.clear();
         std::vector<std::filesystem::path> folders;
         for (const auto &mod : modList) {
@@ -1834,8 +1787,6 @@ struct Window {
         SendMessageW(target, CB_SETCURSEL, previous > 0 && size_t(previous) <= modList.size() ? previous : 0, 0);
         refreshEnabled();
     }
-    // Import tool work runs on a worker thread so the window keeps
-    // responding; it reports through `progress` and finishes in timer().
     void startModJob(Job kind, const std::wstring &label, std::function<Result(const std::shared_ptr<Progress> &)> work) {
         if (busy() || child)
             return;
@@ -1863,7 +1814,6 @@ struct Window {
         const auto percent = total ? done * 100 / total : 100;
         progress->text = text + L"   " + std::to_wstring(percent) + L"%";
     }
-    // Reads a disc, its game and, for Budokai 2, its characters.
     static Result readDisc(Job kind, const std::filesystem::path &image) {
         Result result{kind};
         result.loaded = std::make_shared<mods::SourceDisc>(image);
@@ -1879,8 +1829,6 @@ struct Window {
                     result.stageProblems.push_back(mods::budokai3_stage_problem(*result.loaded, stage));
         return result;
     }
-    // An ISO dropped on the window: the import tool reads it as the disc to
-    // import from; anywhere else it becomes the game disc.
     void dropped(HDROP drop) {
         std::wstring name(size_t(DragQueryFileW(drop, 0, nullptr, 0)) + 1, L'\0');
         DragQueryFileW(drop, 0, name.data(), UINT(name.size()));
@@ -1908,12 +1856,10 @@ struct Window {
         savedGames.clear();
         start(Job::verify, image);
     }
-    // Saves where the window is, so it opens there next time.
     void rememberPlacement() {
         WINDOWPLACEMENT placement{sizeof(placement)};
         if (!GetWindowPlacement(hwnd, &placement))
             return;
-        // The restored size; for a window on screen, its exact place.
         RECT r = placement.rcNormalPosition;
         if (!IsIconic(hwnd) && !IsZoomed(hwnd))
             GetWindowRect(hwnd, &r);
@@ -1956,7 +1902,6 @@ struct Window {
         SetWindowTextW(controls[EntryFilter], L"");
         setTask(importTask);
     }
-    // Switches what the import tool shows for the chosen content.
     void setTask(Task next) {
         importTask = next;
         movesView = importTask == Task::movesets && sourceRoster && !sourceRoster->models;
@@ -1973,9 +1918,6 @@ struct Window {
         spotModes();
         refreshEnabled();
     }
-    // How an import goes on the select screen. Models from another game can
-    // also be added in every version at once, to see in game which one Budokai
-    // 2 draws correctly, or forced whole onto any character as a new one.
     static constexpr int compareVersions = 2, forceModel = 3;
     void spotModes() {
         const bool models = characterView && sourceRoster->models;
@@ -1994,7 +1936,6 @@ struct Window {
             SendMessageW(list, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(mode));
         SendMessageW(list, CB_SETCURSEL, WPARAM(std::max<LRESULT>(keep, 0)), 0);
     }
-    // The left list: characters by name, filtered by the search box.
     void fillSourceList() {
         const auto *kept = sourceCharacter();
         const auto keptId = kept ? int(kept->id) : -1;
@@ -2027,13 +1968,11 @@ struct Window {
             const auto &character = sourceRoster->characters[i];
             auto label = wide(character.name);
             if (sourceRoster->models && gameRoster) {
-                // Say who can wear each model, so a model nobody fits is plain.
                 const auto fit = mods::fitting_wearers(*sourceRoster, character.id, *gameRoster);
                 label += fit.empty() ? L"   ·   no Budokai 2 match"
                                      : L"   ·   fits " + wide(gameRoster->find(fit.front())->name) +
                                            (fit.size() > 1 ? L" +" + std::to_wstring(fit.size() - 1) : L"");
             }
-            // Mark what is already imported, so it isn't added twice by mistake.
             if (!movesView && !character.files.empty())
                 if (const auto mod = importedInto(character.files.front().second))
                     label += L"   ·   already in " + *mod;
@@ -2054,14 +1993,11 @@ struct Window {
                    ? &sourceRoster->characters[sourceRows[size_t(row)]]
                    : nullptr;
     }
-    // The right list: the spots on the game's select screen.
     void fillTargetList() {
         auto list = controls[TargetList];
         const auto keep = SendMessageW(list, LB_GETCURSEL, 0, 0);
         SendMessageW(list, LB_RESETCONTENT, 0, 0);
         if (stageImport()) {
-            // Each B stage, the stage whose files it reuses, and a mod that
-            // already filled it.
             std::map<uint32_t, std::wstring> filled;
             for (const auto &mod : modList)
                 if (mod.enabled)
@@ -2093,7 +2029,6 @@ struct Window {
         }
         SendMessageW(list, LB_SETCURSEL, WPARAM(keep >= 0 && keep < LRESULT(mods::roster_select_cells) ? keep : 0), 0);
     }
-    // Every DATA_CMN entry a character's record names, once each.
     static std::vector<size_t> characterEntries(const mods::DiscCharacter &character) {
         std::vector<size_t> entries;
         for (const auto &file : character.files)
@@ -2124,13 +2059,11 @@ struct Window {
         } catch (const std::exception &) {
             gameStages.reset();
         }
-        // The game disc is the source until another disc is chosen.
         if (!source)
             showSource(game, gameRoster, std::move(identity));
         else
             setTask(importTask);
     }
-    // The mod chosen under Save to, or a new one named after what is imported.
     std::filesystem::path importMod(const std::string &name) {
         const int choice = selected(TargetMod);
         if (choice > 0 && size_t(choice) <= modList.size())
@@ -2147,10 +2080,6 @@ struct Window {
         mods::ImportTarget target;
         std::wstring name;
     };
-    // Why a model's textures from another game cannot go on a Budokai 2
-    // character's own body, or nothing when they can: the character's
-    // textures must match the model's in number, format and size, so the
-    // body's texture coordinates land where they should.
     std::optional<std::wstring> modelMismatch(const mods::DiscCharacter &model, const mods::DiscCharacter &wearer) const {
         const auto theirs = gameRoster->shapes.find(wearer.id);
         if (theirs == gameRoster->shapes.end())
@@ -2168,8 +2097,6 @@ struct Window {
                (others.empty() ? L"No Budokai 2 character's textures match."
                                : L"It fits " + others + (fit.size() > 3 ? L" and others." : L"."));
     }
-    // Marks the spots whose character can wear the chosen model, and moves to
-    // the first of them when the chosen spot can't.
     void showWearers() {
         fillTargetList();
         const auto list = controls[TargetList];
@@ -2182,8 +2109,6 @@ struct Window {
                 return;
             }
     }
-    // Whether the chosen model can be worn by the character in a spot, or a
-    // spot has a body for moves; other imports fit any spot.
     bool fits(size_t spot) const {
         if (movesView)
             return gameRoster && gameRoster->find(gameRoster->grid[spot]);
@@ -2191,14 +2116,10 @@ struct Window {
             return true;
         const auto *model = sourceCharacter();
         const auto *wearer = gameRoster ? gameRoster->find(gameRoster->grid[spot]) : nullptr;
-        // Forcing takes any character with a costume model to replace.
         if (model && wearer && selected(SpotMode) == forceModel)
             return gameRoster->shapes.count(wearer->id) != 0;
         return model && wearer && !modelMismatch(*model, *wearer);
     }
-    // Adds a model from another game as a new character: a copy of the
-    // Budokai 2 character in the chosen spot, wearing the model in every
-    // costume. Nobody leaves the select screen.
     void importModel(const mods::DiscCharacter &model, int pick) {
         const auto *wearer = gameRoster->find(gameRoster->grid[size_t(pick)]);
         if (!wearer)
@@ -2287,10 +2208,6 @@ struct Window {
                         return result;
                     });
     }
-    // Adds a character with one Budokai 2 character's moves (its record,
-    // animations and move effects, as its base) and the costume models of the
-    // character in the chosen spot. Nothing is copied: the roster.ini section
-    // names the body's DATA_CMN entries.
     void importMoveset(const mods::DiscCharacter &moves, int pick) {
         const auto *body = gameRoster->find(gameRoster->grid[size_t(pick)]);
         if (!body)
@@ -2327,9 +2244,6 @@ struct Window {
         refreshMods();
         InvalidateRect(hwnd, nullptr, FALSE);
     }
-    // Unpacks a Budokai 3 stage into the eight files a Budokai 2 stage names,
-    // adds them as new DATA_CMN entries and fills a B stage's record with
-    // them through the mod's stages.ini.
     void importStage() {
         const auto row = SendMessageW(controls[SourceFiles], LB_GETCURSEL, 0, 0);
         const auto target = SendMessageW(controls[TargetList], LB_GETCURSEL, 0, 0);
@@ -2375,9 +2289,6 @@ struct Window {
                         return result;
                     });
     }
-    // Adds the character's files as new DATA_CMN entries and a roster.ini
-    // section that fills an unused character ID with them. The character
-    // shares a spot or gets a new one, so nobody leaves the select screen.
     void importCharacter() {
         const auto *character = sourceCharacter();
         if (!character)
@@ -2413,7 +2324,7 @@ struct Window {
         for (auto &c : stem)
             c = std::isalnum(static_cast<unsigned char>(c)) ? char(std::tolower(static_cast<unsigned char>(c))) : '_';
         std::vector<ImportItem> items;
-        std::map<uint32_t, size_t> itemFor; // source entry -> item
+        std::map<uint32_t, size_t> itemFor;
         uint64_t total = 0;
         for (const auto entry : characterEntries(*character)) {
             ImportItem item;
@@ -2460,15 +2371,11 @@ struct Window {
                         return result;
                     });
     }
-    // Writes a report of the source disc to mods/reports, for mapping games
-    // whose tables are not known yet, and shows it.
     void saveReport() {
         if (!source)
             return;
         const auto folder = mods::default_mods_directory() / mods::reports_folder;
         const auto name = sourceIdentity.serial.empty() ? utf8(source->image().stem().wstring()) : sourceIdentity.serial;
-        // With Budokai 3 as the source, the report also compares its Supreme
-        // Kai and Krillin meshes with your Budokai 2 disc's, word by word.
         std::vector<std::tuple<std::string, size_t, size_t>> compared;
         if (sourceRoster && sourceRoster->models && gameRoster && game)
             for (const char *wanted : {"KAIO-SHIN", "KULILIN"}) {
@@ -2638,7 +2545,6 @@ struct Window {
                     if (result.kind == Job::readGame && result.loaded)
                         showGame(std::move(result.loaded), std::move(result.roster), std::move(result.identity));
                     if (result.kind == Job::readSource && result.loaded) {
-                        // Another disc is remembered for Last disc next time.
                         if (result.loaded->image() != settings.iso && result.loaded->image() != settings.importIso) {
                             settings.importIso = result.loaded->image();
                             write_settings(settings_path(), settings);
@@ -2757,7 +2663,6 @@ struct Window {
             throw std::runtime_error("The Windows file picker could not open");
         return {};
     }
-    // A title marks a mod-tool pick, which accepts any file.
     std::filesystem::path choose(bool folder, bool iso = false, const wchar_t *title = nullptr) {
         picking = true;
         struct Reset {
@@ -2872,8 +2777,6 @@ struct Window {
             return;
         }
         if (id == SaveListKind && (notification == CBN_SELCHANGE || notification == CBN_CLOSEUP)) {
-            // Hiding or repositioning this native combo during an arrow-key
-            // selection closes its popup before Enter can confirm the choice.
             if (!SendMessageW(controls[SaveListKind], CB_GETDROPPEDSTATE, 0, 0) || notification == CBN_CLOSEUP) {
                 refreshBackups(); layout();
             }
@@ -2985,7 +2888,6 @@ struct Window {
             return;
         }
         if ((id == TargetMod || id == SpotMode) && notification == CBN_SELCHANGE) {
-            // Forcing changes which spots can take a model.
             if (id == SpotMode && characterView && sourceRoster->models)
                 showWearers();
             refreshEnabled();
@@ -3241,8 +3143,6 @@ LRESULT CALLBACK button_procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp)
     return original ? CallWindowProcW(original, hwnd, message, wp, lp)
                     : DefWindowProcW(hwnd, message, wp, lp);
 }
-// Draws the hint of an empty, unfocused field; cue banners need a newer
-// common controls library than the launcher loads.
 LRESULT CALLBACK edit_procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
     auto original = reinterpret_cast<WNDPROC>(GetPropW(hwnd, L"OpenKai2.EditProcedure"));
     auto *owner = reinterpret_cast<Window *>(GetWindowLongPtrW(GetParent(hwnd), GWLP_USERDATA));
@@ -3417,7 +3317,6 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
         InvalidateRect(hwnd, nullptr, FALSE);
         return 0;
     } catch (...) {
-        // Nothing may escape into Windows' message dispatch, which would end the process.
         self->status = L"Something went wrong. Details are in launcher.log.";
         self->error = true;
         std::cerr << "[launcher:error] message=" << message << " failed with an unknown error" << std::endl;
@@ -3426,7 +3325,7 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
     }
     return DefWindowProcW(hwnd, message, wp, lp);
 }
-} // namespace
+}
 int run_window(const std::filesystem::path &initialIso) {
     auto singleton = CreateMutexW(nullptr, TRUE, L"Local\\OpenKai2.Launcher");
     if (!singleton)
@@ -3497,7 +3396,6 @@ int run_window(const std::filesystem::path &initialIso) {
     int width = std::min<int>(state.p(1120), int(work.right - work.left) - state.p(24));
     int height = std::min<int>(state.p(740), int(work.bottom - work.top) - state.p(24));
     int left = work.left + (work.right - work.left - width) / 2, top = work.top + (work.bottom - work.top - height) / 2;
-    // Reopen where it was closed, if that is still on a screen.
     const auto &saved = state.settings;
     const RECT last{saved.windowLeft, saved.windowTop, saved.windowLeft + saved.windowWidth, saved.windowTop + saved.windowHeight};
     if (saved.windowWidth > 0 && saved.windowHeight > 0 && MonitorFromRect(&last, MONITOR_DEFAULTTONULL)) {
@@ -3515,13 +3413,11 @@ int run_window(const std::filesystem::path &initialIso) {
                 GetProcAddress(module, "DwmSetWindowAttribute"))) {
             BOOL dark = TRUE;
             fn(hwnd, 20, &dark, sizeof(dark));
-            // Windows 11 caption colour; older versions ignore the attribute.
             COLORREF caption = sidebar;
             fn(hwnd, 35, &caption, sizeof(caption));
         }
         FreeLibrary(module);
     }
-    // Dark scroll bars on the lists, where Windows offers them.
     if (auto module = LoadLibraryW(L"uxtheme.dll")) {
         if (auto fn = reinterpret_cast<HRESULT(WINAPI *)(HWND, LPCWSTR, LPCWSTR)>(GetProcAddress(module, "SetWindowTheme")))
             for (auto [id, control] : state.controls)
@@ -3554,4 +3450,4 @@ int run_window(const std::filesystem::path &initialIso) {
     std::cout << "[launcher] closed" << std::endl;
     return 0;
 }
-} // namespace openkai2::launcher
+}

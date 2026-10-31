@@ -36,8 +36,6 @@ struct Timings {
     uint64_t discarded=0,draws=0;
     std::chrono::steady_clock::time_point reported=std::chrono::steady_clock::now();
 };
-// Only the registered EE executor touches this state. Avoid emulated TLS
-// lookups on each Windows guest call; other threads retain full GS history.
 Timings timings;
 void report(std::chrono::steady_clock::time_point now) {
     std::array<const Entry*,1024> rows{};size_t count=0;

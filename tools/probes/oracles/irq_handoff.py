@@ -13,9 +13,6 @@ FLAGS_ALL=tuple(range(16))
 
 def cases():
     for i,chain_case in enumerate(integrated_cases()):
-        # Two different gate configurations per original scenario. All flags
-        # and both retail wrappers are visited; every routed case is fed into
-        # the real previous native C++ model.
         for flag in (i%16,(i+7)%16,7,15):
             yield (chain_case[0],flag,*chain_case[1:])
 
@@ -29,7 +26,6 @@ def expected(words,case):
 
 def compare_native(executable,words):
     inputs=list(cases())
-    # entry, flags, initial/e1/e2, seven 64-bit regs, epc/error_epc.
     data=[]
     for c in inputs:
         assert len(c)==14,(len(c),c)
@@ -55,7 +51,7 @@ def compare_native(executable,words):
         if predicted[2]:
             dispatched+=1
             by_entry[f'0x{c[0]:08X}']+=1
-            if predicted[26]==1:return_count+=1 # 4 prefix + 22 stop index
+            if predicted[26]==1:return_count+=1
             elif predicted[26]==2:poll_count+=1
         else:denied+=1
         if predicted[2] and not predicted[3] and (c[1]&8):ack+=1

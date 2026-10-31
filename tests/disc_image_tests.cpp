@@ -22,7 +22,7 @@ template<class Function> void rejected(Function function, const char* descriptio
     try { function(); } catch (const std::runtime_error&) { failed=true; }
     check(failed,description);
 }
-} // namespace
+}
 
 int main() {
     const auto stamp=std::chrono::steady_clock::now().time_since_epoch().count();
@@ -38,7 +38,6 @@ int main() {
         write(hash_input,Bytes(1000000,'a'));
         check(openkai2::sha256_file(hash_input)=="cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0","SHA-256 multi-block vector");
         openkai2::DiscOptions options;
-        // Synthetic executable identity is confined to the library test.
         options.expected_executable_sha256=abc_sha;
         const auto valid=fixture(); write(iso,valid);
         openkai2::IsoIndex index(iso);

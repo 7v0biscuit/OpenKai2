@@ -24,8 +24,6 @@ int main(){
     for(unsigned i=0;i<256u;++i){
         GuestTimingScope outer(GuestWork::dispatch,0x1000u);
         if(i==255u){
-            // Nesting must not count the same dispatch subtree twice. A
-            // separate subsystem remains independently observable.
             for(unsigned j=0;j<256u;++j){
                 GuestTimingScope nested(GuestWork::dispatch,0x2000u);
                 GuestTimingScope micro(GuestWork::vu0,0x30u);

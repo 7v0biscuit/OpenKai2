@@ -45,8 +45,6 @@ void verify_mpeg_setup(PS2Runtime& runtime,uint8_t* memory) {
             require(std::memcmp(&context.r[reg],&saved.r[reg],16)==0,"SDK setup changed a saved register");
         return getRegU32(&context,2);
     };
-    // These addresses were hard-coded into the generic replacement for a
-    // different SDK layout. The original Budokai 2 routines must not use them.
     const std::array<uint32_t,3> unrelated{0x001717bcu,0x00171800u,0x00171904u};
     for (auto address:unrelated) std::memset(memory+address,0xa5,64);
     auto guards=[&] {
@@ -77,8 +75,6 @@ void verify_mpeg_setup(PS2Runtime& runtime,uint8_t* memory) {
                 && word(inner+0x1f4u)==inner+0x4d8u && word(inner+0x834u)==0x70003600u,
                 "MPEG reference buffers or scratchpad pointer are wrong");
         guards();
-        // Actual Sofdec callbacks, data pointers, and captured guest GP must
-        // be visible to the original native dispatcher in the work area.
         constexpr std::array<uint32_t,4> callbacks{0x00198200u,0x00198308u,0x00198388u,0x001983b0u};
         for (unsigned slot=0;slot<callbacks.size();++slot) {
             const uint32_t previous=word(inner+0x0cu+12u*slot);
@@ -93,8 +89,6 @@ void verify_mpeg_setup(PS2Runtime& runtime,uint8_t* memory) {
         put(backend+0x1b30u,stream); put(event,1u);
         require(invoke(0x00107e08u,{object,event,0u,0u})==1u,
                 "original dispatcher did not reach the compiled Sofdec no-data callback");
-        // Reset and clear operate on this instance's reference arrays. Repeated
-        // setup must preserve the callback table and unrelated guest globals.
         for (uint32_t offset:{0x200u,0x268u,0x338u,0x3a0u,0x470u,0x4d8u}) put(inner+offset+0x28u,0xdeadbeefu);
         require(invoke(0x00107d78u,{object,0u,0u,0u})==1u,"reference clear failed");
         for (uint32_t offset:{0x200u,0x268u,0x338u,0x3a0u,0x470u,0x4d8u})

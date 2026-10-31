@@ -42,7 +42,6 @@ void verify_sound_registers() {
         require((memory.read16(stat) & 0x7FFu) == 0u, "SPU2 reset is stuck on stale DMA status");
         require(memory.read16(attr - 2u) == 0xABCDu, "SPU2 ATTR write corrupted MMIX");
         require(memory.read16(stat & 0x1FFFFFFFu) == memory.read16(stat), "SPU2 KSEG alias differs");
-        // Exercise byte and word accesses to the same upper-halfword ATTR.
         memory.write8(attr, 0x20u);
         require((memory.read16(stat) & 0x80u) != 0u, "SPU2 byte write did not enable transfer");
         memory.write32(attr - 2u, 0x80001234u);
@@ -50,22 +49,20 @@ void verify_sound_registers() {
                 "SPU2 word write did not acknowledge transfer status");
     }
 
-    // Execute a guest reset-and-poll sequence after a completed transfer.
-    // A stale status bit makes the real IOP interpreter loop indefinitely.
     memory.reset();
     memory.write32(0x1F8010C8u, 0x01000201u);
     const uint32_t program[] = {
-        0x3C08BF90u, // lui t0, 0xbf90
-        0xA500019Au, // sh zero, 0x19a(t0)
-        0x34098000u, // ori t1, zero, 0x8000
-        0xA509019Au, // sh t1, 0x19a(t0)
-        0x95020344u, // lhu v0, 0x344(t0)
-        0x00000000u, // load delay
-        0x304207FFu, // andi v0, v0, 0x7ff
-        0x1440FFFCu, // bnez v0, poll
-        0x00000000u, // branch delay
-        0x24030001u, // addiu v1, zero, 1
-        0x03E00008u, // jr ra
+        0x3C08BF90u,
+        0xA500019Au,
+        0x34098000u,
+        0xA509019Au,
+        0x95020344u,
+        0x00000000u,
+        0x304207FFu,
+        0x1440FFFCu,
+        0x00000000u,
+        0x24030001u,
+        0x03E00008u,
         0x00000000u,
     };
     require(memory.writeRam(0x2000u, program, sizeof(program)), "Cannot write SPU2 guest regression");
@@ -77,16 +74,14 @@ void verify_sound_registers() {
         require(cpu.executeInstruction(state) && !state.exception, "SPU2 guest regression raised an exception");
     require(state.pc == 0x4000u && state.gpr[3] == 1u, "IOP sound initialization did not leave its status poll");
 
-    // Sound drivers read packed stream data with LWL/LWR pairs; the second
-    // load merges into the first while it is still in its delay slot.
     const uint8_t packed[] = {0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18};
     const uint32_t unaligned[] = {
-        0x34083000u, // ori t0, zero, 0x3000
-        0x89090004u, // lwl t1, 4(t0)
-        0x99090001u, // lwr t1, 1(t0)
-        0x00000000u, // load delay
-        0x01205021u, // addu t2, t1, zero
-        0x03E00008u, // jr ra
+        0x34083000u,
+        0x89090004u,
+        0x99090001u,
+        0x00000000u,
+        0x01205021u,
+        0x03E00008u,
         0x00000000u,
     };
     require(memory.writeRam(0x3000u, packed, sizeof(packed)) && memory.writeRam(0x2000u, unaligned, sizeof(unaligned)),
@@ -99,7 +94,6 @@ void verify_sound_registers() {
         require(cpu.executeInstruction(state) && !state.exception, "Unaligned load regression raised an exception");
     require(state.gpr[10] == 0x15141312u, "IOP LWL/LWR pair did not assemble the unaligned word");
 
-    // Exercise the actual SPU2 register/DMA boundary with decoded planar PCM.
     std::array<uint8_t,1024> planar{};
     for(unsigned i=0;i<256u;++i){
         const int16_t left=int16_t(i*73u),right=int16_t(-int(i*61u)-1);
@@ -132,8 +126,6 @@ void verify_sound_registers() {
         require(memory.takeAudio().empty(),"AutoDMA read outside IOP RAM");
         memory.reset();require(memory.takeAudio().empty(),"SPU2 reset retained pending PCM");
     }
-    // While AutoDMA plays, the channel reads busy and its address advances one
-    // 1 KiB block per 256 frames, as libsd's transfer status reports it.
     uint64_t cycles=0u;memory.setClock(&cycles);memory.reset();
     memory.write16(0x1f9001b0u,1u);memory.write32(0x1f8010c0u,0x4000u);memory.write32(0x1f8010c4u,0x00200010u);
     memory.write32(0x1f8010c8u,0x01000201u);(void)memory.takeDmaStart();
@@ -186,7 +178,6 @@ void verify_sound_registers() {
     for(unsigned i=0;i<256u;++i){const int expected=12000*int(std::min(i+1u,128u))/128;
         require(rendered[i*2u]==expected && rendered[i*2u+1u]==-expected,
             "Audio startup ramp changed stereo sign or full-level samples");}
-    // Once primed, every continuous sample retains its value and order.
     std::vector<int32_t> remaining((StereoAudioPlayback::prefill-256u)*2u);
     require(playback->mix(*queue,remaining)==remaining.size()/2u && remaining.front()==12000
         && remaining.back()==-12000,"Buffered continuous audio changed pitch or channel order");
@@ -197,16 +188,12 @@ void verify_sound_registers() {
             "Audio gap was not ramped to silence");}
     rendered={};playback->mix(*queue,rendered);
     require(playback->underruns()==1u && rendered[0]==0,"An empty stream repeated stale samples");
-    // Stop and a replacement stream must retain the new stream, fading across
-    // the boundary instead of playing the stopped stream's queued backlog.
     queue->push(buffered);rendered={};playback->mix(*queue,rendered);
     queue->discardPending();std::fill(buffered.begin(),buffered.end(),4000);queue->push(buffered);
     rendered={};require(playback->mix(*queue,rendered)==256u,"Audio stop lost the replacement stream");
     require(rendered[0]==12000*127/128+4000/128 && rendered[1]==-12000*127/128+4000/128
         && rendered[254]==4000 && rendered[255]==4000,
         "Audio stream replacement did not crossfade to its new samples");
-    // Replacing a stream during a fade must continue from the last emitted
-    // stereo sample, rather than jumping back to its old full-level anchor.
     queue->reset();playback->reset();
     for(unsigned i=0;i<StereoAudioPlayback::prefill;++i){buffered[i*2u]=12000;buffered[i*2u+1u]=-8000;}
     queue->push(buffered);rendered={};playback->mix(*queue,rendered);
@@ -214,7 +201,6 @@ void verify_sound_registers() {
     std::array<int32_t,64> partialFade{};playback->mix(*queue,partialFade);
     const int32_t previousLeft=partialFade[62],previousRight=partialFade[63];
     require(previousLeft==9000 && previousRight==-6000,"Audio fade did not reach its expected intermediate sample");
-    // Advance a stop boundary while the first fade is still audible.
     const std::array<int16_t,2> discarded{123,456};queue->push(discarded);queue->discardPending();
     std::array<int32_t,2> nextSample{};playback->mix(*queue,nextSample);
     require(nextSample[0]==previousLeft*127/128 && nextSample[1]==previousRight*127/128,
@@ -222,15 +208,12 @@ void verify_sound_registers() {
     rendered={};playback->mix(*queue,rendered);
     queue->push(discarded);queue->discardPending();nextSample={};playback->mix(*queue,nextSample);
     require(nextSample[0]==0 && nextSample[1]==0,"A later audio stop resurrected a stale signal after silence");
-    // A replacement arriving halfway through that tail crossfades from the
-    // audible intermediate level, with independent left and right channels.
     queue->reset();playback->reset();queue->push(buffered);rendered={};playback->mix(*queue,rendered);
     queue->discardPending();partialFade={};playback->mix(*queue,partialFade);
     std::fill(buffered.begin(),buffered.end(),4000);queue->push(buffered);queue->discardPending();queue->push(buffered);
     nextSample={};require(playback->mix(*queue,nextSample)==1u,"Audio fade replacement was not consumed");
     require(nextSample[0]==9000*127/128+4000/128 && nextSample[1]==-6000*127/128+4000/128,
         "Audio crossfade ignored its most recent emitted stereo sample");
-    // Consumer-only trimming after overflow bounds stale playback latency.
     queue->reset();playback->reset();
     std::vector<int16_t> overflow((StereoAudioQueue::capacity+2u)*2u);
     for(unsigned i=0;i<StereoAudioQueue::capacity+2u;++i){overflow[i*2u]=int16_t(i%30000u);overflow[i*2u+1u]=-overflow[i*2u];}
@@ -242,7 +225,6 @@ void verify_sound_registers() {
     require(rendered[256]==int32_t(retained%30000u) && rendered[257]==-rendered[256],
         "Audio overflow trimming changed the retained stereo sequence");
 
-    // Import-cache hits must observe code edits, table edits, aliases and reset.
     memory.reset();IopImportRegistry imports(memory);
     constexpr uint32_t table=0x4000u,stub=table+20u;
     auto install=[&]{memory.write32(table,0x41e00000u);memory.write16(table+8u,0x105u);
@@ -259,4 +241,4 @@ void verify_sound_registers() {
     install();require(imports.decode(stub)->ordinal==5u,"Negative import cache hid a newly loaded table");
     memory.reset();install();require(imports.decode(stub)->version==0x105u,"Memory reset retained a cached module");
 }
-} // namespace openkai2
+}

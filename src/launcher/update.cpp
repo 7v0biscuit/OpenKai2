@@ -9,8 +9,6 @@
 namespace openkai2::launcher {
 namespace {
 [[noreturn]] void invalid() { throw std::runtime_error("Invalid GitHub release metadata"); }
-// Bounded JSON reader. Unknown GitHub fields are parsed too, so malformed/truncated
-// responses cannot accidentally turn into a usable update candidate.
 struct Json {
     enum Type { null, boolean, number, string, array, object } type = null;
     std::string value;
@@ -125,7 +123,7 @@ std::vector<std::string> identifiers(const std::string &s, bool numericOnly) {
 }
 Version version(std::string s) {
     if(s.empty()||s.size()>100)invalid();
-    const auto plus=s.find('+');if(plus!=s.npos) { // Build identifiers may contain leading zeros.
+    const auto plus=s.find('+');if(plus!=s.npos) {
         auto build=s.substr(plus+1);if(build.empty()||build.front()=='.'||build.back()=='.'||build.find("..")!=build.npos||build.find_first_not_of("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-.")!=build.npos)invalid();s.resize(plus);
     }
     const auto dash=s.find('-');Version v;
@@ -135,7 +133,7 @@ Version version(std::string s) {
 int numeric(const std::string &a,const std::string &b) {
     return a.size()!=b.size()?(a.size()<b.size()?-1:1):a==b?0:a<b?-1:1;
 }
-} // namespace
+}
 int compare_versions(const std::string &a,const std::string &b) {
     auto x=version(a),y=version(b);
     for(size_t i=0;i<3;++i)if(auto c=numeric(x.core[i],y.core[i]))return c;
@@ -171,7 +169,6 @@ std::optional<UpdateRelease> select_release(const std::string &json,const std::s
         UpdateRelease r{tag.substr(1),tag,pre,{}};
         const auto &assets=item.at("assets");if(assets.type!=Json::array)invalid();
         for(const auto &a:assets.items) r.assets.push_back({a.at("name").text(),a.at("browser_download_url").text(),a.at("size").size()});
-        // Incomplete publication is ignored; the next check can pick it up.
         try {update_asset(r,"SHA256SUMS.txt");update_asset(r,"OpenKai2.exe");update_asset(r,"OpenKai2-windows-x64.zip");}
         catch(const std::exception &) {continue;}
         if(!chosen||compare_versions(r.version,chosen->version)>0)chosen=std::move(r);
@@ -189,4 +186,4 @@ std::string checksum_for(const std::string &data,const std::string &name) {
     if(result.empty())throw std::runtime_error("Update checksum is missing");
     std::transform(result.begin(),result.end(),result.begin(),[](unsigned char c){return char(std::tolower(c));});return result;
 }
-} // namespace openkai2::launcher
+}

@@ -100,7 +100,7 @@ std::filesystem::path executable() {
     std::array<wchar_t,32768> value{};auto n=GetModuleFileNameW(nullptr,value.data(),DWORD(value.size()));
     if(!n||n>=value.size())throw std::runtime_error("Cannot locate the current application");return std::filesystem::path(value.data());
 }
-} // namespace
+}
 std::optional<UpdateRelease> check_for_updates(bool prereleases) {
     return select_release(fetch(L"https://api.github.com/repos/7v0biscuit/OpenKai2/releases?per_page=100",8*1024*1024),application_version,prereleases);
 }
@@ -124,7 +124,6 @@ StagedUpdate stage_update(const UpdateRelease &release,const std::function<void(
     fetch(wide(asset.url),asset.size,result.package,progress);
     if(std::filesystem::file_size(result.package)!=asset.size||sha256_file(result.package)!=result.sha256)throw std::runtime_error("Downloaded update failed SHA-256 verification; the current application was kept");
     std::ofstream script(result.directory/"apply.ps1",std::ios::binary);
-    // ASCII script avoids PowerShell 5.1's BOM-dependent UTF-8 decoding.
     script<<update_script;script.close();if(!script)throw std::runtime_error("Cannot prepare the update worker");
     cleanup.keep=true;return result;
 }
@@ -151,4 +150,4 @@ void apply_update(const StagedUpdate &update) {
         throw std::runtime_error("The update worker could not start. The current application was kept");
     }
 }
-} // namespace openkai2::launcher
+}

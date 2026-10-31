@@ -40,7 +40,6 @@ def sext32(x):
     return x | (M ^ 0xffffffff) if x & 0x80000000 else x
 
 def nodes_for(code):
-    # Format next pointer, +16 payload, +24 payload, +32 payload.
     z=BASE+0x40; t=BASE+0x80
     base=[z,0x10,0x20,0x210]
     second=[0,0x20,0x10,0x310]
@@ -83,8 +82,6 @@ def opcode_oracle(case,words=None):
         if length==4 and offset==0:return sext32(n[idx][0])
         raise ValueError('bad virtual node field')
     pc=START
-    # Generic decoder dispatch. Delay slots are separately decoded, not
-    # simulated by the native C++ control-flow implementation.
     def step(pc):
         w=words[pc];op=w>>26;rs=(w>>21)&31;rt=(w>>16)&31;rd=(w>>11)&31;im=w&65535;fn=w&63
         if op==0:
@@ -93,13 +90,13 @@ def opcode_oracle(case,words=None):
             elif fn==0x2f:r[rd]=(r[rs]-r[rt])&M
             elif fn==0x2b:r[rd]=int(r[rs]<r[rt])
             else:raise ValueError(f'unexpected R function {fn:#x} at {pc:#x}')
-        elif op==0x19:r[rt]=(r[rs]+s16(im))&M # DADDIU, 64-bit
-        elif op==0x37:r[rt]=mem((r[rs]+s16(im))&M,8) # LD
-        elif op==0x23:r[rt]=mem((r[rs]+s16(im))&M,4) # LW signed
-        elif op==0x0c:r[rt]=r[rs]&im # ANDI, unsigned imm
+        elif op==0x19:r[rt]=(r[rs]+s16(im))&M
+        elif op==0x37:r[rt]=mem((r[rs]+s16(im))&M,8)
+        elif op==0x23:r[rt]=mem((r[rs]+s16(im))&M,4)
+        elif op==0x0c:r[rt]=r[rs]&im
         elif op==0x0a:
             val=r[rs]-(1<<64) if r[rs]>>63 else r[rs]
-            r[rt]=int(val<s16(im)) # SLTI signed 64-bit
+            r[rt]=int(val<s16(im))
         else:raise ValueError(f'unexpected non-control opcode {op:#x} at {pc:#x}')
         r[0]=0
     for tick in range(250):
@@ -108,7 +105,7 @@ def opcode_oracle(case,words=None):
             break
         if pc not in words:raise ValueError(f'PC outside expected 27-word window {pc:#x}')
         w=words[pc];op=w>>26
-        if op in (4,0x14): # BEQ or BEQL, with true MIPS branch-delay semantics
+        if op in (4,0x14):
             rs=(w>>21)&31;rt=(w>>16)&31
             taken=r[rs]==r[rt]
             if pc==0x113810 and taken:counters['first_branch_exit']=1

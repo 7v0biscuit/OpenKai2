@@ -59,7 +59,7 @@ void continuous(double rate, bool bursty) {
     require(std::abs(pitch - 440) < 5, "Time stretching changed pitch");
     require(minTempo > rate * .7, "Playback tempo collapsed");
 }
-} // namespace
+}
 int main() {
     try {
         for (double rate : {.4, .7, .93, 1.0})

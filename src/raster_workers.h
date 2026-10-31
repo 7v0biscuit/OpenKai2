@@ -5,7 +5,6 @@
 #include <memory>
 
 namespace openkai2 {
-// All tasks complete before run returns. Index zero runs on the calling thread.
 class RasterWorkers {
 public:
     explicit RasterWorkers(unsigned count);
@@ -19,7 +18,6 @@ private:
     std::unique_ptr<State> state_;
 };
 RasterWorkers& raster_workers();
-// A bounded override for deterministic serial/parallel renderer comparisons.
 unsigned set_raster_worker_limit(unsigned);
 unsigned raster_worker_limit();
 uint64_t raster_parallel_batches();

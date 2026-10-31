@@ -1,6 +1,4 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// Compile swizzled texture addressing with the CPU renderer so common sampler
-// taps can inline format selection, address calculation and cache resolution.
 #include "ps2_gs_memory.cpp"
 #include "runtime/gs/gs_cpu_backend.cpp"
 
@@ -26,8 +24,6 @@ void addAddressTable(std::vector<uint32_t>& out,const Table& table) {
 }
 const std::vector<uint32_t>& address_tables() {
     static const auto tables=[] {
-        // Reuse the CPU constructor's existing one-time initialization guard;
-        // never rewrite lookup tables while another renderer is reading them.
         GSCpuBackend bootstrap;
         std::vector<uint32_t> out(64u*8u);
 #define ADD(name,table) addAddressTable<GSMem::name>(out,GSMem::table)

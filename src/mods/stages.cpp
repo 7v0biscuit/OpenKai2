@@ -51,7 +51,7 @@ std::optional<std::vector<DiscStage>> read_budokai3_stages(SourceDisc &disc) {
     }
     return stages;
 }
-} // namespace
+}
 
 namespace {
 namespace fs = std::filesystem;
@@ -73,7 +73,6 @@ void put32(std::vector<uint8_t> &bytes, size_t at, uint32_t value) {
     for (int i = 0; i < 4; ++i)
         bytes[at + i] = uint8_t(value >> (8 * i));
 }
-// stages.ini split into the lines before the first section and each section.
 struct StageFile {
     std::vector<std::string> head;
     std::vector<std::vector<std::string>> sections;
@@ -108,7 +107,6 @@ StageSection parse_stage(const std::vector<std::string> &lines) {
     }
     return section;
 }
-// The files of an #AMB pack, as bytes, in record order.
 std::vector<std::vector<uint8_t>> pack_files(const std::vector<uint8_t> &pack) {
     if (pack.size() < 32 || std::memcmp(pack.data(), "#AMB", 4) != 0)
         throw std::runtime_error("A Budokai 3 stage pack is not an #AMB");
@@ -124,8 +122,6 @@ std::vector<std::vector<uint8_t>> pack_files(const std::vector<uint8_t> &pack) {
     }
     return files;
 }
-// Marks #AMT texture packs version 1, at the top level of `file` or inside it
-// when it is an #AMB.
 void texture_version_1(std::vector<uint8_t> &file) {
     const auto mark = [](std::vector<uint8_t> &bytes, size_t at) {
         if (at + 16 <= bytes.size() && std::memcmp(bytes.data() + at, "#AMT", 4) == 0 && get32(bytes, at + 12) == 2)
@@ -138,7 +134,7 @@ void texture_version_1(std::vector<uint8_t> &file) {
             mark(file, get32(file, records + i * 16));
     }
 }
-} // namespace
+}
 
 std::vector<uint8_t> without_unloadable_files(const std::vector<uint8_t> &pack) {
     if (pack.size() < 32 || std::memcmp(pack.data(), "#AMB", 4) != 0)
@@ -151,8 +147,6 @@ std::vector<uint8_t> without_unloadable_files(const std::vector<uint8_t> &pack) 
                std::any_of(std::begin(budokai2_pack_kinds), std::end(budokai2_pack_kinds),
                            [&](const char *kind) { return std::memcmp(pack.data() + at + 1, kind, 3) == 0; });
     };
-    // The header and record table stay where they are; the files kept follow
-    // them again at 16-byte boundaries, with their records moved up.
     uint32_t start = records + count * 16;
     for (uint32_t i = 0; i < count; ++i)
         if (const uint32_t size = get32(pack, records + i * 16 + 4); size)
@@ -175,7 +169,6 @@ std::vector<uint8_t> without_unloadable_files(const std::vector<uint8_t> &pack) 
     }
     out.resize((out.size() + 15) / 16 * 16, 0);
     put32(out, 16, kept);
-    // A header word that held the pack's size holds the new one.
     for (uint32_t word = 4; word < 32; word += 4)
         if (word != 16 && word != 20 && get32(pack, word) == pack.size())
             put32(out, word, uint32_t(out.size()));
@@ -232,7 +225,7 @@ std::vector<StageMod> load_stage_mods(const std::vector<fs::path> &mods, const D
             continue;
         unsigned number = 0;
         std::optional<StageMod> current;
-        std::vector<std::string> packNames; // the add: files of the current stage, checked when it ends
+        std::vector<std::string> packNames;
         const auto finish = [&](const std::string &where) {
             if (!current)
                 return;
@@ -241,7 +234,6 @@ std::vector<StageMod> load_stage_mods(const std::vector<fs::path> &mods, const D
                                          " to " + std::to_string(stage_count - 1));
             if (current->files.size() != (stage_files_end - stage_files_begin) / 4)
                 throw std::runtime_error(where + ": a stage needs all eight files, file.40 to file.5c");
-            // A pack Budokai 2 can't load would stop the game when the stage is chosen.
             for (const auto &name : packNames) {
                 std::error_code missing;
                 for (fs::recursive_directory_iterator it(mod / "afs", missing), end; !missing && it != end;
@@ -438,7 +430,6 @@ std::vector<std::pair<uint32_t, std::vector<uint8_t>>> budokai3_stage_files(Sour
 }
 
 std::string stage_display_name(const std::string &internal) {
-    // Only names that are certain; the rest show as the game names them.
     static const std::map<std::string, std::string> names{
         {"ROOM TIME MIND", "Hyperbolic Time Chamber"}, {"MIND & TIME", "Hyperbolic Time Chamber"},
         {"BUDO", "World Tournament"}, {"NAMEC", "Namek"}, {"BUU BODY", "Inside Buu"}};
@@ -450,7 +441,6 @@ std::string stage_display_name(const std::string &internal) {
     const auto found = names.find(base);
     if (found != names.end())
         return found->second + suffix;
-    // Other names in title case: ISLAND B is "Island B", R&R BASE "R&R Base".
     std::string shown;
     bool start = true;
     for (const unsigned char c : internal) {
@@ -501,4 +491,4 @@ std::optional<std::vector<DiscStage>> read_disc_stages(SourceDisc &disc) {
     return stages;
 }
 
-} // namespace openkai2::mods
+}

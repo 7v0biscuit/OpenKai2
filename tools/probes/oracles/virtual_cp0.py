@@ -20,22 +20,22 @@ def synthetic_words():
  d=dict(synthesize_translated_words())
  d.update({
   0x113394:0,
-  0x113398:(16<<26)|(16<<21)|0x39, # EI, modeled as external transition
-  0x11339c:(16<<6)|15, # SYNC, event only
+  0x113398:(16<<26)|(16<<21)|0x39,
+  0x11339c:(16<<6)|15,
   0x1133a0:cp0_move(0,2,12),
   0x1133a4:enc_r(2,6,2,36),
   0x1133a8:0,0x1133ac:0,0x1133b0:0,
-  0x1133b4:enc_i(5,2,0,-8), # bne followed by NOP
+  0x1133b4:enc_i(5,2,0,-8),
   0x1133b8:0,
   0x1133d0:cp0_move(4,2,12),
   0x1133d4:(16<<6)|15,
-  0x1133d8:enc_i(43,4,5,0), # store barrier, never executed
+  0x1133d8:enc_i(43,4,5,0),
  })
  assert set(d)==set(INTERPRETED_PCS)
  return d
 
 def checked_retail(blob):
- words=read_retail_window(blob) # verifies SHA, full 64-word window hash
+ words=read_retail_window(blob)
  expected=synthetic_words()
  for pc,word in expected.items():
   if words[pc]!=word:raise ValueError('VirtualCp0 pin differs from retail at '+hex(pc))

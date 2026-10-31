@@ -17,7 +17,6 @@ int main() {
         require(std::abs(DiscTiming::speed(DiscTiming::layer_sectors) - 1.0) < 1e-9, "Edge speed is not 4x");
         require(DiscTiming::speed(400'000) > DiscTiming::speed(100'000), "Outer sectors are not faster");
 
-        // A 1 MiB read near the start of the disc takes a little under half a second.
         const double megabyte = milliseconds(DiscTiming::transfer(30'000, 512));
         require(megabyte > 380.0 && megabyte < 480.0, "Inner-track transfer rate is out of range");
         const double edge = milliseconds(DiscTiming::transfer(DiscTiming::layer_sectors - 512, 512));

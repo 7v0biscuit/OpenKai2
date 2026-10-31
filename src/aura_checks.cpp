@@ -19,9 +19,6 @@ void verify_aura_updates(PS2Runtime& runtime,uint8_t* ram) {
         PS2Runtime& runtime;std::vector<std::pair<uint32_t,PS2Runtime::RecompiledFunction>> entries;
         ~Restore(){for(auto& entry:entries)runtime.replaceFunction(entry.first,entry.second);}
     } restore{runtime,{{dependency,runtime.lookupFunction(dependency)},{bridge,runtime.lookupFunction(bridge)}}};
-    // Bound only the model submission dependency. Run each original method
-    // through the actual table selector and JALR, stopping at its return site
-    // before the dispatcher advances into unrelated character assets.
     runtime.replaceFunction(dependency,[](uint8_t*,R5900Context* c,PS2Runtime* r){
         auto& m=r->memory();const auto n=m.read32(0x29400u);
         m.write32(0x29404u+n*4u,getRegU32(c,4));m.write32(0x29400u,n+1u);c->pc=getRegU32(c,31);

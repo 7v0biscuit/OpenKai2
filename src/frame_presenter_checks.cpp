@@ -53,17 +53,11 @@ void verify_frame_presenter() {
             if(!changed.wait_for(lock,2s,[&]{return release;})) timedOut=true;
         } else if(tick==1010u) latest.set_value();
     });
-    // No window polling is needed to submit guest fields. Other threads and
-    // calls outside the executor scope must not reach this presenter.
     present_guest_field(1u);
     FieldPresentationScope fields(presenter);
     std::thread unrelated([]{present_guest_field(99999u);});unrelated.join();
     present_guest_field(10u);
     require(entered.get_future().wait_for(2s)==std::future_status::ready,"worker did not begin");
-    // Simulate a renderer blocked on guest drawing. Window requests must
-    // still return; a thousand ticks coalesce without a stale-frame backlog.
-    // Four host polls per original 60 Hz field model a 240 Hz window. Repeated
-    // requests must not create extra guest fields or conversion jobs.
     for(uint64_t tick=11;tick<=1010u;++tick)for(unsigned poll=0;poll<4u;++poll)present_guest_field(tick);
     {
         std::lock_guard<std::mutex> lock(mutex);

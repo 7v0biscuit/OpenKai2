@@ -66,8 +66,6 @@ void verify_callback_resume(PS2Runtime& runtime,unsigned callback_address) {
     auto* ram=memory.getRDRAM();
     require(ram!=nullptr,"Missing callback regression memory");
     Binding entry(runtime,main_entry,interrupted), resumed(runtime,continuation,resume), end(runtime,finish,finished);
-    // The standalone test uses a minimal EE callback prologue. The packaged
-    // self-test supplies the original translated file-query callback instead.
     Binding synthetic(runtime,callback_entry,callback);
     const uint32_t handler=callback_address?callback_address:callback_entry;
     require(runtime.hasFunction(handler),"Compiled callback regression entry is missing");
@@ -104,8 +102,6 @@ void verify_callback_stacks() {
         require(scheduled->memory().initialize(),"Cannot allocate scheduled callback regression memory");
         verify_callback_resume(*scheduled);
     }
-    // Each runtime contains over 500 KiB of device state. Keep test fixtures
-    // off the host stack, including MSVC's default 1 MiB executable stack.
     auto owned_runtime=std::make_unique<PS2Runtime>();
     auto& runtime=*owned_runtime;
     auto& memory=runtime.memory();
@@ -123,8 +119,6 @@ void verify_callback_stacks() {
     std::memcpy(ram+main_sp+0x10,&saved_return,8);
     const std::vector<uint8_t> frame(ram+main_sp,ram+PS2_RAM_SIZE);
     const uint32_t callback_sp=scheduler.invocationStackTop();
-    // A normal EE callback saves its zero return sentinel after subtracting
-    // 16 bytes from SP. This used to land in the live bootstrap return frame.
     memory.write64(callback_sp-16u,0u);
     require(std::equal(frame.begin(),frame.end(),ram+main_sp),
             "Callback stack overwrote the interrupted EE return frame");

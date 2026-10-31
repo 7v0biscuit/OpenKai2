@@ -62,7 +62,6 @@ void verify_thread_bootstrap() {
             && getRegU32(&context,29)==PS2_RAM_SIZE-16u
             && getRegU32(&context,28)==0x003ac4f0u,
             "Repeated SDK initialization changed configured priority, registers, or thread state");
-    // New and restarted workers must see the hardwired homogeneous constant.
     for(unsigned restart=0;restart<2u;++restart){
         auto* target=scheduler.thread(id);
         require(scheduler.startThread(id,0x1234u,context,true)==0,"Cannot start VU worker fixture");
@@ -104,7 +103,6 @@ void verify_thread_wakeup() {
     ps2_syscalls::iWakeupThread(ram,&context,&runtime);
     require(int(getRegU32(&context,2))==id && worker->wakeupCount==1u,
             "iWakeupThread did not return the target ID and queue a wake");
-    // Failed operations retain the scheduler's precise negative error code.
     ps2_syscalls::ResumeThread(ram,&context,&runtime);
     require(int32_t(getRegU32(&context,2))==scheduler.resumeThread(id,false)
             && int32_t(getRegU32(&context,2))<0,"ResumeThread hid a non-suspended error");

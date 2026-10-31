@@ -20,7 +20,6 @@ VIRTUAL_CPU_STATES=(
 MASK=(1<<64)-1
 
 def bridge_cases(handler_words=None):
-    # Include every available real handler call boundary for BOTH originals.
     for c in CASES:
         b=handler_expected(c,handler_words)
         if b['external_call_pending']:
@@ -57,7 +56,7 @@ def compare_native(exe,handler_words=None,chain_words=None):
         if got!=want:mismatches.append({'case':c[0],'snapshot':ix%len(VIRTUAL_CPU_STATES),
                   'expected':list(map(hex,want)),'actual':list(map(hex,got))})
         counts[f'0x{want[1]:08X}']+=1
-        if want[-5]==1:returns+=1 # shared stop code: modeled ERET
+        if want[-5]==1:returns+=1
         if want[-5]==2:polls+=1
     return {'component':'handler_bridge','case_count':len(cases),'passed':not mismatches and len(cases)>0,
       'mismatches':mismatches[:5],'by_handler_external_target':counts,

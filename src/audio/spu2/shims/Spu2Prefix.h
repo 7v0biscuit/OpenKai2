@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #pragma once
-// Stands in for PCSX2's precompiled header in the SPU2 sources.
 #ifdef __MINGW32__
 #include "vector/pcsx2/mingw-crt.h"
 #endif

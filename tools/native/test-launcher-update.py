@@ -74,7 +74,6 @@ def main():
             lock = (target / 'OpenKai2.exe').open('rb') if locked else None
             try:
                 environment = os.environ.copy()
-                # Reproduce a PowerShell 7 parent without relying on runner defaults.
                 environment['PSModulePath'] = str(stage / 'unrelated modules')
                 process = subprocess.Popen([str(powershell), '-NoProfile', '-NonInteractive',
                     '-ExecutionPolicy', 'Bypass', '-File', str(script), '-ParentId', '1073741823',

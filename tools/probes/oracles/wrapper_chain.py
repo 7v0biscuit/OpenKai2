@@ -20,8 +20,6 @@ def pinned_retail(blob):
  return retail_instructions(blob),shared_checked(blob)
 
 def scenarios():
- # Exactly two wrappers, distinct 64-bit original values, all 112 CP0 scenarios
- # across both branches and bounded polling. The runner is self-contained.
  for entry in ENTRIES:
   for idx,base in enumerate(cp0_scenarios()):
    initial,e1,e2,v0,v1,a2,input_a0,input_a1,ra,sp=base
@@ -43,8 +41,6 @@ def oracle(words,case):
   raise ValueError('Wrapper did not forward to shared code preserving RA')
  if wrapper[1]!=PORTS[entry] or wrapper[2]!=input_a0:
   raise ValueError('Wrapper violated exact port/address contract')
- # Feed the interpreter's *executed* wrapper register outputs into a separate
- # MIPS instruction decoder covering CP0/MMIO and ERET, not model predictions.
  shared_case=(init,e1,e2,wrapper[4],v1,a2,wrapper[1],wrapper[2],wrapper[3],sp,epc,old_eepc)
  shared=shared_oracle(shared_words,shared_case)
  if shared[17]==STOP_ERET:
@@ -73,7 +69,7 @@ def compare_native(exe,words):
   if expected != got:
    errors.append({'case':idx,'entry':hex(c[0]),'expected':[hex(x) for x in expected],
                   'got':[hex(x) for x in got]})
-  stop_counts[expected[22]]+=1 # 5 prefix + index 17
+  stop_counts[expected[22]]+=1
   if expected[22]==STOP_ERET:ports[hex(expected[23])]+=1
  return {'case_count':len(cases),'passed':not errors,'failures':errors[:8],
          'wrapper_entries':[f'0x{e:08X}' for e in ENTRIES],

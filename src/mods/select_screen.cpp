@@ -6,14 +6,13 @@
 
 namespace openkai2::mods {
 namespace {
-// Written once before the game starts and read by the game thread.
 struct Layout {
     uint32_t cells = select_cells_original;
-    std::array<uint8_t, select_cells_max> icons{}; // portrait cell for each added cell
-    std::array<uint8_t, 64> preview{};             // base ID + 1 for filled IDs
-    std::array<uint8_t, 64> base{};                // base ID + 1 for every filled ID
+    std::array<uint8_t, select_cells_max> icons{};
+    std::array<uint8_t, 64> preview{};
+    std::array<uint8_t, 64> base{};
 } layout;
-} // namespace
+}
 
 uint32_t select_cells() { return layout.cells; }
 uint32_t select_last() { return layout.cells - 1; }
@@ -33,14 +32,13 @@ uint32_t select_icon(uint32_t cell) {
     if (cell < select_cells_original - 1)
         return cell;
     if (cell == layout.cells - 1)
-        return select_cells_original - 1; // Random keeps its sprite
+        return select_cells_original - 1;
     return cell < select_cells_max ? layout.icons[cell] : 0;
 }
 
 uint64_t select_random_bit() { return uint64_t(1) << (layout.cells - 1); }
 
 uint64_t select_extra_mask() {
-    // Added cells have no unlock bit in the save, so they are always open.
     const auto below = [](uint32_t bits) { return bits >= 64 ? ~uint64_t(0) : (uint64_t(1) << bits) - 1; };
     return below(layout.cells - 1) & ~below(select_cells_original - 1);
 }
@@ -54,8 +52,6 @@ uint32_t preview_row(uint32_t id) {
 }
 
 uint32_t id_table_row(uint32_t id) {
-    // IDs below the table's end have their base's row copied in by
-    // apply_roster; filled IDs past it read their base's row directly.
     if (id < roster_id_tables[0].count || id >= layout.base.size() || !layout.base[id])
         return id;
     return layout.base[id] - 1u;
@@ -72,9 +68,6 @@ std::vector<std::string> configure_select_screen(uint8_t *memory, size_t bytes,
     Layout next;
     std::vector<const RosterCharacter *> added;
     for (const auto &character : characters) {
-        // Every filled ID takes its base's preview pose and camera: the rows of
-        // the unused IDs below 37 hold a placeholder that frames the model far
-        // too close. IDs above 36 also show the base's model there.
         if (character.slot < next.preview.size() && character.base)
             next.preview[character.slot] = uint8_t((*character.base < preview_ids ? *character.base : 36u) + 1u);
         if (character.slot < next.base.size() && character.base && *character.base < roster_id_tables[0].count)
@@ -95,8 +88,6 @@ std::vector<std::string> configure_select_screen(uint8_t *memory, size_t bytes,
             const uint32_t cell = select_cells_original - 1 + uint32_t(i);
             grid[cell] = uint8_t(character.slot);
             cell_of[character.slot] = uint8_t(cell);
-            // A new spot borrows the portrait of the cell named by icon, or of
-            // its base character's cell.
             uint32_t icon = 0;
             if (character.icon_cell)
                 icon = *character.icon_cell;
@@ -115,4 +106,4 @@ std::vector<std::string> configure_select_screen(uint8_t *memory, size_t bytes,
     return log;
 }
 
-} // namespace openkai2::mods
+}

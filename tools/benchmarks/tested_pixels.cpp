@@ -1,6 +1,4 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// Measure tested CT32 writes with alpha outcomes, DATE, masks, and FBA.
-// These are synthetic draw timings, not game FPS.
 #include "runtime/gs/gs_cpu_backend.h"
 #include "raster_workers.h"
 #include <chrono>

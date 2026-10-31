@@ -12,8 +12,6 @@ struct Spu2PcmBlock {
     std::array<int16_t,512> samples{};
 };
 
-// SPU2 AutoDMA supplies groups of 256 left samples followed by 256 right
-// samples. Ordinary voice/sample DMA is not PCM and must never enter this path.
 class Spu2PcmCapture {
 public:
     void reset(){used_={};blocks_.clear();}

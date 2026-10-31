@@ -25,7 +25,6 @@ fs::path from_utf8(const std::string &text) {
     return fs::u8path(text);
 #endif
 }
-// Keeps names safe as file names on every host.
 std::string safe_name(const std::string &name) {
     std::string safe;
     for (unsigned char c : name)
@@ -34,8 +33,6 @@ std::string safe_name(const std::string &name) {
         safe.erase(safe.begin());
     return safe.empty() ? "entry.bin" : safe;
 }
-// The mod's folder for a disc path; components are checked so a path
-// cannot leave the mod.
 fs::path disc_folder(const fs::path &root, const std::string &disc_path) {
     const auto key = IsoIndex::key(disc_path);
     if (!key || key->empty())
@@ -56,7 +53,7 @@ std::string pad(size_t value) {
     auto text = std::to_string(value);
     return std::string(text.size() < 4 ? 4 - text.size() : 0, '0') + text;
 }
-} // namespace
+}
 
 const char *content_name(ContentKind kind) {
     switch (kind) {
@@ -71,7 +68,6 @@ SourceDisc::SourceDisc(const fs::path &image) : image_(image), stream_(image, st
     if (!stream_)
         throw std::runtime_error("Cannot open " + image.string());
     image_size_ = fs::file_size(image);
-    // The index is read before any overlay so the source is the disc as it is.
     const IsoIndex index(image);
     for (const auto &entry : index.entries()) {
         if (entry.directory || entry.multi_extent)
@@ -94,7 +90,6 @@ SourceDisc::SourceDisc(const fs::path &image) : image_(image), stream_(image, st
                 archives_.emplace(upper(file.path), std::move(archive.entries));
             }
         } catch (const std::runtime_error &) {
-            // Data that only looks like an archive is offered as a plain file.
         }
         files_.push_back(std::move(file));
     }
@@ -149,8 +144,6 @@ std::vector<uint8_t> SourceDisc::read_entry(const std::string &path, size_t inde
 namespace {
 constexpr size_t chunk = 1u << 20;
 
-// Writes the import to a temporary file through `write`, then moves it into
-// place, so a failed or cancelled import leaves the mod as it was.
 fs::path store(const fs::path &mod, const ImportTarget &target,
                const std::function<void(std::ostream &, const std::string &)> &write) {
     if (!fs::is_directory(mod))
@@ -176,7 +169,6 @@ fs::path store(const fs::path &mod, const ImportTarget &target,
     case ImportTarget::Mode::NewEntry: {
         const auto folder = disc_folder(mod / "afs", target.file) / "add";
         auto name = safe_name(target.name);
-        // AFS names hold 31 characters; keep the end that makes them unique.
         if (name.size() > 31)
             name = name.substr(0, 31);
         destination = folder / from_utf8(name);
@@ -217,7 +209,7 @@ void check(std::ostream &out, const std::string &name) {
     if (!out)
         throw std::runtime_error("Cannot write " + name + "; the disk may be full");
 }
-} // namespace
+}
 
 SourceDisc::Range SourceDisc::range(const std::string &path, std::optional<size_t> index) {
     const auto location = locate(path);
@@ -299,4 +291,4 @@ std::vector<ImportRecord> read_imports(const fs::path &mod) {
     return records;
 }
 
-} // namespace openkai2::mods
+}

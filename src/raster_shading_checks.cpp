@@ -43,8 +43,6 @@ RasterShadingResult raster_shading_workload(unsigned mode,unsigned iterations,un
     const auto elapsed=std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now()-started).count();
     uint64_t hash=14695981039346656037ull;
     const auto capture=[&]{for(auto byte:vram)hash=(hash^byte)*1099511628211ull;};capture();
-    // A dependent draw observes the sampler's final cache contents after a
-    // write to its initial texel. Its feedback ordering is part of the hash.
     for(auto& v:b.vertices)v.u=v.v=8u;
     s.prim.fst=true;s.prim.iip=false;s.linearFilter=false;
     backend->WriteVram(c.tex0.psm,c.tex0.tbp0,c.tex0.tbw,0u,0u,0x80ff13a7u);
@@ -52,7 +50,6 @@ RasterShadingResult raster_shading_workload(unsigned mode,unsigned iterations,un
     return {hash,double(elapsed)/iterations};
 }
 void verify_raster_shading() {
-    // Complete VRAM and dependent-sample snapshots from the original renderer.
     constexpr uint64_t expected[128]={
         0x570a882c7db6c244ull,0x3c9ae6c33fef7b61ull,0x39be9190705da8c9ull,0x2ea00dadd65738e7ull,
         0xf970d1cfd3e56e5ull,0x511ccc0fe2e5d80bull,0xf970d1cfd3e56e5ull,0x511ccc0fe2e5d80bull,

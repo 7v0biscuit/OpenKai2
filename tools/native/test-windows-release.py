@@ -41,7 +41,6 @@ def main():
         root = Path(temporary)
         installed = root / 'App with spaces'
         setup = assets / 'OpenKai2-Setup.exe'
-        # NSIS consumes the unquoted remainder after its final /D= argument.
         run(subprocess.list2cmdline([str(setup), '/S']) + ' /D=' + str(installed))
         executable = installed / 'OpenKai2.exe'
         if not executable.is_file():
@@ -148,7 +147,6 @@ def main():
             raise RuntimeError('Installed executable did not retain its startup failure.')
         run([str(assets / 'OpenKai2.exe'), '--help'])
         run([str(assets / 'OpenKai2.exe'), str(missing)], expected=1)
-        # Uninstall must preserve unrelated files placed in the chosen folder.
         preserved = installed / 'user-note.txt'
         preserved.write_text('Keep this file.', encoding='utf-8')
         uninstaller = root / 'RunUninstall.exe'

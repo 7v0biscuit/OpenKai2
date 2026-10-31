@@ -20,8 +20,6 @@ uniform vec2 sourceSize; uniform vec2 contentMax;
 out vec4 finalColor;
 void main(){finalColor=texture(texture0,clamp(fragTexCoord,0.5/sourceSize,contentMax-0.5/sourceSize))*fragColor*colDiffuse;}
 )GLSL";
-// FXAA direction estimation, followed by edge-constrained two/four-tap filtering.
-// The source pass runs at native resolution before the selected spatial scaler.
 constexpr const char *edgeSource = R"GLSL(#version 330
 in vec2 fragTexCoord; in vec4 fragColor;
 uniform sampler2D texture0; uniform vec4 colDiffuse;
@@ -54,9 +52,6 @@ void main(){vec2 pos=fragTexCoord*sourceSize-0.5,base=floor(pos),f=fract(pos);ve
   sum+=texture(texture0,clamp(uv,0.5/sourceSize,contentMax-0.5/sourceSize)).rgb*kernel(float(x)-f.x)*kernel(float(y)-f.y);}
  finalColor=vec4(clamp(sum,0.0,1.0),1.0)*fragColor*colDiffuse;
 })GLSL";
-// FSR's algorithm is supplied by AMD's unmodified headers. The adapters below
-// gather clamped active-content pixels, excluding framebuffer padding.
-// Coordinates stay in top-down source space even after the optional FXAA pass.
 constexpr const char *fsrEasuAdapter = R"GLSL(
 in vec2 fragTexCoord; in vec4 fragColor;
 uniform sampler2D texture0; uniform vec4 colDiffuse;
@@ -121,7 +116,7 @@ void dimensions(Shader s, Texture2D texture, Rectangle content) {
     SetShaderValue(s, GetShaderLocation(s, "sourceSize"), size, SHADER_UNIFORM_VEC2);
     SetShaderValue(s, GetShaderLocation(s, "contentMax"), maximum, SHADER_UNIFORM_VEC2);
 }
-} // namespace
+}
 void PresentationFilter::drawCached(Rectangle destination) {
     DrawTexturePro(output_.texture,{0,0,float(output_.texture.width),-float(output_.texture.height)},
                    destination,{0,0},0,WHITE);
@@ -145,8 +140,6 @@ void PresentationFilter::draw(Texture2D frame, Rectangle source, Rectangle desti
         if(!IsRenderTextureValid(output_))throw std::runtime_error("Cannot allocate filtered frame cache");
         SetTextureFilter(output_.texture,TEXTURE_FILTER_POINT);
     }
-    // Prepare the source passes before binding output_: raylib texture modes
-    // are not nested, so every intermediate pass must finish independently.
     drawImage(frame,source,{0,0,float(w),float(h)},true);
     cacheKey_=key;cacheValid_=true;++processed_;drawCached(destination);
 }
@@ -179,7 +172,6 @@ void PresentationFilter::drawImage(Texture2D frame, Rectangle source, Rectangle 
         drawFsr(frame, source, destination, cacheOutput);
         return;
     }
-    // EASU is an upscaler; use bicubic for a smaller output window.
     const bool cubic = s.upscaler >= 2;
     SetTextureFilter(frame, s.upscaler == 1 ? TEXTURE_FILTER_BILINEAR : TEXTURE_FILTER_POINT);
     const bool clampLinear = s.upscaler == 1 && (source.width < float(frame.width) ||
@@ -224,8 +216,6 @@ void PresentationFilter::drawFsr(Texture2D frame, Rectangle source, Rectangle de
     DrawTexturePro(frame,{0,0,source.width,std::abs(source.height)},
                    {0,0,float(w),float(h)},{0,0},0,WHITE);
     EndShaderMode();EndTextureMode();
-    // EASU writes logical top-down rows into increasing texture Y. Unlike the
-    // FXAA render target it therefore needs no Y inversion for presentation.
     SetShaderValue(rcas_,GetShaderLocation(rcas_,"sourceSize"),output,SHADER_UNIFORM_VEC2);
     if(cacheOutput){BeginTextureMode(output_);ClearBackground(BLACK);}
     BeginShaderMode(rcas_);
@@ -346,8 +336,6 @@ int test_presentation_filters() {
         const auto cropped=draw(1,3,102),croppedReference=draw(1,3);
         require(equivalent(cropped,croppedReference),"Active source changes reused an old filtered crop");
         activeSource={0,0,16,16};outputRect={16,8,48,48};
-        // At 1:1 scale, intermediate edge values must come from FXAA rather
-        // than bilinear enlargement of the black/white input.
         auto edgeCount = [&](unsigned aa) {
             auto settings = saved;
             settings.antialiasing = aa;
@@ -388,4 +376,4 @@ int test_presentation_filters() {
         throw;
     }
 }
-} // namespace openkai2
+}

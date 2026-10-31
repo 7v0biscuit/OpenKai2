@@ -12,8 +12,6 @@
 #endif
 namespace openkai2::gpu {
 namespace {
-// Jobs the producer may queue ahead of the GPU thread. A deeper queue absorbs
-// a slow batch without stalling the game thread; each job holds one batch.
 constexpr size_t queueDepth=16u;
 }
 struct Device::Impl {
@@ -100,7 +98,6 @@ bool initialize_headless(std::string& error){
     error="Headless EGL validation is available on Linux";return false;
 #else
 
-    // Context creation and destruction remain on the GPU worker thread.
     struct State{std::shared_ptr<Egl> egl;};auto state=std::make_shared<State>();
     Context c;
     c.bind=[state]{

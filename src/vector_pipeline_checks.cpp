@@ -37,7 +37,7 @@ VectorWorkResult vector_pipeline_workload(unsigned seed,unsigned budget,unsigned
         case 4:lo=special(0x3bu,0u);break;
         case 5:lo=0x2a000000u|((i&1u)<<21u)|0x7c0u;break;
         case 6:lo=0x22000000u|(0x123456u^i);break;
-        case 7:hi=(lanes<<21u)|(2u<<16u)|(from<<11u)|0x1ffu;break; // CLIP
+        case 7:hi=(lanes<<21u)|(2u<<16u)|(from<<11u)|0x1ffu;break;
         case 8:lo=vu0 ? 0u : special(0x76u,from);break;
         case 9:lo=vu0 ? 0u : special(0x7bu,0u);break;
         case 10:lo=special(0x3du,4u,to)|(lanes<<21u);break;
@@ -45,7 +45,7 @@ VectorWorkResult vector_pipeline_workload(unsigned seed,unsigned budget,unsigned
         case 12:lo=vu0 ? 0u : special(0x6cu,15u);break;
         case 13:lo=special(0x39u,0u,2u);break;
         case 14:lo=0x2c000000u|(6u<<16u)|0x7ffu;break;
-        default:hi=(lanes<<21u)|(2u<<16u)|(from<<11u)|0x1bcu;break; // MULA
+        default:hi=(lanes<<21u)|(2u<<16u)|(from<<11u)|0x1bcu;break;
         }
         if(i==94u)hi|=0x40000000u;
         const uint64_t pair=lo|(uint64_t(hi)<<32u);std::memcpy(code+i*8u,&pair,8u);
@@ -80,7 +80,6 @@ VectorWorkResult vector_pipeline_workload(unsigned seed,unsigned budget,unsigned
             vu->resume(code,codeSize,data,dataSize,*gs,memory.get(),3u,9u,budget);
             if(iterations==1u)snapshot();
         }
-        // A fresh MSCAL must discard every queued write from the sliced run.
         vu->execute(code,codeSize,data,dataSize,*gs,memory.get(),0u,3u,9u,4096u);
         if(iterations==1u)snapshot();
     }
@@ -90,8 +89,6 @@ VectorWorkResult vector_pipeline_workload(unsigned seed,unsigned budget,unsigned
 }
 void verify_vector_pipeline_scheduling() {
     constexpr unsigned budgets[]={1u,2u,3u,4u,7u,13u,31u,127u};
-    // Golden snapshots are produced by the original interpreter, including
-    // intermediate resume boundaries and the cycle of every PATH1 callback.
     constexpr uint64_t expected[]={
         0x3208448321b7c6ebull,0xb77cd14402a925b4ull,0x16b1cd035bd30e39ull,0x97389e03a439b97ull,
         0xe8643904cbda8aebull,0x31b2c1b8a7323027ull,0x3463571b6a58b075ull,0xc190bc392333b21eull,

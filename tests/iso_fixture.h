@@ -64,4 +64,4 @@ inline std::string read(const fs::path& path) {
     std::ifstream input(path,std::ios::binary);
     return {std::istreambuf_iterator<char>(input),std::istreambuf_iterator<char>()};
 }
-} // namespace openkai2::test
+}

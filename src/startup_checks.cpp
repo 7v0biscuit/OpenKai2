@@ -27,7 +27,6 @@ void verify_startup_diagnostics() {
             "Empty graphics snapshot was misreported");
     require(graphics.flags()&std::ios::hex,"Graphics snapshot changed the caller's stream format");
     constexpr uint32_t movie=0x00260000u,backend=0x00250000u,record=0x003b4f80u;
-    // A valid first SDK pool slot alone must not masquerade as the live player.
     memory.write32(0x00370cb8u,0x00370ae0u);
     std::ostringstream unlinked;
     report_movie_wait(ram,PS2_RAM_SIZE,unlinked);
@@ -45,7 +44,7 @@ void verify_startup_diagnostics() {
     memory.write32(record,0x80000000u+movie);
     memory.write32(movie,0xa0370ae0u); memory.write32(movie+4u,1u);
     memory.write32(movie+8u,2u); memory.write32(movie+0x40u,0x20000000u+backend);
-    ram[backend+1u]=0x7eu; // This byte is not mwPlyGetStat's status word.
+    ram[backend+1u]=0x7eu;
     memory.write32(backend+0x48u,4u);
     memory.write32(backend+0x9b8u,1u); memory.write32(backend+0x10u,0x1234u);
     memory.write32(0x00370cb4u,uint32_t(-309));
@@ -57,7 +56,7 @@ void verify_startup_diagnostics() {
     memory.write32(backend+0x1c38u,1u);memory.write32(backend+0x1c3cu,0u);
     memory.write32(backend+0x1c40u,0xa0280000u);memory.write32(backend+0x1c44u,0x80290000u);
     memory.write32(0x00290008u,0x00197230u);
-    memory.write32(backend+0x1c88u,0x01fffffcu); // Truncated driver-7 table.
+    memory.write32(backend+0x1c88u,0x01fffffcu);
     memory.write32(backend+0x1b30u,0xa0280000u);
     memory.write32(0x00280138u,3u);memory.write32(0x00280a58u,2048u);
     memory.write32(backend+0x1af8u,20u);memory.write32(backend+0x1afcu,1u);
@@ -203,7 +202,7 @@ void verify_startup_diagnostics() {
     require(std::equal(progressBefore.begin(),progressBefore.end(),ram)
             && memory.readIORegister(0x1000e010u)==oldDstat && memory.readIORegister(0x1000a000u)==oldChcr,
             "Progress capture changed live guest memory, DMA status, or the channel busy bit");
-    memory.write32(0x2601cu,0u); // The window must print the executor's copy.
+    memory.write32(0x2601cu,0u);
     GuestStallDiagnostics stalled;std::ostringstream stallReport;
     require(!stalled.sample(1000,5,60,stallReport) && !stalled.sample(5999,5,360,stallReport)
             && stalled.sample(6000,5,361,stallReport) && !stalled.sample(6001,5,362,stallReport),

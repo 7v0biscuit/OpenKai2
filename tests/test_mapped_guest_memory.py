@@ -48,7 +48,6 @@ class MappedGuestMemoryTests(unittest.TestCase):
  def test_alias_cross_segment_mutation_observable(self):
   cc=list(cases());ok=[c for c in cc if c[1]==7 and c[-1]==0 and c[-2]>0]
   self.assertTrue(ok)
-  # Patching through one alias can change a traversal seen through the other.
   before={};changed=0
   for c in ok:
    key=(c[0].rsplit('_mem',1)[0],c[-2])

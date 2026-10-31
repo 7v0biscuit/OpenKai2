@@ -53,11 +53,9 @@ class GuestMemory:
   for i,a in enumerate(resolved):self.mem[a]=(value>>(i*8))&255
 
 def cases():
- # Every original list topology and both IRQ-gate states; alternate mutations.
  seen=set()
  for c in base_cases():
   label=c[0]
-  # Choose one original ListIrqChain member for each linked-list topology / gate:
   code=label.split('_')[0]
   gate=c[1]
   patch=label.rsplit('_mem',1)[1]
@@ -150,7 +148,6 @@ def expected(c,words=None):
    if i==0 and fault==4:pointer=0x00400000
    g.write(addr,4,pointer)
    for off,val in ((16,x[j+1]),(24,x[j+2]),(32,x[j+3])):g.write(addr+off,8,val)
-  # Handler prefix, successor, and BEQ delay-slot effects before 1137F4.
   g.write(sx32(x[1]-64)&0xffffffff,8,x[3])
   g.write((sx32(x[1]-64)+16)&0xffffffff,8,x[4])
   g.write((sx32(x[1]-64)+32)&0xffffffff,8,x[5])

@@ -22,7 +22,6 @@ std::string lower(std::string text) {
     std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) { return char(std::tolower(c)); });
     return text;
 }
-// Decimal, 0x hex, or negative for signed fields.
 long long signed_number(const std::string &text, const std::string &where) {
     size_t used = 0;
     long long value = 0;
@@ -41,7 +40,6 @@ uint32_t number(const std::string &text, const std::string &where) {
         throw std::runtime_error(where + ": " + text + " cannot be negative");
     return uint32_t(value);
 }
-// A record offset written as hex, e.g. 74 or 0x74.
 uint32_t offset(const std::string &text, const std::string &where) {
     const auto value = number(text.rfind("0x", 0) == 0 ? text : "0x" + text, where);
     if (value < roster_name_bytes || value >= roster_record_bytes)
@@ -53,7 +51,7 @@ std::string name_of(const uint8_t *record) {
     const auto *text = reinterpret_cast<const char *>(record);
     return std::string(text, strnlen(text, roster_name_bytes));
 }
-} // namespace
+}
 
 const DiscCharacter *DiscRoster::find(uint32_t id) const {
     for (const auto &character : characters)
@@ -88,7 +86,6 @@ std::optional<DiscRoster> read_disc_roster(SourceDisc &disc) {
     } catch (const std::runtime_error &) {
         return std::nullopt;
     }
-    // Map the executable's loadable segments into a flat image of memory.
     const auto u16 = [&](size_t at) { return at + 2 <= elf.size() ? uint32_t(elf[at] | elf[at + 1] << 8) : 0u; };
     const auto u32 = [&](size_t at) { return at + 4 <= elf.size() ? uint32_t(u16(at) | u16(at + 2) << 16) : 0u; };
     if (elf.size() < 52 || std::memcmp(elf.data(), "\x7f" "ELF", 4) != 0)
@@ -149,8 +146,6 @@ std::optional<uint32_t> free_roster_slot(const std::vector<uint32_t> &taken) {
 }
 
 namespace {
-// roster.ini split into the lines before its first section and one block of
-// lines per [character] section.
 struct RosterFile {
     std::vector<std::string> head;
     std::vector<std::vector<std::string>> sections;
@@ -198,7 +193,7 @@ RosterSection parse_section(const std::vector<std::string> &lines) {
     }
     return section;
 }
-} // namespace
+}
 
 std::vector<RosterSection> read_roster_sections(const fs::path &mod) {
     std::vector<RosterSection> sections;
@@ -222,7 +217,6 @@ size_t remove_roster_character(const fs::path &mod, uint32_t slot) {
     }
     if (!found)
         throw std::runtime_error("The mod has no character with ID " + std::to_string(slot));
-    // A file another character still names stays.
     for (const auto &lines : kept)
         for (const auto &name : parse_section(lines).added)
             removed.erase(std::remove_if(removed.begin(), removed.end(),
@@ -241,7 +235,6 @@ size_t remove_roster_character(const fs::path &mod, uint32_t slot) {
         out.close();
         fs::rename(temporary, mod / "roster.ini");
     }
-    // Added files sit in afs/<archive>/add/; their imports.txt lines go too.
     size_t count = 0;
     std::vector<std::string> gone;
     std::error_code error;
@@ -389,7 +382,6 @@ std::vector<RosterCharacter> load_roster(const std::vector<fs::path> &mods, cons
                     throw std::runtime_error(where + ": select must be a cell from 0 to " +
                                              std::to_string(roster_select_cells - 1));
             } else {
-                // file.<offset>, u8.<offset>, u16.<offset>, u32.<offset> or f32.<offset>
                 const auto dot = name.find('.');
                 const auto kind = name.substr(0, dot);
                 if (dot == std::string::npos ||
@@ -440,11 +432,8 @@ std::vector<std::string> apply_roster(uint8_t *memory, size_t bytes, const std::
         std::vector<std::string> copied;
         if (character.base && *character.base != character.slot) {
             std::memmove(target, record(memory, *character.base), roster_record_bytes);
-            // The select screen divides by the costume count, which is 0 for unused IDs.
             if (!memory[roster_costumes + character.slot])
                 memory[roster_costumes + character.slot] = memory[roster_costumes + *character.base];
-            // The other tables indexed by character ID have nothing for an
-            // unused ID, so it takes its base's entries.
             for (const auto &table : roster_id_tables)
                 if (character.slot < table.count && *character.base < table.count) {
                     std::memmove(memory + table.address + character.slot * table.bytes,
@@ -477,8 +466,6 @@ std::vector<std::string> apply_roster(uint8_t *memory, size_t bytes, const std::
             memory[roster_id_cells + character.slot] = uint8_t(*character.select_cell);
             line += ", select cell " + std::to_string(*character.select_cell) + " (was ID " + std::to_string(previous) + ")";
         }
-        // The screen opens with the cursor on the cell of the last character
-        // chosen, so an ID with no cell would put it nowhere.
         if (!character.alternate_cells.empty() && int8_t(memory[roster_id_cells + character.slot]) < 0)
             memory[roster_id_cells + character.slot] = uint8_t(character.alternate_cells.front());
         for (const auto spot : character.alternate_cells)
@@ -490,4 +477,4 @@ std::vector<std::string> apply_roster(uint8_t *memory, size_t bytes, const std::
     return log;
 }
 
-} // namespace openkai2::mods
+}

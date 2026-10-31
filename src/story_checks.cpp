@@ -87,4 +87,4 @@ void verify_story_callbacks(PS2Runtime &runtime, uint8_t *ram) {
                     require(ram[object + i] == 0xa5, "Story callback modified its object");
         }
 }
-} // namespace openkai2
+}

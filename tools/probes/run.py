@@ -3,7 +3,6 @@
 from __future__ import annotations
 import argparse,hashlib,json,os,platform,shutil,subprocess,sys,zipfile
 from pathlib import Path
-# Explicit local imports also work under Python isolated (-I) mode.
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 from oracles.retail_elf import load_retail_elf,search_elf,EXPECTED_SHA256,AuditError
 from oracles.tail_wrappers import ENTRIES,synthetically_assembled,retail_instructions,compare_native as compare_wrappers
@@ -160,9 +159,6 @@ def main():
     'second_helper_poll_stops','second_helper_modeled_returns')}
   if not new_chain['passed']:
    status['status']='ORIGINAL_LIST_IRQ_HELPER_SYNTHETIC_DIFFERENCE';return 2
-  # Unlike the synthetic IRQ11 gate, this explicitly executes the bounded
-  # translated ORIGINAL handler blocks and passes their real native register
-  # outputs to the existing compiled helper wrappers in the same host process.
   handler_rc=run_handler_suite(exe['handler'],None,REPORT/'HANDLER_BOUNDARY_SYNTHETIC.json',offline=True)
   status['original_handler_boundary_synthetic_pass']=handler_rc==0
   if handler_rc:
@@ -201,7 +197,6 @@ def main():
   status['observation_model_pass']=observed_native['passed']
   if not observed_native['passed']:
    status['status']='CP0_OBSERVATION_NATIVE_DIFFERENCE';return 2
-  # A real trace is never fabricated or inferred from retail source identity.
   optional_trace=Path(args.trace).expanduser() if args.trace else ROOT/'EXTERNAL_EE_OBSERVATIONS.jsonl'
   if args.trace and not optional_trace.is_file():
    status['status']='EXPLICIT_TRACE_FILE_MISSING'
@@ -279,7 +274,6 @@ def main():
    if not rnew['passed']:
     status['retail_status']='DIFFERENCE'
     status['status']='ORIGINAL_LIST_IRQ_HELPER_RETAIL_DIFFERENCE';return 2
-   # Native original handler call-boundary tests: SHA-pinned real opcodes.
    retail_handler_rc=run_handler_suite(exe['handler'],pinned_handler_snapshot,
      REPORT/'HANDLER_BOUNDARY_RETAIL.json',allow_stage_absent=True)
    rbridge=compare_handler_bridge(exe['handler_bridge'],pinned_handler_rows,pinned_retail(blob))
@@ -293,8 +287,6 @@ def main():
     status['status']='ORIGINAL_HANDLER_BRIDGE_RETAIL_DIFFERENCE'
     return 2
    pinned_chain=pinned_retail(blob)
-   # Original 19 post-JAL instruction words are checked against two independent
-   # retail window hashes; the new native continuation is opcode-interpreted.
    rdoubled=compare_double_helper(exe['double_helper'],pinned_handler_rows,pinned_chain,pinned_handler_rows)
    write('DOUBLE_HELPER_RETAIL.json',{
       **rdoubled,'retail_elf_sha256':EXPECTED_SHA256,'real_ps2_eret_semantics_verified':False})
@@ -313,7 +305,7 @@ def main():
     status['retail_status']='DIFFERENCE'
     status['status']='ORIGINAL_IRQ11_CHAIN_RETAIL_DIFFERENCE'
     return 2
-   pinned_mmio=mmio_retail(blob)    # SHA + entire retail window and translated instruction parity
+   pinned_mmio=mmio_retail(blob)
    pinned_cp0=cp0_retail(blob)
    pinned_shared=read_retail_window(blob)
    pinned_wrappers=retail_instructions(blob)

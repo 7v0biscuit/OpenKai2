@@ -43,7 +43,6 @@ def compare_native(exe,rows):
     return differences
 
 def synthetic_cases():
-    # Independent set of encoded examples, not borrowed from retail executable.
     return [(0x113400,0x00000000),(0x113400,0x03e00008),
         (0x113400,0x00800008),(0x113400,0x0080f809),
         (0x113400,0x0c044d04),(0x113400,0x08044d04),

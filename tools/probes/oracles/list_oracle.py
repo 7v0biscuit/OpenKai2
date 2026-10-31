@@ -13,7 +13,6 @@ from .entry_oracle import hex64,s32
 WINDOW_SHA='84b4f0ac32f269c80364bae831a68fc90437fde90d6a58c2409b51f178133ba4'
 FOUR_SHA='70e260c111a772e9c5f68fd8cde70ceb20312aedfaf11d3ba81cf776f6dccd13'
 CASES=[c+(0x1111222233334444,0x5555666677778888,0x210040) for c in BASE_CASES]
-# extra tests targeted at unsigned 64-bit carry, sign extension and alias-free snapshots
 CASES += [
  ('list_carry',0x200080,0xabcdef,0,1,2,3,0xffffffff,0x210040,0x55aa,0xffffffffffffffff,1,2,0x80000000),
  ('list_zero',0x200100,0x111,2,3,4,5,0xffffffff,0x210040,0,0,0,0,0),
@@ -49,7 +48,6 @@ def expected(case,rows=None):
  if rows is None:
   out['v1']=hex64(case[11]);out['a0']=hex64(case[12]);out['v0']=hex64((case[10]+case[11]) & ((1<<64)-1));out['a2']=hex64(s32(case[13]))
  else:
-  # Decode original instruction words, unlike the native literal statements.
   r=[0]*32;r[2]=int(prior['v0'],16);r[3]=int(prior['v1'],16);r[4]=case[6];r[6]=int(prior['a2'],16)
   node=case[8]&0xffffffff
   mem={}

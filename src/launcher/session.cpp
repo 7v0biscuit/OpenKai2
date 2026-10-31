@@ -50,4 +50,4 @@ bool session_active() noexcept {
     return false;
 #endif
 }
-} // namespace openkai2::launcher
+}

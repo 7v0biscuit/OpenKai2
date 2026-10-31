@@ -22,7 +22,6 @@ Installed &installed() {
     static Installed value;
     return value;
 }
-// The live select-screen state of a player, or 0.
 uint32_t live_state(const uint8_t *memory, size_t bytes, int player) {
     const uint32_t state = read32(memory, select_state_pointers + 4u * uint32_t(player)) & 0x1fffffffu;
     if (state < 0x100000u || state + select_state_bytes > bytes || memory[state + 88] != player ||
@@ -30,7 +29,7 @@ uint32_t live_state(const uint8_t *memory, size_t bytes, int player) {
         return 0;
     return state;
 }
-} // namespace
+}
 
 
 bool SelectAlternates::empty() const {
@@ -65,9 +64,6 @@ std::optional<std::string> cycle_alternate(uint8_t *memory, size_t bytes, int pl
     const auto at = std::find(list.begin(), list.end(), current);
     if (list.size() < 2 || at == list.end())
         return std::nullopt;
-    // The screen can open on an alternate, the last character chosen, while
-    // the grid still holds another; confirming reads the grid. When both
-    // players are on the spot, the grid is left to the last one who switched.
     const uint32_t other = live_state(memory, bytes, 1 - player);
     if (!other || read32(memory, other + 192) != spot)
         memory[roster_select_grid + spot] = current;
@@ -76,7 +72,7 @@ std::optional<std::string> cycle_alternate(uint8_t *memory, size_t bytes, int pl
     const uint8_t next = *(at + 1 == list.end() ? list.begin() : at + 1);
     memory[roster_select_grid + spot] = next;
     memory[state + 128] = next;
-    memory[state + 129] = 0; // the first costume, which every character has
+    memory[state + 129] = 0;
     return "select: player " + std::to_string(player + 1) + " switched spot " + std::to_string(spot + 1) +
            " from ID " + std::to_string(current) + " to ID " + std::to_string(next);
 }
@@ -90,10 +86,9 @@ void install_alternates(uint8_t *memory, size_t bytes, SelectAlternates alternat
     state.held = {};
 }
 
-} // namespace openkai2::mods
+}
 
 namespace openkai2 {
-// Called with each pad packet the game reads. Buttons are active low.
 void observe_pad_packet(int port, const uint8_t *packet) {
     auto &state = mods::installed();
     std::lock_guard lock(state.mutex);
@@ -105,4 +100,4 @@ void observe_pad_packet(int port, const uint8_t *packet) {
     if (const auto line = mods::cycle_alternate(state.memory, state.bytes, port, pressed, state.alternates))
         std::cout << "[mods] " << *line << std::endl;
 }
-} // namespace openkai2
+}

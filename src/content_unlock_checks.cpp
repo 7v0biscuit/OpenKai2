@@ -28,7 +28,7 @@ void transfer(uint8_t *, R5900Context *c, PS2Runtime *runtime, bool upload) {
     }
     c->pc = getRegU32(c, 31);
 }
-} // namespace
+}
 void verify_original_save_codec(PS2Runtime &runtime, uint8_t *ram) {
     struct Restore {
         PS2Runtime &runtime;
@@ -45,8 +45,6 @@ void verify_original_save_codec(PS2Runtime &runtime, uint8_t *ram) {
     } restore{runtime, {}};
     require(runtime.hasFunction(0x233010u) && runtime.hasFunction(0x2332a0u),
             "Original save codec is not registered");
-    // Only cache maintenance and scratchpad DMA are substituted. The original
-    // signature check, RNG, encryption/decryption and both checksum loops run.
     restore.replace(0x10a3d8u, [](uint8_t *, R5900Context *c, PS2Runtime *) {
         require((getRegU32(c, 4) & 0x1fffffffu) == buffer &&
                     (getRegU32(c, 5) & 0x1fffffffu) == buffer + bytes - 1u,
@@ -137,8 +135,6 @@ void verify_original_save_codec(PS2Runtime &runtime, uint8_t *ram) {
             place(broken);
             require(call(0x233010u, alias) == 3u, "Original decoder accepted an invalid inner checksum");
         }
-    // Exercise the original capsule side effects and serializer rather than
-    // validating the launcher field offsets against another save-tool copy.
     constexpr uint32_t object = 0x660000u;
     constexpr uint8_t characterMap[] = {0, 2,  28, 26, 3,  27, 5,  6,  4,  7,  8,  24, 21, 33, 35,
                                         9, 10, 12, 11, 15, 16, 17, 18, 25, 20, 32, 29, 30, 31};
@@ -155,7 +151,6 @@ void verify_original_save_codec(PS2Runtime &runtime, uint8_t *ram) {
     launcher::unlock_progress_content(expected);
     for (unsigned item = 0; item < 520u; ++item)
         memory.write8(object + 0x984u + item, expected[0x89eu + item]);
-    // Rebuild availability exactly as the game does after loading inventory.
     call(0x2837f0u, 0u, object, object + 0x984u);
     place(std::vector<uint8_t>(bytes));
     call(0x233810u, 0u, buffer, object);
@@ -166,4 +161,4 @@ void verify_original_save_codec(PS2Runtime &runtime, uint8_t *ram) {
                 std::equal(expected.begin() + 0xb4u, expected.begin() + 0xb6u, ram + buffer + 0xb4u),
             "Launcher unlock flags differ from original capsule handling and save serialization");
 }
-} // namespace openkai2
+}

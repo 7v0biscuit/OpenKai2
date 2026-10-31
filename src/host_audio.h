@@ -5,7 +5,7 @@
 namespace openkai2 {
 struct HostAudioOptions {
     bool enabled = true;
-    unsigned volume = 100; // percent
+    unsigned volume = 100;
 };
 void set_host_audio_options(const HostAudioOptions &options);
 const HostAudioOptions &host_audio_options() noexcept;

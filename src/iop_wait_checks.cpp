@@ -67,4 +67,4 @@ void verify_iop_wait_diagnostics() {
             "Event snapshot changed the pending wait");
     require(kernel.beginNextReady(4)==thread,"Event signal did not resume the inspected thread");
 }
-} // namespace openkai2
+}

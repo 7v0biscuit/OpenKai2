@@ -11,7 +11,6 @@ CALL400=tuple(range(0x1138b0,0x1138c0,4))
 CALL410=tuple(range(0x113868,0x11388c,4))
 CALL400_SHA='4de535d9e8ba9f0f99f68231baddb4c977bb6dd7e07d904c12eb63fb6b3e70db'
 CALL410_SHA='2d9e3ac60053aa5c79b30cf3b23ff7193d2c00b6c0e6748f4d11b14f885c0525'
-# A final argument is the independent 0x10001000 memory-mapped counter word.
 CASES=[tuple(case)+(0,) for case in prior.CASES]+[
  ('counter_flags_1',0x200080,0x101,0,0,0,0,0xffffffff,0x210040,1,0,0,0,0,0x80000001),
  ('counter_flags_2',0x2000c0,0x102,0,0,0,0,0xffffffff,0x210040,2,0,0,0,0,0x7fffffff),
@@ -47,7 +46,6 @@ def expected(case,rows=None):
         regs[index]=int(old[name],16)
     pcs=CALL400 if pc==0x1138b0 else CALL410
     if rows is None:
-        # Standalone mathematical model for offline testing (not opcode driven).
         if pc==0x1138b0:
             regs[4]=((0xffffffffffff0000|0xf7ff)&regs[18]);regs[31]=0x1138c0
             target=0x113400;site=0x1138b8
@@ -59,7 +57,6 @@ def expected(case,rows=None):
             regs[3]=s32(case[-1]);regs[4]=s32(regs[4]);regs[31]=0x11388c
             regs[4]=s32(regs[3]+regs[4]);target=0x113410;site=0x113884
     else:
-        # Independent per-opcode scalar interpreter. JAL is terminal; no callee execution.
         target=0;site=0
         for instr_pc in pcs:
             w=rows[instr_pc];op=w>>26;rs=(w>>21)&31;rt=(w>>16)&31;rd=(w>>11)&31

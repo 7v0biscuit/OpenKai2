@@ -27,8 +27,6 @@ public:
     bool sample(uint64_t elapsed_ms,const uint8_t* ram,size_t size,std::ostream&);
 };
 void sample_movie_wait(PS2Runtime&,const uint8_t* ram,size_t size,uint32_t return_pc,std::ostream&);
-// Capture RAM on the EE executor, then report the copied state on the window
-// thread. The watchdog never reads live guest memory or changes a guest wait.
 void reset_guest_progress();
 void capture_guest_progress(const EeKernelSnapshot&,const uint8_t*,size_t,PS2Runtime* runtime=nullptr);
 class GuestStallDiagnostics {

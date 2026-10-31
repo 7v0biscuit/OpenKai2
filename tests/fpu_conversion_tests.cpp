@@ -9,8 +9,6 @@ void require(bool condition, const char *message) {
     if (!condition) throw std::runtime_error(message);
 }
 float bits(uint32_t value) { return std::bit_cast<float>(value); }
-// Story-mode paths wrap their time into a loop with t - trunc(t) / n * n
-// (0x0023A67C) before sampling keyframes.
 float wrap(float time, int32_t length) {
     const int32_t whole = FPU_CVT_W_S(time);
     return FPU_SUB_S(time, FPU_CVT_S_W(whole / length * length));

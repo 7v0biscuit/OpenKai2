@@ -23,8 +23,6 @@ namespace gpu {
 std::bitset<PageCount> rectangle_pages(unsigned psm,unsigned base,unsigned width,unsigned x,unsigned y,unsigned w,unsigned h){
     std::bitset<PageCount> pages;static const auto& lut=gpu::address_tables();if(!lut[(psm&63u)*8u] || !w || !h)return pages;
     if(uint64_t(w)*h>4u*1024u*1024u){pages.set();return pages;}
-    // Aligned bases place every logical format page entirely inside one
-    // physical 8 KiB page. Its swizzle cannot change the physical page ID.
     if((base&31u)==0u){
         const unsigned pw=lut[(psm&63u)*8u],ph=lut[(psm&63u)*8u+1u],stride=(width*64u)/pw;
         for(unsigned row=y/ph;row<=(y+h-1u)/ph;++row)
@@ -49,8 +47,6 @@ uint32_t rgba(const GSVertex& v){return uint32_t(v.r)|(uint32_t(v.g)<<8u)|(uint3
 Pages rectanglePages(unsigned psm,unsigned base,unsigned width,unsigned x,unsigned y,unsigned w,unsigned h){
     return gpu::rectangle_pages(psm,base,width,x,y,w,h);
 }
-// Presentation consumes color surfaces only. Retain depth and unrelated render
-// targets on the GPU until a CPU consumer explicitly requests their pages.
 Pages presentationPages(const GSPresentationRequest& request){
     Pages pages;
     const bool halfHeight=(request.smode2&3u)==3u;
@@ -73,8 +69,6 @@ Pages presentationPages(const GSPresentationRequest& request){
         if(!halfHeight){
             if(request.hasPreferredSource && request.preferredDestFbp==frame.fbp)
                 add(request.preferredSource,0u,0u,w,h,true);
-            // The CPU presenter may inspect either context when display zero
-            // is black. Include both candidates before running that selection.
             if(!frame.fbp)for(const auto& candidate:request.contextFrames)add(candidate,0u,0u,w,h,false);
         }
     }
@@ -117,9 +111,6 @@ struct GpuRasterBackend::Impl {
     std::array<std::vector<uint32_t>,65536> tileCommands;
     std::map<std::array<uint32_t,3>,uint32_t> paletteOffsets;
     std::array<uint32_t,5> target{},sourceKey{};Pages sourcePages;bool sourceValid=false;size_t references=0;
-    // Pages already merged into the current batch for one target and texture
-    // state, as a page-aligned pixel rectangle. A draw inside it adds no pages
-    // and raises no new hazards, so its footprint work is skipped.
     std::array<uint32_t,12> footprintKey{};int covered[4]{};bool footprintValid=false;
     bool ready(){
         if(disabled || size!=gpu::VramBytes)return false;
@@ -150,8 +141,6 @@ struct GpuRasterBackend::Impl {
         std::vector<uint32_t> bins,refs;bins.reserve(activeTiles.size()*4u);refs.reserve(references);
         for(auto id:activeTiles){auto& list=tileCommands[id];bins.insert(bins.end(),{id&255u,id>>8u,uint32_t(refs.size()),uint32_t(list.size())});refs.insert(refs.end(),list.begin(),list.end());list.clear();}
         if(palette.empty())palette.push_back(0u);
-        // The batch moves to the device; the next one starts at this size, so
-        // encoding in place does not regrow the buffer draw by draw.
         const size_t commandWords=commands.size();
         statistics.tiles+=activeTiles.size();++statistics.batches;totalTiles.fetch_add(activeTiles.size(),std::memory_order_relaxed);totalBatches.fetch_add(1u,std::memory_order_relaxed);
         device->post([r=resources,cmd=std::move(commands),bins=std::move(bins),refs=std::move(refs),colors=std::move(palette)](gpu::Api& gl){
@@ -174,8 +163,6 @@ struct GpuRasterBackend::Impl {
         });gpuDirty&=~pages;
     }
     void materialize(){Pages all;all.set();materialize(all);}
-    // Uploads and copies whose pages the GPU has drawn run in GPU VRAM, so
-    // the game thread never waits for a readback to merge them on the CPU.
     bool transferFormat(unsigned psm)const{const unsigned bpp=lut[(psm&63u)*8u+3u];return lut[(psm&63u)*8u] && (bpp==4u || bpp==8u || bpp==16u || bpp==24u || bpp==32u);}
     void transferOnGpu(std::vector<uint32_t> job){
         const unsigned pixels=job[1];if(!pixels)return;
@@ -186,8 +173,6 @@ struct GpuRasterBackend::Impl {
             gl.UseProgram(r->transferProgram);gl.DispatchCompute((pixels+63u)/64u,1u,1u);gl.MemoryBarrier(gpu::ShaderStorageBarrier|gpu::BufferUpdateBarrier);gl.check("GPU VRAM transfer");
         });
     }
-    // Pages read and written by a VRAM-to-VRAM or VRAM-to-host transfer.
-    // Wrapped rectangles and unsupported formats keep the full-memory path.
     bool transferPages(const GSTransferCommand& c,Pages& source,Pages& destination){
         const auto& b=c.bitbltbuf;const auto& p=c.trxpos;const auto& r=c.trxreg;const auto& lut=gpu::address_tables();
         const bool copy=c.direction==2u;
@@ -210,8 +195,6 @@ struct GpuRasterBackend::Impl {
             if(t.cpsm==1u)raw&=0xffffffu;palette.push_back(textureAlpha(state.texa,t.cpsm,raw));
         }return start;
     }
-    // Encodes into cmd, which arrives zeroed. footprint is set when the draw's
-    // pages are already part of the batch; writes and sources are then unset.
     bool encode(const GSPrimitiveBatch& batch,uint32_t* cmd,Pages& writes,Pages& sources,bool& footprint){
         const auto& s=batch.state;const auto& c=s.context;const auto& t=c.tex0;
         const bool sprite=s.prim.type==GS_PRIM_SPRITE,point=s.prim.type==GS_PRIM_POINT;
@@ -233,8 +216,6 @@ struct GpuRasterBackend::Impl {
             const unsigned at=gpu::VertexWord+i*gpu::VertexWords;cmd[at]=bits(x);cmd[at+1u]=bits(y);std::memcpy(&cmd[at+2u],&v.z,8u);
             cmd[at+4u]=rgba(v);cmd[at+5u]=v.fog;cmd[at+6u]=bits(v.s);cmd[at+7u]=bits(v.t);cmd[at+8u]=bits(v.q);cmd[at+9u]=v.u;cmd[at+10u]=v.v;
         }
-        // Repeated strip vertices and axis-flat triangles have no covered
-        // samples. Reject them before page footprints and GPU tile binning.
         if(triangle){
             const auto same=[](const GSVertex& a,const GSVertex& b){return a.x==b.x && a.y==b.y;};
             if(minX==maxX || minY==maxY || same(batch.vertices[0],batch.vertices[1]) ||
@@ -260,8 +241,6 @@ struct GpuRasterBackend::Impl {
         cmd[16]=t.psm;cmd[17]=t.tbp0;cmd[18]=t.tbw;cmd[19]=s.textureWidth;cmd[20]=s.textureHeight;cmd[21]=uint32_t(c.clamp);cmd[22]=uint32_t(c.clamp>>32u);cmd[23]=t.tfx;cmd[24]=t.tcc;
         cmd[25]=s.texa.ta0;cmd[26]=s.texa.ta1;cmd[27]=s.texa.aem;cmd[29]=uint32_t(s.fogR)|(uint32_t(s.fogG)<<8u)|(uint32_t(s.fogB)<<16u);
         cmd[38]=c.frame.psm;cmd[39]=flatDepth;
-        // These depths are constant over the draw. Convert once on the CPU,
-        // retaining the presenter's original truncation/triangle rounding.
         if(point || sprite || flatDepth){
             const double z=batch.vertices[sprite ? 1u : 0u].z;
             cmd[88]=uint32_t(std::min(z+(flatDepth ? 0.5 : 0.0),4294967295.0));
@@ -288,15 +267,11 @@ struct GpuRasterBackend::Impl {
         const auto depth=usesDepth ? rectanglePages(c.zbuf.psm,cmd[7],width,x0,y0,unsigned(x1-x0+1),unsigned(y1-y0+1)) : Pages{};
         if(usesDepth && (frame&depth).any())return false;writes=frame;if(!c.zbuf.zmask)writes|=depth;
         if(textured){
-            // This footprint depends on addressing state, never texture bytes.
-            // Uploads and TEXFLUSH must retain their usual data ordering.
             const std::array<uint32_t,5> key={t.psm,t.tbp0,t.tbw,mx,my};
             if(!sourceValid || sourceKey!=key){sourcePages=rectanglePages(t.psm,t.tbp0,t.tbw,0u,0u,mx+1u,my+1u);sourceKey=key;sourceValid=true;}
             sources=sourcePages;
             if((sources&writes).any())return false;
         }
-        // Remember the page-aligned area this draw's pages cover. Unaligned
-        // bases do not map pixels to pages on a grid, so they are not cached.
         footprintKey=key;footprintValid=(cmd[6]&31u)==0u && (!usesDepth || (cmd[7]&31u)==0u);
         if(footprintValid){
             const auto align=[&](unsigned psm,int* r){const int pw=int(lut[(psm&63u)*8u]),ph=int(lut[(psm&63u)*8u+1u]);
@@ -316,8 +291,6 @@ GpuRasterBackend::GpuRasterBackend():m(std::make_unique<Impl>()){}
 GpuRasterBackend::~GpuRasterBackend()=default;
 void GpuRasterBackend::Initialize(uint8_t* vram,uint32_t size){
     std::lock_guard lock(m->mutex);
-    // A replacement allocation may already have released the previous CPU
-    // buffer. Complete its GPU work without writing back through that pointer.
     if(vram==m->vram)m->materialize();
     else if(m->resources){m->submit();m->device->invoke([](gpu::Api& gl){gl.Finish();});}
     m->vram=vram;m->size=size;m->cpu.Initialize(vram,size);m->cpuDirty.set();m->gpuDirty.reset();m->clut.fill(0u);m->cbp.fill(0u);++m->clutGeneration;m->cpuFrame=false;m->loadedPaletteValid=false;
@@ -326,7 +299,6 @@ void GpuRasterBackend::Reset(){std::lock_guard lock(m->mutex);m->materialize();m
 void GpuRasterBackend::Submit(const GSPrimitiveBatch& batch){
     std::lock_guard lock(m->mutex);Pages writes,sources;bool footprint=false;
     if(!m->vram || !batch.vertexCount)return;
-    // Draws are encoded in place at the end of the batch.
     const size_t at=m->commands.size();m->commands.resize(at+gpu::CommandWords);
     if(m->cpuFrame || !m->encode(batch,m->commands.data()+at,writes,sources,footprint) || !m->ready()){
         m->commands.resize(at);m->footprintValid=false;m->loadedPaletteValid=false;
@@ -374,8 +346,6 @@ void GpuRasterBackend::LoadClut(const GSTex0Reg& t,const GSTexClutReg& tc){
     if(t.cld==2u)m->cbp[0]=t.cbp;if(t.cld==3u)m->cbp[1]=t.cbp;
     if(t.cld==4u || t.cld==5u){const unsigned slot=t.cld-4u;load=load && m->cbp[slot]!=t.cbp;m->cbp[slot]=t.cbp;}
     const std::array<uint32_t,8> key={t.psm,t.cpsm,t.csm,t.csa,t.cbp,tc.cbw,tc.cou,tc.cov};
-    // CLD=1 has no CBP-register side effect. Reuse its latched bytes only
-    // while every source page is unchanged; all other CLD modes run normally.
     if(load && t.cld==1u && m->loadedPaletteValid && key==m->loadedPaletteKey){
         ++m->statistics.paletteReuses;totalPaletteReuses.fetch_add(1u,std::memory_order_relaxed);return;
     }
@@ -401,13 +371,10 @@ void GpuRasterBackend::BeginTransfer(const GSTransferCommand& c){
        !(source&destination).any() && m->transferFormat(c.bitbltbuf.spsm) && m->transferFormat(c.bitbltbuf.dpsm) && pixels<=65535u*64u){
         const auto& b=c.bitbltbuf;const auto& p=c.trxpos;
         m->transferOnGpu({1u,pixels,0u,c.trxreg.rrw,b.dpsm,b.dbp,std::max<unsigned>(b.dbw,1u),p.dsax,p.dsay,b.spsm,b.sbp,std::max<unsigned>(b.sbw,1u),p.ssax,p.ssay});
-        // The CPU copy is stale for these pages; record the finished transfer without copying.
         auto finished=c;finished.trxreg.rrh=0u;m->cpu.BeginTransfer(finished);
         m->gpuDirty|=destination;m->cpuDirty&=~destination;if((destination&m->loadedPalettePages).any())m->loadedPaletteValid=false;return;
     }
     if((c.direction==1u || c.direction==2u) && m->transferPages(c,source,destination)){
-        // Earlier draws may still sample the destination, so they are
-        // dispatched before its new bytes are uploaded.
         m->materialize(source|destination);m->submit();m->cpu.BeginTransfer(c);
         m->cpuDirty|=destination;if((destination&m->loadedPalettePages).any())m->loadedPaletteValid=false;return;
     }
@@ -423,8 +390,6 @@ void GpuRasterBackend::UploadImage(const uint8_t* data,uint32_t bytes){
     while(count){const unsigned x=first%t.trxreg.rrw,y=first/t.trxreg.rrw,span=std::min<unsigned>(count,t.trxreg.rrw-x);
         pages|=rectanglePages(t.bitbltbuf.dpsm,t.bitbltbuf.dbp,std::max<unsigned>(t.bitbltbuf.dbw,1u),t.trxpos.dsax+x,t.trxpos.dsay+y,span,1u);first+=span;count-=span;}
     if((pages&m->gpuDirty).any() && m->ready() && m->transferFormat(t.bitbltbuf.dpsm)){
-        // Write the pixels the CPU renderer accepts from this chunk into GPU
-        // VRAM as well; drawn pages stay GPU-owned and need no readback.
         m->cpu.UploadImage(data,bytes);const auto after=m->cpu.GetTransferSnapshot();
         const unsigned moved=after.copiedPixels-before.copiedPixels,used=unsigned((uint64_t(moved)*bpp+7u)/8u);
         std::vector<uint32_t> job={0u,moved,before.copiedPixels,t.trxreg.rrw,t.bitbltbuf.dpsm,t.bitbltbuf.dbp,std::max<unsigned>(t.bitbltbuf.dbw,1u),t.trxpos.dsax,t.trxpos.dsay,0u,0u,0u,0u,0u};
@@ -432,22 +397,13 @@ void GpuRasterBackend::UploadImage(const uint8_t* data,uint32_t bytes){
         m->transferOnGpu(std::move(job));
         m->cpuDirty|=pages&~m->gpuDirty;if((pages&m->loadedPalettePages).any())m->loadedPaletteValid=false;return;
     }
-    // Pending draws that sample these pages must run before the new bytes
-    // reach the GPU. Unrelated draws keep batching across the upload.
     if((pages&m->gpuDirty).any())m->materialize(pages);else if((pages&m->batchSources).any())m->submit();
     m->cpu.UploadImage(data,bytes);m->cpuDirty|=pages;if((pages&m->loadedPalettePages).any())m->loadedPaletteValid=false;
 }
 void GpuRasterBackend::Flush(){std::lock_guard lock(m->mutex);m->submit();}
 void GpuRasterBackend::TextureFlush(){std::lock_guard lock(m->mutex);m->submit();m->cpu.TextureFlush();}
 void GpuRasterBackend::Sync(GSSyncReason reason){std::lock_guard lock(m->mutex);if(reason==GSSyncReason::Presentation)m->submit();else if(reason==GSSyncReason::DebugReadback || reason==GSSyncReason::LocalToHost || reason==GSSyncReason::Reset)m->materialize();
-    // FINISH only needs the work dispatched: every host read of VRAM already
-    // waits for the pages it reads, so waiting for an idle GPU here stalls
-    // the game thread for nothing.
     else m->submit();m->cpu.Sync(reason);}
-// The displayed pages the GPU drew are read back into a copy of VRAM, queued
-// at this point in the draw stream, and the frame is composed from that copy
-// after the backend lock is released, so drawing continues while the GPU
-// finishes and returns them.
 PresentationFrame GpuRasterBackend::Present(const GSPresentationRequest& request){
     thread_local std::vector<uint8_t> snapshot;thread_local GSCpuBackend presenter;
     std::future<void> readback;
@@ -480,13 +436,11 @@ bool GpuRasterBackend::ClearFramebuffer(const GSContext& c,uint32_t rgba){
         auto& v=batch.vertices[1];v.x=float(s.context.scissor.x1+1u);v.y=float(s.context.scissor.y1+1u);
         v.r=uint8_t(rgba);v.g=uint8_t(rgba>>8u);v.b=uint8_t(rgba>>16u);v.a=uint8_t(rgba>>24u);
         gpu::Command command{};Pages writes,sources;bool footprint=false;
-        // This encode only probes; the probe's footprint was never merged.
         const bool encodable=m->encode(batch,command.data(),writes,sources,footprint);m->footprintValid=false;
         if(encodable && m->ready()){Submit(batch);return true;}
     }
     m->materialize();const bool result=m->cpu.ClearFramebuffer(c,rgba);if(result){m->cpuDirty.set();m->loadedPaletteValid=false;}return result;
 }
-// BeginTransfer already captured the source bytes for VRAM-to-host transfers.
 uint32_t GpuRasterBackend::ConsumeLocalToHostBytes(uint8_t* out,uint32_t count){std::lock_guard lock(m->mutex);return m->cpu.ConsumeLocalToHostBytes(out,count);}
 uint32_t GpuRasterBackend::ReadVram(uint32_t psm,uint32_t base,uint32_t width,uint32_t x,uint32_t y)const{std::lock_guard lock(m->mutex);if(!gpu::address_tables()[(psm&63u)*8u]){m->materialize();return m->cpu.ReadVram(psm,base,width,x,y);}const auto page=gpu::bit_address(psm,base,width,x,y)/(gpu::PageBytes*8u);if(m->gpuDirty[page]){Pages requested;requested.set(page);m->materialize(requested);}return m->cpu.ReadVram(psm,base,width,x,y);}
 void GpuRasterBackend::WriteVram(uint32_t psm,uint32_t base,uint32_t width,uint32_t x,uint32_t y,uint32_t value){std::lock_guard lock(m->mutex);m->loadedPaletteValid=false;if(!gpu::address_tables()[(psm&63u)*8u]){m->materialize();m->cpu.WriteVram(psm,base,width,x,y,value);m->cpuDirty.set();return;}const auto page=gpu::bit_address(psm,base,width,x,y)/(gpu::PageBytes*8u);if(m->gpuDirty[page]){Pages requested;requested.set(page);m->materialize(requested);}else m->submit();m->cpu.WriteVram(psm,base,width,x,y,value);m->cpuDirty.set(page);}

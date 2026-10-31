@@ -18,7 +18,6 @@ class HelperContinuation(unittest.TestCase):
    words=synthetic_post_words();words[pc]^=1
    with self.assertRaises(ValueError):validate_post_words(words)
  def test_dsrlv_operand_order_and_sign_extension(self):
-  # S0 is shifted by 4*saved S1 (not a0 shifted by S0).
   words=synthetic_post_words();regs=[0]*32
   regs[29]=0x200080;regs[16]=0x123456789abcdef0;regs[17]=3;regs[31]=0x1138c0
   saved={0x200080:0x111,0x200090:0x222,0x2000a0:0x333,0x2000b0:0x444}

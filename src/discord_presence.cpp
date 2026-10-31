@@ -36,7 +36,7 @@ std::string quoted(const std::string &text) {
     }
     return result + '"';
 }
-} // namespace
+}
 std::string discord::activity_payload(unsigned pid, const std::string &details, const std::string &state,
                                       long long started, unsigned long long nonce, bool clear) {
     std::string activity = "null";
@@ -176,7 +176,6 @@ struct DiscordPresence::Impl {
             if (opcode == 3u && !send(4u, body))
                 return false;
             if (opcode == 1u) {
-                // Discord emits READY before accepting activity commands.
                 if (body.find("\"READY\"") != std::string::npos) {
                     ready = true;
                     std::cerr << "[discord] connected\n";
@@ -285,4 +284,4 @@ void DiscordPresence::update(std::string details, std::string state) {
     }
 }
 PresenceStatus DiscordPresence::status() const noexcept { return m->connection.load(); }
-} // namespace openkai2
+}

@@ -192,7 +192,6 @@ void write_zip(const fs::path &path, const SaveFiles &files) {
     if (!out)
         fail("Cannot finish save backup");
     try {
-        // Validate the actual archive on disk before exposing it in the launcher.
         const auto checked = zip(load(tmp));
         if (checked.size() != files.size() || !std::equal(checked.begin(), checked.end(), files.begin(),
                 [](const SaveFile &a, const SaveFile &b) { return a.name == b.name && a.data == b.data; }))
@@ -294,7 +293,7 @@ SaveFiles psu(const Bytes &b) {
     validate(files);
     return files;
 }
-} // namespace
+}
 SaveFiles read_card(const fs::path &card) {
     safe_parents(card);
     if (!fs::exists(card))
@@ -323,7 +322,6 @@ SaveFiles read_save(const fs::path &source) {
     safe_parents(source);
     if (fs::is_directory(source)) {
         auto files = read_card(source);
-        // Accept either a complete mc0 folder or one exported game directory.
         if (std::any_of(files.begin(), files.end(),
                         [](const SaveFile &f) { return f.name == "icon.sys"; }))
             for (auto &f : files)
@@ -410,7 +408,7 @@ void commit_card(const fs::path& card,const fs::path& backups,const SaveFiles& f
         throw;
     }
 }
-} // namespace
+}
 void import_save(const fs::path &card, const fs::path &source, const fs::path &backups,
                  bool restore) {
     SessionLock session;
@@ -440,8 +438,6 @@ bool unlock_card_content(const fs::path& card,const fs::path& backups) {
     auto decoded=decode_progress_save(progress->data);
     if(!unlock_progress_content(decoded))return false;
     progress->data=encode_progress_save(decoded);
-    // Validate the exact bytes which will be installed, before creating a
-    // backup or replacing anything on the existing memory card.
     decode_progress_save(progress->data);
     commit_card(card,backups,files);
     return true;
@@ -516,4 +512,4 @@ void delete_backup_files(const fs::path &backups, const std::vector<fs::path> &f
                                  (failed == 1 ? " backup; it was kept." : " backups; they were kept."));
 }
 
-} // namespace openkai2::launcher
+}

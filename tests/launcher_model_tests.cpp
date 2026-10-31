@@ -188,7 +188,6 @@ int main() {
         put(root / "unsafe.zip", traversal);
         rejects([&] { import_save(card, root / "unsafe.zip", backups); });
         require(!fs::exists(root / "ESCAPE123"), "ZIP import escaped its card");
-        // Independent PSU fixture: directory, dot entries, one file and 1024-byte padding.
         std::vector<uint8_t> psu(3072);
         auto entry = [&](size_t at, unsigned mode, unsigned length, const std::string &name) {
             word(psu, at, mode);
@@ -235,7 +234,6 @@ int main() {
                 "Stretch mode did not fill the window");
         require(std::abs(native.width / native.height - 512.0f / 448.0f) < 0.0001f,
                 "Native pixel aspect changed");
-        // The same guest deadline sequence is independent of the presentation poll rate.
         using Clock = std::chrono::steady_clock;
         using namespace std::chrono_literals;
         const auto origin = Clock::time_point{} + 1s;

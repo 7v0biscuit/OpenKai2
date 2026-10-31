@@ -8,8 +8,6 @@
 #include <string>
 #include <vector>
 
-// Runs the translated select-screen code on the original 30-cell wheel and on
-// one with added cells, and compares it with the behaviour of the original.
 namespace openkai2 {
 void verify_select_screen(PS2Runtime &runtime, uint8_t *ram) {
     auto require = [](bool ok, const std::string &why) {
@@ -62,8 +60,6 @@ void verify_select_screen(PS2Runtime &runtime, uint8_t *ram) {
         }
     } tables{ram, saved, savedCells};
 
-    // The original cell builder: characters, unlocked cell numbers, the count,
-    // the cursor's place among unlocked cells and each cell's wheel angle.
     const auto build_cells = [&](uint32_t cells, uint64_t mask, uint32_t cursor) {
         std::memset(ram + state, 0, 0x1000u);
         std::memset(ram + state + 208 + 48 * cells, 0xa5, 64);
@@ -103,10 +99,9 @@ void verify_select_screen(PS2Runtime &runtime, uint8_t *ram) {
         ram[grid + i] = uint8_t(i < 29 ? i : i == 29 ? mods::select_random_id : 0xff);
     mods::reset_select_screen();
     build_cells(30, 0x3fffffffull, 5);
-    build_cells(30, 0x2000000aull, 2); // locked cursor
+    build_cells(30, 0x2000000aull, 2);
     build_cells(30, (1ull << 29) | (1ull << 7), 29);
 
-    // Three added cells before Random.
     std::vector<mods::RosterCharacter> added(3);
     const uint32_t slots[3] = {13, 14, 44};
     for (unsigned i = 0; i < 3; ++i) {
@@ -126,7 +121,6 @@ void verify_select_screen(PS2Runtime &runtime, uint8_t *ram) {
     build_cells(33, open, 31);
     build_cells(33, open & ~(1ull << 30), 30);
 
-    // Portraits: sprite 36 + cell, with added cells borrowing one.
     restore.replace(0x1a9210u, [](uint8_t *, R5900Context *c, PS2Runtime *) {
         c->r[2] = _mm_cvtsi32_si128(int32_t(packet));
         c->pc = getRegU32(c, 31);
@@ -150,4 +144,4 @@ void verify_select_screen(PS2Runtime &runtime, uint8_t *ram) {
     mods::reset_select_screen();
     require(portrait(29) == 36 + 29 && portrait(3) == 39, "the unmodded wheel changed its portraits");
 }
-} // namespace openkai2
+}

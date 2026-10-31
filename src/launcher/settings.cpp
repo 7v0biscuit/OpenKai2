@@ -87,7 +87,7 @@ Settings read_settings(const std::filesystem::path &file) {
         else if (key == "launcher_window")
             row >> s.windowLeft >> s.windowTop >> s.windowWidth >> s.windowHeight >> s.windowMaximized;
         else
-            known = false; // Preserve forward compatibility with unrelated keys.
+            known = false;
         if (known) {
             if (row.fail())
                 throw std::runtime_error("Invalid settings value: " + key);
@@ -151,4 +151,4 @@ std::wstring quote_argument(const std::wstring &v) {
     result += L'\"';
     return result;
 }
-} // namespace openkai2::launcher
+}

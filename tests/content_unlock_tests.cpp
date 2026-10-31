@@ -42,7 +42,7 @@ void outer_sum(std::vector<uint8_t> &data) {
         data[0x10u + j] = s;
     }
 }
-} // namespace
+}
 int main() {
     try {
         const auto root = fs::temp_directory_path() /
@@ -64,7 +64,6 @@ int main() {
         plain[15] = 0xf0;
         for (size_t i = 0x30u; i < plain.size(); ++i)
             plain[i] = uint8_t(i * 37u + (i >> 3u));
-        // Mixture of missing and already-owned unlocks; quantities must survive.
         for (unsigned i = 0; i < 520u; ++i)
             plain[0x89eu + i] = i % 3u ? 0u : 7u;
         std::fill(plain.begin() + 0x90u, plain.begin() + 0x98u, 0u);
@@ -111,7 +110,7 @@ int main() {
         invalid[100] ^= 1u;
         rejects([&] { decode_progress_save(invalid); });
         outer_sum(invalid);
-        rejects([&] { decode_progress_save(invalid); }); // Valid outer sum, damaged inner sum.
+        rejects([&] { decode_progress_save(invalid); });
         invalid = encrypted;
         invalid.resize(2735u);
         rejects([&] { decode_progress_save(invalid); });

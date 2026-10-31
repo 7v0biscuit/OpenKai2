@@ -310,7 +310,7 @@ void unsupported_opcode(bool jit) {
     require(caught, "Unsupported vector opcode was silently accepted");
     bridgeForget();
 }
-} // namespace
+}
 namespace openkai2 {
 void verify_vector_backend() {
     for (bool jit : {false, true}) {
@@ -328,4 +328,4 @@ void verify_vector_backend() {
                      "packets, callbacks and code updates passed\n";
     }
 }
-} // namespace openkai2
+}

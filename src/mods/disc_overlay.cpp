@@ -15,7 +15,6 @@ uint64_t align(uint64_t value) { return (value + sector_bytes - 1u) / sector_byt
 std::vector<uint8_t> le32(uint32_t value) {
     return {uint8_t(value), uint8_t(value >> 8), uint8_t(value >> 16), uint8_t(value >> 24)};
 }
-// ISO 9660 stores 32-bit fields little-endian then big-endian.
 std::vector<uint8_t> both32(uint32_t value) {
     auto bytes = le32(value);
     bytes.insert(bytes.end(), {uint8_t(value >> 24), uint8_t(value >> 16), uint8_t(value >> 8), uint8_t(value)});
@@ -49,7 +48,7 @@ std::vector<fs::path> files_under(const fs::path &root) {
     std::sort(files.begin(), files.end());
     return files;
 }
-} // namespace
+}
 
 struct DiscOverlay::Content {
     struct Part {
@@ -224,7 +223,6 @@ bool DiscOverlay::read(uint64_t offset, void *destination, size_t bytes) const {
                 continue;
             }
         }
-        // Between segments the original image shows through.
         const uint64_t limit = std::min(end, next == segments_.end() ? end : next->first);
         Piece through;
         through.kind = at < image_size_ ? Piece::Kind::Image : Piece::Kind::Zero;
@@ -299,8 +297,6 @@ DiscOverlay::Summary DiscOverlay::configure(const fs::path &image, const std::ve
         return piece;
     };
     const auto file_size = [&](size_t file) { return uint64_t(fs::file_size(files_[file])); };
-    // Writes a file's new content where it was when it fits, otherwise past
-    // the end of the disc, and points its directory record there.
     const auto place = [&](const std::string &key, const IsoEntry &entry, const Content &content) {
         if (content.size > 0xffffffffull)
             throw std::runtime_error(key + " would exceed 4 GiB");
@@ -366,8 +362,6 @@ DiscOverlay::Summary DiscOverlay::configure(const fs::path &image, const std::ve
         summary.replaced_entries += edit.entries.size();
         summary.added_entries += edit.added.size();
 
-        // Entries that fit in the space up to the next entry are written in
-        // place, so the archive keeps its layout.
         bool inPlace = !edit.replacement && edit.added.empty();
         std::vector<uint64_t> starts;
         for (const auto &item : archive.entries)
@@ -399,7 +393,6 @@ DiscOverlay::Summary DiscOverlay::configure(const fs::path &image, const std::ve
             continue;
         }
 
-        // Otherwise the archive is rebuilt with every entry, old and new.
         std::vector<AfsEntry> list = archive.entries;
         std::vector<Content> sources;
         for (size_t i = 0; i < list.size(); ++i) {
@@ -444,11 +437,10 @@ DiscOverlay::Summary DiscOverlay::configure(const fs::path &image, const std::ve
         rebuilt.pad(layout.size);
         place(key, entry, rebuilt);
     }
-    // The primary volume descriptor records the volume size in sectors.
     if (size_ > image_size_)
         patch(16u * sector_bytes + 80u, both32(uint32_t(size_ / sector_bytes)));
     active_ = !segments_.empty() || !entries_.empty();
     return summary;
 }
 
-} // namespace openkai2::mods
+}

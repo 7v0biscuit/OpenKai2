@@ -44,8 +44,6 @@ void click(HWND w,int id) {
 }
 void mouse_click(HWND control, int x, int y) {
     POINT point{x,y}; ClientToScreen(control,&point);
-    // Consecutive test actions are independent clicks, not a double-click on
-    // the same arrow (which native combo boxes interpret differently).
     static POINT previous{-10000,-10000};
     static auto last=std::chrono::steady_clock::now()-std::chrono::seconds(2);
     const auto interval=std::chrono::milliseconds(GetDoubleClickTime()+20);
@@ -62,8 +60,6 @@ void mouse_click(HWND control, int x, int y) {
     require(SendInput(2,input,sizeof(INPUT))==2,"Cannot submit native mouse input");
 }
 void open_dropdown(HWND combo) {
-    // A real click also positions the pointer and focuses the field. Direct
-    // CB_SHOWDROPDOWN can leave focus in the previous combo on Windows.
     SetForegroundWindow(GetAncestor(combo,GA_ROOT));
     RECT field{};GetClientRect(combo,&field);
     mouse_click(combo,field.right-10,(field.bottom-field.top)/2);
@@ -129,9 +125,6 @@ void keyboard_choice(HWND combo,int index) {
         " actual="+std::to_string(actual));
 }
 }
-// Only the network boundary is substituted. Controls, notifications, files and
-// the launcher event loop are real; release parsing and the Windows worker have
-// their own integration checks. A stalled check must not lock out the library.
 namespace openkai2::launcher {
 std::optional<UpdateRelease> check_for_updates(bool) {
     updateStarted = true;
@@ -168,12 +161,12 @@ int main() {
                 mouse_choice(GetDlgItem(w,174),0);
                 require(!read_settings(settings_path()).discordPresence,"Discord preference did not switch off");
                 for(int id=140;id<=150;++id) {
-                    if(id==148)continue; // Session backups live on the Saves page.
+                    if(id==148)continue;
                     auto combo=GetDlgItem(w,id);
                     open_dropdown(combo);
                     SendMessageW(combo,CB_SHOWDROPDOWN,FALSE,0);
                 }
-                keyboard_choice(GetDlgItem(w,141),3); // 120 FPS
+                keyboard_choice(GetDlgItem(w,141),3);
                 require(read_settings(settings_path()).fps==120,"FPS was not persisted by native interaction");
                 mouse_choice(GetDlgItem(w,144),1);
                 require(read_settings(settings_path()).antialiasing==1,"Mouse anti-aliasing selection was not saved");
@@ -250,7 +243,6 @@ int main() {
                     require(bounds.left>=0 && bounds.top>=0 && bounds.right<=client.right &&
                             bounds.bottom<=client.bottom,"A settings control is clipped at the minimum window size");
                 }
-                // Navigation shortcuts must work while a native field has focus.
                 for(auto route : {std::pair<WORD,int>{'2',120},{'1',110},{'4',160},{'3',185},{'2',148},{'4',140}}) {
                     SetForegroundWindow(w);
                     INPUT keys[4]{};
@@ -273,7 +265,6 @@ int main() {
                     previous=bounds;
                 }
                 require(!IsWindowEnabled(GetDlgItem(w,127)),"Unlocks were enabled without a verified disc");
-                // Mods: create one, disable it, and lay out the import tool at the minimum size.
                 click(w,103);
                 SetWindowTextW(GetDlgItem(w,186),L"Test mod");
                 click(w,187);
@@ -291,7 +282,6 @@ int main() {
                             bounds.right<=client.right && bounds.bottom<=client.bottom,message);
                 };
                 for(int id=181;id<=192;++id) inside(id,"A mods control is clipped at the minimum window size");
-                // The chosen mod's contents are listed; Rename takes the name typed below.
                 require(SendMessageW(GetDlgItem(w,189),LB_GETCOUNT,0,0)==1 && !IsWindowEnabled(GetDlgItem(w,192)),
                         "An empty mod's contents were not listed, or Remove character was enabled");
                 SetWindowTextW(GetDlgItem(w,186),L"Renamed mod");
@@ -299,7 +289,6 @@ int main() {
                 require(openkai2::mods::scan_mods(openkai2::mods::default_mods_directory())[0].name=="Renamed mod",
                         "Renaming a mod was not saved");
                 click(w,188);
-                // Content buttons, the source and the report fit; without a disc there is nothing to import.
                 for(int id : {200,201,213,214,215,216,219,220})
                     inside(id,"An import tool control is clipped at the minimum window size");
                 require(!IsWindowVisible(GetDlgItem(w,202)) && !IsWindowVisible(GetDlgItem(w,210)),

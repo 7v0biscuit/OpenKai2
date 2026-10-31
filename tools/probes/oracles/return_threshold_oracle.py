@@ -27,7 +27,6 @@ def verified_rows(report,*,allow_stage_absent=False):
         if any(pc not in rows for pc in pcs):raise ValueError(label+' original opcode missing')
         actual=hashlib.sha256(b''.join(struct.pack('<I',rows[pc]) for pc in pcs)).hexdigest()
         if actual!=digest:raise ValueError(label+' instruction sequence mismatch')
-    # Verify semantic shape rather than depending solely on SHA-256.
     for pc,index,offset in zip(RETURN_PCS[:4],(31,18,17,16),(48,32,16,0)):
         w=rows[pc]
         if w>>26!=0x37 or (w>>21)&31!=29 or (w>>16)&31!=index or (w&0xffff)!=offset:
@@ -55,7 +54,6 @@ def expected(case,rows=None):
                threshold_branch_seen=False,threshold_branch_taken=False,threshold_delay_executed=False)
     old_pc=int(original['next_pc'],16)
     if old_pc==0x1138e8:
-        # Retain original saved stack snapshots; the epilogue reads but does not overwrite them.
         sp=int(original['sp'],16)
         regs={29:sp,31:case[2],16:case[3],17:case[4],18:case[5]}
         stack={sp+48:case[2],sp+32:case[5],sp+16:case[4],sp:case[3]}

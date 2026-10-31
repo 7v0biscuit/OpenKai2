@@ -24,13 +24,11 @@ uint32_t read32(const std::vector<uint8_t> &bytes, size_t at) {
 uint16_t read16(const std::vector<uint8_t> &bytes, size_t at) {
     return at + 2 <= bytes.size() ? uint16_t(bytes[at] | bytes[at + 1] << 8) : uint16_t(0);
 }
-// The disc path SYSTEM.CNF boots, e.g. "SLUS_207.79".
 std::optional<std::string> boot_path(SourceDisc &disc) {
     std::vector<uint8_t> text;
     try {
         text = disc.read_file("SYSTEM.CNF");
     } catch (const std::runtime_error &) {
-        // Without SYSTEM.CNF, a root file named like a serial is the executable.
         static const std::regex serial(R"([A-Z]{4}_[0-9]{3}\.[0-9]{2})");
         for (const auto &file : disc.files())
             if (std::regex_match(file.path, serial))
@@ -48,14 +46,12 @@ std::optional<std::string> boot_path(SourceDisc &disc) {
         path.erase(path.begin());
     return path;
 }
-// "SLUS_207.79" -> "SLUS-20779"
 std::string serial_of(const std::string &path) {
     auto name = upper(path.substr(path.find_last_of('/') + 1));
     name.erase(std::remove(name.begin(), name.end(), '.'), name.end());
     std::replace(name.begin(), name.end(), '_', '-');
     return name;
 }
-// Up to `bytes` bytes at `offset` into an archive entry, fewer past its end.
 std::vector<uint8_t> read_bytes(SourceDisc &disc, const SourceDisc::Range &entry, uint64_t offset, size_t bytes) {
     if (offset >= entry.size)
         return {};
@@ -64,7 +60,6 @@ std::vector<uint8_t> read_bytes(SourceDisc &disc, const SourceDisc::Range &entry
     const auto data = text.str();
     return std::vector<uint8_t>(data.begin(), data.end());
 }
-// A file's four-byte mark, with unprintable bytes as '?'.
 std::string printable_mark(const std::vector<uint8_t> &bytes, size_t at) {
     std::string mark;
     for (size_t i = at; i < at + 4 && i < bytes.size(); ++i)
@@ -83,7 +78,6 @@ std::string printable(const ExecutableImage &image, uint32_t at, size_t limit = 
     }
     return {};
 }
-// Names the Budokai games use for their fighters, in their romanisations.
 bool character_name(const std::string &name) {
     static const char *words[] = {"GOKOU", "GOKU", "VEGETA", "KULILIN", "KRILLIN", "PICCOLO", "FREEZA", "FRIEZA",
                                   "CELL", "GOHAN", "TRUNKS", "YAMCHA", "TENSHINHAN", "TIEN", "NAPPA", "RADITZ",
@@ -96,13 +90,12 @@ bool character_name(const std::string &name) {
                return key.rfind(word, 0) == 0;
            });
 }
-// Unused records keep names too, such as BUU (TEN + YAM); padding does not.
 bool plausible_name(const std::string &name) {
     return name.size() >= 3 && std::isupper(static_cast<unsigned char>(name[0])) &&
            std::count_if(name.begin(), name.end(), [](unsigned char c) { return std::isalpha(c); }) * 2 >=
                int(name.size());
 }
-} // namespace
+}
 
 const char *game_name(DragonBallGame game) {
     switch (game) {
@@ -135,7 +128,6 @@ std::optional<ExecutableImage> load_executable(const std::vector<uint8_t> &elf) 
 }
 
 namespace {
-// NUL-terminated character names, by address.
 std::vector<uint32_t> name_addresses(const ExecutableImage &image) {
     std::vector<uint32_t> names;
     const auto &memory = image.memory;
@@ -144,8 +136,6 @@ std::vector<uint32_t> name_addresses(const ExecutableImage &image) {
             names.push_back(at);
     return names;
 }
-// Spacings that occur at least five times between nearby addresses, smallest
-// first: multiples of a table's spacing line up too, so the smallest wins.
 std::vector<uint32_t> common_spacings(const std::vector<uint32_t> &at, uint32_t least) {
     std::map<uint32_t, size_t> spacing;
     for (size_t i = 0; i < at.size(); ++i)
@@ -158,8 +148,6 @@ std::vector<uint32_t> common_spacings(const std::vector<uint32_t> &at, uint32_t 
             strides.push_back(stride);
     return strides;
 }
-// Walks back and forward from `start` while `name_at` finds a name, and keeps
-// the run when most of its names are characters.
 template <typename NameAt>
 std::optional<CharacterTable> walk_table(const ExecutableImage &image, uint32_t start, uint32_t stride, bool pointers,
                                          NameAt name_at) {
@@ -185,14 +173,13 @@ void mark_used(const std::vector<uint32_t> &at, std::vector<bool> &used, const C
             (at[j] - table.first) % table.stride == 0)
             used[j] = true;
 }
-} // namespace
+}
 
 std::vector<CharacterTable> find_character_tables(const ExecutableImage &image) {
     const auto &memory = image.memory;
     const auto names = name_addresses(image);
     std::vector<CharacterTable> tables;
 
-    // Records that hold their names: names at a common spacing.
     const auto held = [&](uint32_t at) {
         auto name = printable(image, at);
         return at && memory[at - 1] == 0 && plausible_name(name) ? name : std::string{};
@@ -206,8 +193,6 @@ std::vector<CharacterTable> find_character_tables(const ExecutableImage &image) 
                     tables.push_back(std::move(*table));
                 }
 
-    // Records that point at their names: words holding a name's address, at a
-    // common spacing.
     std::vector<uint32_t> pointers;
     for (uint32_t at = 0; at + 4 <= memory.size(); at += 4)
         if (std::binary_search(names.begin(), names.end(), read32(memory, at)))
@@ -241,7 +226,6 @@ DiscIdentity identify_disc(SourceDisc &disc) {
         return identity;
     }
     const std::string text(elf.begin(), elf.end());
-    // The memory card folder for this disc's own serial names the game.
     const auto digits = identity.serial.substr(identity.serial.find('-') + 1);
     const std::regex folder("B[A-Z][A-Z]{4}-?" + digits + "(DBZ[A-Z0-9]*)");
     std::smatch match;
@@ -279,8 +263,6 @@ std::string disc_report(SourceDisc &disc) {
                       file.archive ? (", " + std::to_string(file.entries) + " entries").c_str() : "");
         out << line;
     }
-    // The first bytes of a few files of each format and version, to compare
-    // the layouts of the two games' files.
     struct Sample {
         std::string where;
         std::vector<uint8_t> bytes;
@@ -299,8 +281,6 @@ std::string disc_report(SourceDisc &disc) {
     for (const auto &file : disc.files()) {
         if (!file.archive)
             continue;
-        // Sound archives hold ADX streams, whose format is known; the rest are
-        // listed in full so their files can be matched with Budokai 2's.
         const auto name = upper(file.path.substr(file.path.find_last_of('/') + 1));
         const auto &entries = disc.entries(file.path);
         const size_t listed = name.rfind("ADX", 0) == 0 ? std::min<size_t>(entries.size(), 24) : entries.size();
@@ -312,9 +292,6 @@ std::string disc_report(SourceDisc &disc) {
             const auto head = read_bytes(disc, range, 0, 32);
             hex(head.data(), head.size());
             out << "  " << entries[i].name << '\n';
-            // An #AMB pack: the word at 16 counts its files and the word at
-            // 20 is where their 16-byte records start. Each record and the
-            // first bytes it leads to show the formats packed inside.
             if (head.size() < 32 || std::memcmp(head.data(), "#AMB", 4) != 0) {
                 sample(range, 0, range.size, file.path + " entry " + std::to_string(i));
                 continue;
@@ -348,8 +325,6 @@ std::string disc_report(SourceDisc &disc) {
                 out << '\n';
             }
         }
-    // Characters' models whose parts link the same way share a check value,
-    // and can wear each other's models.
     auto roster = read_disc_roster(disc);
     if (roster)
         read_model_shapes(disc, *roster);
@@ -372,8 +347,6 @@ std::string disc_report(SourceDisc &disc) {
                           shape->second.parts.size(), check);
             out << line;
         }
-        // The first character's models in full, one of each shape and at most
-        // four, so the games' part layouts can be compared.
         out << "\nModel structure of the first character's models:\n";
         std::vector<ModelShape> shown;
         for (const auto &character : roster->characters) {
@@ -388,8 +361,6 @@ std::string disc_report(SourceDisc &disc) {
                 out << "\n  " << character.name << ", entry " << entry << ":\n" << model_structure(disc, entry);
             }
         }
-        // Krillin's model fits across the games; his textures and mesh blocks
-        // show how the two games' models differ inside.
         out << "\nTextures and mesh blocks of Krillin's first models:\n";
         unsigned listed = 0;
         for (const auto &character : roster->characters) {
@@ -402,8 +373,6 @@ std::string disc_report(SourceDisc &disc) {
                     out << "\n  " << character.name << ", entry " << entry << ":\n" << model_contents(disc, entry);
                 }
         }
-        // Supreme Kai's Budokai 3 mesh is the size of Budokai 2's, and Krillin's
-        // nearly so; check values show which pieces are the same.
         out << "\nCheck values of Krillin's and Supreme Kai's first models:\n";
         for (const char *name : {"KULILIN", "KAIO-SHIN"})
             for (const auto &character : roster->characters)
@@ -445,11 +414,8 @@ std::string disc_report(SourceDisc &disc) {
         out << line;
         for (size_t i = 0; i < table.names.size(); ++i)
             out << "    " << i << "  " << table.names[i] << '\n';
-        // Words that hold small numbers in most records may be file numbers.
         out << "  Fields that look like file numbers (offset from the "
             << (table.pointers ? "pointer" : "name") << ": values of the first records):\n";
-        // Offsets wrap round into the record before the name, so the whole
-        // record is covered whatever the name's place in it.
         for (uint32_t offset = table.pointers ? 4 : 32; offset + 4 <= table.stride; offset += 4) {
             size_t small = 0;
             std::string values;
@@ -464,7 +430,6 @@ std::string disc_report(SourceDisc &disc) {
                 out << line << values << '\n';
             }
         }
-        // The first records word by word, so fields the scan misses show too.
         if (table.stride >= 64) {
             out << "  The first records as words:\n";
             for (size_t i = 0; i < table.names.size() && i < 3; ++i) {
@@ -482,8 +447,6 @@ std::string disc_report(SourceDisc &disc) {
         }
     }
 
-    // Runs of nearby names, then every string in them: the full lists,
-    // names the character test does not know included.
     std::vector<std::pair<uint32_t, uint32_t>> lists;
     for (size_t i = 0, j; i < names.size(); i = j) {
         for (j = i + 1; j < names.size() && names[j] - names[j - 1] <= 0x1000; ++j) {
@@ -505,8 +468,6 @@ std::string disc_report(SourceDisc &disc) {
                     out << line << text << '\n';
                 }
 
-    // Records of tables that point at names, through the records whose name
-    // the walk above stopped at, and the data their other pointers lead to.
     std::vector<std::pair<uint32_t, uint32_t>> spans;
     std::vector<uint32_t> targets;
     const auto words = [&](uint32_t at, uint32_t bytes) {
@@ -554,7 +515,6 @@ std::string disc_report(SourceDisc &disc) {
                     targets.push_back(read32(memory, at + word));
         }
     }
-    // Three steps out, so lists that point at lists show too.
     std::vector<uint32_t> shown;
     for (int depth = 0; depth < 3 && !targets.empty(); ++depth) {
         std::sort(targets.begin(), targets.end());
@@ -575,8 +535,6 @@ std::string disc_report(SourceDisc &disc) {
         targets = std::move(next);
     }
 
-    // Stages: Budokai 2's table is mapped; for Budokai 3, the records around
-    // its stage names, word by word, to map them.
     if (const auto stages = read_disc_stages(disc)) {
         out << "\nStages (index, name, B stage, files as record offset = DATA_CMN entry):\n";
         for (const auto &stage : *stages) {
@@ -606,8 +564,6 @@ std::string disc_report(SourceDisc &disc) {
             std::snprintf(line, sizeof line, "  0x%08X  %-16s", at, printable(*image, at).c_str());
             out << line << words(at, budokai3_stage_bytes) << '\n';
         }
-        // Whether Budokai 2 can load each stage's files, and the marks of the
-        // files in its #AMB pack, for converting the ones it can't.
         if (const auto stages = read_disc_stages(disc)) {
             out << "\nStage imports (stage, problem or ok, #AMB pack file marks):\n";
             for (const auto &stage : *stages) {
@@ -632,4 +588,4 @@ std::string disc_report(SourceDisc &disc) {
     return out.str();
 }
 
-} // namespace openkai2::mods
+}

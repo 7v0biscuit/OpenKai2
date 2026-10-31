@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "runtime/ps2_audio.h"
 
-// Host playback is suspended while the runtime's frame budget is addressed.
-// Guest sound RPC responses, DMA completion, and interrupts remain in the IOP.
 struct PS2AudioBackend::Impl {};
 PS2AudioBackend::PS2AudioBackend() : m_impl(std::make_unique<Impl>()) {}
 PS2AudioBackend::~PS2AudioBackend()=default;

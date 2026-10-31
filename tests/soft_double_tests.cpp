@@ -11,7 +11,6 @@ namespace {
 void require(bool condition, const char *message) {
     if (!condition) throw std::runtime_error(message);
 }
-// The EE libm passes doubles as 64-bit integers in $a0 and returns them in $v0.
 double call(void (*stub)(uint8_t *, R5900Context *, PS2Runtime *), double value) {
     R5900Context ctx{};
     ctx.r[4] = _mm_set_epi64x(0, std::bit_cast<int64_t>(value));

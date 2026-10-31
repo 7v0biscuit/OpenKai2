@@ -24,8 +24,6 @@ void require(bool condition,const char* message) {
 }
 void end_session(PS2Runtime& runtime) {
     R5900Context context{};
-    // End has no translated entry in the stripped executable's registry.
-    // Use the real SDK implementation to close descriptors and reset state.
     ps2_stubs::sceMcEnd(runtime.memory().getRDRAM(),&context,&runtime);
 }
 int32_t call(PS2Runtime& runtime,uint32_t entry,std::array<uint32_t,6> args={}) {
@@ -63,8 +61,6 @@ void verify_scheduled_card_check() {
         context->pc=getRegU32(context,31);
     });
     runtime.replaceFunction(0x00118c80u,[](uint8_t* ram,R5900Context* context,PS2Runtime* active) {
-        // The real SDK supplies the result. Queue an interrupt at the same
-        // boundary as an asynchronous completion, before the game's JALR.
         context->pc=getRegU32(context,31);ps2_stubs::sceMcSync(ram,context,active);
         if(getRegU32(context,2)==1u)active->eeScheduler().dispatchIrq(true,9u);
     });
@@ -129,8 +125,6 @@ void verify_save_creation() {
         }
         require(false,"game save command never completed");
     };
-    // Begin where the retail log stops: card detection must complete all 21
-    // stability samples, and the initial directory search must report absence.
     require(call(runtime,0x0013d130u,{0,0,1u})==0,"initial card check did not queue");
     finish();
     require(runtime.memory().read32(0x003b4a80u)==2u
@@ -141,8 +135,6 @@ void verify_save_creation() {
     finish(3u);
     require(call(runtime,0x0013d130u,{0,0,1u})==0,"confirmation card check did not queue");
     finish(2u,true);
-    // Run the original menu transition, rather than directly asking the SDK
-    // to create a directory. These are the executable's literal path strings.
     constexpr uint32_t object=0x2c000u;
     runtime.memory().write32(0x003a51acu,object);
     runtime.memory().write32(0x003a51b0u,object+0x100u);
@@ -162,8 +154,6 @@ void verify_save_creation() {
     for (unsigned i=0;i<expected.size();++i) expected[i]=uint8_t(i*17u+(i>>4u));
     text("/BASLUS-20779DBZ2/OPENKAI2-TEST");
     std::memcpy(memory+source,expected.data(),expected.size());
-    // The original game routine queues open/create, then its completion
-    // callbacks write and close. No host-created file supplies the result.
     require(call(runtime,0x0013d6c0u,{0,0,path,source,uint32_t(expected.size())})==0,
             "game save creation did not queue");
     finish();
@@ -172,8 +162,6 @@ void verify_save_creation() {
     const std::vector<uint8_t> actual((std::istreambuf_iterator<char>(input)),{});
     require(actual==expected,"native save callbacks did not persist the complete payload");
     require(std::memcmp(memory+source,expected.data(),expected.size())==0,"saving changed its source buffer");
-    // Reinitialize the SDK, then read from disk to verify persistence across
-    // a new memory-card session and return the real file contents to EE RAM.
     end_session(runtime);call(runtime,0x00118270u);
     require(call(runtime,0x00118658u,{0,0,path,1u})==0,"saved file did not reopen");
     call(runtime,0x00118c80u,{0,result,result+4u});

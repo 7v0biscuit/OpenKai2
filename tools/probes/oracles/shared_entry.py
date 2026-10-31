@@ -55,7 +55,7 @@ def synthesize_translated_words():
        0x113390:i(15,0,6,1),
        0x113394:0,
        0x1133bc:mfc0(2,12),
-       0x1133c0:(16<<6)|15, # SYNC with stype=0x10, no guest hardware performed
+       0x1133c0:(16<<6)|15,
        0x1133c4:i(13,2,2,6),
        0x1133c8:i(14,2,2,2),
        0x1133cc:r(2,3,2,37),
@@ -73,7 +73,7 @@ def scenarios():
         for variant in range(3):
             seed=((idx+17)*0x9e3779b97f4a7c15+variant*0x123456789abced)&MASK
             x=[((seed>>(q%13))^(seed<<(q%11))^(0x1122334455667788*(q+1)))&MASK for q in range(7)]
-            yield (status,*x)  # input registers v0, v1, a2, a0, a1, ra, sp
+            yield (status,*x)
 
 def signed32(x):
     x&=0xffffffff
@@ -94,7 +94,7 @@ def interpret(words,scenario):
         w=words[pc];visited.append(pc)
         op=w>>26;rs=(w>>21)&31;rt=(w>>16)&31;rd=(w>>11)&31;fn=w&63;imm=w&0xffff
         next_pc=pc+4
-        if op==16 and rs==0 and rd==12 and (w&7)==0: # MFC0 GPR,Status
+        if op==16 and rs==0 and rd==12 and (w&7)==0:
             regs[rt]=signed32(cp0status)
         elif op==15 and rs==0:
             regs[rt]=signed32(imm<<16)
@@ -106,7 +106,7 @@ def interpret(words,scenario):
             pending=(pc+4+(displacement<<2)) if regs[rs]==regs[rt] else pc+8
         elif w==0:
             pass
-        elif op==0 and fn==15: # SYNC: ordering fence, modeled event only
+        elif op==0 and fn==15:
             syncs+=1
         elif op==13:
             regs[rt]=(regs[rs]|imm)&MASK

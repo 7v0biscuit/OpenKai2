@@ -20,8 +20,6 @@ void initialize_window_gpu(){
     if(glfwInit()){
         glfwWindowHint(GLFW_VISIBLE,GLFW_FALSE);glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR,4);glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR,3);glfwWindowHint(GLFW_OPENGL_PROFILE,GLFW_OPENGL_CORE_PROFILE);
         worker=glfwCreateWindow(1,1,"OpenKai2 GPU renderer",nullptr,share);
-        // Raylib's visible window already exists. Restore its default context
-        // hints before any later window creation in the host application.
         glfwWindowHint(GLFW_VISIBLE,GLFW_TRUE);glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR,3);glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR,3);
     }
     if(worker){

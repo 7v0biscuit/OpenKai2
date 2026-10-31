@@ -10,9 +10,6 @@
 
 namespace openkai2 {
 void verify_ee_signed_branch_math(PS2Runtime &runtime, uint8_t *ram) {
-    // These are the game's original software-double routines, including the
-    // mantissa sign branch at 0x11fb74. Truncating that branch's register to
-    // 32 bits made pi - atan(0.5) return -5.322... instead of 2.677....
     constexpr std::array<uint32_t, 4> entries{0x11fc50u, 0x11fca8u, 0x11fd10u, 0x11ff98u};
     constexpr std::array<double, 8> values{0.5, -0.5, 1.0, -1.0, 3.141592653589793,
         0.4636476090008061, 1.0e20, 1.0e-20};
