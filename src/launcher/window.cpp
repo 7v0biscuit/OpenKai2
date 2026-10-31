@@ -298,6 +298,24 @@ struct Frame {
                 pixel = blend(16, red) | blend(8, green) | blend(0, blue);
             }
     }
+    // Aura streaks bursting out from (cx, cy), fading between `inner` and
+    // `outer`, limited to `clip` with its corners rounded by `corner`.
+    void rays(RECT clip, int corner, int cx, int cy, int inner, int outer, COLORREF color, int strength) const {
+        if (!pixels || outer <= inner)
+            return;
+        GdiFlush();
+        for (int y = std::max<int>(0, clip.top); y < std::min<int>(height, clip.bottom); ++y)
+            for (int x = std::max<int>(0, clip.left); x < std::min<int>(width, clip.right); ++x) {
+                const double d = std::hypot(double(x - cx), double(y - cy));
+                if (d < inner || d > outer || !inside(clip, corner, x, y))
+                    continue;
+                const double a = std::atan2(double(y - cy), double(x - cx));
+                // Uneven streaks: a fine pattern broken up by a slower one.
+                const double streak = std::pow(0.5 + 0.5 * std::cos(a * 36), 6) * (0.55 + 0.45 * std::cos(a * 7 + 1.3));
+                const double fade = (d - inner) / (outer - inner);
+                light(x, y, color, int(strength * streak * (1.0 - fade) * std::min(1.0, fade * 4)));
+            }
+    }
     // A glow around a rounded rectangle, fading out over `radius` pixels.
     void halo(RECT r, int corner, int radius, COLORREF color, int strength) const {
         if (!pixels || radius <= 0)
@@ -531,7 +549,7 @@ struct Window {
         SelectObject(dc, oldPen);
     }
     void panelBox(HDC dc, int left, int top, int right, int bottom) {
-        box(dc, {p(left), p(top), p(right), p(bottom)}, panel, border, 12);
+        box(dc, {p(left), p(top), p(right), p(bottom)}, panel, mix(panel, border, 150), 12);
         // A lighter top edge, as if lit from above.
         fill(dc, {p(left + 8), p(top) + 1, p(right - 8), p(top) + 2}, mix(panel, ink, 16));
     }
@@ -710,7 +728,7 @@ struct Window {
         combo(SaveListKind,{L"Backups",L"Game saves"},0);
         combo(Aspect, {L"4:3 (original)", L"16:9 (widescreen)", L"Stretch to window", L"Native pixels"},
               int(settings.aspect));
-        combo(Audio, {L"Off", L"On · 100% volume", L"On · 75% volume", L"On · 50% volume", L"On · 25% volume"},
+        combo(Audio, {L"Off", L"100% volume", L"75% volume", L"50% volume", L"25% volume"},
               audioChoice(settings));
         combo(UpdateChannel, {L"Stable", L"Stable and prerelease"}, int(settings.updateChannel));
         combo(AutomaticUpdates, {L"Off", L"On"}, settings.autoUpdates ? 1 : 0);
@@ -959,7 +977,7 @@ struct Window {
         const auto state = presence.status();
         text(dc, !settings.discordPresence ? L"Activity sharing is off"
                   : state == PresenceStatus::connected ? L"Connected to Discord"
-                  : L"Waiting for desktop app", 24, top + 74, sidebarWidth - 48, 18,
+                  : L"Discord isn't open", 24, top + 74, sidebarWidth - 48, 18,
              fonts.caption, state == PresenceStatus::connected ? green : muted,
              DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
         text(dc, L"v" + wide(application_version), 24, h - 38, sidebarWidth - 48, 18, fonts.caption, faint);
@@ -1010,6 +1028,7 @@ struct Window {
             fill(dc, {x, hero.top, x + 2, hero.bottom}, mix(heroFrom, heroTo, (x - hero.left) * 255 / span));
         // The two-star ball, glowing at the right of the banner.
         const int cx = right - 112, cy = heroTop + 96;
+        buffer.frame.rays(hero, p(7), p(cx), p(cy), p(50), p(300), gold, 46);
         buffer.frame.radial(hero, p(cx), p(cy), p(190), ember, 110, p(7));
         buffer.frame.radial(hero, p(contentLeft), p(heroTop), p(260), ember, 34, p(7));
         if (content > 620)
@@ -1039,12 +1058,13 @@ struct Window {
             detail = L"Details are shown at the bottom of the window.";
         } else if (disc) {
             headline = L"Ready to play";
-            detail = L"Your disc was verified.";
+            detail.clear();
         } else {
             headline = L"No disc selected";
             detail = L"Choose your USA ISO below to get started.";
         }
-        text(dc, headline, contentLeft + 214, heroBottom - 69, content - 400, 22, fonts.strong);
+        // On its own, the headline sits level with the Play button.
+        text(dc, headline, contentLeft + 214, heroBottom - (detail.empty() ? 59 : 69), content - 400, 22, fonts.strong);
         text(dc, detail, contentLeft + 214, heroBottom - 47, content - 400, 20, fonts.caption,
              RGB(214, 196, 180), DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
 
@@ -1069,10 +1089,10 @@ struct Window {
             settings.autoBackups ? L"Auto backup" : L"Manual backup"};
         const std::wstring details[] = {
             std::wstring(scaling[std::min(3u, settings.upscaler)]) + L" upscaling" +
-                (settings.antialiasing ? L" · FXAA" : L""),
-            std::wstring(aspects[std::min(3u, settings.aspect)]) + L" · " +
+                (settings.antialiasing ? L", FXAA" : L""),
+            std::wstring(aspects[std::min(3u, settings.aspect)]) + L", " +
                 (settings.fps ? std::to_wstring(settings.fps) + L" FPS cap" : L"uncapped") +
-                (settings.vsync ? L" · VSync" : L""),
+                (settings.vsync ? L", VSync" : L""),
             disc ? std::to_wstring(backups.size()) + (backups.size() == 1 ? L" backup stored" : L" backups stored")
                  : L"Available once your disc is verified"};
         for (int i = 0; i < 3; ++i) {
@@ -1169,10 +1189,18 @@ struct Window {
         caps(dc, L"WHAT DO YOU WANT TO ADD TO BUDOKAI 2?", contentLeft + 20, 132, 400);
         panelBox(dc, contentLeft, 204, right, 256);
         caps(dc, L"FROM", contentLeft + 20, 212, 100);
-        text(dc, source ? source->image().filename().wstring() + L"  ·  " + wide(mods::game_name(sourceIdentity.game))
-                        : game || !disc ? L"Choose a Budokai, Budokai 2, Budokai 3 or Infinite World disc"
-                                        : L"Reading your game disc…",
-             contentLeft + 20, 228, content - 600, 22, fonts.strong, ink, DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        if (source) {
+            const auto file = source->image().filename().wstring();
+            const int fileWidth = std::min(measure(dc, file, fonts.strong), content - 640);
+            text(dc, file, contentLeft + 20, 228, fileWidth, 22, fonts.strong, ink, DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+            auto name = wide(mods::game_name(sourceIdentity.game));
+            if (name.rfind(L"Dragon Ball Z: ", 0) == 0)
+                name.erase(0, 15);
+            text(dc, name, contentLeft + 34 + fileWidth, 229,
+                 content - 614 - fileWidth, 22, fonts.caption, muted, DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        } else
+            text(dc, game || !disc ? L"Choose a Budokai, Budokai 2, Budokai 3 or Infinite World disc" : L"Reading your game disc…",
+                 contentLeft + 20, 228, content - 600, 22, fonts.strong, ink, DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
         panelBox(dc, contentLeft, 264, right, listsBottom);
         const auto placeholder = [&](const std::wstring &message) {
             box(dc, {p(contentLeft + 20), p(304), p(right - 20), p(listsBottom - 14)}, field, border, 8);
@@ -1613,11 +1641,37 @@ struct Window {
         }
         auto old = SelectObject(dc, fonts.body);
         SetBkMode(dc, TRANSPARENT);
-        SetTextColor(dc, enabled ? ink : muted);
         r.left += p(14);
         r.right -= p(10);
-        DrawTextW(dc, value.c_str(), int(value.size()), &r,
-                  DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
+        // A label's parts, joined by middle dots, show as columns: the first
+        // in full ink, the rest quieter. A mod's On or Off shows as a dot.
+        std::vector<std::wstring> parts;
+        for (size_t start = 0;;) {
+            const size_t end = value.find(L'\u00b7', start);
+            auto part = value.substr(start, end == std::wstring::npos ? std::wstring::npos : end - start);
+            part.erase(0, part.find_first_not_of(L' '));
+            part.erase(part.find_last_not_of(L' ') + 1);
+            if (!part.empty())
+                parts.push_back(part);
+            if (end == std::wstring::npos)
+                break;
+            start = end + 1;
+        }
+        if (parts.size() > 1 && (parts[0] == L"On" || parts[0] == L"Off")) {
+            const bool on = parts[0] == L"On";
+            ellipse(dc, r.left + p(4), (r.top + r.bottom) / 2, p(4), on ? green : faint);
+            if (!on)
+                ellipse(dc, r.left + p(4), (r.top + r.bottom) / 2, p(2), chosen ? mix(field, orange, 26) : field);
+            r.left += p(20);
+            parts.erase(parts.begin());
+        }
+        for (size_t i = 0; i < parts.size() && r.left < r.right; ++i) {
+            SetTextColor(dc, !enabled ? muted : i == 0 ? ink : muted);
+            SIZE size{};
+            GetTextExtentPoint32W(dc, parts[i].c_str(), int(parts[i].size()), &size);
+            DrawTextW(dc, parts[i].c_str(), int(parts[i].size()), &r, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
+            r.left += size.cx + p(i == 0 ? 22 : 18);
+        }
         SelectObject(dc, old);
     }
     void refreshBackups() {
@@ -1640,7 +1694,7 @@ struct Window {
         }
         if (gameSaveList()) {
             for (const auto &name : savedGames) {
-                const auto label = wide(name) == L"BASLUS-20779DBZ2" ? std::wstring(L"Budokai 2 · USA") : wide(name);
+                const auto label = wide(name) == L"BASLUS-20779DBZ2" ? std::wstring(L"Budokai 2 \u00b7 USA") : wide(name);
                 SendMessageW(controls[BackupList], LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
             }
         } else if (!backups.empty())
@@ -2502,7 +2556,7 @@ struct Window {
                 if (kind == Job::launch && prefs.autoBackups)
                     backup_card(result.disc->root / "mc0",
                                 default_cache_directory().parent_path() / "backups" / result.disc->image_sha256);
-                result.message = L"Disc verified. You're ready to play.";
+                result.message = L"Disc verified.";
             } else if (kind == Job::deleteSaves) {
                 delete_card_saves(save, archive, selectedGames);
                 result.message = std::to_wstring(selectedGames.size()) + (selectedGames.size() == 1 ? L" save deleted." : L" saves deleted.") +
