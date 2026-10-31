@@ -202,6 +202,88 @@ HRGN cutRegion(RECT r, int cut) {
                                       POINT{r.right - cut, r.bottom}, POINT{r.left, r.bottom}, POINT{r.left, r.top + cut}};
     return CreatePolygonRgn(points.data(), int(points.size()), WINDING);
 }
+COLORREF blend(COLORREF a, COLORREF b, double t) {
+    t = std::clamp(t, 0.0, 1.0);
+    const auto channel = [t](int x, int y) { return int(std::lround(x + (y - x) * t)); };
+    return RGB(channel(GetRValue(a), GetRValue(b)), channel(GetGValue(a), GetGValue(b)), channel(GetBValue(a), GetBValue(b)));
+}
+struct Surface {
+    HDC dc;
+    uint32_t *pixels;
+    int width, height;
+};
+std::vector<Surface> &surfaces() {
+    static std::vector<Surface> list;
+    return list;
+}
+template <class Shade>
+bool cutShape(HDC dc, RECT r, double cut, Shade shade, std::optional<COLORREF> outline, bool filled = true) {
+    const auto &list = surfaces();
+    const auto found = std::find_if(list.begin(), list.end(), [dc](const Surface &s) { return s.dc == dc; });
+    if (found == list.end() || !found->pixels)
+        return false;
+    GdiFlush();
+    POINT origin{};
+    GetViewportOrgEx(dc, &origin);
+    OffsetRect(&r, origin.x, origin.y);
+    auto *pixels = found->pixels;
+    const int width = found->width, height = found->height;
+    for (int y = std::max<int>(0, r.top); y < std::min<int>(height, r.bottom); ++y)
+        for (int x = std::max<int>(0, r.left); x < std::min<int>(width, r.right); ++x) {
+            const double px = x + 0.5, py = y + 0.5;
+            const double edge = std::max({r.left - px, px - r.right, r.top - py, py - r.bottom,
+                                          (cut - (px - r.left) - (py - r.top)) / 1.4142,
+                                          (cut - (r.right - px) - (r.bottom - py)) / 1.4142});
+            double cover = std::clamp(0.5 - edge, 0.0, 1.0);
+            if (cover <= 0)
+                continue;
+            const double inner = std::clamp(-0.5 - edge, 0.0, 1.0);
+            COLORREF color = filled ? shade(x - origin.x, y - origin.y) : *outline;
+            if (outline && filled)
+                color = blend(*outline, color, inner);
+            else if (outline)
+                cover *= 1.0 - inner;
+            uint32_t &pixel = pixels[size_t(y) * size_t(width) + size_t(x)];
+            const COLORREF under = RGB(pixel >> 16 & 255, pixel >> 8 & 255, pixel & 255);
+            const COLORREF out = blend(under, color, cover);
+            pixel = uint32_t(GetRValue(out)) << 16 | uint32_t(GetGValue(out)) << 8 | GetBValue(out);
+        }
+    return true;
+}
+struct Canvas {
+    HDC target, dc{};
+    RECT area;
+    HBITMAP bitmap{};
+    HGDIOBJ previous{};
+    Canvas(HDC into, RECT r) : target(into), area(r) {
+        BITMAPINFO info{};
+        info.bmiHeader.biSize = sizeof(info.bmiHeader);
+        info.bmiHeader.biWidth = std::max(1L, r.right - r.left);
+        info.bmiHeader.biHeight = -std::max(1L, r.bottom - r.top);
+        info.bmiHeader.biPlanes = 1;
+        info.bmiHeader.biBitCount = 32;
+        info.bmiHeader.biCompression = BI_RGB;
+        void *bits = nullptr;
+        bitmap = CreateDIBSection(nullptr, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
+        dc = CreateCompatibleDC(into);
+        if (bitmap) {
+            previous = SelectObject(dc, bitmap);
+            surfaces().push_back({dc, static_cast<uint32_t *>(bits), int(info.bmiHeader.biWidth), int(-info.bmiHeader.biHeight)});
+        }
+        SetViewportOrgEx(dc, -r.left, -r.top, nullptr);
+    }
+    ~Canvas() {
+        auto &list = surfaces();
+        list.erase(std::remove_if(list.begin(), list.end(), [this](const Surface &s) { return s.dc == dc; }), list.end());
+        SetViewportOrgEx(dc, 0, 0, nullptr);
+        if (bitmap) {
+            BitBlt(target, area.left, area.top, area.right - area.left, area.bottom - area.top, dc, 0, 0, SRCCOPY);
+            SelectObject(dc, previous);
+            DeleteObject(bitmap);
+        }
+        DeleteDC(dc);
+    }
+};
 struct Frame {
     uint32_t *pixels = nullptr;
     int width = 0, height = 0;
@@ -410,9 +492,12 @@ struct Window {
             dc = CreateCompatibleDC(nullptr);
             previous = SelectObject(dc, bitmap);
             frame = {static_cast<uint32_t *>(bits), width, height};
+            surfaces().push_back({dc, frame.pixels, width, height});
         }
         void release() {
             if (dc) {
+                auto &list = surfaces();
+                list.erase(std::remove_if(list.begin(), list.end(), [this](const Surface &s) { return s.dc == dc; }), list.end());
                 SelectObject(dc, previous);
                 DeleteDC(dc);
             }
@@ -523,8 +608,10 @@ struct Window {
         SetDCPenColor(dc, outline);
         auto oldBrush = SelectObject(dc, GetStockObject(DC_BRUSH));
         auto oldPen = SelectObject(dc, GetStockObject(DC_PEN));
-        const auto points = cutCorners(rect, cut(radius));
-        Polygon(dc, points.data(), int(points.size()));
+        if (!cutShape(dc, rect, cut(radius), [color](int, int) { return color; }, outline)) {
+            const auto points = cutCorners(rect, cut(radius));
+            Polygon(dc, points.data(), int(points.size()));
+        }
         SelectObject(dc, oldBrush);
         SelectObject(dc, oldPen);
     }
@@ -552,6 +639,13 @@ struct Window {
             fill(dc, r, fallback);
     }
     void emberFill(HDC dc, RECT r, int radius, bool pressed, bool hot) {
+        const COLORREF from = pressed ? RGB(236, 120, 22) : hot ? RGB(255, 214, 110) : RGB(255, 186, 70);
+        const COLORREF to = pressed ? RGB(214, 96, 14) : hot ? RGB(255, 150, 44) : RGB(250, 126, 22);
+        const int height = std::max(1L, r.bottom - r.top);
+        if (cutShape(dc, r, cut(radius), [&](int, int y) {
+                return y == r.top ? mix(from, RGB(255, 245, 214), 150) : mix(from, to, (y - r.top) * 255 / height);
+            }, std::nullopt))
+            return;
         auto region = cutRegion(r, cut(radius));
         SelectClipRgn(dc, region);
         const COLORREF top = pressed ? RGB(236, 120, 22) : hot ? RGB(255, 214, 110) : RGB(255, 186, 70);
@@ -926,24 +1020,13 @@ struct Window {
         text(dc, L"Budokai 2 for PC", 64, 52, 150, 18, fonts.caption, muted);
         const int chosen = page == importPage ? modsPage : page;
         const RECT row{p(12), p(104 + chosen * 58), p(sidebarWidth - 12), p(154 + chosen * 58)};
-        const int slant = p(10);
-        const POINT band[] = {{row.left + slant, row.top}, {row.right, row.top}, {row.right - slant, row.bottom}, {row.left, row.bottom}};
-        auto region = CreatePolygonRgn(band, 4, WINDING);
-        SelectClipRgn(dc, region);
         const int span = std::max(1L, row.right - row.left);
-        for (int x = row.left; x < row.right; x += 2)
-            fill(dc, {x, row.top, x + 2, row.bottom},
-                 mix(mix(sidebar, orange, 40), sidebar, (x - row.left) * 255 / span));
-        SelectClipRgn(dc, nullptr);
-        DeleteObject(region);
-        const POINT edge[] = {{row.left + slant, row.top}, {row.left + slant + p(2), row.top}, {row.left + p(2), row.bottom},
-                              {row.left, row.bottom}};
-        SetDCBrushColor(dc, orange);
-        auto oldBrush = SelectObject(dc, GetStockObject(DC_BRUSH));
-        auto oldPen = SelectObject(dc, GetStockObject(NULL_PEN));
-        Polygon(dc, edge, 4);
-        SelectObject(dc, oldBrush);
-        SelectObject(dc, oldPen);
+        cutShape(dc, row, cut(12), [&](int x, int) {
+            return mix(mix(sidebar, orange, 58), mix(sidebar, orange, 14), (x - row.left) * 255 / span);
+        }, mix(sidebar, orange, 110));
+        const RECT accent{row.left + p(6), row.top + p(15), row.left + p(9), row.bottom - p(15)};
+        fill(dc, accent, orange);
+        buffer.frame.halo(accent, 0, p(10), ember, 110);
 
         const int top = h - 162;
         line(dc, p(24), p(top - 10), p(sidebarWidth - 48), border);
@@ -993,20 +1076,17 @@ struct Window {
     void paintPlay(HDC dc, int content) {
         const int right = contentLeft + content;
         const RECT hero{p(contentLeft), p(heroTop), p(right), p(heroBottom)};
-        auto region = cutRegion(hero, p(18));
-        SelectClipRgn(dc, region);
         const int span = std::max(1L, hero.right - hero.left);
-        for (int x = hero.left; x < hero.right; x += 2)
-            fill(dc, {x, hero.top, x + 2, hero.bottom}, mix(heroFrom, heroTo, (x - hero.left) * 255 / span));
+        cutShape(dc, hero, p(18), [&](int x, int y) {
+            return y == hero.top + 1 && x > hero.left + p(18) ? mix(heroFrom, gold, 60)
+                                                             : mix(heroFrom, heroTo, (x - hero.left) * 255 / span);
+        }, std::nullopt);
         const int cx = right - 112, cy = heroTop + 96;
         buffer.frame.rays(hero, p(18), p(cx), p(cy), p(50), p(300), gold, 46);
         buffer.frame.radial(hero, p(cx), p(cy), p(190), ember, 110, p(18));
         buffer.frame.radial(hero, p(contentLeft), p(heroTop), p(260), ember, 34, p(18));
         if (content > 620)
             buffer.frame.ball(p(cx), p(cy), p(58), hero);
-        fill(dc, {hero.left, hero.top + 1, hero.right, hero.top + 2}, mix(heroFrom, gold, 60));
-        SelectClipRgn(dc, nullptr);
-        DeleteObject(region);
 
         caps(dc, L"DRAGON BALL Z", contentLeft + 30, heroTop + 22, 300, gold);
         lettering(dc, L"Budokai 2", p(contentLeft + 28), p(heroTop + 82), fonts.wordmark, RGB(255, 240, 222),
@@ -1516,6 +1596,8 @@ struct Window {
         RECT r = item.rcItem;
         const bool enabled = (item.itemState & ODS_DISABLED) == 0;
         if (item.CtlType == ODT_BUTTON) {
+            Canvas canvas(item.hDC, r);
+            dc = canvas.dc;
             const int id = int(item.CtlID);
             const bool navigation = id >= PlayTab && id <= SettingsTab;
             const bool chosen = navigation && id == PlayTab + (page == importPage ? modsPage : page);
@@ -1577,8 +1659,11 @@ struct Window {
                 SetDCPenColor(dc, lit ? RGB(36, 16, 4) : navigation ? mix(sidebar, orange, 70) : orange);
                 auto pen = SelectObject(dc, GetStockObject(DC_PEN));
                 auto brush = SelectObject(dc, GetStockObject(NULL_BRUSH));
-                const auto points = cutCorners(focus, cut(8));
-                Polygon(dc, points.data(), int(points.size()));
+                if (!cutShape(dc, focus, cut(8), [](int, int) { return COLORREF(0); },
+                              lit ? RGB(36, 16, 4) : navigation ? mix(sidebar, orange, 70) : orange, false)) {
+                    const auto points = cutCorners(focus, cut(8));
+                    Polygon(dc, points.data(), int(points.size()));
+                }
                 SelectObject(dc, pen);
                 SelectObject(dc, brush);
             }
@@ -3171,9 +3256,11 @@ LRESULT CALLBACK combo_procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) 
     auto *owner = reinterpret_cast<Window *>(GetWindowLongPtrW(GetParent(hwnd), GWLP_USERDATA));
     if (message == WM_PAINT && owner) {
         PAINTSTRUCT ps;
-        auto dc = BeginPaint(hwnd, &ps);
+        auto screen = BeginPaint(hwnd, &ps);
         RECT rect{};
         GetClientRect(hwnd, &rect);
+        std::optional<Canvas> canvas(std::in_place, screen, rect);
+        auto dc = canvas->dc;
         const bool enabled = IsWindowEnabled(hwnd) != FALSE, focused = GetFocus() == hwnd;
         owner->backdrop(dc, hwnd, rect, panel);
         owner->box(dc, rect, enabled ? field : panel, focused ? orange : enabled ? border : mix(panel, border, 140), 8);
@@ -3204,6 +3291,7 @@ LRESULT CALLBACK combo_procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) 
         LineTo(dc, x + owner->p(5), y - owner->p(3));
         SelectObject(dc, previous);
         DeleteObject(pen);
+        canvas.reset();
         EndPaint(hwnd, &ps);
         return 0;
     }
