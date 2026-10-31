@@ -20,6 +20,10 @@ struct Settings {
     bool discordPresence = true;
     unsigned updateChannel = 1; // stable, stable and prerelease
     std::string renderer = "auto";
+    // Where the launcher window was last closed, in screen pixels; a width of
+    // 0 means it opens centred.
+    int windowLeft = 0, windowTop = 0, windowWidth = 0, windowHeight = 0;
+    bool windowMaximized = false;
 };
 std::filesystem::path settings_path();
 Settings read_settings(const std::filesystem::path &file);

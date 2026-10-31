@@ -26,6 +26,7 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <cwchar>
 #include <cwctype>
@@ -51,12 +52,14 @@
 
 namespace openkai2::launcher {
 namespace {
-constexpr COLORREF background = RGB(11, 14, 21), sidebar = RGB(15, 19, 29), panel = RGB(20, 25, 37);
-constexpr COLORREF field = RGB(26, 32, 47), raised = RGB(33, 40, 58), hover = RGB(42, 51, 72);
-constexpr COLORREF border = RGB(42, 51, 70), ink = RGB(241, 244, 249), muted = RGB(146, 157, 179);
-constexpr COLORREF faint = RGB(92, 103, 126), orange = RGB(255, 140, 38), gold = RGB(255, 201, 82);
+// Budokai 2's menus: deep night blue, with ember orange and gold for what matters.
+constexpr COLORREF background = RGB(9, 11, 19), sidebar = RGB(12, 14, 24), panel = RGB(17, 20, 33);
+constexpr COLORREF field = RGB(22, 26, 42), raised = RGB(29, 34, 53), hover = RGB(39, 45, 69);
+constexpr COLORREF border = RGB(35, 41, 61), ink = RGB(242, 238, 230), muted = RGB(148, 153, 174);
+constexpr COLORREF faint = RGB(86, 93, 117), orange = RGB(255, 136, 28), gold = RGB(255, 204, 86);
 constexpr COLORREF red = RGB(255, 112, 102), green = RGB(98, 214, 152);
-constexpr COLORREF heroFrom = RGB(52, 27, 13), heroTo = RGB(18, 24, 39);
+constexpr COLORREF ember = RGB(255, 112, 24), sky = RGB(70, 110, 255);
+constexpr COLORREF heroFrom = RGB(64, 24, 8), heroTo = RGB(15, 17, 31);
 
 // Layout is expressed in 96-DPI units and scaled with p().
 constexpr int sidebarWidth = 220, contentLeft = 252, margin = 32;
@@ -179,39 +182,6 @@ void ellipse(HDC dc, int cx, int cy, int radius, COLORREF color) {
     SelectObject(dc, oldBrush);
     SelectObject(dc, oldPen);
 }
-void star(HDC dc, int cx, int cy, int radius, COLORREF color) {
-    POINT points[10];
-    for (int i = 0; i < 10; ++i) {
-        const double angle = -1.5707963 + i * 0.6283185;
-        const double length = i % 2 ? radius * 0.42 : radius;
-        points[i] = {cx + int(std::lround(std::cos(angle) * length)),
-                     cy + int(std::lround(std::sin(angle) * length))};
-    }
-    SetDCBrushColor(dc, color);
-    auto oldBrush = SelectObject(dc, GetStockObject(DC_BRUSH));
-    auto oldPen = SelectObject(dc, GetStockObject(NULL_PEN));
-    Polygon(dc, points, 10);
-    SelectObject(dc, oldBrush);
-    SelectObject(dc, oldPen);
-}
-// A shaded orange sphere with red stars, drawn in device pixels.
-void orb(HDC dc, int cx, int cy, int radius, int stars) {
-    ellipse(dc, cx, cy, radius + std::max(2, radius / 10), RGB(120, 52, 14));
-    const int steps = std::max(6, radius / 2);
-    for (int i = 0; i < steps; ++i) {
-        const int r = radius - radius * i / steps;
-        const int shift = radius * i / (steps * 3);
-        ellipse(dc, cx - shift, cy - shift, r, mix(RGB(214, 92, 18), RGB(255, 196, 92), i * 255 / steps));
-    }
-    const int size = std::max(4, radius / 3);
-    if (stars == 1)
-        star(dc, cx, cy, size, RGB(204, 38, 30));
-    else
-        for (int i = 0; i < stars; ++i)
-            star(dc, cx + (i ? size : -size) * 2 / 3, cy + (i ? size / 2 : -size / 3), size * 3 / 4,
-                 RGB(204, 38, 30));
-    ellipse(dc, cx - radius * 2 / 5, cy - radius * 2 / 5, std::max(2, radius / 7), RGB(255, 241, 214));
-}
 // Title lettering: the display face with a dark edge traced around it. y is the baseline.
 void lettering(HDC dc, const std::wstring &value, int x, int y, HFONT font, COLORREF color, COLORREF edge,
                int stroke) {
@@ -228,6 +198,122 @@ void lettering(HDC dc, const std::wstring &value, int x, int y, HFONT font, COLO
     SetTextAlign(dc, oldAlign);
     SelectObject(dc, oldFont);
 }
+// Light added over a painted 32-bit frame, screen-blended so it brightens
+// without washing colours out.
+struct Frame {
+    uint32_t *pixels = nullptr;
+    int width = 0, height = 0;
+    void light(int x, int y, COLORREF color, int amount) const {
+        uint32_t &pixel = pixels[size_t(y) * size_t(width) + size_t(x)];
+        const auto screen = [amount](uint32_t base, int add) {
+            add = add * amount / 255;
+            return uint32_t(255 - (255 - int(base)) * (255 - add) / 255);
+        };
+        pixel = screen(pixel >> 16 & 255, GetRValue(color)) << 16 | screen(pixel >> 8 & 255, GetGValue(color)) << 8 |
+                screen(pixel & 255, GetBValue(color));
+    }
+    // Whether (x, y) lies inside `r` with corners rounded by `corner`.
+    static bool inside(RECT r, int corner, int x, int y) {
+        const double qx = std::max(0.0, std::abs(x + 0.5 - (r.left + r.right) / 2.0) - ((r.right - r.left) / 2.0 - corner));
+        const double qy = std::max(0.0, std::abs(y + 0.5 - (r.top + r.bottom) / 2.0) - ((r.bottom - r.top) / 2.0 - corner));
+        return std::hypot(qx, qy) <= corner;
+    }
+    // A soft round light, strongest at the centre, limited to `clip` with its
+    // corners rounded by `corner`.
+    void radial(RECT clip, int cx, int cy, int radius, COLORREF color, int strength, int corner = 0) const {
+        if (!pixels || radius <= 0)
+            return;
+        GdiFlush();
+        const int left = std::max<int>({0, int(clip.left), cx - radius}),
+                  right = std::min<int>({width, int(clip.right), cx + radius});
+        const int top = std::max<int>({0, int(clip.top), cy - radius}),
+                  bottom = std::min<int>({height, int(clip.bottom), cy + radius});
+        for (int y = top; y < bottom; ++y)
+            for (int x = left; x < right; ++x) {
+                const double d = std::hypot(double(x - cx), double(y - cy)) / radius;
+                if (d < 1.0 && (!corner || inside(clip, corner, x, y)))
+                    light(x, y, color, int(strength * (1.0 - d) * (1.0 - d)));
+            }
+    }
+    // The two-star Dragon Ball: a glassy orange sphere lit from the upper left,
+    // with two red stars, drawn per pixel with smooth edges.
+    void ball(int cx, int cy, int radius, RECT clip) const {
+        if (!pixels || radius < 4)
+            return;
+        GdiFlush();
+        const double r = radius;
+        // Five-pointed star test, in units of the ball's radius.
+        double star[10][2];
+        for (int i = 0; i < 10; ++i) {
+            const double angle = -1.5707963 + i * 0.6283185, length = i % 2 ? 0.42 : 1.0;
+            star[i][0] = std::cos(angle) * length;
+            star[i][1] = std::sin(angle) * length;
+        }
+        const auto inStar = [&](double x, double y, double sx, double sy, double size) {
+            x = (x - sx) / size;
+            y = (y - sy) / size;
+            bool in = false;
+            for (int i = 0, j = 9; i < 10; j = i++)
+                if ((star[i][1] > y) != (star[j][1] > y) &&
+                    x < (star[j][0] - star[i][0]) * (y - star[i][1]) / (star[j][1] - star[i][1]) + star[i][0])
+                    in = !in;
+            return in;
+        };
+        const double lx = -0.42, ly = -0.55, lz = 0.72; // light, normalised enough
+        for (int y = std::max<int>({0, int(clip.top), cy - radius - 1}); y < std::min<int>({height, int(clip.bottom), cy + radius + 1}); ++y)
+            for (int x = std::max<int>({0, int(clip.left), cx - radius - 1}); x < std::min<int>({width, int(clip.right), cx + radius + 1}); ++x) {
+                double red = 0, green = 0, blue = 0, cover = 0;
+                // Four samples a pixel, for smooth edges and star points.
+                for (int s = 0; s < 4; ++s) {
+                    const double nx = (x + 0.25 + 0.5 * (s & 1) - cx) / r, ny = (y + 0.25 + 0.5 * (s >> 1) - cy) / r;
+                    const double d2 = nx * nx + ny * ny;
+                    if (d2 > 1.0)
+                        continue;
+                    const double nz = std::sqrt(1.0 - d2);
+                    const double diffuse = std::max(0.0, nx * lx + ny * ly + nz * lz);
+                    // Light passing through the glass gathers at the lower right.
+                    const double through = std::max(0.0, nx * 0.45 + ny * 0.5 + nz * 0.25);
+                    double cr = 150 + 105 * diffuse + 40 * through, cg = 50 + 95 * diffuse + 60 * through,
+                           cb = 6 + 20 * diffuse + 20 * through;
+                    if (inStar(nx, ny, -0.2, 0.02, 0.28) || inStar(nx, ny, 0.25, 0.26, 0.28)) {
+                        cr = 170 + 50 * diffuse;
+                        cg = 24 + 16 * diffuse;
+                        cb = 18 + 10 * diffuse;
+                    }
+                    const double rim = 1.0 - 0.35 * std::pow(d2, 3);
+                    const double hx = nx + 0.5, hy = ny + 0.52;
+                    const double shine = std::exp(-(hx * hx + hy * hy) / 0.02) * 0.8;
+                    red += std::min(255.0, cr * rim + (255 - cr * rim) * shine);
+                    green += std::min(255.0, cg * rim + (255 - cg * rim) * shine);
+                    blue += std::min(255.0, cb * rim + (255 - cb * rim) * shine);
+                    cover += 1;
+                }
+                if (!cover)
+                    continue;
+                uint32_t &pixel = pixels[size_t(y) * size_t(width) + size_t(x)];
+                const double a = cover / 4;
+                const auto blend = [&](int shift, double value) {
+                    return uint32_t(std::lround((pixel >> shift & 255) * (1 - a) + value / cover * a)) << shift;
+                };
+                pixel = blend(16, red) | blend(8, green) | blend(0, blue);
+            }
+    }
+    // A glow around a rounded rectangle, fading out over `radius` pixels.
+    void halo(RECT r, int corner, int radius, COLORREF color, int strength) const {
+        if (!pixels || radius <= 0)
+            return;
+        GdiFlush();
+        const double cx = (r.left + r.right) / 2.0, cy = (r.top + r.bottom) / 2.0;
+        const double hx = (r.right - r.left) / 2.0 - corner, hy = (r.bottom - r.top) / 2.0 - corner;
+        for (int y = std::max<int>(0, r.top - radius); y < std::min<int>(height, r.bottom + radius); ++y)
+            for (int x = std::max<int>(0, r.left - radius); x < std::min<int>(width, r.right + radius); ++x) {
+                const double qx = std::max(0.0, std::abs(x + 0.5 - cx) - hx), qy = std::max(0.0, std::abs(y + 0.5 - cy) - hy);
+                const double d = std::hypot(qx, qy) - corner;
+                if (d > 0 && d < radius)
+                    light(x, y, color, int(strength * (1.0 - d / radius) * (1.0 - d / radius)));
+            }
+    }
+};
 struct Fonts {
     HFONT body{}, caption{}, label{}, heading{}, brand{}, strong{}, wordmark{};
     void clear() {
@@ -293,6 +379,48 @@ struct Window {
     const wchar_t *letteringFace = L"Bangers";
     unsigned dpi = 96;
     int page = 0, hotButton = 0;
+    // The last painted frame. Owner-drawn controls copy what lies behind
+    // their rounded corners from it, so they sit on lit surfaces cleanly.
+    struct FrameBuffer {
+        HDC dc{};
+        HBITMAP bitmap{};
+        HGDIOBJ previous{};
+        Frame frame;
+        void make(int width, int height) {
+            if (dc && width == frame.width && height == frame.height)
+                return;
+            release();
+            BITMAPINFO info{};
+            info.bmiHeader.biSize = sizeof(info.bmiHeader);
+            info.bmiHeader.biWidth = width;
+            info.bmiHeader.biHeight = -height;
+            info.bmiHeader.biPlanes = 1;
+            info.bmiHeader.biBitCount = 32;
+            info.bmiHeader.biCompression = BI_RGB;
+            void *bits = nullptr;
+            bitmap = CreateDIBSection(nullptr, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
+            if (!bitmap)
+                throw std::runtime_error("Cannot draw the launcher window");
+            dc = CreateCompatibleDC(nullptr);
+            previous = SelectObject(dc, bitmap);
+            frame = {static_cast<uint32_t *>(bits), width, height};
+        }
+        void release() {
+            if (dc) {
+                SelectObject(dc, previous);
+                DeleteDC(dc);
+            }
+            if (bitmap)
+                DeleteObject(bitmap);
+            dc = nullptr;
+            bitmap = nullptr;
+            frame = {};
+        }
+        ~FrameBuffer() { release(); }
+    } buffer;
+    std::vector<uint32_t> ambient; // the lit background, kept while the size stays
+    int paintedPage = -1;
+    std::pair<int, int> paintedSize;
     Settings settings;
     DiscordPresence presence;
     PresenceStatus lastPresenceStatus=PresenceStatus::off;
@@ -403,7 +531,44 @@ struct Window {
         SelectObject(dc, oldPen);
     }
     void panelBox(HDC dc, int left, int top, int right, int bottom) {
-        box(dc, {p(left), p(top), p(right), p(bottom)}, panel);
+        box(dc, {p(left), p(top), p(right), p(bottom)}, panel, border, 12);
+        // A lighter top edge, as if lit from above.
+        fill(dc, {p(left + 8), p(top) + 1, p(right - 8), p(top) + 2}, mix(panel, ink, 16));
+    }
+    // A visible control's rectangle in the window, in device pixels.
+    std::optional<RECT> controlRect(int id) const {
+        const auto found = controls.find(id);
+        if (found == controls.end() || !(GetWindowLongPtrW(found->second, GWL_STYLE) & WS_VISIBLE))
+            return std::nullopt;
+        RECT r{};
+        GetWindowRect(found->second, &r);
+        MapWindowPoints(nullptr, hwnd, reinterpret_cast<POINT *>(&r), 2);
+        return r;
+    }
+    // Paints what lies behind `control` from the last frame, or a flat
+    // surface before the first one.
+    void backdrop(HDC dc, HWND control, const RECT &r, COLORREF fallback) {
+        RECT bounds{};
+        GetWindowRect(control, &bounds);
+        MapWindowPoints(nullptr, hwnd, reinterpret_cast<POINT *>(&bounds), 2);
+        if (buffer.dc && bounds.right <= buffer.frame.width && bounds.bottom <= buffer.frame.height)
+            BitBlt(dc, r.left, r.top, r.right - r.left, r.bottom - r.top, buffer.dc, bounds.left + r.left,
+                   bounds.top + r.top, SRCCOPY);
+        else
+            fill(dc, r, fallback);
+    }
+    // The primary buttons' fill: gold at the top warming to orange.
+    void emberFill(HDC dc, RECT r, int radius, bool pressed, bool hot) {
+        auto region = CreateRoundRectRgn(r.left, r.top, r.right + 1, r.bottom + 1, p(radius), p(radius));
+        SelectClipRgn(dc, region);
+        const COLORREF top = pressed ? RGB(236, 120, 22) : hot ? RGB(255, 214, 110) : RGB(255, 186, 70);
+        const COLORREF bottom = pressed ? RGB(214, 96, 14) : hot ? RGB(255, 150, 44) : RGB(250, 126, 22);
+        const int span = std::max(1L, r.bottom - r.top);
+        for (int y = r.top; y < r.bottom; ++y)
+            fill(dc, {r.left, y, r.right, y + 1}, mix(top, bottom, (y - r.top) * 255 / span));
+        fill(dc, {r.left, r.top, r.right, r.top + 1}, mix(top, RGB(255, 245, 214), 150));
+        SelectClipRgn(dc, nullptr);
+        DeleteObject(region);
     }
     void button(int id, const wchar_t *label) {
         controls[id] =
@@ -768,11 +933,25 @@ struct Window {
         return disc ? L"Ready" : L"No disc";
     }
     void paintSidebar(HDC dc, int h) {
-        fill(dc, {0, 0, p(sidebarWidth), p(h)}, sidebar);
-        fill(dc, {p(sidebarWidth) - 1, 0, p(sidebarWidth), p(h)}, border);
-        orb(dc, p(38), p(48), p(15), 2);
+        fill(dc, {p(sidebarWidth) - 1, 0, p(sidebarWidth), p(h)}, mix(sidebar, border, 170));
+        buffer.frame.radial({0, 0, p(sidebarWidth) - 1, p(h)}, p(38), p(48), p(40), ember, 90);
+        buffer.frame.ball(p(38), p(48), p(15), {0, 0, p(sidebarWidth), p(h)});
         text(dc, L"OpenKai2", 64, 28, 150, 24, fonts.brand);
         text(dc, L"Budokai 2 for PC", 64, 51, 150, 18, fonts.caption, muted);
+        // The current page: warm light from the left edge of its row.
+        const int chosen = page == importPage ? modsPage : page;
+        const RECT row{p(12), p(104 + chosen * 58), p(sidebarWidth - 12), p(154 + chosen * 58)};
+        auto region = CreateRoundRectRgn(row.left, row.top, row.right + 1, row.bottom + 1, p(10), p(10));
+        SelectClipRgn(dc, region);
+        const int span = std::max(1L, row.right - row.left);
+        for (int x = row.left; x < row.right; x += 2)
+            fill(dc, {x, row.top, x + 2, row.bottom},
+                 mix(mix(sidebar, orange, 40), sidebar, (x - row.left) * 255 / span));
+        SelectClipRgn(dc, nullptr);
+        DeleteObject(region);
+        const RECT bar{row.left, row.top + p(13), row.left + p(3), row.bottom - p(13)};
+        fill(dc, bar, orange);
+        buffer.frame.halo(bar, 0, p(12), ember, 120);
 
         const int top = h - 162;
         line(dc, p(24), p(top - 10), p(sidebarWidth - 48), border);
@@ -788,21 +967,28 @@ struct Window {
     void paintHeader(HDC dc, int w, int content) {
         const wchar_t *titles[] = {L"Play", L"Saves", L"Mods", L"Settings", L"Import tool"};
         const wchar_t *subtitles[] = {
-            L"Your game, ready when you are.",
+            L"",
             L"Import, back up and restore your memory card.",
             L"Characters, movesets and stages layered over your disc. Your ISO is never changed.",
             L"Saved automatically. Game settings apply at the next launch.",
             L"Add characters, stages and movesets from other Dragon Ball Z games. Nothing in Budokai 2 is removed."};
         text(dc, titles[page], contentLeft, 28, content - 180, 34, fonts.heading);
-        text(dc, subtitles[page], contentLeft, 66, content - 180, 20, fonts.caption, muted,
+        text(dc, subtitles[page], contentLeft, 66, content, 20, fonts.caption, muted,
              DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        // The state of the game, quietly, at the right of the title.
         const auto label = stateLabel();
-        const int pill = measure(dc, label, fonts.strong) + 40, left = w - margin - pill;
-        box(dc, {p(left), p(32), p(w - margin), p(62)}, panel, border, 30);
-        ellipse(dc, p(left + 16), p(47), p(4), stateColor());
-        text(dc, label, left + 26, 32, pill - 30, 30, fonts.strong, stateColor(),
-             DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
-        line(dc, p(contentLeft), p(104), p(content), border);
+        const int labelWidth = measure(dc, label, fonts.caption), left = w - margin - labelWidth;
+        ellipse(dc, p(left - 12), p(47), p(3), stateColor());
+        buffer.frame.halo({p(left - 12), p(47), p(left - 11), p(48)}, 0, p(9), stateColor(), 90);
+        text(dc, label, left, 38, labelWidth + 4, 20, fonts.caption, muted, DT_LEFT | DT_SINGLELINE | DT_NOPREFIX);
+        rule(dc, contentLeft, 104, content);
+    }
+    // A hairline that fades out towards its right end.
+    void rule(HDC dc, int x, int y, int width) {
+        const int steps = 24;
+        for (int i = 0; i < steps; ++i)
+            fill(dc, {p(x + width * i / steps), p(y), p(x + width * (i + 1) / steps), p(y) + 1},
+                 mix(mix(border, orange, 60), background, i * 255 / steps));
     }
     int keycap(HDC dc, int x, int y, const std::wstring &key, const std::wstring &action) {
         const int width = std::max(24, measure(dc, key, fonts.strong) + 16);
@@ -822,24 +1008,24 @@ struct Window {
         const int span = std::max(1L, hero.right - hero.left);
         for (int x = hero.left; x < hero.right; x += 2)
             fill(dc, {x, hero.top, x + 2, hero.bottom}, mix(heroFrom, heroTo, (x - hero.left) * 255 / span));
-        const int cx = right - 100, cy = heroTop + 96;
-        // A restrained outline gives the title room without additional artwork.
-        auto pen = CreatePen(PS_SOLID, p(1), mix(heroTo, orange, 46));
-        auto oldPen = SelectObject(dc, pen);
-        auto oldBrush = SelectObject(dc, GetStockObject(NULL_BRUSH));
-        for (int radius : {74, 90, 106})
-            Ellipse(dc, p(cx - radius), p(cy - radius), p(cx + radius), p(cy + radius));
-        SelectObject(dc, oldBrush);
-        SelectObject(dc, oldPen);
-        DeleteObject(pen);
+        // The two-star ball, glowing at the right of the banner.
+        const int cx = right - 112, cy = heroTop + 96;
+        buffer.frame.radial(hero, p(cx), p(cy), p(190), ember, 110, p(7));
+        buffer.frame.radial(hero, p(contentLeft), p(heroTop), p(260), ember, 34, p(7));
+        if (content > 620)
+            buffer.frame.ball(p(cx), p(cy), p(58), hero);
+        fill(dc, {hero.left, hero.top + 1, hero.right, hero.top + 2}, mix(heroFrom, gold, 60));
         SelectClipRgn(dc, nullptr);
         DeleteObject(region);
 
         caps(dc, L"DRAGON BALL Z", contentLeft + 30, heroTop + 22, 300, gold);
         lettering(dc, L"Budokai 2", p(contentLeft + 28), p(heroTop + 82), fonts.wordmark, RGB(255, 240, 222),
                   RGB(28, 12, 4), p(3));
-        text(dc, L"PlayStation 2  ·  NTSC-U  ·  SLUS-20779", contentLeft + 30, heroTop + 92,
-             content - 260, 18, fonts.caption, RGB(214, 196, 180));
+        int spec = contentLeft + 30;
+        for (const wchar_t *part : {L"PLAYSTATION 2", L"NTSC-U", L"SLUS-20779"}) {
+            caps(dc, part, spec, heroTop + 93, 160, RGB(206, 176, 150));
+            spec += measure(dc, part, fonts.label) + int(std::wcslen(part)) + 22;
+        }
 
         std::wstring headline, detail;
         if (running()) {
@@ -892,8 +1078,7 @@ struct Window {
         for (int i = 0; i < 3; ++i) {
             const int x = contentLeft + i * (tile + 12);
             panelBox(dc, x, tilesTop, x + tile, tilesBottom);
-            fill(dc, {p(x + 16), p(tilesTop + 18), p(x + 19), p(tilesTop + 30)}, i == 2 ? green : orange);
-            caps(dc, captions[i], x + 26, tilesTop + 16, tile - 40);
+            caps(dc, captions[i], x + 16, tilesTop + 16, tile - 32);
             text(dc, values[i], x + 16, tilesTop + 36, tile - 32, 22, fonts.brand, ink,
                  DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
             text(dc, details[i], x + 16, tilesTop + 58, tile - 32, 16, fonts.caption, muted,
@@ -960,7 +1145,7 @@ struct Window {
         panelBox(dc, contentLeft, 208, right, panelBottom);
         const int half = (content - 52) / 2, contentsLeft = contentLeft + 32 + half;
         text(dc, L"Load order", contentLeft + 20, 220, 120, 22, fonts.strong);
-        text(dc, L"Top to bottom; later mods win. Applies when the game starts.", contentLeft + 130, 223, half - 110,
+        text(dc, L"Top to bottom. Later mods win.", contentLeft + 130, 223, half - 110,
              18, fonts.caption, muted, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
         if (!modList.empty()) {
             text(dc, L"What it adds", contentsLeft, 220, 140, 22, fonts.strong);
@@ -1233,12 +1418,22 @@ struct Window {
             EndPaint(hwnd, &ps);
             return;
         }
-        auto memory = CreateCompatibleDC(dc);
-        auto bitmap = CreateCompatibleBitmap(dc, rect.right, rect.bottom);
-        auto old = SelectObject(memory, bitmap);
+        buffer.make(rect.right, rect.bottom);
+        auto memory = buffer.dc;
         const int w = unscale(rect.right), h = unscale(rect.bottom);
         const int content = w - contentLeft - margin;
-        fill(memory, rect, background);
+        const size_t pixels = size_t(rect.right) * size_t(rect.bottom);
+        if (ambient.size() != pixels) {
+            fill(memory, rect, background);
+            fill(memory, {0, 0, p(sidebarWidth), rect.bottom}, sidebar);
+            // Faint ambient light: warm from above the title, cool from below the sidebar.
+            buffer.frame.radial(rect, rect.right * 3 / 4, -p(160), p(620), ember, 30);
+            buffer.frame.radial(rect, 0, rect.bottom + p(60), p(440), sky, 22);
+            ambient.assign(buffer.frame.pixels, buffer.frame.pixels + pixels);
+        } else {
+            GdiFlush();
+            std::copy(ambient.begin(), ambient.end(), buffer.frame.pixels);
+        }
         paintSidebar(memory, h);
         paintHeader(memory, w, content);
         if (page == 0)
@@ -1252,7 +1447,7 @@ struct Window {
         else
             paintSettings(memory, content);
         const int footer = h - 34;
-        line(memory, p(contentLeft), p(footer - 12), p(content), border);
+        rule(memory, contentLeft, footer - 12, content);
         std::wstring message = status;
         if (busy()) {
             const auto current = progressText();
@@ -1263,11 +1458,21 @@ struct Window {
             ellipse(memory, p(contentLeft + 4), p(footer + 9), p(3), red);
         text(memory, message, contentLeft + (error ? 14 : 0), footer, content - (error ? 14 : 0), 20,
              fonts.caption, error ? red : muted, DT_LEFT | DT_END_ELLIPSIS | DT_SINGLELINE | DT_NOPREFIX);
+        // The actions that matter glow.
+        const int task[] = {TaskCharacters, TaskStages, TaskMovesets, TaskCapsules};
+        for (int id : {int(Play), int(ImportSelected), task[int(importTask)]})
+            if (const auto r = controlRect(id); r && IsWindowEnabled(controls.at(id)))
+                buffer.frame.halo(*r, p(id == Play ? 6 : 5), p(id == Play ? 22 : 14), ember, id == Play ? 120 : 80);
         BitBlt(dc, 0, 0, rect.right, rect.bottom, memory, 0, 0, SRCCOPY);
-        SelectObject(memory, old);
-        DeleteObject(bitmap);
-        DeleteDC(memory);
         EndPaint(hwnd, &ps);
+        // Controls show the frame behind their corners; a new page or size
+        // changes it.
+        if (paintedPage != page || paintedSize != std::pair<int, int>{rect.right, rect.bottom}) {
+            paintedPage = page;
+            paintedSize = {rect.right, rect.bottom};
+            for (auto [id, control] : controls)
+                InvalidateRect(control, nullptr, FALSE);
+        }
     }
     COLORREF surface(int id, const RECT &r) const {
         if (id >= PlayTab && id <= SettingsTab)
@@ -1330,26 +1535,27 @@ struct Window {
                                     (id == TaskCapsules && importTask == Task::capsules);
             const bool pressed = (item.itemState & ODS_SELECTED) != 0;
             const bool hot = hotButton == id && enabled;
-            fill(dc, r, surface(id, r));
-            COLORREF color, outline, label;
+            backdrop(dc, item.hwndItem, r, surface(id, r));
+            COLORREF label;
+            const bool lit = (primary || taskChoice || id == ImportSelected) && enabled;
             if (navigation) {
-                color = chosen ? raised : hot ? RGB(24, 30, 44) : sidebar;
-                outline = color;
-                label = chosen ? ink : hot ? ink : muted;
-            } else if (primary || taskChoice || id == ImportSelected) {
+                // The page's own row is lit by the window; others only on hover.
+                if (hot && !chosen)
+                    box(dc, r, mix(sidebar, ink, 10), mix(sidebar, ink, 10), 10);
+                label = chosen || hot ? ink : muted;
+            } else if (lit) {
                 // The chosen task and the Import action stand out like Play.
-                color = !enabled ? raised : pressed ? RGB(230, 118, 24) : hot ? gold : orange;
-                outline = color;
-                label = enabled ? RGB(28, 16, 6) : faint;
+                emberFill(dc, r, primary ? 12 : 10, pressed, hot);
+                label = RGB(36, 16, 4);
             } else {
-                color = !enabled ? panel : pressed ? raised : hot ? hover : raised;
-                outline = enabled ? (hot ? RGB(66, 78, 104) : border) : RGB(34, 41, 57);
+                const COLORREF color = !enabled ? panel : pressed ? field : hot ? hover : raised;
+                const COLORREF outline = !enabled ? mix(panel, border, 140) : hot ? mix(border, orange, 110) : border;
+                box(dc, r, color, outline, 10);
+                if (enabled && !pressed)
+                    fill(dc, {r.left + p(6), r.top + 1, r.right - p(6), r.top + 2}, mix(color, ink, 18));
                 label = enabled ? ink : faint;
                 if (id == DeleteSelected && enabled) label = red;
             }
-            box(dc, r, color, outline, primary ? 12 : 10);
-            if (chosen)
-                box(dc, {r.left + p(4), r.top + p(14), r.left + p(7), r.bottom - p(14)}, orange, orange, 3);
             wchar_t text[100]{};
             GetWindowTextW(item.hwndItem, text, 100);
             auto old = SelectObject(dc, primary ? fonts.brand : navigation || taskChoice || id == ImportSelected ? fonts.strong
@@ -1358,7 +1564,7 @@ struct Window {
             SetTextColor(dc, label);
             RECT textRect = r;
             if (navigation) {
-                navigationIcon(dc, id, r, chosen ? gold : hot ? ink : faint);
+                navigationIcon(dc, id, r, chosen ? gold : hot ? muted : faint);
                 textRect.left = r.left + p(48);
                 DrawTextW(dc, text, -1, &textRect, DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_NOPREFIX);
             } else {
@@ -1379,7 +1585,7 @@ struct Window {
             if ((item.itemState & ODS_FOCUS) && !(item.itemState & ODS_NOFOCUSRECT)) {
                 RECT focus = r;
                 InflateRect(&focus, -p(3), -p(3));
-                SetDCPenColor(dc, primary ? RGB(28, 16, 6) : navigation ? RGB(66, 78, 104) : orange);
+                SetDCPenColor(dc, lit ? RGB(36, 16, 4) : navigation ? mix(sidebar, orange, 70) : orange);
                 auto pen = SelectObject(dc, GetStockObject(DC_PEN));
                 auto brush = SelectObject(dc, GetStockObject(NULL_BRUSH));
                 RoundRect(dc, focus.left, focus.top, focus.right, focus.bottom, p(8), p(8));
@@ -1392,7 +1598,7 @@ struct Window {
         const bool list = item.CtlType == ODT_LISTBOX;
         fill(dc, r, list ? field : panel);
         if (chosen) {
-            fill(dc, r, raised);
+            fill(dc, r, mix(list ? field : panel, orange, 26));
             fill(dc, {r.left, r.top + p(list ? 8 : 6), r.left + p(3), r.bottom - p(list ? 8 : 6)}, orange);
         }
         std::wstring value;
@@ -1618,6 +1824,55 @@ struct Window {
                 for (const auto &stage : *stages)
                     result.stageProblems.push_back(mods::budokai3_stage_problem(*result.loaded, stage));
         return result;
+    }
+    // An ISO dropped on the window: the import tool reads it as the disc to
+    // import from; anywhere else it becomes the game disc.
+    void dropped(HDROP drop) {
+        std::wstring name(size_t(DragQueryFileW(drop, 0, nullptr, 0)) + 1, L'\0');
+        DragQueryFileW(drop, 0, name.data(), UINT(name.size()));
+        DragFinish(drop);
+        name.resize(name.size() - 1);
+        const std::filesystem::path image(name);
+        auto extension = image.extension().wstring();
+        std::transform(extension.begin(), extension.end(), extension.begin(), ::towlower);
+        if (extension != L".iso") {
+            status = L"Only .iso disc images can be dropped here.";
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return;
+        }
+        if (page == importPage) {
+            if (!busy())
+                loadSource(image);
+            return;
+        }
+        if (busy() || child)
+            return;
+        if (page != 0)
+            command(PlayTab, BN_CLICKED);
+        disc.reset();
+        backups.clear();
+        savedGames.clear();
+        start(Job::verify, image);
+    }
+    // Saves where the window is, so it opens there next time.
+    void rememberPlacement() {
+        WINDOWPLACEMENT placement{sizeof(placement)};
+        if (!GetWindowPlacement(hwnd, &placement))
+            return;
+        // The restored size; for a window on screen, its exact place.
+        RECT r = placement.rcNormalPosition;
+        if (!IsIconic(hwnd) && !IsZoomed(hwnd))
+            GetWindowRect(hwnd, &r);
+        settings.windowLeft = r.left;
+        settings.windowTop = r.top;
+        settings.windowWidth = std::clamp(int(r.right - r.left), 0, 32768);
+        settings.windowHeight = std::clamp(int(r.bottom - r.top), 0, 32768);
+        settings.windowMaximized = placement.showCmd == SW_SHOWMAXIMIZED;
+        try {
+            write_settings(settings_path(), settings);
+        } catch (const std::exception &e) {
+            std::cerr << "[launcher:error] " << e.what() << std::endl;
+        }
     }
     void loadSource(const std::filesystem::path &image) {
         startModJob(Job::readSource, L"Reading " + image.filename().wstring() + L"…",
@@ -2966,8 +3221,8 @@ LRESULT CALLBACK combo_procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) 
         RECT rect{};
         GetClientRect(hwnd, &rect);
         const bool enabled = IsWindowEnabled(hwnd) != FALSE, focused = GetFocus() == hwnd;
-        fill(dc, rect, panel);
-        owner->box(dc, rect, enabled ? field : panel, focused ? orange : enabled ? border : RGB(34, 41, 57), 8);
+        owner->backdrop(dc, hwnd, rect, panel);
+        owner->box(dc, rect, enabled ? field : panel, focused ? orange : enabled ? border : mix(panel, border, 140), 8);
         const auto index = SendMessageW(hwnd, CB_GETCURSEL, 0, 0);
         std::wstring label;
         if (index >= 0) {
@@ -3046,6 +3301,9 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
             if (!self->controls.empty())
                 self->layout();
             return 0;
+        case WM_DROPFILES:
+            self->dropped(reinterpret_cast<HDROP>(wp));
+            return 0;
         case WM_GETMINMAXINFO: {
             auto *limits = reinterpret_cast<MINMAXINFO *>(lp);
             limits->ptMinTrackSize = {self->p(1000), self->p(680)};
@@ -3053,6 +3311,7 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
         }
         case WM_DPICHANGED: {
             self->dpi = HIWORD(wp);
+            self->ambient.clear();
             self->fonts.make(self->dpi, self->letteringFace);
             for (auto [id, c] : self->controls)
                 SendMessageW(c, WM_SETFONT, reinterpret_cast<WPARAM>(self->fonts.body), TRUE);
@@ -3093,6 +3352,7 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
             return 0;
         case WM_DESTROY:
             KillTimer(hwnd, 1);
+            self->rememberPlacement();
             PostQuitMessage(0);
             return 0;
         }
@@ -3180,13 +3440,20 @@ int run_window(const std::filesystem::path &initialIso) {
             state.dpi = fn();
     RECT work{};
     SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
-    const int width = std::min<int>(state.p(1120), int(work.right - work.left) - state.p(24));
-    const int height = std::min<int>(state.p(740), int(work.bottom - work.top) - state.p(24));
-    auto hwnd =
-        CreateWindowExW(0, type.lpszClassName, L"OpenKai2", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
-                        work.left + (work.right - work.left - width) / 2,
-                        work.top + (work.bottom - work.top - height) / 2, width, height, nullptr,
-                        nullptr, type.hInstance, &state);
+    int width = std::min<int>(state.p(1120), int(work.right - work.left) - state.p(24));
+    int height = std::min<int>(state.p(740), int(work.bottom - work.top) - state.p(24));
+    int left = work.left + (work.right - work.left - width) / 2, top = work.top + (work.bottom - work.top - height) / 2;
+    // Reopen where it was closed, if that is still on a screen.
+    const auto &saved = state.settings;
+    const RECT last{saved.windowLeft, saved.windowTop, saved.windowLeft + saved.windowWidth, saved.windowTop + saved.windowHeight};
+    if (saved.windowWidth > 0 && saved.windowHeight > 0 && MonitorFromRect(&last, MONITOR_DEFAULTTONULL)) {
+        left = saved.windowLeft;
+        top = saved.windowTop;
+        width = saved.windowWidth;
+        height = saved.windowHeight;
+    }
+    auto hwnd = CreateWindowExW(0, type.lpszClassName, L"OpenKai2", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, left, top,
+                                width, height, nullptr, nullptr, type.hInstance, &state);
     if (!hwnd)
         throw std::runtime_error("Cannot open the launcher window");
     if (auto module = LoadLibraryW(L"dwmapi.dll")) {
@@ -3200,15 +3467,24 @@ int run_window(const std::filesystem::path &initialIso) {
         }
         FreeLibrary(module);
     }
-    ShowWindow(hwnd, SW_SHOW);
+    // Dark scroll bars on the lists, where Windows offers them.
+    if (auto module = LoadLibraryW(L"uxtheme.dll")) {
+        if (auto fn = reinterpret_cast<HRESULT(WINAPI *)(HWND, LPCWSTR, LPCWSTR)>(GetProcAddress(module, "SetWindowTheme")))
+            for (auto [id, control] : state.controls)
+                fn(control, L"DarkMode_Explorer", nullptr);
+        FreeLibrary(module);
+    }
+    ShowWindow(hwnd, state.settings.windowMaximized ? SW_SHOWMAXIMIZED : SW_SHOW);
+    DragAcceptFiles(hwnd, TRUE);
     UpdateWindow(hwnd);
     if (!state.settings.iso.empty())
         state.start(Job::verify, state.settings.iso);
     ACCEL shortcuts[] = {{FCONTROL | FVIRTKEY, '1', PlayTab},
                          {FCONTROL | FVIRTKEY, '2', SavesTab},
                          {FCONTROL | FVIRTKEY, '3', ModsTab},
-                         {FCONTROL | FVIRTKEY, '4', SettingsTab}};
-    const auto accelerators = CreateAcceleratorTableW(shortcuts, pageCount);
+                         {FCONTROL | FVIRTKEY, '4', SettingsTab},
+                         {FVIRTKEY, VK_F5, Play}};
+    const auto accelerators = CreateAcceleratorTableW(shortcuts, int(std::size(shortcuts)));
     struct AcceleratorCleanup {
         HACCEL value;
         ~AcceleratorCleanup() { if (value) DestroyAcceleratorTable(value); }

@@ -76,6 +76,11 @@ int main() {
         s.autoUpdates = false;
         s.updateChannel = 0;
         s.importIso = root / L"Budokai 3 ドラゴン.iso";
+        s.windowLeft = -1200;
+        s.windowTop = 40;
+        s.windowWidth = 1180;
+        s.windowHeight = 760;
+        s.windowMaximized = true;
         write_settings(root / "settings.ini", s);
         auto read = read_settings(root / "settings.ini");
         require(read.iso == s.iso && read.fps == 144 && read.width == 2560 && read.height == 1440 &&
@@ -83,7 +88,8 @@ int main() {
                     read.upscaler == 3 && read.aspect == 1 && !read.vsync && !read.autoBackups &&
                     !read.audio && read.volume == 75 &&
                     read.renderer == "gpu" && !read.autoUpdates && read.updateChannel == 0 &&
-                    read.importIso == s.importIso,
+                    read.importIso == s.importIso && read.windowLeft == -1200 && read.windowTop == 40 &&
+                    read.windowWidth == 1180 && read.windowHeight == 760 && read.windowMaximized,
                 "Settings roundtrip changed values");
         require(read_settings(root / "absent.ini").fps == 240, "Default frame rate cap is not 240 FPS");
         require(read_settings(root / "absent.ini").audio && read_settings(root / "absent.ini").volume == 100,
