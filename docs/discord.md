@@ -8,7 +8,7 @@ icon. ISO paths, save names and hardware details are never included.
 
 Activity sharing is always on. To hide it, use Discord's own activity privacy
 settings.
-The choice is saved and also applies to a running game within a few seconds.
+
 Closing the application clears its activity. Discord being closed or
 unresponsive does not prevent launching or playing.
 
