@@ -31,8 +31,14 @@ struct Settings {
     unsigned overlayCorner = 0, overlaySize = 1, overlayBackground = 1, overlaySplits = 1;
     std::string onlineName = "Player";
     std::string onlineAddress;
-    unsigned onlinePort = 7350, onlineDelay = 2;
+    unsigned onlinePort = 7350, onlineDelay = 0;
     std::vector<std::string> onlineProfiles;
+    std::vector<std::string> onlineKeys;
+    unsigned onlineVisibility = 0;
+    struct Friend {
+        std::string owner, id, name;
+    };
+    std::vector<Friend> onlineFriends;
     std::string onlineRoom, onlinePassword, onlineLobby;
     bool onlineListed = true;
 };

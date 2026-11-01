@@ -5,6 +5,7 @@
 #include "host_input.h"
 #include "machine_state.h"
 #include "netplay.h"
+#include "render/gpu_backend.h"
 #include <fstream>
 #include <iterator>
 #include <mutex>
@@ -19,6 +20,7 @@
 #include <cstdlib>
 #include <ctime>
 #include <iostream>
+#include <sstream>
 #include <memory>
 #include <set>
 #ifdef _WIN32
@@ -564,10 +566,42 @@ void start(PS2Runtime &, void *) {
         overlay->load_font();
 }
 
+void report_gpu_waits(double now) {
+    static double last = 0;
+    static std::vector<std::array<uint64_t, 3>> previous;
+    if (last == 0) {
+        last = now;
+        return;
+    }
+    if (now - last < 30)
+        return;
+    last = now;
+    const auto current = gpu_wait_counts();
+    std::ostringstream line;
+    line << "[renderer:wait:sample] seconds=30";
+    bool any = false;
+    for (const auto &wait : current) {
+        uint64_t waits = wait[1], micros = wait[2];
+        for (const auto &old : previous)
+            if (old[0] == wait[0]) {
+                waits -= old[1];
+                micros -= old[2];
+            }
+        if (!waits)
+            continue;
+        any = true;
+        line << ' ' << gpu_wait_name(unsigned(wait[0])) << '=' << waits << '/' << micros / 1000 << "ms";
+    }
+    previous = current;
+    if (any)
+        std::cout << line.str() << std::endl;
+}
+
 void draw(PS2Runtime &runtime, void *) {
     if (!overlay)
         return;
     const double now = seconds();
+    report_gpu_waits(now);
     const uint64_t fields = runtime.memory().gs().vsyncTick.load(std::memory_order_acquire);
     if (overlay->speedrun)
         overlay->update(runtime, now, fields);

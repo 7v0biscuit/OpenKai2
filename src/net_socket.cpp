@@ -60,6 +60,8 @@ bool wait_readable(SocketHandle handle, int timeout_ms) {
 }
 }
 
+void ensure_network() { startup(); }
+
 Socket::~Socket() { close(); }
 
 Socket::Socket(Socket &&other) noexcept : handle_(std::exchange(other.handle_, -1)) {}

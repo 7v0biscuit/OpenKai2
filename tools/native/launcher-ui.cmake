@@ -12,8 +12,13 @@ function(openkai2_add_launcher_ui project_root enable_tests)
     add_library(openkai2_launcher_ui STATIC
         "${project_root}/src/launcher/window.cpp"
         "${project_root}/src/launcher/update_windows.cpp"
-        "${project_root}/src/lobby.cpp"
         "${project_root}/src/net_socket.cpp"
+        "${project_root}/src/netplay.cpp"
+        "${project_root}/src/mqtt.cpp"
+        "${project_root}/src/online.cpp"
+        "${project_root}/src/nat.cpp"
+        "${project_root}/src/dev_identity.cpp"
+        "${project_root}/src/ed25519.cpp"
         "${font_source}")
     target_include_directories(openkai2_launcher_ui PRIVATE "${project_root}/src")
     target_compile_features(openkai2_launcher_ui PUBLIC cxx_std_17)

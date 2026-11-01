@@ -16,6 +16,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <thread>
+#include <cwchar>
 
 using namespace openkai2::launcher;
 namespace {
@@ -67,8 +68,17 @@ void open_dropdown(HWND combo) {
     while(!SendMessageW(combo,CB_GETDROPPEDSTATE,0,0) &&
           std::chrono::steady_clock::now()<deadline)
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    if(!SendMessageW(combo,CB_GETDROPPEDSTATE,0,0))
-        throw std::runtime_error("Dropdown did not open: "+std::to_string(GetDlgCtrlID(combo)));
+    if(!SendMessageW(combo,CB_GETDROPPEDSTATE,0,0)) {
+        POINT point{field.right-10,(field.bottom-field.top)/2};ClientToScreen(combo,&point);
+        HWND under=WindowFromPoint(point);
+        wchar_t type[64]{};GetClassNameW(under,type,64);
+        std::string open;
+        for(int id=100;id<260;++id){HWND c=GetDlgItem(GetAncestor(combo,GA_ROOT),id);if(c&&SendMessageW(c,CB_GETDROPPEDSTATE,0,0))open+=" "+std::to_string(id);}
+        RECT r{};GetWindowRect(combo,&r);
+        throw std::runtime_error("Dropdown did not open: "+std::to_string(GetDlgCtrlID(combo))+" under="+std::to_string(GetDlgCtrlID(under))+
+            " class="+std::string(type,type+wcslen(type))+" open="+open+" visible="+std::to_string(IsWindowVisible(combo))+
+            " rect="+std::to_string(r.left)+","+std::to_string(r.top)+","+std::to_string(r.right)+","+std::to_string(r.bottom));
+    }
     COMBOBOXINFO info{};info.cbSize=sizeof(info);
     require(GetComboBoxInfo(combo,&info)!=FALSE,"Cannot inspect dropdown");
     RECT list{};GetClientRect(info.hwndList,&list);
@@ -155,7 +165,7 @@ int main() {
                 wait_until([] { return updateStarted.load(); }, "Background update did not start");
                 require(IsWindowEnabled(GetDlgItem(w,110)) != FALSE,
                         "Background update check blocked choosing an ISO");
-                click(w,104);
+                click(w,106);
                 mouse_choice(GetDlgItem(w,174),1);
                 require(read_settings(settings_path()).discordPresence,"Discord preference was not saved");
                 mouse_choice(GetDlgItem(w,174),0);
@@ -183,7 +193,7 @@ int main() {
                 require(read_settings(settings_path()).upscaler==3,"FSR selection was not persisted");
                 keyboard_choice(GetDlgItem(w,145),2);
                 require(read_settings(settings_path()).textureFilter==2,"Texture filtering was not saved");
-                click(w,102);
+                click(w,105);
                 auto saves = GetDlgItem(w,126);
                 require((GetWindowLongPtrW(saves,GWL_STYLE) & LBS_EXTENDEDSEL) != 0,
                         "Save list does not allow multiple selections");
@@ -194,7 +204,7 @@ int main() {
                 keyboard_choice(GetDlgItem(w,148),0);
                 require(!read_settings(settings_path()).autoBackups,"Backup preference did not persist");
                 releaseUpdate = true;
-                click(w,104);
+                click(w,106);
                 wait_until([&] { return IsWindowEnabled(GetDlgItem(w,161)) != FALSE; },
                            "Update preferences did not unlock after the check completed");
                 keyboard_choice(GetDlgItem(w,161),0);
@@ -212,7 +222,7 @@ int main() {
         std::thread reopened([&] {
             HWND w{};
             try {
-                w = wait_launcher(); click(w,104);
+                w = wait_launcher(); click(w,106);
                 require(SendMessageW(GetDlgItem(w,141),CB_GETCURSEL,0,0)==3,
                         "Saved FPS was not restored when reopening the launcher");
                 require(SendMessageW(GetDlgItem(w,144),CB_GETCURSEL,0,0)==1,
@@ -243,7 +253,7 @@ int main() {
                     require(bounds.left>=0 && bounds.top>=0 && bounds.right<=client.right &&
                             bounds.bottom<=client.bottom,"A settings control is clipped at the minimum window size");
                 }
-                for(auto route : {std::pair<WORD,int>{'2',120},{'1',110},{'4',160},{'3',185},{'2',148},{'4',140}}) {
+                for(auto route : {std::pair<WORD,int>{'5',120},{'1',110},{'6',160},{'4',185},{'5',148},{'6',140},{'3',177},{'2',245}}) {
                     SetForegroundWindow(w);
                     INPUT keys[4]{};
                     for(auto& key:keys)key.type=INPUT_KEYBOARD;
@@ -254,7 +264,7 @@ int main() {
                     wait_until([&]{return IsWindowVisible(GetDlgItem(w,route.second))!=FALSE;},
                         "Page shortcut did not navigate from the focused control");
                 }
-                click(w,102);
+                click(w,105);
                 RECT previous{};
                 for(int id : {121,120,122,127}) {
                     RECT bounds{},client{};GetWindowRect(GetDlgItem(w,id),&bounds);GetClientRect(w,&client);
@@ -265,7 +275,7 @@ int main() {
                     previous=bounds;
                 }
                 require(!IsWindowEnabled(GetDlgItem(w,127)),"Unlocks were enabled without a verified disc");
-                click(w,103);
+                click(w,104);
                 SetWindowTextW(GetDlgItem(w,186),L"Test mod");
                 click(w,187);
                 require(SendMessageW(GetDlgItem(w,180),LB_GETCOUNT,0,0)==1 && IsWindowVisible(GetDlgItem(w,180)),

@@ -7,6 +7,8 @@
 
 namespace openkai2::net {
 
+void ensure_network();
+
 class Socket {
   public:
     Socket() = default;

@@ -1,9 +1,9 @@
 # Development status
 
-The runtime reaches the title screen, menus, versus level selection, and fight
-intros. Fight progression, character poses, frame rates, and audio fidelity
-remain under development.
-Complete matches and stable 60 FPS have not been verified.
+The game runs from the intro through menus, versus fights and Dragon World.
+Known problems: Dragon World speech and Yes/No text are missing, and frame
+pacing judders in busy fights. The notes below describe individual fixes; most
+are checked by unit tests, and in-game results are stated where known.
 
 The original Budokai 2 USA ISO is required at every game launch. Automated
 checks cover bounded runtime behavior and Windows packaging; full retail

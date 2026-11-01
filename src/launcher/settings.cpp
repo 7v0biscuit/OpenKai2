@@ -21,7 +21,7 @@ void validate_settings(const Settings &s) {
         s.windowWidth > 32768 || s.windowHeight > 32768 || s.updateChannel > 1 || s.speedrun > 2 || s.overlayItems > speedrun::overlay_all || s.overlayCorner > 3 ||
         s.overlaySize > 2 || s.overlayBackground > 2 || s.overlaySplits > 3 || (s.renderer != "auto" && s.renderer != "gpu" && s.renderer != "cpu"))
         throw std::runtime_error("Invalid graphics settings");
-    if (s.onlinePort < 1 || s.onlinePort > 65535 || s.onlineDelay < 1 || s.onlineDelay > 8 || s.onlineName.size() > 64 ||
+    if (s.onlinePort < 1 || s.onlinePort > 65535 || s.onlineDelay > 8 || s.onlineVisibility > 2 || s.onlineKeys.size() > 32 || s.onlineName.size() > 64 ||
         s.onlineAddress.size() > 255 || s.onlineRoom.size() > 64 || s.onlinePassword.size() > 64 ||
         s.onlineLobby.size() > 255 || s.onlineProfiles.size() > 32)
         throw std::runtime_error("Invalid online settings");
@@ -101,6 +101,24 @@ Settings read_settings(const std::filesystem::path &file) {
             row >> std::quoted(s.onlineName) >> std::quoted(s.onlineAddress) >> s.onlinePort >> s.onlineDelay;
         else if (key == "online_room")
             row >> std::quoted(s.onlineRoom) >> std::quoted(s.onlinePassword) >> s.onlineListed >> std::quoted(s.onlineLobby);
+        else if (key == "online_visibility")
+            row >> s.onlineVisibility;
+        else if (key == "online_friend") {
+            Settings::Friend entry;
+            row >> entry.owner >> entry.id >> std::quoted(entry.name);
+            if (!row.fail() && s.onlineFriends.size() < 2000)
+                s.onlineFriends.push_back(entry);
+        } else if (key == "online_keys") {
+            s.onlineKeys.clear();
+            std::string rest;
+            std::getline(row, rest);
+            row.clear();
+            std::istringstream keys(rest);
+            std::string value;
+            while (keys >> value)
+                s.onlineKeys.push_back(value);
+            row.setstate(std::ios::eofbit);
+        }
         else if (key == "online_profiles") {
             s.onlineProfiles.clear();
             std::string rest;
@@ -154,7 +172,12 @@ void write_settings(const std::filesystem::path &file, const Settings &s) {
         << s.onlineListed << ' ' << std::quoted(s.onlineLobby) << "\nonline_profiles";
     for (const auto &name : s.onlineProfiles)
         out << ' ' << std::quoted(name);
-    out << '\n';
+    out << "\nonline_keys";
+    for (const auto &value : s.onlineKeys)
+        out << ' ' << value;
+    out << "\nonline_visibility " << s.onlineVisibility << '\n';
+    for (const auto &entry : s.onlineFriends)
+        out << "online_friend " << entry.owner << ' ' << entry.id << ' ' << std::quoted(entry.name) << '\n';
     out.close();
     if (!out)
         throw std::runtime_error("Cannot finish saving settings");

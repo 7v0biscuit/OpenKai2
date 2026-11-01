@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
-#include "lobby.h"
+#include "mqtt.h"
+#include "online.h"
+#include <functional>
+#include <optional>
 #include "netplay.h"
 #include <cstring>
 #include <iostream>
@@ -181,45 +184,71 @@ void wrong_build_is_refused() {
 }
 }
 
-void lobby_format() {
-    namespace lobby = openkai2::lobby;
-    lobby::Room room;
-    room.id = 7;
+void service_format() {
+    namespace mq = openkai2::mqtt;
+    require(mq::topic_matches("openkai2/v1/rooms/+", "openkai2/v1/rooms/abc"), "single-level wildcard");
+    require(!mq::topic_matches("openkai2/v1/rooms/+", "openkai2/v1/rooms/abc/x"), "single level only");
+    require(mq::topic_matches("openkai2/#", "openkai2/v1/players/x"), "multi-level wildcard");
+    require(!mq::topic_matches("openkai2/v1/invites/aa", "openkai2/v1/invites/bb"), "exact topics");
+    std::string host;
+    uint16_t port = 0;
+    require(mq::parse_server("", host, port) && host == "broker.emqx.io" && port == 1883, "default service");
+    require(mq::parse_server("10.0.0.2:9000", host, port) && host == "10.0.0.2" && port == 9000, "custom service");
+    namespace on = openkai2::online;
+    on::Room room;
+    room.id = "0123456789abcdef";
     room.name = "Cell\tGames";
     room.host = "Gohan";
     room.locked = true;
     room.address = "203.0.113.9";
     room.port = 7350;
-    room.version = "0.1.66";
-    const auto back = lobby::parse_room(lobby::room_line(room).substr(0, lobby::room_line(room).size() - 1));
+    room.version = "0.1.67";
+    const auto back = on::parse_room(room.id, on::format_room(room));
     require(back && back->name == "Cell Games" && back->host == "Gohan" && back->locked && back->port == 7350 &&
-                back->address == "203.0.113.9" && back->version == "0.1.66",
-            "room lines round trip");
-    require(!lobby::parse_room("ROOM\t1\tx"), "short room lines are rejected");
-    std::string host;
-    uint16_t port = 0;
-    require(lobby::parse_server("lobby.example.org", host, port) && host == "lobby.example.org" &&
-                port == lobby::default_port,
-            "server without port");
-    require(lobby::parse_server("10.0.0.2:9000", host, port) && host == "10.0.0.2" && port == 9000, "server with port");
-    require(!lobby::parse_server("10.0.0.2:99999", host, port), "bad server port is rejected");
-    lobby::Directory directory;
-    lobby::Room same;
-    same.address = "198.51.100.1";
-    for (size_t i = 0; i < lobby::max_rooms_per_address; ++i)
-        require(directory.add(same).has_value(), "rooms are accepted");
-    require(!directory.add(same), "one address cannot flood the list");
+                back->address == "203.0.113.9" && back->version == "0.1.67",
+            "room records round trip");
+    room.host = "Joint [DEV]";
+    const auto forged = on::parse_room(room.id, on::format_room(room));
+    require(forged && forged->host == "Joint", "an unsigned [DEV] host loses the tag");
+    require(!on::parse_room("../bad", on::format_room(room)), "bad room ids are refused");
+    require(auto_delay(1) == 1 && auto_delay(60) <= 3 && auto_delay(150) >= 4 && auto_delay(100000) == max_delay,
+            "input delay follows the ping");
 }
 
-void browser_and_passwords() {
-    namespace lobby = openkai2::lobby;
+void service_rooms_invites_passwords() {
+    namespace on = openkai2::online;
     std::atomic<bool> stopping{false};
-    std::atomic<uint16_t> lobbyPort{0};
-    std::thread server([&] { lobby::serve(0, stopping, [&](uint16_t port) { lobbyPort = port; }); });
-    for (int i = 0; i < 300 && !lobbyPort; ++i)
+    std::atomic<uint16_t> servicePort{0};
+    std::thread server([&] { openkai2::mqtt::serve(0, stopping, [&](uint16_t port) { servicePort = port; }); });
+    for (int i = 0; i < 300 && !servicePort; ++i)
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    require(lobbyPort != 0, "lobby starts");
-    const std::string address = "127.0.0.1:" + std::to_string(lobbyPort.load());
+    require(servicePort != 0, "service starts");
+    const std::string service = "127.0.0.1:" + std::to_string(servicePort.load());
+    auto wait_for = [](const std::function<bool()> &condition) {
+        for (int i = 0; i < 500; ++i) {
+            if (condition())
+                return true;
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        return false;
+    };
+
+    on::Directory piccolo, krillin;
+    std::string error;
+    const auto piccoloProfile = on::make_profile(on::new_seed(), "Piccolo");
+    const auto krillinProfile = on::make_profile(on::new_seed(), "Krillin");
+    require(piccolo.open(service, piccoloProfile, "0.1.67", error), "first launcher connects: " + error);
+    require(krillin.open(service, krillinProfile, "0.1.67", error), "second launcher connects: " + error);
+    require(piccolo.id() == piccoloProfile.id && piccolo.id().size() == 64, "players are known by their profile key");
+    require(wait_for([&] { return piccolo.players().size() == 1 && krillin.players().size() == 1; }),
+            "launchers see each other");
+    require(krillin.players()[0].name == "Piccolo", "player names are shown");
+    std::mutex inviteMutex;
+    std::optional<on::Invite> received;
+    krillin.on_invite([&](const on::Invite &invite) {
+        std::lock_guard lock(inviteMutex);
+        received = invite;
+    });
 
     FakeMachine hostMachine{true}, guestMachine{false};
     Options hostOptions;
@@ -227,55 +256,130 @@ void browser_and_passwords() {
     hostOptions.identity = "same";
     hostOptions.name = "Piccolo";
     hostOptions.password = "kame";
-    hostOptions.lobby = address;
+    hostOptions.lobby = service;
+    hostOptions.listed = true;
+    hostOptions.upnp = false;
+    hostOptions.address = "127.0.0.1";
     hostOptions.room = "Lookout";
-    hostOptions.version = "0.1.66";
+    hostOptions.room_id = on::new_id();
+    hostOptions.invite_token = "f00dfeedcafe1234";
+    hostOptions.version = "0.1.67";
     Session host(hostOptions, hostMachine.bind());
     host.start();
-    std::vector<lobby::Room> rooms;
-    std::string error;
-    for (int i = 0; i < 300 && rooms.empty(); ++i) {
-        rooms = lobby::fetch_rooms(address, error);
-        if (rooms.empty())
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    require(wait_for([&] { return krillin.room(hostOptions.room_id).has_value(); }), "the room is listed");
+    const auto room = *krillin.room(hostOptions.room_id);
+    require(room.name == "Lookout" && room.host == "Piccolo" && room.locked && room.port == host.listening_port(),
+            "room details are listed");
+    require(piccolo.invite(krillin.id(), room.id, "f00dfeedcafe1234"), "invite sent");
+    require(wait_for([&] {
+                std::lock_guard lock(inviteMutex);
+                return received.has_value();
+            }),
+            "the invite arrives");
+    {
+        std::lock_guard lock(inviteMutex);
+        require(received->from_name == "Piccolo" && received->room_id == room.id && received->from_id == piccolo.id() &&
+                    received->token == "f00dfeedcafe1234",
+                "the invite names the sender, room and token");
     }
-    require(rooms.size() == 1 && rooms[0].name == "Lookout" && rooms[0].host == "Piccolo" && rooms[0].locked &&
-                rooms[0].address == "127.0.0.1" && rooms[0].port == host.listening_port(),
-            "the room is listed: " + error);
+    const auto ping = probe_room(room.address, room.port, 2000);
+    require(ping.has_value(), "the room answers a ping");
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    require(host.status().phase == Phase::connecting && host.status().message.find("could not join") == std::string::npos,
+            "a ping does not disturb the host");
 
     Options guestOptions;
     guestOptions.host = false;
-    guestOptions.address = rooms[0].address;
-    guestOptions.port = rooms[0].port;
+    guestOptions.address = room.address;
+    guestOptions.port = room.port;
     guestOptions.identity = "same";
     guestOptions.name = "Krillin";
     guestOptions.password = "wrong";
     {
         Session guest(guestOptions, guestMachine.bind());
         guest.start();
-        for (int i = 0; i < 500 && guest.status().phase != Phase::ended; ++i)
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        require(guest.status().message == "Wrong room password", "a wrong password is refused: " + guest.status().message);
+        require(wait_for([&] { return guest.status().phase == Phase::ended; }), "a wrong password ends the attempt");
+        require(guest.status().message == "Wrong room password", "wrong password message: " + guest.status().message);
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
     require(host.status().phase == Phase::connecting, "the host keeps waiting after a refused player");
-    require(lobby::fetch_rooms(address, error).size() == 1, "the room stays listed");
+    require(krillin.room(room.id).has_value(), "the room stays listed");
 
-    guestOptions.password = "kame";
+    guestOptions.password = "f00dfeedcafe1234";
     Session guest(guestOptions, guestMachine.bind());
     guest.start();
-    for (int i = 0; i < 500 && host.status().phase == Phase::connecting; ++i)
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    require(host.status().phase == Phase::syncing && host.status().opponent == "Krillin", "the right password joins");
-    bool gone = false;
-    for (int i = 0; i < 300 && !gone; ++i) {
-        gone = lobby::fetch_rooms(address, error).empty();
-        if (!gone)
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-    require(gone, "a full room leaves the list");
+    require(wait_for([&] { return host.status().phase != Phase::connecting; }), "the right password joins");
+    require(host.status().opponent == "Krillin" && guest.status().opponent == "Piccolo", "names are exchanged");
+    require(host.status().delay >= 1 && host.status().delay == guest.status().delay, "both use the same delay");
+    require(wait_for([&] { return !krillin.room(room.id).has_value(); }), "a full room leaves the list");
     guest.stop();
     host.stop();
+    std::mutex friendMutex;
+    std::vector<on::FriendMessage> toKrillin, toPiccolo;
+    krillin.on_friend([&](const on::FriendMessage &message) {
+        std::lock_guard lock(friendMutex);
+        toKrillin.push_back(message);
+    });
+    piccolo.on_friend([&](const on::FriendMessage &message) {
+        std::lock_guard lock(friendMutex);
+        toPiccolo.push_back(message);
+    });
+    require(piccolo.send_friend(krillin.id(), on::FriendKind::request), "friend request sent");
+    require(wait_for([&] {
+                std::lock_guard lock(friendMutex);
+                return !toKrillin.empty();
+            }),
+            "the friend request arrives");
+    {
+        std::lock_guard lock(friendMutex);
+        require(toKrillin[0].kind == on::FriendKind::request && toKrillin[0].from_id == piccolo.id() &&
+                    toKrillin[0].from_name == "Piccolo",
+                "the request names its sender");
+    }
+    krillin.clear_friend(piccolo.id());
+    require(krillin.send_friend(piccolo.id(), on::FriendKind::accept), "friend request accepted");
+    require(wait_for([&] {
+                std::lock_guard lock(friendMutex);
+                return !toPiccolo.empty() && toPiccolo.back().kind == on::FriendKind::accept;
+            }),
+            "the acceptance arrives");
+
+    openkai2::mqtt::Client forger;
+    require(forger.connect(service, "forger", {}, error), "raw client connects");
+    const auto fake = on::make_profile(on::new_seed(), "Goku");
+    on::Player impostor{piccolo.id(), "Piccolo", "online", "0.1.67"};
+    forger.publish(std::string(on::prefix) + "players/" + krillin.id(), on::format_player(fake, impostor), true);
+    on::FriendMessage stolen;
+    stolen.from_id = piccolo.id();
+    stolen.from_name = "Piccolo";
+    stolen.nonce = on::new_id();
+    forger.publish(std::string(on::prefix) + "friends/" + krillin.id() + "/" + piccolo.id(),
+                   on::format_friend(fake, stolen, krillin.id()), true);
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    {
+        std::lock_guard lock(friendMutex);
+        require(toKrillin.size() == 1, "a forged friend request is ignored");
+    }
+    require(krillin.players().size() == 1 && krillin.players()[0].name == "Piccolo", "forged presence is ignored");
+    forger.close();
+
+    krillin.close();
+    require(piccolo.send_friend(krillinProfile.id, on::FriendKind::request), "request to an offline player");
+    on::Directory later;
+    std::vector<on::FriendMessage> waiting;
+    std::mutex laterMutex;
+    later.on_friend([&](const on::FriendMessage &message) {
+        std::lock_guard lock(laterMutex);
+        waiting.push_back(message);
+    });
+    require(later.open(service, krillinProfile, "0.1.67", error), "the player comes back online");
+    require(wait_for([&] {
+                std::lock_guard lock(laterMutex);
+                return !waiting.empty();
+            }),
+            "a request sent while offline is delivered later");
+    later.close();
+    piccolo.close();
     stopping = true;
     server.join();
 }
@@ -286,8 +390,8 @@ int main() {
         snapshot_round_trip();
         two_players_stay_in_step();
         wrong_build_is_refused();
-        lobby_format();
-        browser_and_passwords();
+        service_format();
+        service_rooms_invites_passwords();
     } catch (const std::exception &error) {
         std::cerr << "FAIL: " << error.what() << '\n';
         return 1;

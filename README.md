@@ -1,100 +1,78 @@
 # OpenKai2
 
-Native PC recompilation of **Dragon Ball Z: Budokai 2**, built with
-[PS2Recomp](https://github.com/ran-j/PS2Recomp).
+A native Windows port of **Dragon Ball Z: Budokai 2** (PS2, USA), made by
+recompiling the game's own code with [PS2Recomp](https://github.com/ran-j/PS2Recomp).
+You need your own copy of the game: OpenKai2 reads your ISO and includes no game
+files.
 
 [![Build](https://github.com/7v0biscuit/OpenKai2/actions/workflows/probes.yml/badge.svg)](https://github.com/7v0biscuit/OpenKai2/actions/workflows/probes.yml)
 [![Windows downloads](https://img.shields.io/badge/Windows-downloads-0078D4)](https://github.com/7v0biscuit/OpenKai2/releases)
 [![GPL-3.0-only](https://img.shields.io/badge/license-GPL--3.0--only-blue.svg)](LICENSE)
 
-[Download for Windows](https://github.com/7v0biscuit/OpenKai2/releases)
-· [Setup and controls](docs/windows.md)
-· [Modding](docs/modding.md)
-· [Speedrun mode](docs/speedrun.md)
-· [Online play](docs/online.md)
-· [Save states](docs/save-states.md)
-· [Development status](docs/status.md)
-· [Report an issue](https://github.com/7v0biscuit/OpenKai2/issues/new/choose)
+**[Download](https://github.com/7v0biscuit/OpenKai2/releases)** ·
+[Setup and controls](docs/windows.md) ·
+[Online play](docs/online.md) ·
+[Speedrun mode](docs/speedrun.md) ·
+[Save states](docs/save-states.md) ·
+[Modding](docs/modding.md) ·
+[Report an issue](https://github.com/7v0biscuit/OpenKai2/issues/new/choose)
 
-The launcher includes automatic GitHub updates with stable and prerelease channels,
-verified downloads and recovery during file replacement. ISO preferences, saves
-and backups are preserved. The Saves page includes reversible character, stage and skill-capsule
-unlocks, plus multi-select save and backup management; optional [Discord activity](docs/discord.md) follows the launcher and game.
-The Mods page layers [mods](docs/modding.md) over the ISO without changing it, and
-its import tool copies characters, movesets and stages from a PS2 ISO or your own files.
+> **Early development.** Releases are pre-releases. The game runs, but it is not
+> yet a finished, bug-free port. See [Known issues](#known-issues).
 
-## Windows downloads
+## What works
 
-Choose a package from the [current release](https://github.com/7v0biscuit/OpenKai2/releases).
+- **The game:** intro, menus, versus fights, and Dragon World with its board and
+  fights. Music, voices and sound effects play.
+- **Graphics:** GPU rendering (OpenGL 4.3) with a CPU fallback, resolutions up to
+  4K, 16:9, FXAA, and several upscalers including AMD FSR 1.
+- **Online play:** versus over the internet from the launcher, with profiles,
+  friends, invites, a room browser and room passwords. Both games run in lockstep
+  and check that they stay in sync.
+- **Save states:** F5 saves and F9 loads the whole console.
+- **Speedrun mode:** a timer and overlay following the speedrun.com rules, with
+  splits, permadeath and a checksummed log for moderators.
+- **Mods:** add characters, movesets and stages from other Dragon Ball PS2 games
+  without changing your ISO.
+- **Saves:** import, back up and restore memory card saves, with an optional
+  unlock-all.
+- **Launcher:** automatic updates, Discord activity, and the settings above.
 
-| Download | Use |
-| --- | --- |
-| **OpenKai2-Setup.exe** | Install for your Windows account with Start-menu shortcuts. |
-| **OpenKai2.exe** | Launch without installation. |
-| **OpenKai2-windows-x64.zip** | Extract the application and runtime DLLs into a folder. |
-| **SHA256SUMS.txt** | Verify the downloaded packages. |
+## Known issues
 
-Open the desktop launcher, choose your original **Budokai 2 USA ISO**, and press **Play**.
-The verified path and graphics preferences are remembered. Save imports and ZIP
-backups are available from the Saves page. The ISO is
-required at every game launch, and its files are verified before execution.
-Game files are not included in the downloads.
+- **Dragon World dialogue:** the speech text and the ally Yes/No text do not
+  appear. The boxes open and the story continues.
+- **Frame pacing:** the frame rate averages close to 60, but some frames take
+  longer, which shows as judder in busy fights.
+- **Imported Budokai 3 characters** can look black or blue.
+- **Imported Budokai 3 stages** load without their particle effects.
 
-See the [Windows guide](docs/windows.md) for requirements, keyboard controls,
-audio status, and log locations. [GPU rendering](docs/graphics.md) is enabled
-automatically with an OpenGL 4.3 driver; a CPU compatibility path is available.
+## Getting started
 
-## Current status
+1. Download **OpenKai2-Setup.exe** (installer) or **OpenKai2.exe** (portable) from
+   the [latest release](https://github.com/7v0biscuit/OpenKai2/releases).
+2. Open it, choose your **Budokai 2 USA ISO**, and press **Play**.
 
-**In development — complete gameplay is not yet supported.** The runtime
-reaches the title screen, menus, versus level selection, and the fight scene.
-Attack effects and fight progression remain incomplete, frame rates are
-unstable, and character poses and host audio quality need further validation.
-VU1 microprograms use [PCSX2's microVU recompiler](docs/vector-runtime.md).
-Stable 60 FPS and complete matches have not been verified.
+The ISO's files are checked before every launch. Logs are in
+`%LOCALAPPDATA%\OpenKai2\logs`. Please attach `startup.log` when you
+[report a bug](https://github.com/7v0biscuit/OpenKai2/issues/new/choose).
 
-The [development status](docs/status.md) records the current failures and the
-scope of automated validation. Release checks cover component behavior and
-Windows packaging; they do not establish that the full game is playable.
+## Building
 
-## Build and contribute
-
-Start with [Building OpenKai2](docs/building.md) for the native runtime, or the
-[Windows build guide](docs/windows.md) for Windows-specific setup.
-
-Component checks require Python 3.10+, CMake 3.16+, and a C++20 compiler:
+See [Building OpenKai2](docs/building.md). Quick checks need Python 3.10+, CMake
+3.16+ and a C++20 compiler:
 
 ```sh
 python -m unittest discover -s tests
 python tools/probes/run.py --skip-retail
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow. When
-[reporting a bug](https://github.com/7v0biscuit/OpenKai2/issues/new/choose), include
-the release tag, reproduction steps, hardware, and relevant startup log.
-Do not upload game files.
+The [development status](docs/status.md) has technical notes on each fix.
 
-## Source layout
-
-| Directory | Contents |
-| --- | --- |
-| `src/` | Application, ISO verification, and runtime integration |
-| `src/launcher/` | Native Windows launcher, preferences, save imports, and backups |
-| `src/probes/` | EE instruction, interrupt, and guest-memory checks |
-| `tests/` | Python regression tests and synthetic fixtures |
-| `tools/native/` | Native builds, runtime overlays, and release packaging |
-| `tools/probes/` | Component runner and reference models |
-| `docs/` | Build guides, development status, and release notes |
-| `packaging/` | Windows launcher and installer configuration |
-| `third_party/` | Third-party notices for distributed dependencies |
-
-Generated sources, build output, game executables, and disc assets are excluded
-from the source tree.
-
-## License and attribution
+## License
 
 OpenKai2 is licensed under [GPL-3.0-only](LICENSE). See [NOTICE](NOTICE) for
 third-party attribution.
 
-OpenKai2 is an independent fan project, unaffiliated with the game's publishers
-or rights holders. Game content and trademarks belong to their respective owners.
+OpenKai2 is an independent fan project, not affiliated with the game's publishers
+or rights holders. Game content and trademarks belong to their owners.

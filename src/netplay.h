@@ -10,6 +10,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -17,13 +18,15 @@
 
 namespace openkai2::netplay {
 
-inline constexpr uint32_t protocol_version = 2;
+inline constexpr uint32_t protocol_version = 3;
 inline constexpr uint16_t default_port = 7350;
 inline constexpr unsigned max_delay = 8;
 inline constexpr uint64_t hash_interval = 120;
 
 using Input = std::array<uint8_t, 6>;
 Input neutral_input();
+unsigned auto_delay(double rtt_ms);
+std::optional<unsigned> probe_room(const std::string &address, uint16_t port, int timeout_ms);
 
 std::vector<uint8_t> compress(const std::vector<uint8_t> &data);
 bool decompress(const std::vector<uint8_t> &data, std::vector<uint8_t> &out);
@@ -41,11 +44,13 @@ struct Options {
     bool host = true;
     std::string address;
     uint16_t port = default_port;
-    unsigned delay = 2;
+    unsigned delay = 0;
     std::string name = "Player";
     std::string identity;
     std::string password;
-    std::string lobby, room, version;
+    std::string lobby, room, room_id, version;
+    bool listed = false, hidden = false, upnp = true;
+    std::string invite_token;
 };
 
 struct Machine {
@@ -85,7 +90,7 @@ class Session {
 
   private:
     void run();
-    bool handshake();
+    int handshake();
     void read_loop();
     void write_loop();
     void send(uint8_t type, std::vector<uint8_t> payload);

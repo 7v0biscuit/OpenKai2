@@ -8,7 +8,10 @@
 #include "launcher/settings.h"
 #include "launcher/update.h"
 #include "launcher/version.h"
-#include "lobby.h"
+#include "dev_identity.h"
+#include "netplay.h"
+#include "online.h"
+#include <deque>
 #include "mods/budokai3.h"
 #include "mods/disc_identity.h"
 #include "mods/importer.h"
@@ -64,15 +67,17 @@ constexpr COLORREF heroFrom = RGB(64, 24, 8), heroTo = RGB(15, 17, 31);
 constexpr int sidebarWidth = 220, contentLeft = 252, margin = 32;
 constexpr int heroTop = 124, heroBottom = 316, discTop = 332, discBottom = 420;
 constexpr int tilesTop = 436, tilesBottom = 516, keysTop = 540;
-constexpr int displayTop = 112, graphicsTop = 278, speedrunTop = 444, updatesTop = 558;
-constexpr int onlineProfileTop = 112, onlineHostTop = 228, onlineRoomsTop = 400;
+constexpr int displayTop = 112, graphicsTop = 278, updatesTop = 444, speedrunTop = 112, speedrunRulesTop = 228;
+constexpr int onlineProfileTop = 112, onlineHostTop = 228, onlineListsTop = 400;
+constexpr UINT onlineChanged = WM_APP + 30, onlineNotice = WM_APP + 31;
 
 enum Id {
     PlayTab = 101,
-    SavesTab,
-    ModsTab,
-    SettingsTab,
     OnlineTab,
+    SpeedrunTab,
+    ModsTab,
+    SavesTab,
+    SettingsTab,
     ChooseIso = 110,
     VerifyIso,
     Play,
@@ -162,9 +167,15 @@ enum Id {
     RefreshRooms,
     RoomList,
     JoinPassword,
-    JoinRoom
+    JoinRoom,
+    PlayerList,
+    InvitePlayer,
+    AddFriend,
+    NoticeAccept,
+    NoticeDecline
 };
-constexpr int pageCount = 5, modsPage = 2, settingsPage = 3, onlinePage = 4, importPage = 5, overlayPage = 6;
+constexpr int pageCount = 6, onlinePage = 1, speedrunPage = 2, modsPage = 3, savesPage = 4, settingsPage = 5, importPage = 6,
+              overlayPage = 7;
 constexpr std::array<unsigned, 4> audioVolumes{100u, 75u, 50u, 25u};
 int audioChoice(const Settings &settings) {
     if (!settings.audio)
@@ -570,12 +581,32 @@ struct Window {
     std::chrono::steady_clock::time_point lastInput = std::chrono::steady_clock::now();
     std::wstring status = L"Choose your Budokai 2 ISO to get started.";
     std::wstring onlineArguments;
-    std::vector<lobby::Room> rooms;
-    std::wstring roomsMessage = L"Press Refresh to see open rooms.";
-    std::future<std::pair<std::vector<lobby::Room>, std::string>> roomTask;
+    struct Notice {
+        bool invite = true;
+        online::Invite inviteMessage;
+        online::FriendMessage friendMessage;
+    };
+    struct OnlineShared {
+        std::mutex mutex;
+        std::deque<Notice> notices;
+        std::map<std::string, int> pings;
+        std::set<std::string> pinging;
+        HWND window{};
+    };
+    std::shared_ptr<OnlineShared> onlineShared = std::make_shared<OnlineShared>();
+    std::unique_ptr<online::Directory> directory;
+    std::future<std::pair<std::unique_ptr<online::Directory>, std::string>> connecting;
+    std::chrono::steady_clock::time_point lastConnect{};
+    std::string connectedProfile, onlineProblem;
+    std::vector<online::Room> roomRows;
+    std::vector<std::pair<std::string, std::string>> playerRows;
+    std::set<std::string> requestedFriends;
+    std::string hostingRoom, hostingToken, pendingInvitee;
+    std::chrono::steady_clock::time_point inviteDeadline{};
+    bool trayAdded = false, wasRunning = false;
     int p(int n) const { return MulDiv(n, int(dpi), 96); }
     int unscale(int n) const { return MulDiv(n, 96, int(dpi)); }
-    int navigationPage() const { return page == importPage ? modsPage : page == overlayPage ? settingsPage : page; }
+    int navigationPage() const { return page == importPage ? modsPage : page == overlayPage ? speedrunPage : page; }
     bool busy() const { return task.valid(); }
     bool updating() const { return updateTask.valid(); }
     bool running() const { return child || externalGame; }
@@ -772,18 +803,23 @@ struct Window {
                                                           {CloseImporter, L"Back to mods"},
                                                           {SettingsTab, L"Settings"},
                                                           {OnlineTab, L"Online"},
+                                                          {SpeedrunTab, L"Speedrun"},
                                                           {HostGame, L"Host room"},
                                                           {JoinGame, L"Join address"},
                                                           {ProfileAdd, L"Add"},
                                                           {ProfileRemove, L"Remove"},
                                                           {RefreshRooms, L"Refresh"},
                                                           {JoinRoom, L"Join room"},
+                                                          {InvitePlayer, L"Invite"},
+                                                          {AddFriend, L"Add friend"},
+                                                          {NoticeAccept, L"Accept"},
+                                                          {NoticeDecline, L"Decline"},
                                                           {CheckUpdates, L"Check now"},
                                                           {InstallUpdate, L"Install"},
                                                           {ReleasePage, L"Release notes"},
                                                           {ResetGraphics, L"Restore defaults"},
                                                           {OpenOverlay, L"Customize overlay…"},
-                                                          {CloseOverlay, L"Back to settings"},
+                                                          {CloseOverlay, L"Back to speedrun"},
                                                           {OverlayToggle, L"Show / hide"},
                                                           {OverlayDefaults, L"Restore defaults"},
                                                           {ClearImage, L"Crisp preset"},
@@ -831,12 +867,12 @@ struct Window {
         combo(Permadeath, {L"Off", L"On"}, settings.permadeath ? 1 : 0);
         combo(FpsCounter, {L"Off", L"On"}, settings.fpsCounter ? 1 : 0);
         {
-            std::vector<std::wstring> delays;
+            std::vector<std::wstring> delays{L"Auto (from ping)"};
             for (unsigned d = 1; d <= 8; ++d)
-                delays.push_back(std::to_wstring(d) + (d == 1 ? L" frame" : L" frames") + (d == 2 ? L" (default)" : L""));
-            combo(OnlineDelay, delays, int(settings.onlineDelay) - 1);
+                delays.push_back(std::to_wstring(d) + (d == 1 ? L" frame" : L" frames"));
+            combo(OnlineDelay, delays, int(settings.onlineDelay));
         }
-        combo(OnlineListed, {L"Not listed", L"Listed"}, settings.onlineListed ? 1 : 0);
+        combo(OnlineListed, {L"Public", L"Invite only", L"Not listed"}, int(settings.onlineVisibility));
         combo(OnlineProfile, {}, 0);
         fillProfiles();
         combo(OverlayCorner, {L"Top left", L"Top right", L"Bottom left", L"Bottom right"}, int(settings.overlayCorner));
@@ -875,6 +911,8 @@ struct Window {
         edit(OnlineLobby, L"Server address");
         edit(JoinPassword, L"Only for locked rooms");
         list(RoomList, L"Rooms", 34, false);
+        list(PlayerList, L"Players", 34, false);
+        onlineShared->window = hwnd;
         SetWindowTextW(controls[OnlinePort], std::to_wstring(settings.onlinePort).c_str());
         SetWindowTextW(controls[OnlineAddress], wide(settings.onlineAddress).c_str());
         SetWindowTextW(controls[OnlineRoom], wide(settings.onlineRoom).c_str());
@@ -906,7 +944,10 @@ struct Window {
         for (int id : {Play, ImportFolder, ImportFile, Backup, OpenSaves, OpenBackups, UnlockAll, HostGame, JoinGame, JoinRoom})
             EnableWindow(controls[id], active);
         EnableWindow(controls[ProfileRemove], !settings.onlineProfiles.empty());
-        EnableWindow(controls[RefreshRooms], !roomTask.valid());
+        const bool online = directory && directory->connected();
+        EnableWindow(controls[InvitePlayer], online && disc.has_value() && !busy());
+        EnableWindow(controls[AddFriend], online);
+        EnableWindow(controls[RefreshRooms], true);
         const auto selections = selectedSaveRows().size();
         EnableWindow(controls[Restore], active && !gameSaveList() && selections == 1u);
         EnableWindow(controls[DeleteSelected], active && selections != 0u);
@@ -958,7 +999,7 @@ struct Window {
         GetClientRect(hwnd, &rect);
         const int w = unscale(rect.right), h = unscale(rect.bottom);
         const int content = w - contentLeft - margin, right = contentLeft + content;
-        std::vector<int> order{PlayTab, SavesTab, ModsTab, SettingsTab, OnlineTab};
+        std::vector<int> order{PlayTab, OnlineTab, SpeedrunTab, ModsTab, SavesTab, SettingsTab};
         auto position = [&](int id, int x, int y, int width, int height) {
             place(id, x, y, width, height);
             order.push_back(id);
@@ -966,11 +1007,15 @@ struct Window {
         for (int i = 0; i < pageCount; ++i)
             place(PlayTab + i, 12, 104 + i * 58, sidebarWidth - 24, 50);
         position(DiscordActivity, 24, h - 130, sidebarWidth - 48, 32);
+        if (hasNotice()) {
+            position(NoticeDecline, contentLeft + content - 96, 64, 96, 30);
+            position(NoticeAccept, contentLeft + content - 96 - 10 - 96, 64, 96, 30);
+        }
         if (page == 0) {
             position(Play, contentLeft + 28, heroBottom - 70, 168, 46);
             position(VerifyIso, right - 20 - 96, discTop + 26, 96, 36);
             position(ChooseIso, right - 20 - 96 - 12 - 132, discTop + 26, 132, 36);
-        } else if (page == 1) {
+        } else if (page == savesPage) {
             const int panelBottom = h - 64;
             position(AutoBackup, right - 20 - 160, 142, 160, 34);
             const int gap = 12, action = (content - 40 - 3 * gap) / 4;
@@ -1011,6 +1056,12 @@ struct Window {
             const int name = std::max(120, right - 20 - 120 - 10 - (x + 6));
             position(ModName, right - 20 - 120 - 10 - name + 10, panelBottom - 44, name - 20, 22);
             position(ModCreate, right - 20 - 120, panelBottom - 52, 120, 36);
+        } else if (page == speedrunPage) {
+            const Grid grid(content);
+            position(SpeedrunMode, grid.x(0), Grid::field(speedrunTop, 0), grid.column, 34);
+            position(Permadeath, grid.x(1), Grid::field(speedrunTop, 0), grid.column, 34);
+            position(FpsCounter, grid.x(2), Grid::field(speedrunTop, 0), grid.column, 34);
+            position(OpenOverlay, right - 20 - 170, speedrunTop + 10, 170, 28);
         } else if (page == onlinePage) {
             const Grid grid(content);
             const int half = (grid.column - 10) / 2, bottom = h - 64;
@@ -1024,16 +1075,23 @@ struct Window {
             position(OnlineDelay, grid.x(0), Grid::field(onlineHostTop, 1), grid.column, 34);
             position(OnlineListed, grid.x(1), Grid::field(onlineHostTop, 1), grid.column, 34);
             position(HostGame, grid.x(2), Grid::field(onlineHostTop, 1), grid.column, 36);
-            position(OnlineLobby, grid.x(0), Grid::field(onlineRoomsTop, 0) + 6, grid.column, 22);
-            position(RefreshRooms, grid.x(1), Grid::field(onlineRoomsTop, 0), half, 34);
-            position(JoinPassword, grid.x(2), Grid::field(onlineRoomsTop, 0) + 6, grid.column, 22);
-            const int listTop = Grid::field(onlineRoomsTop, 0) + 48;
-            position(RoomList, contentLeft + 20, listTop, content - 40, std::max(34, bottom - 56 - listTop));
-            if (rooms.empty())
+            const int split = contentLeft + (content * 62) / 100, roomsRight = split - 6, playersLeft = split + 6;
+            const int listTop = onlineListsTop + 44;
+            position(RefreshRooms, roomsRight - 20 - 100, onlineListsTop + 8, 100, 30);
+            position(RoomList, contentLeft + 20, listTop, roomsRight - contentLeft - 40, std::max(34, bottom - 100 - listTop));
+            const int fieldWidth = (roomsRight - contentLeft - 40 - 10) / 2;
+            position(JoinPassword, contentLeft + 20, bottom - 88, fieldWidth, 22);
+            position(JoinRoom, contentLeft + 30 + fieldWidth, bottom - 94, fieldWidth, 34);
+            position(OnlineAddress, contentLeft + 20, bottom - 42, fieldWidth, 22);
+            position(JoinGame, contentLeft + 30 + fieldWidth, bottom - 48, fieldWidth, 34);
+            const int playersWidth = contentLeft + content - playersLeft - 40;
+            position(PlayerList, playersLeft + 20, listTop, playersWidth, std::max(34, bottom - 54 - listTop));
+            position(InvitePlayer, playersLeft + 20, bottom - 48, (playersWidth - 10) / 2, 34);
+            position(AddFriend, playersLeft + 30 + (playersWidth - 10) / 2, bottom - 48, (playersWidth - 10) / 2, 34);
+            if (roomRows.empty())
                 ShowWindow(controls[RoomList], SW_HIDE);
-            position(OnlineAddress, grid.x(0), bottom - 46, grid.column, 22);
-            position(JoinGame, grid.x(1), bottom - 52, half + 30, 36);
-            position(JoinRoom, grid.x(2), bottom - 52, grid.column, 36);
+            if (playerRows.empty())
+                ShowWindow(controls[PlayerList], SW_HIDE);
         } else if (page == overlayPage) {
             const int panelBottom = h - 64, half = (content - 52) / 2, side = contentLeft + 32 + half;
             position(CloseOverlay, right - 20 - 150, 136, 150, 34);
@@ -1095,10 +1153,7 @@ struct Window {
             position(InstallUpdate, grid.x(2) + half + 10, Grid::field(updatesTop, 0),
                      grid.column - half - 10, 34);
             position(ReleasePage, right - 20 - 116, updatesTop + 10, 116, 28);
-            position(SpeedrunMode, grid.x(0), Grid::field(speedrunTop, 0), grid.column, 34);
-            position(Permadeath, grid.x(1), Grid::field(speedrunTop, 0), grid.column, 34);
-            position(FpsCounter, grid.x(2), Grid::field(speedrunTop, 0), grid.column, 34);
-            position(OpenOverlay, right - 20 - 170, speedrunTop + 10, 170, 28);
+
         }
         HWND previous = HWND_TOP;
         for (auto id : order) {
@@ -1149,18 +1204,28 @@ struct Window {
         text(dc, L"v" + wide(application_version), 24, h - 38, sidebarWidth - 48, 18, fonts.caption, faint);
     }
     void paintHeader(HDC dc, int w, int content) {
-        const wchar_t *titles[] = {L"Play", L"Saves", L"Mods", L"Settings", L"Online", L"Import tool", L"Speedrun overlay"};
+        const wchar_t *titles[] = {L"Play", L"Online", L"Speedrun", L"Mods", L"Saves", L"Settings", L"Import tool", L"Speedrun overlay"};
         const wchar_t *subtitles[] = {
             L"",
-            L"Import, back up and restore your memory card.",
+            L"Play versus with friends and other players over the internet.",
+            L"Timed Dragon World runs under the speedrun.com rules, with splits and a log for moderators.",
             L"Characters, movesets and stages layered over your disc. Your ISO is never changed.",
+            L"Import, back up and restore your memory card.",
             L"Saved automatically. Game settings apply at the next launch.",
-            L"Play versus mode with a friend over the internet.",
             L"Add characters, stages and movesets from other Dragon Ball Z games. Nothing in Budokai 2 is removed.",
             L"Pick what the in-game overlay shows. Splits, deltas and best times are tracked for you."};
         lettering(dc, titles[page], p(contentLeft), p(60), fonts.title, ink, RGB(6, 7, 12), p(2));
-        text(dc, subtitles[page], contentLeft, 72, content, 20, fonts.caption, muted,
-             DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        if (hasNotice()) {
+            const auto message = noticeText();
+            const int width = std::min(content - 220, measure(dc, message, fonts.caption) + 40);
+            const int left = contentLeft + content - 96 - 10 - 96 - 14 - width;
+            panelBox(dc, left, 60, contentLeft + content + 6, 98);
+            ellipse(dc, p(left + 14), p(79), p(4), orange);
+            text(dc, message, left + 26, 70, width - 30, 18, fonts.caption, ink,
+                 DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        } else
+            text(dc, subtitles[page], contentLeft, 72, content, 20, fonts.caption, muted,
+                 DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
         const auto label = stateLabel();
         const int labelWidth = measure(dc, label, fonts.caption), left = w - margin - labelWidth;
         ellipse(dc, p(left - 12), p(47), p(3), stateColor());
@@ -1445,7 +1510,7 @@ struct Window {
             fill(dc, {left, screen.top + p(8), left + p(width), screen.top + p(8) + p(std::max(3, row * 2 / 3))},
                  mix(ink, RGB(20, 20, 20), 100));
         }
-        text(dc, settings.speedrun ? L"Speedrun mode is on." : L"Speedrun mode is off. Turn it on in Settings to use the overlay.",
+        text(dc, settings.speedrun ? L"Speedrun mode is on." : L"Speedrun mode is off. Choose a category on the Speedrun page to use the overlay.",
              side, 386 + previewHeight + 8, previewWidth, 18, fonts.caption, settings.speedrun ? muted : gold,
              DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
     }
@@ -1659,34 +1724,49 @@ struct Window {
     void paintOnline(HDC dc, int h, int content) {
         const int right = contentLeft + content;
         const Grid grid(content);
-        auto section = [&](int top, int bottom, const wchar_t *title, const std::wstring &note) {
-            panelBox(dc, contentLeft, top, right, bottom);
-            text(dc, title, contentLeft + 20, top + 12, 200, 22, fonts.strong);
-            text(dc, note, contentLeft + 140, top + 14, content - 160, 18, fonts.caption, muted,
+        auto section = [&](int left, int top, int edge, int bottom, const wchar_t *title, const std::wstring &note,
+                           int noteRight = 0) {
+            panelBox(dc, left, top, edge, bottom);
+            text(dc, title, left + 20, top + 12, 200, 22, fonts.strong);
+            text(dc, note, left + 140, top + 14, (noteRight ? noteRight : edge - 20) - left - 140, 18, fonts.caption, muted,
                  DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
         };
         auto label = [&](int top, int row, int column, const wchar_t *value) {
             caps(dc, value, grid.x(column), Grid::label(top, row), grid.column);
         };
-        section(onlineProfileTop, onlineProfileTop + 104, L"Profile",
+        const bool online = directory && directory->connected();
+        const std::wstring service = online ? L"Online \u00b7 " + std::to_wstring(playerCount()) + L" players"
+                                     : connecting.valid() ? std::wstring(L"Connecting\u2026")
+                                     : settings.onlineProfiles.empty() ? std::wstring(L"Add a profile to go online")
+                                     : L"Offline" + (onlineProblem.empty() ? std::wstring() : L": " + wide(onlineProblem));
+        section(contentLeft, onlineProfileTop, right, onlineProfileTop + 104, L"Profile",
                 settings.onlineProfiles.empty() ? L"Add a profile to play online. Its name is shown to other players."
                                                 : L"Your profile name is shown to other players.");
+        const int dotX = right - 20 - measure(dc, service, fonts.caption);
+        ellipse(dc, p(dotX - 12), p(onlineProfileTop + 23), p(4), online ? green : connecting.valid() ? gold : faint);
+        text(dc, service, dotX, onlineProfileTop + 14, right - dotX - 16, 18, fonts.caption, online ? ink : muted,
+             DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
         label(onlineProfileTop, 0, 0, L"PROFILE");
         label(onlineProfileTop, 0, 1, L"NEW PROFILE");
-        section(onlineHostTop, onlineHostTop + 160, L"Host a room",
-                L"You are player 1. Forward the TCP port on your router if players can't connect.");
+        section(contentLeft, onlineHostTop, right, onlineHostTop + 160, L"Host a room",
+                L"You are player 1. Your router's port is opened automatically when it allows it.");
         label(onlineHostTop, 0, 0, L"ROOM NAME (OPTIONAL)");
         label(onlineHostTop, 0, 1, L"PASSWORD (OPTIONAL)");
         label(onlineHostTop, 0, 2, L"PORT");
         label(onlineHostTop, 1, 0, L"INPUT DELAY");
-        label(onlineHostTop, 1, 1, L"SERVER BROWSER");
-        section(onlineRoomsTop, h - 64 + 6, L"Rooms",
-                L"Same OpenKai2 version and disc needed. Mods, save states and speedrun mode are off online.");
-        label(onlineRoomsTop, 0, 0, L"SERVER");
-        label(onlineRoomsTop, 0, 2, L"ROOM PASSWORD");
-        if (rooms.empty())
-            text(dc, roomTask.valid() ? L"Looking for rooms…" : roomsMessage, contentLeft + 20,
-                 Grid::field(onlineRoomsTop, 0) + 62, content - 40, 18, fonts.caption, muted,
+        label(onlineHostTop, 1, 1, L"WHO CAN SEE IT");
+        const int split = contentLeft + (content * 62) / 100, bottom = h - 64 + 6;
+        section(contentLeft, onlineListsTop, split - 6, bottom, L"Rooms", L"Updates live. Same version and disc needed.",
+                split - 6 - 20 - 100 - 12);
+        section(split + 6, onlineListsTop, right, bottom, L"Players", L"Friends first");
+        const int listTop = onlineListsTop + 44;
+        if (roomRows.empty())
+            text(dc, !online ? L"Rooms appear here when you are online." : L"No open rooms right now. Host one, or invite a player.",
+                 contentLeft + 20, listTop + 8, split - 6 - contentLeft - 40, 18, fonts.caption, muted,
+                 DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        if (playerRows.empty())
+            text(dc, !online ? L"Players appear here when you are online." : L"Nobody else is online yet.", split + 26,
+                 listTop + 8, right - split - 46, 18, fonts.caption, muted,
                  DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
     }
     void paintSettings(HDC dc, int content) {
@@ -1695,7 +1775,7 @@ struct Window {
         auto section = [&](int top, int rows, const wchar_t *title, const std::wstring &note, COLORREF tone) {
             panelBox(dc, contentLeft, top, right, top + 44 + rows * 56 + 4);
             text(dc, title, contentLeft + 20, top + 12, 200, 22, fonts.strong);
-            text(dc, note, contentLeft + 120, top + 14, content - 140 - (top == updatesTop ? 130 : top == speedrunTop ? 184 : 0), 18,
+            text(dc, note, contentLeft + 120, top + 14, content - 140 - (top == updatesTop ? 130 : 0), 18,
                  fonts.caption, tone, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
         };
         auto label = [&](int top, int row, int column, const wchar_t *value) {
@@ -1729,14 +1809,39 @@ struct Window {
         label(updatesTop, 0, 0, L"CHANNEL");
         label(updatesTop, 0, 1, L"AUTOMATIC UPDATES");
         label(updatesTop, 0, 2, L"MANUAL CHECK");
-
-        section(speedrunTop, 1, L"Speedrun",
-                settings.speedrun ? L"Timer starts with Dragon World and stops on Kid Buu's last hit. Mods are off; F8 resets."
-                                  : L"Automatic splits, best times, run checks and a log for speedrun.com submissions",
-                muted);
-        label(speedrunTop, 0, 0, L"SPEEDRUN MODE");
-        label(speedrunTop, 0, 1, L"PERMADEATH");
-        label(speedrunTop, 0, 2, L"FPS COUNTER");
+    }
+    void paintSpeedrun(HDC dc, int h, int content) {
+        const int right = contentLeft + content;
+        const Grid grid(content);
+        panelBox(dc, contentLeft, speedrunTop, right, speedrunTop + 104);
+        text(dc, L"Run", contentLeft + 20, speedrunTop + 12, 200, 22, fonts.strong);
+        text(dc, settings.speedrun ? L"Mods are off while a category is chosen. F7 hides the overlay; F8 resets."
+                                   : L"Choose a category to time runs.",
+             contentLeft + 120, speedrunTop + 14, content - 140 - 184, 18, fonts.caption, muted,
+             DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        caps(dc, L"CATEGORY", grid.x(0), Grid::label(speedrunTop, 0), grid.column);
+        caps(dc, L"PERMADEATH", grid.x(1), Grid::label(speedrunTop, 0), grid.column);
+        caps(dc, L"FPS COUNTER", grid.x(2), Grid::label(speedrunTop, 0), grid.column);
+        const int bottom = std::max(speedrunRulesTop + 120, h - 64 + 6);
+        panelBox(dc, contentLeft, speedrunRulesTop, right, bottom);
+        text(dc, L"How runs are timed", contentLeft + 20, speedrunRulesTop + 12, content - 40, 22, fonts.strong);
+        const wchar_t *rules[] = {
+            L"The timer starts when Dragon World starts and stops on the last hit on Kid Buu.",
+            L"Real time is the leaderboard time. PS2 time counts the console's frames, so slowdown is not added.",
+            L"Any% starts with default equipment. NG+ allows skills set up before Dragon World.",
+            L"Permadeath: losing any Dragon World fight ends the run and resets to the main menu.",
+            L"Each battle won is a split. Best runs and best segments are saved after every attempt.",
+            L"Runs are flagged if the disc differs from the US retail disc, the game runs fast, or a memory editor is open.",
+            L"Each session writes a checksummed log to logs\\speedruns for speedrun.com moderators."};
+        int y = speedrunRulesTop + 46;
+        for (const auto *rule : rules) {
+            if (y + 18 > bottom - 10)
+                break;
+            ellipse(dc, p(contentLeft + 24), p(y + 9), p(2), orange);
+            text(dc, rule, contentLeft + 36, y, content - 56, 18, fonts.caption, muted,
+                 DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+            y += 28;
+        }
     }
     void paint() {
         PAINTSTRUCT ps{};
@@ -1766,7 +1871,7 @@ struct Window {
         paintHeader(memory, w, content);
         if (page == 0)
             paintPlay(memory, content);
-        else if (page == 1)
+        else if (page == savesPage)
             paintSaves(memory, h, content);
         else if (page == modsPage)
             paintMods(memory, h, content);
@@ -1776,6 +1881,8 @@ struct Window {
             paintOverlay(memory, h, content);
         else if (page == onlinePage)
             paintOnline(memory, h, content);
+        else if (page == speedrunPage)
+            paintSpeedrun(memory, h, content);
         else
             paintSettings(memory, content);
         const int footer = h - 34;
@@ -1808,7 +1915,7 @@ struct Window {
         }
     }
     COLORREF surface(int id, const RECT &r) const {
-        if (id >= PlayTab && id <= OnlineTab)
+        if (id >= PlayTab && id <= SettingsTab)
             return sidebar;
         if (id == Play) {
             const int width = std::max(1, p(contentWidth()));
@@ -1840,6 +1947,12 @@ struct Window {
             Ellipse(dc, left + size / 4, top, left + size - size / 4, top + size);
             MoveToEx(dc, left, top + size / 2, nullptr);
             LineTo(dc, left + size, top + size / 2);
+        } else if (id == SpeedrunTab) {
+            Ellipse(dc, left + p(1), top + p(2), left + size - p(1), top + size);
+            MoveToEx(dc, left + size / 2, top + p(2) + size / 2 - p(1), nullptr);
+            LineTo(dc, left + size / 2, top + p(6));
+            MoveToEx(dc, left + size / 2 - p(3), top, nullptr);
+            LineTo(dc, left + size / 2 + p(3), top);
         } else if (id == ModsTab) {
             const int half = size / 2 - p(1);
             for (int i = 0; i < 4; ++i) {
@@ -1866,7 +1979,7 @@ struct Window {
             Canvas canvas(item.hDC, r);
             dc = canvas.dc;
             const int id = int(item.CtlID);
-            const bool navigation = id >= PlayTab && id <= OnlineTab;
+            const bool navigation = id >= PlayTab && id <= SettingsTab;
             const bool chosen = navigation && id == PlayTab + navigationPage();
             const bool primary = id == Play;
             const bool taskChoice = (id == TaskCharacters && importTask == Task::characters) ||
@@ -2010,7 +2123,7 @@ struct Window {
             }
         } else if (!backups.empty())
             SendMessageW(controls[BackupList], LB_SETSEL, TRUE, 0);
-        if (page == 1)
+        if (page == savesPage)
             ShowWindow(controls[BackupList], emptySaveList() ? SW_HIDE : SW_SHOWNA);
     }
     static std::wstring bytesText(uint64_t bytes) {
@@ -2866,13 +2979,12 @@ struct Window {
     }
     void timer() {
         presence.enable(settings.discordPresence);
-        const char* pages[]={"Choosing a game","Managing saves","Managing mods","Configuring settings","Setting up online play","Importing mods","Setting up a speedrun"};
+        const char* pages[]={"Choosing a game","Setting up online play","Setting up a speedrun","Managing mods","Managing saves","Configuring settings","Importing mods","Setting up a speedrun"};
         presence.update(running()?"Playing Budokai 2":"In launcher",running()?"In game":pages[page]);
         if(presence.status()!=lastPresenceStatus && !dropdownOpen()) {
             lastPresenceStatus=presence.status();InvalidateRect(hwnd,nullptr,FALSE);
         }
-        if (roomTask.valid() && roomTask.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready)
-            roomsArrived();
+        onlineTick();
         for (const bool background : {false, true}) {
             auto &work = background ? updateTask : task;
             if (!work.valid() || work.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
@@ -3091,7 +3203,55 @@ struct Window {
         const auto last = value.find_last_not_of(L" \t");
         return first == std::wstring::npos ? std::wstring() : value.substr(first, last - first + 1);
     }
+    std::optional<online::Profile> activeProfile() const {
+        for (size_t i = 0; i < settings.onlineProfiles.size() && i < settings.onlineKeys.size(); ++i)
+            if (settings.onlineProfiles[i] == settings.onlineName) {
+                crypto::Seed seed{};
+                if (!crypto::from_hex(settings.onlineKeys[i], seed.data(), seed.size()))
+                    return std::nullopt;
+                return online::make_profile(seed, settings.onlineName);
+            }
+        return std::nullopt;
+    }
+    void tidyProfiles() {
+        Settings next = settings;
+        const bool developer = identity::developer_seed().has_value();
+        bool changed = false;
+        std::vector<std::string> names, keys;
+        for (size_t i = 0; i < next.onlineProfiles.size(); ++i) {
+            const auto name = identity::allowed_name(next.onlineProfiles[i], developer);
+            if (std::find(names.begin(), names.end(), name) != names.end()) {
+                changed = true;
+                continue;
+            }
+            std::string key = i < next.onlineKeys.size() ? next.onlineKeys[i] : std::string();
+            crypto::Seed seed{};
+            if (!crypto::from_hex(key, seed.data(), seed.size())) {
+                const auto fresh = online::new_seed();
+                key = crypto::to_hex(fresh.data(), fresh.size());
+            }
+            changed = changed || name != next.onlineProfiles[i] || i >= next.onlineKeys.size() || key != next.onlineKeys[i];
+            if (next.onlineName == next.onlineProfiles[i])
+                next.onlineName = name;
+            names.push_back(name);
+            keys.push_back(key);
+        }
+        const auto name = identity::allowed_name(next.onlineName, developer);
+        changed = changed || name != next.onlineName || keys.size() != next.onlineKeys.size();
+        next.onlineName = name;
+        next.onlineProfiles = names;
+        next.onlineKeys = keys;
+        if (!changed)
+            return;
+        try {
+            write_settings(settings_path(), next);
+            settings = std::move(next);
+        } catch (const std::exception &e) {
+            std::cerr << "[launcher:online] " << e.what() << std::endl;
+        }
+    }
     void fillProfiles() {
+        tidyProfiles();
         const auto box = controls[OnlineProfile];
         SendMessageW(box, CB_RESETCONTENT, 0, 0);
         int chosen = -1;
@@ -3110,8 +3270,8 @@ struct Window {
         next.onlineAddress = utf8(trimmed(textOf(OnlineAddress)));
         next.onlineRoom = utf8(trimmed(textOf(OnlineRoom)));
         next.onlinePassword = utf8(textOf(OnlinePassword));
-        next.onlineLobby = utf8(trimmed(textOf(OnlineLobby)));
-        next.onlineListed = selected(OnlineListed) == 1;
+        next.onlineVisibility = unsigned(std::clamp(selected(OnlineListed), 0, 2));
+        next.onlineListed = next.onlineVisibility != 2;
         const auto port = trimmed(textOf(OnlinePort));
         unsigned value = 0;
         for (wchar_t c : port)
@@ -3122,7 +3282,7 @@ struct Window {
             return false;
         }
         next.onlinePort = value;
-        next.onlineDelay = unsigned(std::clamp(selected(OnlineDelay), 0, 7) + 1);
+        next.onlineDelay = unsigned(std::clamp(selected(OnlineDelay), 0, 8));
         if (!settings.onlineProfiles.empty()) {
             const int chosen = std::clamp(selected(OnlineProfile), 0, int(settings.onlineProfiles.size()) - 1);
             next.onlineName = settings.onlineProfiles[size_t(chosen)];
@@ -3139,9 +3299,7 @@ struct Window {
         return true;
     }
     bool profileReady() {
-        if (!settings.onlineProfiles.empty() &&
-            std::find(settings.onlineProfiles.begin(), settings.onlineProfiles.end(), settings.onlineName) !=
-                settings.onlineProfiles.end())
+        if (activeProfile())
             return true;
         status = L"Add a profile before playing online.";
         error = true;
@@ -3149,12 +3307,19 @@ struct Window {
         return false;
     }
     void addProfile() {
-        const auto name = trimmed(textOf(OnlineName));
-        const auto value = utf8(name);
-        if (name.empty() || value.size() > 24) {
+        auto name = utf8(trimmed(textOf(OnlineName)));
+        if (name.empty() || name.size() > 24) {
             status = L"Type a profile name of up to 24 characters.";
             error = true;
             return;
+        }
+        if (identity::claims_developer(name)) {
+            if (!identity::developer_seed()) {
+                status = L"[DEV] is reserved for the OpenKai2 developer.";
+                error = true;
+                return;
+            }
+            name = identity::developer_name;
         }
         if (settings.onlineProfiles.size() >= 32) {
             status = L"Remove a profile before adding another.";
@@ -3162,14 +3327,19 @@ struct Window {
             return;
         }
         Settings next = settings;
-        if (std::find(next.onlineProfiles.begin(), next.onlineProfiles.end(), value) == next.onlineProfiles.end())
-            next.onlineProfiles.push_back(value);
-        next.onlineName = value;
+        if (std::find(next.onlineProfiles.begin(), next.onlineProfiles.end(), name) == next.onlineProfiles.end()) {
+            const auto seed = online::new_seed();
+            next.onlineProfiles.push_back(name);
+            next.onlineKeys.resize(next.onlineProfiles.size() - 1);
+            next.onlineKeys.push_back(crypto::to_hex(seed.data(), seed.size()));
+        }
+        next.onlineName = name;
         write_settings(settings_path(), next);
         settings = std::move(next);
         SetWindowTextW(controls[OnlineName], L"");
         fillProfiles();
-        status = L"Profile " + name + L" is ready for online play.";
+        reconnect();
+        status = L"Profile " + wide(name) + L" is ready for online play.";
         error = false;
         refreshEnabled();
     }
@@ -3179,68 +3349,406 @@ struct Window {
         const int chosen = std::clamp(selected(OnlineProfile), 0, int(settings.onlineProfiles.size()) - 1);
         Settings next = settings;
         const auto name = next.onlineProfiles[size_t(chosen)];
+        std::string owner;
+        if (size_t(chosen) < next.onlineKeys.size()) {
+            crypto::Seed seed{};
+            if (crypto::from_hex(next.onlineKeys[size_t(chosen)], seed.data(), seed.size()))
+                owner = online::make_profile(seed, name).id;
+            next.onlineKeys.erase(next.onlineKeys.begin() + chosen);
+        }
+        next.onlineFriends.erase(std::remove_if(next.onlineFriends.begin(), next.onlineFriends.end(),
+                                                [&](const Settings::Friend &entry) { return entry.owner == owner; }),
+                                 next.onlineFriends.end());
         next.onlineProfiles.erase(next.onlineProfiles.begin() + chosen);
         next.onlineName = next.onlineProfiles.empty() ? std::string("Player") : next.onlineProfiles.front();
         write_settings(settings_path(), next);
         settings = std::move(next);
         fillProfiles();
+        reconnect();
         status = L"Profile " + wide(name) + L" removed.";
         error = false;
         refreshEnabled();
     }
-    void refreshRooms() {
-        if (roomTask.valid() || !saveOnline())
+    void reconnect() {
+        if (directory)
+            directory->close();
+        directory.reset();
+        connectedProfile.clear();
+        roomRows.clear();
+        playerRows.clear();
+        lastConnect = {};
+        refreshOnlineLists();
+    }
+    void ensureOnline() {
+        if (connecting.valid()) {
+            if (connecting.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
+                return;
+            auto [opened, problem] = connecting.get();
+            onlineProblem = problem;
+            if (opened) {
+                directory = std::move(opened);
+                std::cout << "[launcher:online] connected as " << settings.onlineName << std::endl;
+            } else
+                std::cout << "[launcher:online] could not connect: " << problem << std::endl;
+            refreshOnlineLists();
+            refreshEnabled();
+            InvalidateRect(hwnd, nullptr, FALSE);
             return;
-        if (settings.onlineLobby.empty()) {
-            status = L"Enter a server address to see rooms.";
+        }
+        const auto profile = activeProfile();
+        if (!profile)
+            return;
+        if (directory && directory->connected() && connectedProfile == profile->id)
+            return;
+        if (directory && connectedProfile != profile->id)
+            reconnect();
+        const auto now = std::chrono::steady_clock::now();
+        if (now - lastConnect < std::chrono::seconds(directory ? 5 : 15) && lastConnect != std::chrono::steady_clock::time_point{})
+            return;
+        lastConnect = now;
+        directory.reset();
+        connectedProfile = profile->id;
+        auto shared = onlineShared;
+        connecting = std::async(std::launch::async, [shared, profile = *profile, server = settings.onlineLobby]() {
+            auto opened = std::make_unique<online::Directory>();
+            opened->on_change([shared] {
+                if (shared->window)
+                    PostMessageW(shared->window, onlineChanged, 0, 0);
+            });
+            opened->on_invite([shared](const online::Invite &invite) {
+                std::lock_guard lock(shared->mutex);
+                if (shared->notices.size() < 20)
+                    shared->notices.push_back({true, invite, {}});
+                if (shared->window)
+                    PostMessageW(shared->window, onlineNotice, 0, 0);
+            });
+            opened->on_friend([shared](const online::FriendMessage &message) {
+                std::lock_guard lock(shared->mutex);
+                if (shared->notices.size() < 40)
+                    shared->notices.push_back({false, {}, message});
+                if (shared->window)
+                    PostMessageW(shared->window, onlineNotice, 0, 0);
+            });
+            std::string problem;
+            if (!opened->open(server, profile, application_version, problem))
+                opened.reset();
+            return std::make_pair(std::move(opened), problem);
+        });
+        InvalidateRect(hwnd, nullptr, FALSE);
+    }
+    size_t playerCount() const { return directory ? directory->players().size() + 1 : 0; }
+    bool isFriend(const std::string &id) const {
+        const auto profile = activeProfile();
+        return profile && std::any_of(settings.onlineFriends.begin(), settings.onlineFriends.end(), [&](const auto &entry) {
+                   return entry.owner == profile->id && entry.id == id;
+               });
+    }
+    void setFriend(const std::string &id, const std::string &name, bool add) {
+        const auto profile = activeProfile();
+        if (!profile)
+            return;
+        Settings next = settings;
+        next.onlineFriends.erase(std::remove_if(next.onlineFriends.begin(), next.onlineFriends.end(),
+                                                [&](const Settings::Friend &entry) {
+                                                    return entry.owner == profile->id && entry.id == id;
+                                                }),
+                                 next.onlineFriends.end());
+        if (add)
+            next.onlineFriends.push_back({profile->id, id, name});
+        write_settings(settings_path(), next);
+        settings = std::move(next);
+    }
+    void refreshOnlineLists() {
+        std::string selectedRoom, selectedPlayer;
+        if (const auto row = SendMessageW(controls[RoomList], LB_GETCURSEL, 0, 0); row >= 0 && size_t(row) < roomRows.size())
+            selectedRoom = roomRows[size_t(row)].id;
+        if (const auto row = SendMessageW(controls[PlayerList], LB_GETCURSEL, 0, 0); row >= 0 && size_t(row) < playerRows.size())
+            selectedPlayer = playerRows[size_t(row)].first;
+        roomRows = directory ? directory->rooms() : std::vector<online::Room>{};
+        std::stable_sort(roomRows.begin(), roomRows.end(), [](const online::Room &a, const online::Room &b) {
+            return (a.version == application_version) > (b.version == application_version);
+        });
+        std::map<std::string, int> pings;
+        {
+            std::lock_guard lock(onlineShared->mutex);
+            pings = onlineShared->pings;
+            for (const auto &room : roomRows) {
+                if (onlineShared->pings.count(room.id) || onlineShared->pinging.count(room.id) || room.version != application_version)
+                    continue;
+                onlineShared->pinging.insert(room.id);
+                std::thread([shared = onlineShared, room] {
+                    const auto ping = netplay::probe_room(room.address, room.port, 2000);
+                    std::lock_guard lock(shared->mutex);
+                    shared->pings[room.id] = ping ? int(*ping) : -1;
+                    shared->pinging.erase(room.id);
+                    if (shared->window)
+                        PostMessageW(shared->window, onlineChanged, 0, 0);
+                }).detach();
+            }
+        }
+        SendMessageW(controls[RoomList], WM_SETREDRAW, FALSE, 0);
+        SendMessageW(controls[RoomList], LB_RESETCONTENT, 0, 0);
+        int roomSelection = -1;
+        for (const auto &room : roomRows) {
+            std::wstring ping = L"…";
+            if (const auto found = pings.find(room.id); found != pings.end())
+                ping = found->second < 0 ? L"no reply" : std::to_wstring(found->second) + L" ms";
+            std::wstring row = wide(room.name.empty() ? room.host + "'s room" : room.name) + L" · " + wide(room.host) +
+                               L" · " + (room.version == application_version ? ping : L"version " + wide(room.version)) +
+                               L" · " + (room.locked ? L"Password" : L"Open");
+            if (room.id == selectedRoom)
+                roomSelection = int(SendMessageW(controls[RoomList], LB_GETCOUNT, 0, 0));
+            SendMessageW(controls[RoomList], LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(row.c_str()));
+        }
+        if (roomSelection >= 0)
+            SendMessageW(controls[RoomList], LB_SETCURSEL, WPARAM(roomSelection), 0);
+        SendMessageW(controls[RoomList], WM_SETREDRAW, TRUE, 0);
+        playerRows.clear();
+        std::vector<std::wstring> labels;
+        const auto profile = activeProfile();
+        const auto players = directory ? directory->players() : std::vector<online::Player>{};
+        if (profile)
+            for (const auto &entry : settings.onlineFriends)
+                if (entry.owner == profile->id) {
+                    const auto found = std::find_if(players.begin(), players.end(), [&](const auto &player) { return player.id == entry.id; });
+                    playerRows.emplace_back(entry.id, found == players.end() ? entry.name : found->name);
+                    labels.push_back(L"★ " + wide(playerRows.back().second) + L" · " +
+                                     (found == players.end() ? std::wstring(L"offline") : wide(found->status)));
+                }
+        for (const auto &player : players) {
+            if (isFriend(player.id))
+                continue;
+            playerRows.emplace_back(player.id, player.name);
+            labels.push_back(wide(player.name) + L" · " + wide(player.status) +
+                             (player.version == application_version ? L"" : L" · version " + wide(player.version)));
+        }
+        SendMessageW(controls[PlayerList], WM_SETREDRAW, FALSE, 0);
+        SendMessageW(controls[PlayerList], LB_RESETCONTENT, 0, 0);
+        int playerSelection = -1;
+        for (size_t i = 0; i < labels.size(); ++i) {
+            if (playerRows[i].first == selectedPlayer)
+                playerSelection = int(i);
+            SendMessageW(controls[PlayerList], LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(labels[i].c_str()));
+        }
+        if (playerSelection >= 0)
+            SendMessageW(controls[PlayerList], LB_SETCURSEL, WPARAM(playerSelection), 0);
+        SendMessageW(controls[PlayerList], WM_SETREDRAW, TRUE, 0);
+        if (selectedPlayerId().empty() || !isFriend(selectedPlayerId()))
+            SetWindowTextW(controls[AddFriend], L"Add friend");
+        else
+            SetWindowTextW(controls[AddFriend], L"Remove friend");
+        if (page == onlinePage)
+            layout();
+        InvalidateRect(hwnd, nullptr, FALSE);
+    }
+    std::string selectedPlayerId() const {
+        const auto row = SendMessageW(controls.at(PlayerList), LB_GETCURSEL, 0, 0);
+        return row >= 0 && size_t(row) < playerRows.size() ? playerRows[size_t(row)].first : std::string();
+    }
+    bool hasNotice() const {
+        std::lock_guard lock(onlineShared->mutex);
+        return !onlineShared->notices.empty();
+    }
+    std::wstring noticeText() const {
+        std::lock_guard lock(onlineShared->mutex);
+        if (onlineShared->notices.empty())
+            return {};
+        const auto &notice = onlineShared->notices.front();
+        if (notice.invite)
+            return wide(notice.inviteMessage.from_name) + L" invited you to play";
+        if (notice.friendMessage.kind == online::FriendKind::request)
+            return wide(notice.friendMessage.from_name) + L" sent you a friend request";
+        return {};
+    }
+    void notify(const std::wstring &title, const std::wstring &message) {
+        NOTIFYICONDATAW data{};
+        data.cbSize = sizeof data;
+        data.hWnd = hwnd;
+        data.uID = 1;
+        data.uFlags = NIF_ICON | NIF_TIP | NIF_INFO;
+        data.hIcon = reinterpret_cast<HICON>(SendMessageW(hwnd, WM_GETICON, ICON_SMALL, 0));
+        if (!data.hIcon)
+            data.hIcon = LoadIcon(nullptr, IDI_APPLICATION);
+        wcsncpy_s(data.szTip, L"OpenKai2", _TRUNCATE);
+        wcsncpy_s(data.szInfoTitle, title.c_str(), _TRUNCATE);
+        wcsncpy_s(data.szInfo, message.c_str(), _TRUNCATE);
+        data.dwInfoFlags = NIIF_INFO;
+        Shell_NotifyIconW(trayAdded ? NIM_MODIFY : NIM_ADD, &data);
+        trayAdded = true;
+        FLASHWINFO flash{sizeof flash, hwnd, FLASHW_TRAY | FLASHW_TIMERNOFG, 0, 0};
+        FlashWindowEx(&flash);
+        MessageBeep(MB_ICONASTERISK);
+    }
+    void removeTray() {
+        if (!trayAdded)
+            return;
+        NOTIFYICONDATAW data{};
+        data.cbSize = sizeof data;
+        data.hWnd = hwnd;
+        data.uID = 1;
+        Shell_NotifyIconW(NIM_DELETE, &data);
+        trayAdded = false;
+    }
+    void noticesArrived() {
+        std::vector<std::pair<std::wstring, std::wstring>> alerts;
+        {
+            std::lock_guard lock(onlineShared->mutex);
+            auto &queue = onlineShared->notices;
+            for (auto it = queue.begin(); it != queue.end();) {
+                if (!it->invite && it->friendMessage.kind != online::FriendKind::request) {
+                    const auto message = it->friendMessage;
+                    it = queue.erase(it);
+                    if (directory)
+                        directory->clear_friend(message.from_id);
+                    if (message.kind == online::FriendKind::accept && requestedFriends.count(message.from_id)) {
+                        setFriend(message.from_id, message.from_name, true);
+                        requestedFriends.erase(message.from_id);
+                        alerts.emplace_back(L"Friend added", wide(message.from_name) + L" accepted your friend request.");
+                    } else if (message.kind == online::FriendKind::remove)
+                        setFriend(message.from_id, message.from_name, false);
+                    continue;
+                }
+                if (!it->invite && isFriend(it->friendMessage.from_id)) {
+                    if (directory) {
+                        directory->clear_friend(it->friendMessage.from_id);
+                        directory->send_friend(it->friendMessage.from_id, online::FriendKind::accept);
+                    }
+                    it = queue.erase(it);
+                    continue;
+                }
+                ++it;
+            }
+            if (!queue.empty()) {
+                const auto &latest = queue.back();
+                if (latest.invite)
+                    alerts.emplace_back(L"Invite", wide(latest.inviteMessage.from_name) + L" invited you to play Budokai 2.");
+                else
+                    alerts.emplace_back(L"Friend request", wide(latest.friendMessage.from_name) + L" wants to be friends.");
+            }
+        }
+        if (!alerts.empty())
+            notify(alerts.back().first, alerts.back().second);
+        refreshOnlineLists();
+        layout();
+    }
+    void answerNotice(bool accept) {
+        Notice notice;
+        {
+            std::lock_guard lock(onlineShared->mutex);
+            if (onlineShared->notices.empty())
+                return;
+            notice = onlineShared->notices.front();
+            onlineShared->notices.pop_front();
+        }
+        if (notice.invite) {
+            if (accept) {
+                const auto room = directory ? directory->room(notice.inviteMessage.room_id) : std::nullopt;
+                if (!room)
+                    status = L"That room has closed.", error = true;
+                else if (room->version != application_version)
+                    status = L"That room uses another OpenKai2 version.", error = true;
+                else if (!disc)
+                    status = L"Choose your Budokai 2 ISO first.", error = true;
+                else
+                    launchOnline(false, wide(room->address) + L":" + std::to_wstring(room->port), wide(notice.inviteMessage.token));
+            } else
+                status = L"Invite declined.";
+        } else {
+            const auto &message = notice.friendMessage;
+            if (directory)
+                directory->clear_friend(message.from_id);
+            if (accept) {
+                setFriend(message.from_id, message.from_name, true);
+                if (directory)
+                    directory->send_friend(message.from_id, online::FriendKind::accept);
+                status = wide(message.from_name) + L" is now your friend.";
+            } else
+                status = L"Friend request declined.";
+        }
+        refreshOnlineLists();
+        layout();
+    }
+    void toggleFriend() {
+        const auto id = selectedPlayerId();
+        if (id.empty() || !directory) {
+            status = L"Choose a player.";
             error = true;
             return;
         }
-        rooms.clear();
-        SendMessageW(controls[RoomList], LB_RESETCONTENT, 0, 0);
-        roomTask = std::async(std::launch::async, [server = settings.onlineLobby] {
-            std::string problem;
-            auto found = lobby::fetch_rooms(server, problem);
-            return std::make_pair(std::move(found), problem);
-        });
-        status = L"Looking for rooms…";
-        layout();
-        refreshEnabled();
-        InvalidateRect(hwnd, nullptr, FALSE);
-    }
-    void roomsArrived() {
-        auto [found, problem] = roomTask.get();
-        rooms = std::move(found);
-        std::stable_sort(rooms.begin(), rooms.end(), [](const lobby::Room &a, const lobby::Room &b) {
-            return (a.version == application_version) > (b.version == application_version);
-        });
-        SendMessageW(controls[RoomList], LB_RESETCONTENT, 0, 0);
-        for (const auto &room : rooms) {
-            std::wstring row = wide(room.name.empty() ? room.host + "'s room" : room.name) + L" \u00b7 " + wide(room.host) +
-                               L" \u00b7 " + (room.locked ? L"Password" : L"Open");
-            if (room.version != application_version)
-                row += L" \u00b7 Version " + wide(room.version);
-            SendMessageW(controls[RoomList], LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(row.c_str()));
+        const auto found = std::find_if(playerRows.begin(), playerRows.end(), [&](const auto &row) { return row.first == id; });
+        const std::string name = found == playerRows.end() ? std::string() : found->second;
+        if (isFriend(id)) {
+            setFriend(id, name, false);
+            directory->send_friend(id, online::FriendKind::remove);
+            status = wide(name) + L" removed from friends.";
+        } else {
+            requestedFriends.insert(id);
+            directory->send_friend(id, online::FriendKind::request);
+            status = L"Friend request sent to " + wide(name) + L".";
         }
-        roomsMessage = !problem.empty() ? L"Server not reachable: " + wide(problem)
-                                        : L"No open rooms. Host one, or refresh later.";
-        status = !problem.empty() ? roomsMessage
-                 : rooms.empty()  ? roomsMessage
-                                  : std::to_wstring(rooms.size()) + (rooms.size() == 1 ? L" room found." : L" rooms found.");
-        error = !problem.empty();
-        if (page == onlinePage)
-            layout();
-        refreshEnabled();
-        InvalidateRect(hwnd, nullptr, FALSE);
+        error = false;
+        refreshOnlineLists();
+    }
+    void invitePlayer() {
+        const auto id = selectedPlayerId();
+        const auto player = directory ? directory->player(id) : std::nullopt;
+        if (!player) {
+            status = L"Choose a player who is online.";
+            error = true;
+            return;
+        }
+        if (player->version != application_version) {
+            status = wide(player->name) + L" uses another OpenKai2 version.";
+            error = true;
+            return;
+        }
+        if (running()) {
+            if (!hostingRoom.empty() && directory->room(hostingRoom)) {
+                directory->invite(id, hostingRoom, hostingToken);
+                status = L"Invite sent to " + wide(player->name) + L".";
+            } else {
+                status = L"Close the running game first, or host a room to invite players.";
+                error = true;
+            }
+            return;
+        }
+        pendingInvitee = id;
+        inviteDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(90);
+        startOnline(true);
+        status = L"Starting your room. " + wide(player->name) + L" is invited as soon as it opens.";
+    }
+    void onlineTick() {
+        ensureOnline();
+        const bool runningNow = running();
+        if (directory && directory->connected() && runningNow != wasRunning)
+            directory->set_status(runningNow ? (hostingRoom.empty() ? "in a match" : "hosting") : "online");
+        if (!runningNow && wasRunning) {
+            hostingRoom.clear();
+            pendingInvitee.clear();
+        }
+        wasRunning = runningNow;
+        if (!pendingInvitee.empty() && directory) {
+            if (!hostingRoom.empty() && directory->room(hostingRoom)) {
+                directory->invite(pendingInvitee, hostingRoom, hostingToken);
+                const auto player = directory->player(pendingInvitee);
+                status = L"Invite sent to " + (player ? wide(player->name) : std::wstring(L"the player")) + L".";
+                pendingInvitee.clear();
+                InvalidateRect(hwnd, nullptr, FALSE);
+            } else if (std::chrono::steady_clock::now() > inviteDeadline) {
+                pendingInvitee.clear();
+                status = L"Your room did not open in time, so the invite was not sent.";
+                error = true;
+            }
+        }
     }
     void joinRoom() {
         const auto row = SendMessageW(controls[RoomList], LB_GETCURSEL, 0, 0);
-        if (row < 0 || size_t(row) >= rooms.size()) {
+        if (row < 0 || size_t(row) >= roomRows.size()) {
             status = L"Choose a room to join.";
             error = true;
             return;
         }
-        const auto &room = rooms[size_t(row)];
+        const auto room = roomRows[size_t(row)];
         if (room.version != application_version) {
             status = L"This room uses OpenKai2 " + wide(room.version) + L". Both players need the same version.";
             error = true;
@@ -3248,7 +3756,7 @@ struct Window {
         }
         const auto password = textOf(JoinPassword);
         if (room.locked && password.empty()) {
-            status = L"This room has a password. Type it in Room password.";
+            status = L"This room has a password. Type it in the box below the list.";
             error = true;
             SetFocus(controls[JoinPassword]);
             return;
@@ -3258,20 +3766,33 @@ struct Window {
     void launchOnline(bool host, const std::wstring &target, const std::wstring &password) {
         if (!saveOnline() || !profileReady())
             return;
+        const std::wstring delay = settings.onlineDelay ? std::to_wstring(settings.onlineDelay) : L"auto";
         std::wstring arguments = L" --netplay=" + (host ? L"host:" + std::to_wstring(settings.onlinePort) : L"join:" + target) +
-                                 L" --netplay-delay=" + std::to_wstring(settings.onlineDelay) + L" " +
+                                 L" --netplay-delay=" + delay + L" " +
                                  quote_argument(L"--netplay-name=" + wide(settings.onlineName));
         if (!password.empty())
             arguments += L" " + quote_argument(L"--netplay-password=" + password);
-        if (host && !settings.onlineRoom.empty())
-            arguments += L" " + quote_argument(L"--netplay-room=" + wide(settings.onlineRoom));
-        if (host && settings.onlineListed && !settings.onlineLobby.empty())
+        if (!settings.onlineLobby.empty())
             arguments += L" " + quote_argument(L"--netplay-lobby=" + wide(settings.onlineLobby));
+        if (host) {
+            hostingRoom = online::new_id();
+            hostingToken = online::new_id();
+            if (!settings.onlineRoom.empty())
+                arguments += L" " + quote_argument(L"--netplay-room=" + wide(settings.onlineRoom));
+            const unsigned visibility = pendingInvitee.empty() ? settings.onlineVisibility
+                                                               : settings.onlineVisibility == 0 ? 0u : 1u;
+            if (visibility == 0)
+                arguments += L" --netplay-list";
+            else if (visibility == 1)
+                arguments += L" --netplay-invite-only";
+            arguments += L" --netplay-room-id=" + wide(hostingRoom) + L" --netplay-invite-token=" + wide(hostingToken);
+        } else {
+            hostingRoom.clear();
+        }
         onlineArguments = arguments;
         start(Job::launch, settings.iso);
-        status = host ? (settings.onlineListed && !settings.onlineLobby.empty()
-                             ? L"Starting the game. Your room is listed while you wait for a player."
-                             : L"Starting the game. Waiting for a player on port " + std::to_wstring(settings.onlinePort) + L".")
+        status = host ? (settings.onlineVisibility == 0 ? L"Starting the game. Your room is listed while you wait for a player."
+                                                        : L"Starting the game. Waiting for a player.")
                       : L"Starting the game and joining " + target + L"…";
     }
     void startOnline(bool host) {
@@ -3331,9 +3852,9 @@ struct Window {
         lastInput = std::chrono::steady_clock::now();
         if (picking)
             return;
-        if (id >= PlayTab && id <= OnlineTab) {
+        if (id >= PlayTab && id <= SettingsTab) {
             page = id - PlayTab;
-            for (int tab = PlayTab; tab <= OnlineTab; ++tab)
+            for (int tab = PlayTab; tab <= SettingsTab; ++tab)
                 InvalidateRect(controls[tab], nullptr, FALSE);
             if (page == modsPage)
                 refreshMods();
@@ -3379,14 +3900,19 @@ struct Window {
             return;
         }
         if ((id == OnlineDelay || id == OnlineListed || id == OnlineProfile) && notification == CBN_SELCHANGE) {
+            const std::string before = settings.onlineName;
             if (saveOnline())
-                status = id == OnlineDelay    ? L"Input delay saved. It is used when you host."
-                         : id == OnlineListed ? (settings.onlineListed ? L"Your rooms will be listed on the server."
-                                                                       : L"Your rooms will not be listed.")
+                status = id == OnlineDelay    ? (settings.onlineDelay ? L"Input delay saved. It is used when you host."
+                                                                      : L"Input delay is picked from the ping when someone joins.")
+                         : id == OnlineListed ? (settings.onlineVisibility == 0   ? L"Your rooms are shown to everyone."
+                                                 : settings.onlineVisibility == 1 ? L"Only players you invite can find your rooms."
+                                                                                  : L"Your rooms are not listed. Share your address instead.")
                                               : L"Profile " + wide(settings.onlineName) + L" selected.";
+            if (settings.onlineName != before)
+                reconnect();
             return;
         }
-        if ((id == OnlinePort || id == OnlineAddress || id == OnlineRoom || id == OnlinePassword || id == OnlineLobby) &&
+        if ((id == OnlinePort || id == OnlineAddress || id == OnlineRoom || id == OnlinePassword) &&
             notification == EN_KILLFOCUS) {
             saveOnline();
             return;
@@ -3400,7 +3926,26 @@ struct Window {
             return;
         }
         if (id == RefreshRooms && notification == BN_CLICKED) {
-            refreshRooms();
+            {
+                std::lock_guard lock(onlineShared->mutex);
+                onlineShared->pings.clear();
+            }
+            if (!directory || !directory->connected())
+                lastConnect = {};
+            refreshOnlineLists();
+            status = directory && directory->connected() ? L"Room list refreshed." : L"Connecting to the online service\u2026";
+            return;
+        }
+        if ((id == NoticeAccept || id == NoticeDecline) && notification == BN_CLICKED) {
+            answerNotice(id == NoticeAccept);
+            return;
+        }
+        if (id == AddFriend && notification == BN_CLICKED) {
+            toggleFriend();
+            return;
+        }
+        if (id == PlayerList && notification == LBN_SELCHANGE) {
+            SetWindowTextW(controls[AddFriend], isFriend(selectedPlayerId()) ? L"Remove friend" : L"Add friend");
             return;
         }
         if ((id == UpdateChannel || id == AutomaticUpdates) && notification == CBN_SELCHANGE) {
@@ -3517,7 +4062,7 @@ struct Window {
             return;
         }
         if (id == CloseOverlay && notification == BN_CLICKED) {
-            page = settingsPage;
+            page = speedrunPage;
             layout();
             return;
         }
@@ -3587,6 +4132,8 @@ struct Window {
             startOnline(id == HostGame);
         else if (((id == JoinRoom && notification == BN_CLICKED) || (id == RoomList && notification == LBN_DBLCLK)) && disc)
             joinRoom();
+        else if (((id == InvitePlayer && notification == BN_CLICKED) || (id == PlayerList && notification == LBN_DBLCLK)) && disc)
+            invitePlayer();
         else if (id == ImportFolder && disc) {
             auto p = choose(true);
             if (!p.empty())
@@ -3894,6 +4441,13 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
         case WM_TIMER:
             self->timer();
             return 0;
+        case onlineChanged:
+            self->refreshOnlineLists();
+            self->refreshEnabled();
+            return 0;
+        case onlineNotice:
+            self->noticesArrived();
+            return 0;
         case WM_SIZE:
             if (!self->controls.empty())
                 self->layout();
@@ -3927,7 +4481,8 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
         case WM_CTLCOLORLISTBOX: {
             const auto target = reinterpret_cast<HWND>(lp);
             const bool list = target == self->controls[BackupList] || target == self->controls[ModList] ||
-                              target == self->controls[SourceFiles] || target == self->controls[TargetList];
+                              target == self->controls[SourceFiles] || target == self->controls[TargetList] ||
+                              target == self->controls[RoomList] || target == self->controls[PlayerList];
             const COLORREF color = list ? field : panel;
             SetDCBrushColor(reinterpret_cast<HDC>(wp), color);
             SetTextColor(reinterpret_cast<HDC>(wp), ink);
@@ -3949,6 +4504,13 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
             return 0;
         case WM_DESTROY:
             KillTimer(hwnd, 1);
+            self->removeTray();
+            {
+                std::lock_guard lock(self->onlineShared->mutex);
+                self->onlineShared->window = nullptr;
+            }
+            if (self->directory)
+                self->directory->close();
             self->rememberPlacement();
             PostQuitMessage(0);
             return 0;
@@ -4073,10 +4635,11 @@ int run_window(const std::filesystem::path &initialIso) {
     if (!state.settings.iso.empty())
         state.start(Job::verify, state.settings.iso);
     ACCEL shortcuts[] = {{FCONTROL | FVIRTKEY, '1', PlayTab},
-                         {FCONTROL | FVIRTKEY, '2', SavesTab},
-                         {FCONTROL | FVIRTKEY, '3', ModsTab},
-                         {FCONTROL | FVIRTKEY, '4', SettingsTab},
-                         {FCONTROL | FVIRTKEY, '5', OnlineTab},
+                         {FCONTROL | FVIRTKEY, '2', OnlineTab},
+                         {FCONTROL | FVIRTKEY, '3', SpeedrunTab},
+                         {FCONTROL | FVIRTKEY, '4', ModsTab},
+                         {FCONTROL | FVIRTKEY, '5', SavesTab},
+                         {FCONTROL | FVIRTKEY, '6', SettingsTab},
                          {FVIRTKEY, VK_F5, Play}};
     const auto accelerators = CreateAcceleratorTableW(shortcuts, int(std::size(shortcuts)));
     struct AcceleratorCleanup {

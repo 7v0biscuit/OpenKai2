@@ -98,6 +98,9 @@ int main() {
         s.onlinePassword = "turtle";
         s.onlineListed = false;
         s.onlineLobby = "lobby.example.org:7351";
+        s.onlineKeys = {std::string(64, 'a'), std::string(64, 'b')};
+        s.onlineVisibility = 1;
+        s.onlineFriends = {{std::string(64, 'a'), std::string(64, 'c'), "Krillin \"K\""}};
         write_settings(root / "settings.ini", s);
         auto read = read_settings(root / "settings.ini");
         require(read.iso == s.iso && read.fps == 144 && read.width == 2560 && read.height == 1440 &&
@@ -112,7 +115,9 @@ int main() {
                     read.overlaySplits == 3 && read.onlineName == "Son Goku" &&
                     read.onlineAddress == "203.0.113.7" && read.onlinePort == 7351 && read.onlineDelay == 4 &&
                     read.onlineProfiles == s.onlineProfiles && read.onlineRoom == "Kame House" &&
-                    read.onlinePassword == "turtle" && !read.onlineListed && read.onlineLobby == s.onlineLobby,
+                    read.onlinePassword == "turtle" && !read.onlineListed && read.onlineLobby == s.onlineLobby &&
+                    read.onlineKeys == s.onlineKeys && read.onlineVisibility == 1 && read.onlineFriends.size() == 1 &&
+                    read.onlineFriends[0].name == "Krillin \"K\"" && read.onlineFriends[0].id == std::string(64, 'c'),
                 "Settings roundtrip changed values");
         require(read_settings(root / "absent.ini").fps == 240, "Default frame rate cap is not 240 FPS");
         require(read_settings(root / "absent.ini").audio && read_settings(root / "absent.ini").volume == 100,

@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "netplay.h"
-#include "lobby.h"
+#include "dev_identity.h"
+#include "nat.h"
+#include "online.h"
 #include <algorithm>
+#include <cmath>
+#include <optional>
 #include <chrono>
 #include <cstring>
 #include <fstream>
@@ -9,7 +13,7 @@
 
 namespace openkai2::netplay {
 namespace {
-enum Message : uint8_t { hello = 1, welcome, reject, snapshot, input, hash, ping, pong, bye };
+enum Message : uint8_t { hello = 1, welcome, reject, snapshot, input, hash, ping, pong, bye, profile, confirm, probe };
 constexpr uint32_t max_message = 96u << 20;
 constexpr size_t max_snapshot = 160u << 20;
 constexpr auto remote_timeout = std::chrono::seconds(20);
@@ -101,6 +105,24 @@ bool safe_relative(const std::string &path) {
             return false;
     return path.find('\\') == std::string::npos && path.find(':') == std::string::npos;
 }
+}
+
+unsigned auto_delay(double rtt_ms) {
+    const double frames = (rtt_ms / 2.0 + 4.0) / (1000.0 / 60.0);
+    return std::clamp(unsigned(std::ceil(frames)), 1u, max_delay);
+}
+
+std::optional<unsigned> probe_room(const std::string &address, uint16_t port, int timeout_ms) {
+    std::string error;
+    const auto began = std::chrono::steady_clock::now();
+    auto socket = net::Socket::connect(address, port, error);
+    if (!socket.valid())
+        return std::nullopt;
+    const uint8_t frame[5] = {1, 0, 0, 0, probe};
+    uint8_t reply[5];
+    if (!socket.send_all(frame, 5) || !socket.readable(timeout_ms) || !socket.receive_all(reply, 5) || reply[4] != probe)
+        return std::nullopt;
+    return unsigned(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - began).count() / 2 + 0.5);
 }
 
 Input neutral_input() { return {0xff, 0xff, 128, 128, 128, 128}; }
@@ -229,7 +251,9 @@ bool unpack_snapshot(const std::vector<uint8_t> &packed, std::vector<CardFile> &
 }
 
 Session::Session(Options options, Machine machine) : options_(std::move(options)), machine_(std::move(machine)) {
-    options_.delay = std::clamp(options_.delay, 1u, max_delay);
+    options_.name = identity::allowed_name(options_.name, identity::developer_seed().has_value());
+    if (options_.delay)
+        options_.delay = std::clamp(options_.delay, 1u, max_delay);
     status_.delay = options_.delay;
 }
 
@@ -315,7 +339,7 @@ void Session::write_loop() {
     }
 }
 
-bool Session::handshake() {
+int Session::handshake() {
     auto read_frame = [&](uint8_t &type, std::vector<uint8_t> &payload) {
         if (!socket_.readable(15000))
             return false;
@@ -337,70 +361,114 @@ bool Session::handshake() {
         frame.insert(frame.end(), payload.begin(), payload.end());
         return socket_.send_all(frame.data(), frame.size());
     };
+    auto proof = [&](const std::string &context) {
+        if (!identity::claims_developer(options_.name))
+            return std::string();
+        const auto seed = identity::developer_seed();
+        if (!seed)
+            return std::string();
+        const auto signature = identity::sign_claim(*seed, options_.name, context);
+        return crypto::to_hex(signature.data(), signature.size());
+    };
     uint8_t type = 0;
     std::vector<uint8_t> payload;
     if (options_.host) {
-        if (!read_frame(type, payload) || type != hello) {
+        if (!read_frame(type, payload)) {
             end("The other player did not answer");
-            return false;
+            return 0;
+        }
+        if (type == probe) {
+            write_frame(probe, {});
+            return -1;
+        }
+        if (type != hello) {
+            end("The other player sent an unexpected message");
+            return 0;
         }
         Reader in{payload.data(), payload.size()};
         const uint32_t version = in.u32();
-        const std::string identity = in.text(), name = in.text(64), password = in.text(128);
+        const std::string identity = in.text(), name = in.text(64), password = in.text(128), theirs = in.text(64);
         std::string problem;
         if (!in.ok || version != protocol_version)
             problem = "The other player has a different OpenKai2 version";
         else if (identity != options_.identity)
             problem = "The other player has a different OpenKai2 build or game disc";
-        else if (password != options_.password)
+        else if (password != options_.password && (options_.invite_token.empty() || password != options_.invite_token))
             problem = "Wrong room password";
         if (!problem.empty()) {
             std::vector<uint8_t> out;
             put_text(out, problem);
             write_frame(reject, out);
             end(problem);
-            return false;
+            return 0;
         }
+        const std::string ours = identity::random_nonce();
         std::vector<uint8_t> out;
         put_text(out, options_.name);
         out.push_back(uint8_t(options_.delay));
-        if (!write_frame(welcome, out)) {
+        put_text(out, ours);
+        put_text(out, proof("session:" + theirs));
+        const auto sent = std::chrono::steady_clock::now();
+        if (!write_frame(welcome, out) || !read_frame(type, payload) || type != profile) {
+            end("The other player did not finish joining");
+            return 0;
+        }
+        const auto rtt = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - sent).count();
+        Reader reply{payload.data(), payload.size()};
+        const std::string signature = reply.text(256);
+        const std::string verified = identity::verified_name(name, "session:" + ours, signature);
+        const unsigned delay = options_.delay ? options_.delay : auto_delay(rtt);
+        if (!write_frame(confirm, {uint8_t(delay)})) {
             end("Connection lost");
-            return false;
+            return 0;
         }
         std::lock_guard lock(mutex_);
-        status_.opponent = name.empty() ? "Player 2" : name;
+        options_.delay = delay;
+        status_.delay = delay;
+        status_.ping_ms = unsigned(rtt + 0.5);
+        status_.opponent = verified.empty() ? "Player 2" : verified;
     } else {
+        const std::string ours = identity::random_nonce();
         std::vector<uint8_t> out;
         put32(out, protocol_version);
         put_text(out, options_.identity);
         put_text(out, options_.name);
         put_text(out, options_.password);
+        put_text(out, ours);
         if (!write_frame(hello, out) || !read_frame(type, payload)) {
             end("The host did not answer");
-            return false;
+            return 0;
         }
         Reader in{payload.data(), payload.size()};
         if (type == reject) {
             end(in.text());
-            return false;
+            return 0;
         }
         const std::string name = in.text(64);
         if (type != welcome || !in.need(1)) {
             end("The host sent an unexpected reply");
-            return false;
+            return 0;
         }
-        const unsigned delay = std::clamp(unsigned(payload[in.at]), 1u, max_delay);
+        ++in.at;
+        const std::string theirs = in.text(64), signature = in.text(256);
+        std::vector<uint8_t> answer;
+        put_text(answer, proof("session:" + theirs));
+        if (!write_frame(profile, answer) || !read_frame(type, payload) || type != confirm || payload.empty()) {
+            end("The host did not finish the connection");
+            return 0;
+        }
+        const unsigned delay = std::clamp(unsigned(payload[0]), 1u, max_delay);
+        const std::string verified = identity::verified_name(name, "session:" + ours, signature);
         std::lock_guard lock(mutex_);
         options_.delay = delay;
         status_.delay = delay;
-        status_.opponent = name.empty() ? "Player 1" : name;
+        status_.opponent = verified.empty() ? "Player 1" : verified;
     }
     std::lock_guard lock(mutex_);
     status_.phase = Phase::syncing;
     status_.message = "Syncing with " + status_.opponent;
     wantSnapshot_ = options_.host;
-    return true;
+    return 1;
 }
 
 void Session::run() {
@@ -408,20 +476,37 @@ void Session::run() {
         if (options_.host) {
             listener_ = net::Socket::listen(options_.port);
             listeningPort_ = listener_.local_port();
-            lobby::Registration listing;
+            online::Listing listing;
+            nat::PortMapping mapping;
+            const std::string roomName = options_.room.empty() ? options_.name + "'s room" : options_.room;
             std::string waiting = "Waiting for a player on port " + std::to_string(listeningPort_.load());
-            if (!options_.lobby.empty()) {
-                lobby::Room room;
-                room.name = options_.room.empty() ? options_.name + "'s room" : options_.room;
+            if (options_.listed) {
+                {
+                    std::lock_guard lock(mutex_);
+                    status_.message = "Opening room " + roomName;
+                }
+                std::string error, address = options_.address;
+                const bool mapped = address.empty() && options_.upnp && mapping.open(listeningPort_.load(), address, error);
+                if (address.empty())
+                    if (auto found = nat::public_address(error))
+                        address = *found;
+                online::Room room;
+                room.id = options_.room_id.empty() ? online::new_id() : options_.room_id;
+                room.name = roomName;
                 room.host = options_.name;
                 room.locked = !options_.password.empty();
+                room.hidden = options_.hidden;
                 room.port = listeningPort_.load();
                 room.version = options_.version;
-                std::string error;
-                if (listing.open(options_.lobby, room, error))
-                    waiting = "Waiting for a player in room " + room.name;
-                else
+                room.address = address;
+                if (address.empty())
                     waiting += " (not listed: " + error + ")";
+                else if (!listing.open(options_.lobby, room, error))
+                    waiting += " (not listed: " + error + ")";
+                else
+                    waiting = "Waiting for a player in " + roomName +
+                              (mapped ? "" : "  (if nobody can join, forward TCP port " +
+                                                 std::to_string(listeningPort_.load()) + " on your router)");
             }
             {
                 std::lock_guard lock(mutex_);
@@ -429,17 +514,16 @@ void Session::run() {
             }
             while (!stopping_) {
                 socket_ = listener_.accept(250);
-                if (!socket_.valid()) {
-                    listing.keep_alive();
+                if (!socket_.valid())
                     continue;
-                }
-                if (handshake())
+                const int result = handshake();
+                if (result > 0)
                     break;
                 socket_.close();
                 std::lock_guard lock(mutex_);
                 const std::string reason = status_.message;
                 status_.phase = Phase::connecting;
-                status_.message = waiting + " (a player could not join: " + reason + ")";
+                status_.message = result < 0 ? waiting : waiting + " (a player could not join: " + reason + ")";
             }
             listing.close();
             listener_.close();
@@ -457,18 +541,19 @@ void Session::run() {
                 status_.message = "Connecting to " + options_.address;
             }
             std::string error;
-            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
             while (!stopping_ && !socket_.valid() && std::chrono::steady_clock::now() < deadline) {
                 socket_ = net::Socket::connect(options_.address, options_.port, error);
                 if (!socket_.valid())
                     std::this_thread::sleep_for(std::chrono::seconds(1));
             }
             if (!socket_.valid() && !stopping_) {
-                end(error.empty() ? "Cannot connect" : "Cannot connect: " + error);
+                end("Cannot reach the host. They may need to forward TCP port " + std::to_string(options_.port) +
+                    " on their router.");
                 return;
             }
         }
-        if (stopping_ || !handshake())
+        if (stopping_ || handshake() <= 0)
             return;
         writer_ = std::thread([this] { write_loop(); });
         read_loop();

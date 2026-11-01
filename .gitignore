@@ -46,3 +46,4 @@ SCES_*
 .env
 .env.*
 !.env.example
+dev.key

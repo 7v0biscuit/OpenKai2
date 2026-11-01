@@ -5,7 +5,7 @@ Speedrun mode times Dragon World runs under the
 log that moderators can check. The game itself runs unchanged: same frame rate,
 same disc read times as a PS2. Only the picture is upscaled.
 
-Turn it on under **Settings → Speedrun**:
+Turn it on in the launcher's **Speedrun** page (Ctrl+3):
 
 | Setting | Choices |
 |---|---|
@@ -29,7 +29,7 @@ Any% starts with default equipment. NG+ allows skills set up before Dragon World
 
 ## Overlay
 
-**Customize overlay…** in the Speedrun section opens the overlay page. Pick the
+**Customize overlay…** on the Speedrun page opens the overlay page. Pick the
 items to show, the corner, the size, the background and how many splits are
 listed. The preview updates as you change them.
 

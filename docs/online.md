@@ -1,63 +1,73 @@
 # Online play
 
-Play versus mode against a friend over the internet from the launcher's
-**Online** page.
+Play versus against other players from the launcher's **Online** page (Ctrl+2).
 
 ## Profiles
 
-You need a profile to play online. Type a name under **New profile** and press
-**Add**. The selected profile's name is shown to the other player. You can keep
-several profiles and switch between them.
+Type a name under **New profile** and press **Add**. You need a profile to play
+online, and you can keep several. Each profile has its own key, created on your
+PC, which proves to other players that you are you. Friends and invites are tied
+to the profile, not to the name.
 
-## Hosting a room
+The **[DEV]** tag is reserved for the OpenKai2 developer. Any other name that
+uses it has the tag removed.
 
-1. Optional: type a **room name** and a **password**.
-2. Pick an **input delay** (2 frames suits most connections).
-3. Set **Server browser** to **Listed** to show the room in the server browser.
-   Otherwise, give the other player your IP address and port.
-4. Press **Host room**. The game starts and waits for a player.
+## Finding a match
 
-The host is player 1. The host may need to forward the TCP port (7350 by default)
-on their router.
+The launcher connects to the online service on its own. The **Rooms** list and
+the **Players** list update live; there is nothing to refresh.
 
-## Joining
+- **Join a room:** pick it and press **Join room**, or double-click it. Rooms
+  with a password need it typed in the box below the list. The list shows each
+  room's ping; "no reply" means the host's port can't be reached from your PC.
+- **Join by address:** type the host's address (`IP` or `IP:port`) and press
+  **Join address**.
 
-- **Server browser:** enter the server address under **Server** and press
-  **Refresh**. Choose a room and press **Join room**. Locked rooms need the room
-  password.
-- **Direct:** type the host's address (`IP` or `IP:port`) and press **Join
-  address**.
+## Hosting
 
-The joining player is player 2. A room leaves the list once a player joins.
+Fill in **Host a room** and press **Host room**:
 
-## How a match stays in sync
+| Setting | |
+| --- | --- |
+| Room name, password | Both optional. |
+| Port | TCP port to host on (7350). |
+| Input delay | **Auto** picks it from the ping when someone joins. |
+| Who can see it | **Public** lists the room. **Invite only** hides it from the list; invited players can still join. **Not listed** shares no room at all; give players your address. |
 
-When a player joins, the host sends its memory card and the full game state, so
-both games start the same. Each game then sends its button presses to the other,
-a few frames ahead (the input delay). Both games run the same frames with the
-same inputs. If one player's inputs are late, both games wait for them.
+The host is player 1. The launcher asks your router to open the port (UPnP). If
+your router doesn't allow that and nobody can join, forward TCP port 7350 to your
+PC in the router's settings.
 
-Every two seconds the games compare their memory. If they ever differ, the
-overlay shows **out of sync**.
+## Friends and invites
 
-The in-game bar at the top shows the opponent, the ping and the input delay.
+- **Add friend:** pick a player and press **Add friend**. They get a notification
+  and can accept. A request sent while they are offline waits until they come
+  online. Friends appear at the top of the Players list, with their status.
+- **Invite:** pick a player and press **Invite**. Your room opens and the invite
+  is sent. The invited player gets a Windows notification and an **Accept** /
+  **Decline** banner, and joins without needing the room password.
 
-Both players need the same OpenKai2 version and the same Budokai 2 disc. Mods,
-save states and speedrun mode are off online. Your own memory card is not
-changed: online matches use a copy in `%LOCALAPPDATA%\OpenKai2\netplay\`.
+## In the match
 
-## Running a server
+When a player joins, the host sends its memory card and full game state, so both
+games start the same. The games then exchange button presses a few frames ahead
+and run in lockstep. Every two seconds they compare memory; if they ever differ,
+the in-game bar shows **out of sync**. The bar at the top shows the opponent,
+ping and input delay.
 
-The server browser needs a lobby server, which lists open rooms. Anyone can run
-one; it does not carry game traffic, only the room list.
+Both players need the same OpenKai2 version and Budokai 2 disc. Mods, save states
+and speedrun mode are off online. Your own memory card is not changed: matches
+use a copy in `%LOCALAPPDATA%\OpenKai2\netplay\`.
 
-Build `OpenKai2Lobby` from source (see [building.md](building.md)) and run:
+## The online service
 
-```
-OpenKai2Lobby --port=7351
-```
+Rooms, player lists, friend requests and invites go through a public MQTT broker
+(`broker.emqx.io:1883` by default). Match traffic goes directly between the two
+players' PCs, not through the broker.
 
-Open TCP port 7351 on the server. Players enter the server's address (for
-example `lobby.example.org` or `203.0.113.5:7351`) in the launcher.
+Room listings include the host's public IP address, so anyone using the service
+can see it. Use **Not listed** to avoid that.
 
-Each address can list up to four rooms, and the server lists up to 500.
+To use your own service instead, run `OpenKai2Lobby --port=1883` (built from
+source) or any MQTT broker, and set `online_room ... "<host>:<port>"` in
+`settings.ini`. Everyone who should see each other must use the same service.

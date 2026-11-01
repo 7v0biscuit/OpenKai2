@@ -13,9 +13,10 @@ struct Arguments {
     bool enabled = false, host = true;
     std::string address;
     uint16_t port = default_port;
-    unsigned delay = 2;
+    unsigned delay = 0;
     std::string name = "Player";
-    std::string password, lobby, room;
+    std::string password, lobby, room, room_id, invite_token;
+    bool listed = false, hidden = false;
 };
 
 bool parse_argument(const std::string &argument, Arguments &arguments);

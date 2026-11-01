@@ -70,7 +70,8 @@ bool parse_argument(const std::string &argument, Arguments &arguments) {
         return true;
     }
     if (argument.rfind("--netplay-delay=", 0) == 0) {
-        arguments.delay = parse_number(argument.substr(16), 1, max_delay);
+        const std::string value = argument.substr(16);
+        arguments.delay = value == "auto" ? 0u : parse_number(value, 1, max_delay);
         return true;
     }
     auto text = [&](const char *prefix, std::string &target, size_t limit) {
@@ -83,8 +84,14 @@ bool parse_argument(const std::string &argument, Arguments &arguments) {
         return true;
     };
     if (text("--netplay-password=", arguments.password, 64) || text("--netplay-lobby=", arguments.lobby, 255) ||
-        text("--netplay-room=", arguments.room, 40))
+        text("--netplay-room=", arguments.room, 40) || text("--netplay-room-id=", arguments.room_id, 40) ||
+        text("--netplay-invite-token=", arguments.invite_token, 64))
         return true;
+    if (argument == "--netplay-list" || argument == "--netplay-invite-only") {
+        arguments.listed = true;
+        arguments.hidden = argument == "--netplay-invite-only";
+        return true;
+    }
     if (argument.rfind("--netplay-name=", 0) == 0) {
         std::string name = argument.substr(15);
         if (name.size() > 24)
@@ -123,8 +130,12 @@ std::unique_ptr<Session> start_game_session(PS2Runtime &runtime, const Arguments
     options.name = arguments.name;
     options.identity = identity;
     options.password = arguments.password;
-    options.lobby = arguments.host ? arguments.lobby : std::string();
+    options.lobby = arguments.lobby;
+    options.listed = arguments.host && arguments.listed;
     options.room = arguments.room;
+    options.room_id = arguments.room_id;
+    options.hidden = arguments.hidden;
+    options.invite_token = arguments.invite_token;
     options.version = launcher::application_version;
     const auto root = card_root(arguments);
     Machine machine;
@@ -184,7 +195,7 @@ std::unique_ptr<Session> start_game_session(PS2Runtime &runtime, const Arguments
     session->start();
     std::cout << "[netplay] " << (arguments.host ? "hosting on port " + std::to_string(arguments.port)
                                                 : "joining " + arguments.address + ":" + std::to_string(arguments.port))
-              << " delay " << arguments.delay << std::endl;
+              << " delay " << (arguments.delay ? std::to_string(arguments.delay) : std::string("auto")) << std::endl;
     return session;
 }
 

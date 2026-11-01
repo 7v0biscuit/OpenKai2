@@ -5,8 +5,9 @@ story sequences. Progression, performance and complete matches need validation.
 
 ## Launcher preferences
 
-The launcher has four pages: **Play**, **Saves**, **Mods** and **Settings**
-(Ctrl+1 to Ctrl+4). **Settings** groups display mode, resolution, aspect ratio,
+The launcher has six pages: **Play**, **Online**, **Speedrun**, **Mods**,
+**Saves** and **Settings** (Ctrl+1 to Ctrl+6). See [Online play](online.md) and
+[Speedrun mode](speedrun.md). **Settings** groups display mode, resolution, aspect ratio,
 frame rate cap and VSync; renderer, FXAA, texture filtering and upscaling; and
 update preferences. Lists support mouse and keyboard selection. Changes save
 automatically and apply to the next game session; an already running game keeps
