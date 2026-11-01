@@ -8,7 +8,10 @@
 #include "SPU2/defs.h"
 #include "SPU2/spu2.h"
 #include <array>
+#include <cstdio>
+#include <cstdlib>
 #include <iostream>
+#include <string>
 #include <utility>
 
 psxRegisters psxRegs{};
@@ -25,6 +28,14 @@ std::vector<int16_t> mixed;
 std::array<std::vector<u16>, 2> remainders;
 struct StreamCounts { uint64_t transfers = 0, bytes = 0, unread = 0; };
 std::array<StreamCounts, 2> streamCounts;
+std::FILE *dumpFile(const char *suffix) {
+    const char *base = std::getenv("OPENKAI2_AUDIO_DUMP");
+    if (!base)
+        return nullptr;
+    return std::fopen((std::string(base) + suffix).c_str(), "wb");
+}
+std::FILE *mixDump = dumpFile(".mix.raw");
+std::array<std::FILE *, 2> inputDump{dumpFile(".adma0.raw"), dumpFile(".adma1.raw")};
 void reportStream(unsigned core) {
     const auto &c = streamCounts[core];
     if (c.transfers >= 64u && (c.transfers & (c.transfers - 1u)) == 0u)
@@ -85,6 +96,10 @@ void dma_write(unsigned core, uint32_t address, uint32_t bytes, uint64_t now) {
     if ((Cores[core].AutoDMACtrl & (core + 1u)) == core + 1u) {
         ++streamCounts[core].transfers;
         streamCounts[core].bytes += bytes;
+        if (inputDump[core]) {
+            std::fwrite(iopPhysMem(address), 1, bytes, inputDump[core]);
+            std::fflush(inputDump[core]);
+        }
         reportStream(core);
     }
     Cores[core].DoDMAwrite(reinterpret_cast<u16 *>(iopPhysMem(address)), bytes / 2u);
@@ -116,6 +131,10 @@ void advance(uint64_t now) {
 }
 
 void take_output(std::vector<int16_t> &samples) {
+    if (mixDump && !mixed.empty()) {
+        std::fwrite(mixed.data(), sizeof(int16_t), mixed.size(), mixDump);
+        std::fflush(mixDump);
+    }
     samples.clear();
     std::swap(samples, mixed);
 }
