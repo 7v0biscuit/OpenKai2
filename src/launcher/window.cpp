@@ -70,7 +70,7 @@ constexpr int heroTop = 124, heroBottom = 316, discTop = 332, discBottom = 420;
 constexpr int tilesTop = 436, tilesBottom = 516, keysTop = 540;
 constexpr int displayTop = 112, graphicsTop = 278, updatesTop = 444, speedrunTop = 112, speedrunRulesTop = 228;
 constexpr int onlineProfileTop = 112, onlineHostTop = 228, onlineListsTop = 400;
-constexpr UINT onlineChanged = WM_APP + 30, onlineNotice = WM_APP + 31;
+constexpr UINT onlineChanged = WM_APP + 30, onlineNotice = WM_APP + 31, navigationFrame = WM_APP + 32;
 
 enum Id {
     PlayTab = 101,
@@ -588,7 +588,9 @@ struct Window {
     std::unique_ptr<netplay::Room> room;
     bool roomHost = false;
     bool directJoin = false;
-    double navPosition = -1;
+    double navPosition = -1, navFrom = 0, navTo = -1;
+    bool navAnimating = false;
+    std::chrono::steady_clock::time_point navStart{};
     std::string joinAddress;
     uint16_t roomPort = 0;
     struct Notice {
@@ -1204,9 +1206,16 @@ struct Window {
         text(dc, L"Budokai 2 for PC", 64, 52, 150, 18, fonts.caption, muted);
         const int chosen = navigationPage();
         if (navPosition < 0)
-            navPosition = chosen;
-        if (std::abs(navPosition - chosen) > 0.001)
-            SetTimer(hwnd, 2, 15, nullptr);
+            navPosition = navTo = chosen;
+        if (chosen != navTo) {
+            navFrom = navPosition;
+            navTo = chosen;
+            navStart = std::chrono::steady_clock::now();
+            if (!navAnimating) {
+                navAnimating = true;
+                PostMessageW(hwnd, navigationFrame, 0, 0);
+            }
+        }
         const int slot = int(std::lround(navPosition * 58));
         const RECT row{p(12), p(104 + slot), p(sidebarWidth - 12), p(154 + slot)};
         const int span = std::max(1L, row.right - row.left);
@@ -1892,6 +1901,19 @@ struct Window {
         const int w = unscale(rect.right), h = unscale(rect.bottom);
         const int content = w - contentLeft - margin;
         const size_t pixels = size_t(rect.right) * size_t(rect.bottom);
+        if (navAnimating && ps.rcPaint.right <= p(sidebarWidth) && ambient.size() == pixels &&
+            paintedSize == std::pair<int, int>{rect.right, rect.bottom} && paintedPage == page) {
+            GdiFlush();
+            const int strip = std::min<int>(p(sidebarWidth), rect.right);
+            for (int y = 0; y < rect.bottom; ++y)
+                std::copy_n(ambient.begin() + ptrdiff_t(size_t(y) * size_t(rect.right)), strip,
+                            buffer.frame.pixels + size_t(y) * size_t(rect.right));
+            paintSidebar(memory, h);
+            BitBlt(dc, ps.rcPaint.left, ps.rcPaint.top, ps.rcPaint.right - ps.rcPaint.left,
+                   ps.rcPaint.bottom - ps.rcPaint.top, memory, ps.rcPaint.left, ps.rcPaint.top, SRCCOPY);
+            EndPaint(hwnd, &ps);
+            return;
+        }
         if (ambient.size() != pixels) {
             fill(memory, rect, background);
             fill(memory, {0, 0, p(sidebarWidth), rect.bottom}, sidebar);
@@ -3015,14 +3037,27 @@ struct Window {
         ShowWindow(hwnd, SW_MINIMIZE);
     }
     void animate() {
-        const double target = navigationPage();
-        navPosition += (target - navPosition) * 0.32;
-        if (std::abs(target - navPosition) < 0.02) {
-            navPosition = target;
-            KillTimer(hwnd, 2);
+        if (!navAnimating)
+            return;
+        constexpr double duration = 170.0;
+        const double elapsed =
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - navStart).count();
+        const double t = std::clamp(elapsed / duration, 0.0, 1.0);
+        const double eased = 1.0 - std::pow(1.0 - t, 3.0);
+        navPosition = navFrom + (navTo - navFrom) * eased;
+        if (t >= 1.0) {
+            navPosition = navTo;
+            navAnimating = false;
         }
-        RECT side{0, 0, p(sidebarWidth), p(104 + 6 * 58)};
+        RECT side{0, p(96), p(sidebarWidth), p(104 + 6 * 58 + 8)};
         RedrawWindow(hwnd, &side, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW);
+        if (!navAnimating)
+            return;
+        static const auto flush = reinterpret_cast<HRESULT(WINAPI *)()>(
+            reinterpret_cast<void *>(GetProcAddress(LoadLibraryW(L"dwmapi.dll"), "DwmFlush")));
+        if (!flush || FAILED(flush()))
+            Sleep(2);
+        PostMessageW(hwnd, navigationFrame, 0, 0);
     }
     void timer() {
         presence.enable(true);
@@ -4673,10 +4708,10 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
             self->command(LOWORD(wp), HIWORD(wp));
             return 0;
         case WM_TIMER:
-            if (wp == 2)
-                self->animate();
-            else
-                self->timer();
+            self->timer();
+            return 0;
+        case navigationFrame:
+            self->animate();
             return 0;
         case onlineChanged:
             self->refreshOnlineLists();
