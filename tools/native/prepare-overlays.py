@@ -159,7 +159,9 @@ def main():
                       patches / 'spu2-dma-progress.patch',
                       patches / 'guest-varargs.patch', patches / 'mod-disc-overlay.patch',
                       patches / 'disc-timing-tests.patch', patches / 'spu2-stream-clock.patch',
-                      patches / 'save-states.patch'):
+                      patches / 'save-states.patch', patches / 'pad-source.patch',
+                      patches / 'save-state-movies.patch',
+                      patches / 'kernel-stub-state.patch'):
             apply_overlay_patch(temporary, patch)
         for source in temporary.rglob('*'):
             if source.is_file():

@@ -19,4 +19,6 @@ disc is refused, and the game keeps running.
 
 If a state cannot be loaded, the game goes back to where it was before the load.
 
+Save states are not available while a movie plays.
+
 Save states are off in speedrun mode.

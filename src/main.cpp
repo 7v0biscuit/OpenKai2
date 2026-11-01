@@ -252,6 +252,7 @@ int main(int argc, char* argv[]) {
         }
         if (!runtime.initialize("OpenKai2 | Dragon Ball Z: Budokai 2"))
             throw std::runtime_error("Runtime initialization failed; see the startup log");
+        openkai2::set_machine_memory(runtime.memory().getRDRAM(),PS2_RAM_SIZE);
         if (!runtime.loadELF(disc.executable.string()))
             throw std::runtime_error("Cannot load the verified game executable; see the startup log");
         auto paths=PS2Runtime::getIoPaths();

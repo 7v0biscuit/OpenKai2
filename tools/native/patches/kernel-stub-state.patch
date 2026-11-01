@@ -1,0 +1,208 @@
+--- a/Kernel/EeScheduler.cpp
++++ b/Kernel/EeScheduler.cpp
+@@ -21,6 +21,13 @@
+ {
+     bool mpegPlaybackActive();
+     void serializeMpegState(StateArchive &archive);
++    void serializeSifStubState(StateArchive &archive);
++    void serializePadStubState(StateArchive &archive);
++    void serializeAudioStubState(StateArchive &archive);
++    void serializeCdStubState(StateArchive &archive);
++    void serializeDmaStubState(StateArchive &archive);
++    void serializeMemoryCardStubState(StateArchive &archive);
++    void serializeRpcState(StateArchive &archive);
+ }
+ 
+ namespace
+@@ -2317,5 +2324,12 @@
+     iop->serializeState(archive);
+     openkai2::spu2::serialize(archive);
+     ps2_stubs::serializeMpegState(archive);
++    ps2_stubs::serializeSifStubState(archive);
++    ps2_stubs::serializePadStubState(archive);
++    ps2_stubs::serializeAudioStubState(archive);
++    ps2_stubs::serializeCdStubState(archive);
++    ps2_stubs::serializeDmaStubState(archive);
++    ps2_stubs::serializeMemoryCardStubState(archive);
++    ps2_stubs::serializeRpcState(archive);
+     archive.section(0x444e454fu);
+ }
+--- a/Kernel/Stubs/Audio.cpp
++++ b/Kernel/Stubs/Audio.cpp
+@@ -1,5 +1,6 @@
+ #include "Common.h"
+ #include "Audio.h"
++#include "state_archive.h"
+ 
+ namespace ps2_stubs
+ {
+@@ -654,4 +655,11 @@
+     {
+         TODO_NAMED("sceSynthSizerLfoTriangle", rdram, ctx, runtime);
+     }
++    void serializeAudioStubState(StateArchive &archive)
++    {
++        std::lock_guard<std::mutex> lock(g_audio_stub_mutex);
++        archive.section(0x44554153u);
++        archive(g_audio_stub_state);
++    }
++
+ }
+--- a/Kernel/Stubs/CD.cpp
++++ b/Kernel/Stubs/CD.cpp
+@@ -1,5 +1,6 @@
+ #include "Common.h"
+ #include "CD.h"
++#include "state_archive.h"
+ #include "MPEG.h"
+ #include "runtime/ee_scheduler.h"
+ 
+@@ -986,4 +987,10 @@
+         }
+         setReturnS32(ctx, 1);
+     }
++    void serializeCdStubState(StateArchive &archive)
++    {
++        archive.section(0x44434453u);
++        archive(g_cdStreamTiming);
++    }
++
+ }
+--- a/Kernel/Stubs/DMA.cpp
++++ b/Kernel/Stubs/DMA.cpp
+@@ -1,5 +1,6 @@
+ #include "Common.h"
+ #include "DMA.h"
++#include "state_archive.h"
+ 
+ namespace ps2_stubs
+ {
+@@ -271,4 +272,10 @@
+     {
+         TODO_NAMED("sceDmaWatch", rdram, ctx, runtime);
+     }
++    void serializeDmaStubState(StateArchive &archive)
++    {
++        archive.section(0x414d4453u);
++        archive(g_dmaCurrentEnv);
++    }
++
+ }
+--- a/Kernel/Stubs/MemoryCard.cpp
++++ b/Kernel/Stubs/MemoryCard.cpp
+@@ -1,5 +1,6 @@
+ #include "Common.h"
+ #include "MemoryCard.h"
++#include "state_archive.h"
+ 
+ namespace ps2_stubs
+ {
+@@ -1529,4 +1530,22 @@
+     {
+         setReturnS32(ctx, 1);
+     }
++    void serializeMemoryCardStubState(StateArchive &archive)
++    {
++        std::lock_guard<std::mutex> lock(g_mcStateMutex);
++        if (!archive.loading() && !g_mcFiles.empty())
++            throw std::runtime_error("the memory card is in use");
++        archive.section(0x53434d53u);
++        archive(g_mcNextFd, g_mcLastCmd, g_mcCommandPending, g_mcLastResult, g_cvMcFileCursor);
++        for (auto &port : g_mcPorts)
++            archive(port.currentDir, port.formatted);
++        if (archive.loading())
++        {
++            for (auto &[fd, open] : g_mcFiles)
++                if (open.file)
++                    std::fclose(open.file);
++            g_mcFiles.clear();
++        }
++    }
++
+ }
+--- a/Kernel/Stubs/Pad.cpp
++++ b/Kernel/Stubs/Pad.cpp
+@@ -1,5 +1,6 @@
+ #include "Common.h"
+ #include "Pad.h"
++#include "state_archive.h"
+ 
+ namespace ps2_stubs
+ {
+@@ -860,4 +861,13 @@
+         g_padOverrideEnabled = false;
+         g_padOverrideState = PadInputState{};
+     }
++    void serializePadStubState(StateArchive &archive)
++    {
++        std::lock_guard<std::mutex> overrideLock(g_padOverrideMutex);
++        std::lock_guard<std::mutex> stateLock(g_padStateMutex);
++        archive.section(0x44415053u);
++        archive(g_padOverrideEnabled, g_padOverrideState);
++        archive.bytes(g_padPorts, sizeof(g_padPorts));
++    }
++
+ }
+--- a/Kernel/Stubs/SIF.cpp
++++ b/Kernel/Stubs/SIF.cpp
+@@ -1,6 +1,8 @@
+ #include "Common.h"
+ #include "SIF.h"
++#include "state_archive.h"
+ #include "../Syscalls/RPC.h"
++#include "../Syscalls/Helpers/State.h"
+ #include "../../ps2_iop_transport.h"
+ #include "runtime/ps2_address.h"
+ #include "runtime/ee_scheduler.h"
+@@ -844,4 +846,51 @@
+     {
+         setReturnS32(ctx, 0);
+     }
++    void serializeSifStubState(StateArchive &archive)
++    {
++        std::lock_guard<std::mutex> dmaLock(g_sifDmaTransferMutex);
++        std::lock_guard<std::mutex> cmdLock(g_sifCmdStateMutex);
++        archive.section(0x46495353u);
++        archive(g_nextSifDmaTransferId, g_sifRegs, g_sifSregs, g_sifCmdHandlers);
++        archive(g_sifCmdBuffer, g_sifSysCmdBuffer, g_sifCmdInitialized);
++    }
++
++    void serializeRpcState(StateArchive &archive)
++    {
++        archive.section(0x43505253u);
++        {
++            std::lock_guard<std::mutex> lock(g_rpc_mutex);
++            archive(g_rpc_servers, g_rpc_clients, g_rpc_initialized, g_rpc_next_id, g_rpc_packet_index);
++            archive(g_rpc_server_index, g_rpc_active_queue);
++        }
++        {
++            std::lock_guard<std::mutex> lock(g_bootmode_mutex);
++            archive(g_bootmode_initialized, g_bootmode_pool_offset, g_bootmode_addresses);
++        }
++        {
++            std::lock_guard<std::mutex> lock(g_tls_mutex);
++            archive(g_tls_index);
++        }
++        {
++            std::lock_guard<std::mutex> lock(g_osd_mutex);
++            archive(g_osd_config_initialized, g_osd_config_raw, g_osd_config2_raw);
++        }
++        std::lock_guard<std::mutex> lock(g_sif_module_mutex);
++        uint64_t count = g_sif_modules_by_id.size();
++        archive(count);
++        if (archive.loading())
++            g_sif_modules_by_id.clear();
++        auto module = g_sif_modules_by_id.begin();
++        for (uint64_t i = 0; i < count; ++i)
++        {
++            int32_t id = archive.loading() ? 0 : module->first;
++            archive(id);
++            auto &record = g_sif_modules_by_id[id];
++            archive(record.id, record.path, record.pathKey, record.refCount, record.loaded);
++            if (!archive.loading())
++                ++module;
++        }
++        archive(g_sif_module_id_by_path, g_next_sif_module_id);
++    }
++
+ }

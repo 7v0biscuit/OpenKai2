@@ -23,6 +23,7 @@ void request_machine_save(std::function<void(MachineStateResult)> done);
 void request_machine_load(std::vector<uint8_t> data, std::function<void(MachineStateResult)> done);
 bool machine_state_pending();
 void machine_state_point(EeScheduler &scheduler);
+void set_machine_memory(const uint8_t *rdram, size_t bytes);
 
 std::vector<uint8_t> wrap_machine_state(const std::vector<uint8_t> &body);
 bool unwrap_machine_state(const std::vector<uint8_t> &file, std::vector<uint8_t> &body, std::string &problem);
