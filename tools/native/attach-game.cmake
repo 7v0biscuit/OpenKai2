@@ -316,7 +316,7 @@ function(openkai2_attach_generated_sources)
     include("${project_root}/tools/native/soundtouch.cmake")
     openkai2_add_soundtouch("${project_root}")
     target_link_libraries(ps2_runtime PRIVATE openkai2_soundtouch)
-    target_sources(ps2_runtime PRIVATE "${project_root}/src/runtime_layout.cpp" "${project_root}/src/host_audio.cpp" "${project_root}/src/work_timings.cpp"
+    target_sources(ps2_runtime PRIVATE "${project_root}/src/runtime_layout.cpp" "${project_root}/src/host_audio.cpp" "${project_root}/src/audio_device.cpp" "${project_root}/src/work_timings.cpp"
         "${project_root}/src/graphics_settings.cpp" "${project_root}/src/render/presentation_filter.cpp")
     file(READ "${project_root}/src/render/gs_compute.comp" openkai2_gpu_shader)
     file(READ "${project_root}/src/render/gs_transfer.comp" openkai2_gpu_transfer_shader)

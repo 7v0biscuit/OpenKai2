@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "host_audio.h"
 #include "audio_stretch.h"
+#include "audio_device.h"
 #include <raylib.h>
 #include <algorithm>
 #include <array>
@@ -47,12 +48,19 @@ std::unique_ptr<Output> output;
 std::atomic<Output *> active{nullptr};
 const void *activeOwner = nullptr;
 AudioStream stream{};
-bool closeDevice = false;
+bool closeDevice = false, ownDevice = false;
 
 void closePlaybackDevice() {
     if (closeDevice)
         CloseAudioDevice();
     closeDevice = false;
+}
+
+void ownCallback(float *samples, unsigned frames) {
+    if (auto *current = active.load(std::memory_order_acquire))
+        render(*current, samples, frames);
+    else
+        std::fill(samples, samples + frames * 2u, 0.0f);
 }
 
 void deviceCallback(void *buffer, unsigned int frames) {
@@ -78,6 +86,20 @@ void start_host_audio(const void *owner, bool deviceOpen) {
         std::cerr << "[audio:output] enabled=0 reason=settings\n";
         return;
     }
+    output = std::make_unique<Output>();
+    output->gain = gainFor(options.volume);
+    activeOwner = owner;
+    std::string info;
+    if (open_audio_device(outputRate, ownCallback, info)) {
+        ownDevice = true;
+        active.store(output.get(), std::memory_order_release);
+        std::cerr << "[audio:output] enabled=1 rate=" << outputRate << " format=f32 channels=2 volume=" << options.volume
+                  << ' ' << info << '\n';
+        return;
+    }
+    std::cerr << "[audio:output] own device unavailable (" << info << "), using the shared stream\n";
+    output.reset();
+    activeOwner = nullptr;
     if (!deviceOpen) {
         InitAudioDevice();
         closeDevice = IsAudioDeviceReady();
@@ -108,8 +130,13 @@ void stop_host_audio(const void *owner) {
     if (!output || owner != activeOwner)
         return;
     active.store(nullptr, std::memory_order_release);
-    StopAudioStream(stream);
-    UnloadAudioStream(stream);
+    if (ownDevice) {
+        close_audio_device();
+        ownDevice = false;
+    } else {
+        StopAudioStream(stream);
+        UnloadAudioStream(stream);
+    }
     uint64_t dropped = 0, underruns = 0;
     for (unsigned core = 0; core < 2u; ++core) {
         dropped += output->queues[core].dropped();
