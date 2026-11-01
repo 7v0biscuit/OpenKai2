@@ -57,6 +57,12 @@ uint32_t id_table_row(uint32_t id) {
     return layout.base[id] - 1u;
 }
 
+uint32_t voice_row(uint32_t id, uint32_t count) {
+    if (id < count || id >= layout.base.size() || !layout.base[id] || layout.base[id] - 1u >= count)
+        return id;
+    return layout.base[id] - 1u;
+}
+
 void reset_select_screen() { layout = Layout{}; }
 
 std::vector<std::string> configure_select_screen(uint8_t *memory, size_t bytes,

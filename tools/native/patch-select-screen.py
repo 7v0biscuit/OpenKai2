@@ -73,6 +73,10 @@ for name, register, scale, add, shift in [('sub_0020B340_0x20b340', 6, 0x20b368,
     EDITS.append((name, scale, f'SLL32(GPR_U32(ctx, {register}), {shift})', f'SLL32({row}, {shift})'))
     EDITS.append((name, add, f'GPR_U32(ctx, {register})))', f'{row}))'))
 
+for address, count in [(0x24a14c, 32), (0x24a184, 36), (0x24a1c0, 36)]:
+    EDITS.append(('sub_0024A0C0_0x24a0c0', address, 'SLL32(GPR_U32(ctx, 3), 2)',
+                  f'SLL32(openkai2::mods::voice_row(GPR_U32(ctx, 3), {count}), 2)'))
+
 
 def patch(text, edits):
     """Applies the edits for one file. Each edit already made is checked, not

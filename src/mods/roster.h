@@ -28,6 +28,7 @@ struct RosterIdTable {
 };
 inline constexpr RosterIdTable roster_id_tables[] = {
     {0x376F30u, 12u, 41u, "move effects"},
+    {0x378850u, 4u, 32u, "voice clips"},
     {0x3788D0u, 4u, 36u, "voice"},
     {0x378960u, 4u, 36u, "voice set"},
     {0x377120u, 4u, 53u, "name plate"},

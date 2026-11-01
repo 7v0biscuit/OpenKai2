@@ -260,6 +260,7 @@ game indexes by character ID, where the unused IDs hold nothing:
 | Table | Entry | Covers | What it holds |
 |-------|-------|--------|---------------|
 | `0x376F30` | 12 bytes | IDs 0 to 40 | per form, the index of the move effects its attacks use (read at `0x20B340`); unused IDs hold -1, so their special moves draw nothing and hit nothing |
+| `0x378850` | 4 bytes | IDs 0 to 31 | voice clips in `ADX_US.AFS`, as `(2 << 16) \| entry` |
 | `0x3788D0`, `0x378960` | 4 bytes | IDs 0 to 35 | voice files in `ADX_US.AFS`, as `(2 << 16) \| entry` |
 | `0x377120` | 4 bytes | IDs 0 to 52 | the `DATA_US.AFS` entry of the name plate |
 | `0x3A1D60` | 20 bytes | IDs 0 to 40 | hair physics per costume (read at `0x200AC0`) |
@@ -268,8 +269,9 @@ IDs 43 to 52 lie past the move-effects and hair tables. The translated
 code that reads them (`0x20B340`, `0x20BA60` and `0x20C3B0` for move effects,
 `0x200AC0` for hair) scales the character ID through `id_table_row`
 (`src/mods/select_screen.h`), which gives a filled ID past the tables its
-base character's row, so its special moves and hair work. Its voices still
-come from rows that IDs above 35 don't have.
+base character's row, so its special moves and hair work. The voice player
+at `0x24A0C0` reads the three voice tables the same way through `voice_row`,
+so a filled ID past them speaks with its base character's voice.
 
 A character goes on the select screen in one of three ways:
 

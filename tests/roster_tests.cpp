@@ -662,7 +662,7 @@ int main() {
             require(std::equal(memory.begin() + table.address, memory.begin() + table.address + table.bytes,
                                memory.begin() + table.address + table.bytes),
                     std::string("A filled slot did not take its base's ") + table.name);
-        require(log[0].find("with its base's move effects, voice, voice set, name plate and hair") != std::string::npos,
+        require(log[0].find("with its base's move effects, voice clips, voice, voice set, name plate and hair") != std::string::npos,
                 "The startup log does not say which tables were copied");
 
         file(root / "share" / "roster.ini", "[character]\nslot = 13\nbase = 4\nname = KRILLIN 2\nalternate = 1\n");
@@ -729,6 +729,8 @@ int main() {
         require(id_table_row(44) == 0 && id_table_row(13) == 13 && id_table_row(45) == 45 &&
                     id_table_row(4) == 4,
                 "A filled ID past the move-effects table does not read its base's row");
+        require(voice_row(44, 36) == 0 && voice_row(44, 32) == 0 && voice_row(13, 36) == 13 && voice_row(35, 36) == 35,
+                "A filled ID past the voice tables does not read its base's voices");
         reset_select_screen();
         require(id_table_row(44) == 44, "A reset select screen kept a move-effects row");
 
