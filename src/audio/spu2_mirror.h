@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <vector>
 
+class StateArchive;
+
 namespace openkai2::spu2 {
 void reset(uint8_t *iopRam, uint64_t now);
 void write16(uint32_t address, uint16_t value, uint64_t now);
@@ -12,4 +14,5 @@ void advance(uint64_t now);
 bool take_dma_irq(unsigned core);
 void clear_dma_irq(unsigned core);
 void take_output(std::vector<int16_t> &samples);
+void serialize(StateArchive &archive);
 }

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "audio/spu2_mirror.h"
+#include "state_archive.h"
 #include "IopCounters.h"
 #include "IopDma.h"
 #include "IopHw.h"
@@ -144,6 +145,71 @@ bool take_dma_irq(unsigned core) {
 void clear_dma_irq(unsigned core) {
     if (core <= 1u)
         dmaIrq[core] = false;
+}
+
+namespace {
+int64_t cacheIndex(const s16 *buffer) {
+    if (!buffer)
+        return -1;
+    const auto *base = reinterpret_cast<const uint8_t *>(pcm_cache_data);
+    const auto offset = reinterpret_cast<const uint8_t *>(buffer) - base;
+    if (offset < 0 || size_t(offset) >= sizeof(pcm_cache_data))
+        return -1;
+    return int64_t(size_t(offset) / sizeof(PcmCacheEntry));
+}
+int64_t dmaOffset(unsigned core, const u16 *pointer) {
+    if (!pointer)
+        return -1;
+    const auto &kept = remainders[core];
+    if (!kept.empty() && pointer >= kept.data() && pointer <= kept.data() + kept.size())
+        return (int64_t(1) << 40) | int64_t(pointer - kept.data());
+    if (iopMemory && reinterpret_cast<const u8 *>(pointer) >= iopMemory &&
+        reinterpret_cast<const u8 *>(pointer) < iopMemory + 0x200000u)
+        return int64_t(reinterpret_cast<const u8 *>(pointer) - iopMemory);
+    return -1;
+}
+u16 *dmaPointer(unsigned core, int64_t offset) {
+    if (offset < 0)
+        return nullptr;
+    if (offset >> 40)
+        return remainders[core].data() + (offset & ((int64_t(1) << 40) - 1));
+    return iopMemory ? reinterpret_cast<u16 *>(iopMemory + offset) : nullptr;
+}
+}
+
+void serialize(StateArchive &archive) {
+    archive.section(0x32555053u);
+    std::array<std::array<int64_t, 24>, 2> buffers{};
+    std::array<int64_t, 2> dma{}, dmaRead{};
+    if (!archive.loading())
+        for (unsigned core = 0; core < 2u; ++core) {
+            for (unsigned voice = 0; voice < 24u; ++voice)
+                buffers[core][voice] = cacheIndex(Cores[core].Voices[voice].SBuffer);
+            dma[core] = dmaOffset(core, Cores[core].DMAPtr);
+            dmaRead[core] = dmaOffset(core, Cores[core].DMARPtr);
+        }
+    archive(remainders, buffers, dma, dmaRead, dmaIrq);
+    archive.bytes(spu2regs, sizeof spu2regs);
+    archive.bytes(_spu2mem, sizeof _spu2mem);
+    archive.bytes(Cores, sizeof Cores);
+    archive.bytes(&Spdif, sizeof Spdif);
+    archive.bytes(&DCFilterIn, sizeof DCFilterIn);
+    archive.bytes(&DCFilterOut, sizeof DCFilterOut);
+    archive(OutPos, InputPos, Cycles, PlayMode, lClocks, psxRegs.cycle, psxNextDeltaCounter, psxNextStartCounter);
+    archive.bytes(psxCounters, sizeof psxCounters);
+    archive.bytes(spu2DmaRegisters, sizeof spu2DmaRegisters);
+    if (!archive.loading())
+        return;
+    for (unsigned core = 0; core < 2u; ++core) {
+        for (unsigned voice = 0; voice < 24u; ++voice)
+            Cores[core].Voices[voice].SBuffer =
+                buffers[core][voice] >= 0 ? pcm_cache_data[buffers[core][voice]].Sampledata : nullptr;
+        Cores[core].DMAPtr = dmaPointer(core, dma[core]);
+        Cores[core].DMARPtr = dmaPointer(core, dmaRead[core]);
+    }
+    for (auto &entry : pcm_cache_data)
+        entry.Validated = false;
+    mixed.clear();
 }
 
 void take_output(std::vector<int16_t> &samples) {

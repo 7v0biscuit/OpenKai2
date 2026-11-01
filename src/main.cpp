@@ -15,6 +15,8 @@
 #include "launcher/version.h"
 #include "speedrun_host.h"
 #include "speedrun_overlay.h"
+#include "machine_state.h"
+#include "runtime/ee_scheduler.h"
 #ifdef _WIN32
 #include "launcher/window.h"
 #endif
@@ -206,7 +208,9 @@ int main(int argc, char* argv[]) {
         const auto category=openkai2::speedrun::Category(preferences.speedrun);
         const bool speedrun=category!=openkai2::speedrun::Category::off;
         PS2Runtime runtime;
-        if (speedrun || preferences.fpsCounter) {
+        openkai2::set_machine_state_identity(std::string(OPENKAI2_SOURCE_REVISION)+":"+disc.image_sha256);
+        EeScheduler::setStatePointHook(&openkai2::machine_state_point);
+        {
             namespace run=openkai2::speedrun;
             run::OverlayOptions overlay;
             overlay.category=category;

@@ -3,6 +3,11 @@
 #include "speedrun_host.h"
 #include "speedrun_items.h"
 #include "host_input.h"
+#include "machine_state.h"
+#include <fstream>
+#include <iterator>
+#include <mutex>
+#include <thread>
 #include "ps2_runtime.h"
 #include <raylib.h>
 #include <algorithm>
@@ -23,6 +28,63 @@ namespace openkai2::speedrun {
 namespace {
 std::atomic<bool> reset{false};
 std::atomic<bool> to_menu{false};
+std::mutex toastMutex;
+std::string toastText;
+double toastUntil = 0;
+
+double seconds();
+
+void toast(const std::string &text) {
+    std::lock_guard lock(toastMutex);
+    toastText = text;
+    toastUntil = seconds() + 2.5;
+}
+
+void save_slot(unsigned slot) {
+    openkai2::request_machine_save([slot](openkai2::MachineStateResult result) {
+        if (!result.ok) {
+            toast("Could not save state: " + result.message);
+            return;
+        }
+        std::thread([slot, data = std::move(result.data)]() {
+            try {
+                const auto file = openkai2::machine_state_file(slot);
+                std::filesystem::create_directories(file.parent_path());
+                const auto wrapped = openkai2::wrap_machine_state(data);
+                auto temporary = file;
+                temporary += ".tmp";
+                {
+                    std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
+                    out.write(reinterpret_cast<const char *>(wrapped.data()), std::streamsize(wrapped.size()));
+                    if (!out)
+                        throw std::runtime_error("cannot write the file");
+                }
+                std::filesystem::rename(temporary, file);
+                toast("State saved to slot " + std::to_string(slot));
+            } catch (const std::exception &error) {
+                toast(std::string("Could not save state: ") + error.what());
+            }
+        }).detach();
+    });
+}
+
+void load_slot(unsigned slot) {
+    std::ifstream in(openkai2::machine_state_file(slot), std::ios::binary);
+    if (!in) {
+        toast("Slot " + std::to_string(slot) + " is empty");
+        return;
+    }
+    const std::vector<uint8_t> file((std::istreambuf_iterator<char>(in)), {});
+    std::vector<uint8_t> body;
+    std::string problem;
+    if (!openkai2::unwrap_machine_state(file, body, problem)) {
+        toast("Cannot load slot " + std::to_string(slot) + ": " + problem);
+        return;
+    }
+    openkai2::request_machine_load(std::move(body), [slot](openkai2::MachineStateResult result) {
+        toast(result.ok ? "State loaded from slot " + std::to_string(slot) : "Could not load state: " + result.message);
+    });
+}
 
 double seconds() {
     return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -217,6 +279,14 @@ struct Overlay {
         packet[2] = uint8_t(buttons);
         packet[3] = uint8_t(buttons >> 8);
         publish_host_input(0, packet);
+    }
+
+    void notice(const std::string &message) {
+        const float s = std::max(0.75f, float(GetScreenHeight()) / 1080.0f), size = 18 * s;
+        const float width = label_width(message, size), x = (float(GetScreenWidth()) - width) / 2 - 12 * s;
+        const float y = float(GetScreenHeight()) - 70 * s;
+        DrawRectangleRounded({x, y, width + 24 * s, size + 12 * s}, 0.3f, 6, Color{10, 12, 18, 170});
+        label(message, x + 12 * s, y + 6 * s, size, Color{245, 245, 240, 235});
     }
 
     void count(double now) {
@@ -476,9 +546,23 @@ void draw(PS2Runtime &runtime, void *) {
     if (overlay->speedrun)
         overlay->update(runtime, now, fields);
     overlay->last_fields = fields;
+    if (!overlay->speedrun && !openkai2::machine_state_pending()) {
+        if (IsKeyPressed(KEY_F5))
+            save_slot(1);
+        else if (IsKeyPressed(KEY_F9))
+            load_slot(1);
+    }
     if (overlay->options.fps_counter)
         overlay->count(now);
     overlay->draw(now);
+    std::string message;
+    {
+        std::lock_guard lock(toastMutex);
+        if (now < toastUntil)
+            message = toastText;
+    }
+    if (!message.empty())
+        overlay->notice(message);
 }
 
 void shutdown(PS2Runtime &, void *) {
