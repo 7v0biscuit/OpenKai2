@@ -256,7 +256,8 @@ void Client::close() {
     connected_ = false;
 }
 
-void serve(uint16_t port, const std::atomic<bool> &stopping, const std::function<void(uint16_t)> &ready) {
+void serve(uint16_t port, const std::atomic<bool> &stopping, const std::function<void(uint16_t)> &ready,
+           PublishFilter filter) {
     struct Session {
         net::Socket socket;
         std::mutex send;
@@ -270,10 +271,15 @@ void serve(uint16_t port, const std::atomic<bool> &stopping, const std::function
         std::map<std::string, std::string> retained;
     };
     auto shared = std::make_shared<Shared>();
-    auto deliver = [shared](const std::string &topic, const std::string &payload, bool retain) {
+    auto deliver = [shared, filter](const std::string &topic, const std::string &payload, bool retain) {
         std::vector<std::shared_ptr<Session>> targets;
         {
             std::lock_guard lock(shared->mutex);
+            if (filter) {
+                const auto held = shared->retained.find(topic);
+                if (!filter(topic, payload, held == shared->retained.end() ? std::string() : held->second))
+                    return;
+            }
             if (retain) {
                 if (payload.empty())
                     shared->retained.erase(topic);

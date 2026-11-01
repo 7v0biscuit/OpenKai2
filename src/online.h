@@ -21,7 +21,17 @@ struct Room {
 
 struct Player {
     std::string id, name, status, version;
+    bool impostor = false;
 };
+
+std::string name_key(const std::string &name);
+std::string name_topic(const std::string &name);
+std::string format_name_claim(const crypto::Seed &seed, const std::string &owner, const std::string &name);
+std::optional<std::pair<std::string, std::string>> parse_name_claim(const std::string &topic_hash, const std::string &payload);
+bool allow_service_publish(const std::string &topic, const std::string &payload, const std::string &existing);
+enum class NameState { free, mine, taken };
+std::optional<NameState> lookup_name(const std::string &server, const std::string &name, const std::string &owner,
+                                     std::string &error);
 
 struct Invite {
     std::string from_id, from_name, room_id, nonce, token;
@@ -68,6 +78,8 @@ class Directory {
     std::vector<Player> players() const;
     std::optional<Room> room(const std::string &id) const;
     std::optional<Player> player(const std::string &id) const;
+    NameState name_state(const std::string &name, const std::string &owner) const;
+    bool name_taken() const { return nameTaken_; }
     void on_change(Notify notify);
     void on_invite(InviteHandler handler);
     void on_friend(FriendHandler handler);
@@ -82,6 +94,8 @@ class Directory {
     mutable std::mutex mutex_;
     std::map<std::string, Room> rooms_;
     std::map<std::string, Player> players_;
+    std::map<std::string, std::pair<std::string, std::string>> names_;
+    bool nameTaken_ = false;
     Notify notify_;
     InviteHandler invite_;
     FriendHandler friend_;

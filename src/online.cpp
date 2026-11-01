@@ -3,6 +3,7 @@
 #include "dev_identity.h"
 #include <cstdlib>
 #include <random>
+#include <thread>
 
 namespace openkai2::online {
 namespace {
@@ -204,6 +205,92 @@ std::optional<FriendMessage> parse_friend(const std::string &target, const std::
     return message;
 }
 
+std::string name_key(const std::string &name) {
+    const std::string plain = identity::claims_developer(name) ? identity::without_developer_tag(name) : name;
+    std::string key;
+    for (unsigned char c : plain) {
+        if (c >= 'A' && c <= 'Z')
+            key.push_back(char(c + 32));
+        else if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c >= 0x80)
+            key.push_back(char(c));
+    }
+    return key;
+}
+
+std::string name_topic(const std::string &name) {
+    const std::string key = name_key(name);
+    if (key.empty())
+        return {};
+    const auto digest = crypto::sha512(reinterpret_cast<const uint8_t *>(key.data()), key.size());
+    return crypto::to_hex(digest.data(), 16);
+}
+
+std::string format_name_claim(const crypto::Seed &seed, const std::string &owner, const std::string &name) {
+    const std::string clean_name = clean(name, 24);
+    const std::string message = "name\t" + owner + '\t' + name_key(clean_name);
+    const auto signature =
+        crypto::sign(seed, reinterpret_cast<const uint8_t *>(message.data()), message.size());
+    return "1\t" + owner + '\t' + clean_name + '\t' + crypto::to_hex(signature.data(), signature.size());
+}
+
+std::optional<std::pair<std::string, std::string>> parse_name_claim(const std::string &topic_hash, const std::string &payload) {
+    const auto f = fields(payload);
+    if (f.size() != 4 || f[0] != "1" || !valid_id(f[1]) || f[1].size() != 64 || name_topic(f[2]) != topic_hash)
+        return std::nullopt;
+    if (!signed_ok(f[1], "name\t" + f[1] + '\t' + name_key(f[2]), f[3]))
+        return std::nullopt;
+    return std::make_pair(f[1], f[2]);
+}
+
+bool allow_service_publish(const std::string &topic, const std::string &payload, const std::string &existing) {
+    const std::string base = std::string(prefix) + "names/";
+    if (topic.compare(0, base.size(), base) != 0)
+        return true;
+    const std::string hash = topic.substr(base.size());
+    const auto claim = parse_name_claim(hash, payload);
+    if (!claim)
+        return false;
+    if (existing.empty())
+        return true;
+    const auto held = parse_name_claim(hash, existing);
+    return !held || held->first == claim->first;
+}
+
+std::optional<NameState> lookup_name(const std::string &server, const std::string &name, const std::string &owner,
+                                     std::string &error) {
+    const std::string hash = name_topic(name);
+    if (hash.empty()) {
+        error = "the name needs letters or numbers";
+        return std::nullopt;
+    }
+    if (name_key(name) == name_key(identity::developer_name))
+        return identity::claims_developer(name) && identity::developer_seed() ? NameState::mine : NameState::taken;
+    mqtt::Client client;
+    std::mutex mutex;
+    std::optional<std::string> found;
+    client.on_message([&](const std::string &, const std::string &payload) {
+        std::lock_guard lock(mutex);
+        if (auto claim = parse_name_claim(hash, payload))
+            found = claim->first;
+    });
+    if (!client.connect(server, "ok2n-" + new_id(), {}, error))
+        return std::nullopt;
+    client.subscribe(std::string(prefix) + "names/" + hash);
+    for (int i = 0; i < 30; ++i) {
+        {
+            std::lock_guard lock(mutex);
+            if (found)
+                break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    client.close();
+    std::lock_guard lock(mutex);
+    if (!found)
+        return NameState::free;
+    return *found == owner ? NameState::mine : NameState::taken;
+}
+
 Directory::~Directory() { close(); }
 
 void Directory::publish_presence() {
@@ -228,6 +315,24 @@ bool Directory::open(const std::string &server, const Profile &profile, const st
     client_.subscribe(std::string(prefix) + "players/+");
     client_.subscribe(std::string(prefix) + "invites/" + profile_.id);
     client_.subscribe(std::string(prefix) + "friends/" + profile_.id + "/+");
+    client_.subscribe(std::string(prefix) + "names/+");
+    const std::string mine = name_topic(profile_.name);
+    for (int i = 0; i < 30; ++i) {
+        {
+            std::lock_guard lock(mutex_);
+            if (names_.count(mine))
+                break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    const auto state = name_state(profile_.name, profile_.id);
+    nameTaken_ = state == NameState::taken;
+    if (nameTaken_) {
+        client_.publish(presence, "", true);
+        return true;
+    }
+    if (state == NameState::free)
+        client_.publish(std::string(prefix) + "names/" + mine, format_name_claim(profile_.seed, profile_.id, profile_.name), true);
     publish_presence();
     return true;
 }
@@ -246,6 +351,8 @@ void Directory::set_status(const std::string &status) {
         std::lock_guard lock(mutex_);
         status_ = status;
     }
+    if (nameTaken_)
+        return;
     publish_presence();
 }
 
@@ -290,9 +397,22 @@ std::vector<Player> Directory::players() const {
     std::lock_guard lock(mutex_);
     std::vector<Player> out;
     for (const auto &[id, player] : players_)
-        if (id != profile_.id)
+        if (id != profile_.id) {
             out.push_back(player);
+            const auto found = names_.find(name_topic(player.name));
+            out.back().impostor = found != names_.end() && found->second.first != id;
+        }
     return out;
+}
+
+NameState Directory::name_state(const std::string &name, const std::string &owner) const {
+    if (name_key(name) == name_key(identity::developer_name))
+        return identity::claims_developer(name) && identity::developer_seed() ? NameState::mine : NameState::taken;
+    std::lock_guard lock(mutex_);
+    const auto found = names_.find(name_topic(name));
+    if (found == names_.end())
+        return NameState::free;
+    return found->second.first == owner ? NameState::mine : NameState::taken;
 }
 
 std::optional<Room> Directory::room(const std::string &id) const {
@@ -304,7 +424,12 @@ std::optional<Room> Directory::room(const std::string &id) const {
 std::optional<Player> Directory::player(const std::string &id) const {
     std::lock_guard lock(mutex_);
     const auto found = players_.find(id);
-    return found == players_.end() ? std::nullopt : std::optional<Player>(found->second);
+    if (found == players_.end())
+        return std::nullopt;
+    Player player = found->second;
+    const auto claim = names_.find(name_topic(player.name));
+    player.impostor = claim != names_.end() && claim->second.first != id;
+    return player;
 }
 
 void Directory::on_change(Notify notify) {
@@ -344,6 +469,17 @@ void Directory::received(const std::string &topic, const std::string &payload) {
                 rooms_[id] = *room;
             } else
                 return;
+        } else if (rest.rfind("names/", 0) == 0) {
+            const std::string hash = rest.substr(6);
+            if (payload.empty())
+                return;
+            const auto claim = parse_name_claim(hash, payload);
+            if (!claim || names_.size() >= 100000)
+                return;
+            const auto held = names_.find(hash);
+            if (held != names_.end() && held->second.first != claim->first)
+                return;
+            names_[hash] = *claim;
         } else if (rest.rfind("players/", 0) == 0) {
             const std::string id = rest.substr(8);
             if (payload.empty())

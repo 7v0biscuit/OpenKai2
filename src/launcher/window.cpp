@@ -1734,17 +1734,21 @@ struct Window {
         auto label = [&](int top, int row, int column, const wchar_t *value) {
             caps(dc, value, grid.x(column), Grid::label(top, row), grid.column);
         };
-        const bool online = directory && directory->connected();
-        const std::wstring service = online ? L"Online \u00b7 " + std::to_wstring(playerCount()) + L" players"
+        const bool taken = directory && directory->connected() && directory->name_taken();
+        const bool online = directory && directory->connected() && !taken;
+        const std::wstring service = taken ? std::wstring(L"Name taken")
+                                     : online ? L"Online \u00b7 " + std::to_wstring(playerCount()) + L" players"
                                      : connecting.valid() ? std::wstring(L"Connecting\u2026")
                                      : settings.onlineProfiles.empty() ? std::wstring(L"Add a profile to go online")
                                      : L"Offline" + (onlineProblem.empty() ? std::wstring() : L": " + wide(onlineProblem));
         section(contentLeft, onlineProfileTop, right, onlineProfileTop + 104, L"Profile",
-                settings.onlineProfiles.empty() ? L"Add a profile to play online. Its name is shown to other players."
-                                                : L"Your profile name is shown to other players.");
+                settings.onlineProfiles.empty() ? L"Names are unique across OpenKai2. Yours is shown to other players."
+                : directory && directory->name_taken() ? L"This name belongs to another profile. Add a new profile with a unique name."
+                                                : L"Names are unique across OpenKai2. Yours is shown to other players.");
         const int dotX = right - 20 - measure(dc, service, fonts.caption);
-        ellipse(dc, p(dotX - 12), p(onlineProfileTop + 23), p(4), online ? green : connecting.valid() ? gold : faint);
-        text(dc, service, dotX, onlineProfileTop + 14, right - dotX - 16, 18, fonts.caption, online ? ink : muted,
+        ellipse(dc, p(dotX - 12), p(onlineProfileTop + 23), p(4),
+                taken ? red : online ? green : connecting.valid() ? gold : faint);
+        text(dc, service, dotX, onlineProfileTop + 14, right - dotX - 16, 18, fonts.caption, taken ? red : online ? ink : muted,
              DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
         label(onlineProfileTop, 0, 0, L"PROFILE");
         label(onlineProfileTop, 0, 1, L"NEW PROFILE");
@@ -3332,7 +3336,33 @@ struct Window {
         }
         Settings next = settings;
         if (std::find(next.onlineProfiles.begin(), next.onlineProfiles.end(), name) == next.onlineProfiles.end()) {
+            const auto key = online::name_key(name);
+            if (std::any_of(next.onlineProfiles.begin(), next.onlineProfiles.end(),
+                            [&](const std::string &existing) { return online::name_key(existing) == key; })) {
+                status = L"You already have a profile with that name.";
+                error = true;
+                return;
+            }
             const auto seed = online::new_seed();
+            const auto owner = online::make_profile(seed, name).id;
+            status = L"Checking that " + wide(name) + L" is free\u2026";
+            error = false;
+            InvalidateRect(hwnd, nullptr, FALSE);
+            UpdateWindow(hwnd);
+            const auto previous = SetCursor(LoadCursor(nullptr, IDC_WAIT));
+            std::string problem;
+            const auto state = online::lookup_name(settings.onlineLobby, name, owner, problem);
+            SetCursor(previous);
+            if (!state) {
+                status = L"Could not check the name. Profile names are unique, so connect to the internet and try again.";
+                error = true;
+                return;
+            }
+            if (*state == online::NameState::taken) {
+                status = wide(name) + L" is already used by another OpenKai2 profile. Profile names must be unique.";
+                error = true;
+                return;
+            }
             next.onlineProfiles.push_back(name);
             next.onlineKeys.resize(next.onlineProfiles.size() - 1);
             next.onlineKeys.push_back(crypto::to_hex(seed.data(), seed.size()));
@@ -3391,7 +3421,8 @@ struct Window {
             onlineProblem = problem;
             if (opened) {
                 directory = std::move(opened);
-                std::cout << "[launcher:online] connected as " << settings.onlineName << std::endl;
+                std::cout << "[launcher:online] connected as " << settings.onlineName
+                          << (directory->name_taken() ? " (name taken by another profile)" : "") << std::endl;
             } else
                 std::cout << "[launcher:online] could not connect: " << problem << std::endl;
             refreshOnlineLists();
@@ -3523,7 +3554,7 @@ struct Window {
             if (isFriend(player.id))
                 continue;
             playerRows.emplace_back(player.id, player.name);
-            labels.push_back(wide(player.name) + L" · " + wide(player.status) +
+            labels.push_back(wide(player.name) + (player.impostor ? L" (name not verified)" : L"") + L" · " + wide(player.status) +
                              (player.version == application_version ? L"" : L" · version " + wide(player.version)));
         }
         SendMessageW(controls[PlayerList], WM_SETREDRAW, FALSE, 0);
@@ -3558,10 +3589,14 @@ struct Window {
         if (onlineShared->notices.empty())
             return {};
         const auto &notice = onlineShared->notices.front();
+        auto who = [&](const std::string &id, const std::string &name) {
+            const bool verified = directory && directory->name_state(name, id) == online::NameState::mine;
+            return wide(name) + (verified ? L"" : L" (name not verified)");
+        };
         if (notice.invite)
-            return wide(notice.inviteMessage.from_name) + L" invited you to play";
+            return who(notice.inviteMessage.from_id, notice.inviteMessage.from_name) + L" invited you to play";
         if (notice.friendMessage.kind == online::FriendKind::request)
-            return wide(notice.friendMessage.from_name) + L" sent you a friend request";
+            return who(notice.friendMessage.from_id, notice.friendMessage.from_name) + L" sent you a friend request";
         return {};
     }
     void notify(const std::wstring &title, const std::wstring &message) {

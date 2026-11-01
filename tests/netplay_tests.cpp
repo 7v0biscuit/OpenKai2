@@ -184,6 +184,26 @@ void wrong_build_is_refused() {
 }
 }
 
+void name_rules() {
+    namespace on = openkai2::online;
+    require(on::name_key("J o i n t") == "joint" && on::name_key("JOINT!") == "joint" && on::name_key("[DEV] Biscuit") == "biscuit",
+            "names compare without case, spaces, symbols or the developer tag");
+    require(on::name_topic("Joint") == on::name_topic("joint") && on::name_topic("Joint") != on::name_topic("Jointt"),
+            "name topics follow the name key");
+    require(on::name_topic("!!!").empty(), "names need letters or numbers");
+    const auto owner = on::make_profile(on::new_seed(), "Joint");
+    const auto other = on::make_profile(on::new_seed(), "Joint");
+    const auto claim = on::format_name_claim(owner.seed, owner.id, "Joint");
+    const std::string topic = std::string(on::prefix) + "names/" + on::name_topic("Joint");
+    require(on::allow_service_publish(topic, claim, ""), "a free name can be claimed");
+    require(!on::allow_service_publish(topic, on::format_name_claim(other.seed, other.id, "Joint"), claim),
+            "a held name cannot be claimed by another profile");
+    require(on::allow_service_publish(topic, claim, claim), "the owner can renew the claim");
+    require(!on::allow_service_publish(topic, "", claim), "a claim cannot be erased");
+    require(!on::allow_service_publish(topic, on::format_name_claim(other.seed, owner.id, "Joint"), ""),
+            "a claim signed by another key is refused");
+}
+
 void service_format() {
     namespace mq = openkai2::mqtt;
     require(mq::topic_matches("openkai2/v1/rooms/+", "openkai2/v1/rooms/abc"), "single-level wildcard");
@@ -219,7 +239,9 @@ void service_rooms_invites_passwords() {
     namespace on = openkai2::online;
     std::atomic<bool> stopping{false};
     std::atomic<uint16_t> servicePort{0};
-    std::thread server([&] { openkai2::mqtt::serve(0, stopping, [&](uint16_t port) { servicePort = port; }); });
+    std::thread server([&] {
+        openkai2::mqtt::serve(0, stopping, [&](uint16_t port) { servicePort = port; }, &on::allow_service_publish);
+    });
     for (int i = 0; i < 300 && !servicePort; ++i)
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     require(servicePort != 0, "service starts");
@@ -243,6 +265,39 @@ void service_rooms_invites_passwords() {
     require(wait_for([&] { return piccolo.players().size() == 1 && krillin.players().size() == 1; }),
             "launchers see each other");
     require(krillin.players()[0].name == "Piccolo", "player names are shown");
+    require(on::lookup_name(service, "P i c c o l o", krillinProfile.id, error) == on::NameState::taken,
+            "a claimed name is taken for everyone else");
+    require(on::lookup_name(service, "piccolo", piccoloProfile.id, error) == on::NameState::mine, "the owner keeps the name");
+    require(on::lookup_name(service, "Freeza", krillinProfile.id, error) == on::NameState::free, "unclaimed names are free");
+    require(on::lookup_name(service, "biscuit", krillinProfile.id, error) == on::NameState::taken,
+            "the developer's name is reserved");
+    {
+        on::Directory copycat;
+        const auto copy = on::make_profile(on::new_seed(), "PICCOLO");
+        require(copycat.open(service, copy, "0.1.67", error), "a second profile with a taken name connects");
+        require(copycat.name_taken(), "the second profile is told its name is taken");
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        require(krillin.players().size() == 1, "a profile with a taken name does not appear online");
+        openkai2::mqtt::Client thief;
+        require(thief.connect(service, "thief", {}, error), "raw client connects");
+        thief.publish(std::string(on::prefix) + "names/" + on::name_topic("Piccolo"),
+                      on::format_name_claim(copy.seed, copy.id, "Piccolo"), true);
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        require(on::lookup_name(service, "Piccolo", piccoloProfile.id, error) == on::NameState::mine,
+                "the service refuses to hand a name to someone else");
+        const auto fake = on::make_profile(on::new_seed(), "Goku");
+        on::Player pretend{fake.id, "Piccolo", "online", "0.1.67"};
+        thief.publish(std::string(on::prefix) + "players/" + fake.id, on::format_player(fake, pretend), true);
+        require(wait_for([&] { return krillin.players().size() == 2; }), "the impostor is listed");
+        bool flagged = false;
+        for (const auto &player : krillin.players())
+            if (player.id == fake.id)
+                flagged = player.impostor;
+        require(flagged, "a player using someone else's name is flagged");
+        thief.publish(std::string(on::prefix) + "players/" + fake.id, "", true);
+        thief.close();
+        require(wait_for([&] { return krillin.players().size() == 1; }), "the impostor leaves");
+    }
     std::mutex inviteMutex;
     std::optional<on::Invite> received;
     krillin.on_invite([&](const on::Invite &invite) {
@@ -390,6 +445,7 @@ int main() {
         snapshot_round_trip();
         two_players_stay_in_step();
         wrong_build_is_refused();
+        name_rules();
         service_format();
         service_rooms_invites_passwords();
     } catch (const std::exception &error) {

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "mqtt.h"
+#include "online.h"
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
@@ -21,7 +22,7 @@ int main(int argc, char *argv[]) {
     }
     try {
         const std::atomic<bool> stopping{false};
-        openkai2::mqtt::serve(uint16_t(port), stopping);
+        openkai2::mqtt::serve(uint16_t(port), stopping, {}, &openkai2::online::allow_service_publish);
     } catch (const std::exception &error) {
         std::cerr << "[lobby] " << error.what() << '\n';
         return 1;

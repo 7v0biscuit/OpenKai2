@@ -98,10 +98,11 @@ if(BUILD_TESTING)
     target_compile_features(openkai2_netplay_tests PRIVATE cxx_std_17)
     target_link_libraries(openkai2_netplay_tests PRIVATE Threads::Threads openkai2_disc)
     add_test(NAME netplay COMMAND openkai2_netplay_tests)
-    add_executable(openkai2_lobby tools/lobby/main.cpp src/mqtt.cpp src/net_socket.cpp)
+    add_executable(openkai2_lobby tools/lobby/main.cpp src/mqtt.cpp src/net_socket.cpp src/online.cpp src/dev_identity.cpp
+        src/ed25519.cpp)
     target_include_directories(openkai2_lobby PRIVATE src)
     target_compile_features(openkai2_lobby PRIVATE cxx_std_17)
-    target_link_libraries(openkai2_lobby PRIVATE Threads::Threads)
+    target_link_libraries(openkai2_lobby PRIVATE Threads::Threads openkai2_disc)
     set_target_properties(openkai2_lobby PROPERTIES OUTPUT_NAME OpenKai2Lobby)
 endif()
 

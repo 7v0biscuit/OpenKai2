@@ -45,6 +45,8 @@ class Client {
     uint16_t next_id_ = 1;
 };
 
-void serve(uint16_t port, const std::atomic<bool> &stopping, const std::function<void(uint16_t)> &ready = {});
+using PublishFilter = std::function<bool(const std::string &topic, const std::string &payload, const std::string &existing)>;
+void serve(uint16_t port, const std::atomic<bool> &stopping, const std::function<void(uint16_t)> &ready = {},
+           PublishFilter filter = {});
 
 }

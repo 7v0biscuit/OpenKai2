@@ -9,6 +9,19 @@ online, and you can keep several. Each profile has its own key, created on your
 PC, which proves to other players that you are you. Friends and invites are tied
 to the profile, not to the name.
 
+Profile names are unique across OpenKai2. When you add a profile the launcher
+checks the online service, and a name another profile already holds is refused.
+Case, spaces and symbols do not count, so "Joint", "joint" and "J-O-I-N-T" are
+the same name. The first profile to go online with a name keeps it. If a
+profile's name is already held by someone else, the Online page shows
+**Name taken** and the profile stays hidden until you add one with a free name.
+Players whose name does not match its holder are marked "(name not verified)" in
+the Players list, invites and friend requests.
+
+On the public broker the claim is signed but not enforced by the server, so a
+modified client could still copy a name; OpenKai2 clients flag it. A self-hosted
+**OpenKai2Lobby** refuses the copy outright.
+
 The **[DEV]** tag is reserved for the OpenKai2 developer, whose profile is
 **[DEV] Biscuit**. Adding a [DEV] name asks for the developer key; without it the
 tag is removed, and other players' games check the key's signature too.
