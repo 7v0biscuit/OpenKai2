@@ -1675,9 +1675,9 @@ struct Window {
              fonts.caption, error ? red : muted, DT_LEFT | DT_END_ELLIPSIS | DT_SINGLELINE | DT_NOPREFIX);
         const int task[] = {TaskCharacters, TaskStages, TaskMovesets, TaskCapsules};
         std::vector<int> glowing;
-        for (int id : {int(Play), int(ImportSelected), task[int(importTask)]})
+        for (int id : {int(ImportSelected), task[int(importTask)]})
             if (const auto r = controlRect(id); r && IsWindowEnabled(controls.at(id))) {
-                buffer.frame.halo(*r, cut(id == Play ? 12 : 10), p(id == Play ? 22 : 14), ember, id == Play ? 120 : 80);
+                buffer.frame.halo(*r, cut(10), p(14), ember, 80);
                 glowing.push_back(id);
             }
         BitBlt(dc, 0, 0, rect.right, rect.bottom, memory, 0, 0, SRCCOPY);
