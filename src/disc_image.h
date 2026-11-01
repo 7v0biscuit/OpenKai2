@@ -64,5 +64,6 @@ DiscMount prepare_disc(const std::filesystem::path& image,
 
 std::filesystem::path default_cache_directory();
 std::string sha256_file(const std::filesystem::path& file);
+std::string sha256_text(const std::string& text);
 
 }

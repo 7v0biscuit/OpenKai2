@@ -1,0 +1,162 @@
+// SPDX-License-Identifier: GPL-3.0-only
+#pragma once
+#include <cstddef>
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <string>
+#include <vector>
+
+namespace openkai2::speedrun {
+
+enum class Category : unsigned { off = 0, any = 1, new_game_plus = 2 };
+const char *category_name(Category category);
+
+inline constexpr uint32_t task_first = 0x3B5358u;
+inline constexpr uint32_t task_end = 0x3B53B0u;
+inline constexpr uint32_t task_next = 40u;
+inline constexpr uint32_t task_name_bytes = 20u;
+inline constexpr uint32_t task_limit = 1024u;
+inline constexpr uint32_t battle_result = 0x3A4D58u;
+inline constexpr uint32_t battle_over = 0x3A4D60u;
+inline constexpr double field_rate = 60000.0 / 1001.0;
+
+struct GuestState {
+    bool intro = false;
+    bool game_over = false;
+    bool credits = false;
+    bool dragon_world = false;
+    bool battle = false;
+    bool battle_over = false;
+    int32_t result = 0;
+    std::vector<std::string> tasks;
+};
+GuestState read_guest(const uint8_t *rdram, size_t bytes);
+
+struct Split {
+    double real = 0, game = 0;
+};
+
+enum class Phase { waiting, running, finished };
+enum class Event { none, started, restarted, battle_won, finished, died };
+
+class Timer {
+  public:
+    std::vector<Event> update(const GuestState &state, double real, uint64_t fields);
+    Phase phase() const { return phase_; }
+    double real(double now) const;
+    double game(uint64_t fields) const;
+    const std::vector<Split> &wins() const { return wins_; }
+    Split result() const { return final_; }
+    void reset();
+
+  private:
+    Phase phase_ = Phase::waiting;
+    double start_real_ = 0;
+    uint64_t start_fields_ = 0;
+    std::vector<Split> wins_;
+    Split final_;
+    bool intro_ = false, game_over_ = false, credits_ = false, battle_over_ = false;
+};
+
+std::string format_time(double seconds, bool hundredths = true);
+
+class SpeedCheck {
+  public:
+    bool sample(double real, uint64_t fields);
+    double rate() const { return rate_; }
+
+  private:
+    bool started_ = false;
+    double real_ = 0;
+    uint64_t fields_ = 0;
+    double rate_ = field_rate;
+};
+
+class ClockCheck {
+  public:
+    bool sample(double steady, double wall);
+    double ratio() const { return ratio_; }
+
+  private:
+    bool started_ = false;
+    double steady_ = 0, wall_ = 0, ratio_ = 1;
+};
+
+struct KnownFile {
+    const char *path;
+    const char *sha256;
+};
+inline constexpr KnownFile retail_files[] = {
+    {"USR/ADX_US.AFS", "b656534dd5c90b133b7171fb3c63d91b74ca2a96dacf08703a1d973618426b83"},
+    {"USR/DATA_CMN.AFS", "5bec61cc8630b268ca94c1de3bc92d32862e43edaf8e7b76ea356311be97b602"},
+    {"USR/DATA_US.AFS", "0e5f54be211470e273e0bed3f7571e76c7cee23ff2c211504878336188deea33"},
+    {"USR/MOVIE_US.SFD", "450fbb830abdf7923eec0b8a0cdbbdae09917cf5da0b209ee1d1f69f6981ac4a"},
+};
+struct DiscFileHash {
+    std::string path, sha256;
+};
+std::vector<std::string> check_game_files(const std::vector<DiscFileHash> &files);
+
+bool suspicious_process(std::string name);
+
+struct Attempt {
+    std::string date;
+    bool finished = false;
+    double real = 0;
+    std::vector<double> splits;
+};
+
+class SplitBook {
+  public:
+    static SplitBook load(const std::filesystem::path &file);
+    void save(const std::filesystem::path &file) const;
+    bool record(const Attempt &attempt);
+    bool has_best() const { return !best_.empty(); }
+    double best_time() const { return best_.empty() ? 0 : best_.back(); }
+    const std::vector<double> &best() const { return best_; }
+    const std::vector<double> &golds() const { return golds_; }
+    bool delta(size_t index, double time, double &difference) const;
+    bool gold(size_t index, double segment) const;
+    unsigned attempts() const { return attempts_; }
+    unsigned completed() const { return completed_; }
+    const std::vector<std::string> &history() const { return history_; }
+
+  private:
+    unsigned attempts_ = 0, completed_ = 0;
+    std::vector<double> best_, golds_;
+    std::vector<std::string> history_;
+};
+
+struct SplitRow {
+    std::string name;
+    double time = 0;
+    bool done = false, current = false, has_time = false, has_delta = false, gold = false;
+    double delta = 0;
+};
+
+struct RunView {
+    double timer = 0, segment = 0;
+    int pace = 0;
+    std::vector<SplitRow> rows;
+    bool has_previous = false, has_time_save = false, has_best_possible = false, has_sum_of_best = false;
+    double previous = 0, time_save = 0, best_possible = 0, sum_of_best = 0;
+    unsigned attempt = 0, finished = 0;
+};
+RunView make_view(const Timer &timer, const SplitBook &book, double now, size_t rows);
+
+class RunLog {
+  public:
+    void open(const std::filesystem::path &file, const std::string &header);
+    void write(const std::string &line);
+    bool is_open() const { return out_.is_open(); }
+    const std::filesystem::path &path() const { return path_; }
+    static bool verify(const std::filesystem::path &file);
+
+  private:
+    std::ofstream out_;
+    std::filesystem::path path_;
+    std::string chain_;
+};
+
+}

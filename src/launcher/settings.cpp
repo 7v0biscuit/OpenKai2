@@ -18,7 +18,8 @@ void validate_settings(const Settings &s) {
     if (s.fps > 240 || s.width < 640 || s.width > 7680 || s.height < 448 || s.height > 4320 ||
         s.windowMode > 1 || s.antialiasing > 1 || s.textureFilter > 2 || s.upscaler > 3 ||
         s.aspect > 3 || s.volume > 100 || s.windowWidth < 0 || s.windowHeight < 0 ||
-        s.windowWidth > 32768 || s.windowHeight > 32768 || s.updateChannel > 1 || (s.renderer != "auto" && s.renderer != "gpu" && s.renderer != "cpu"))
+        s.windowWidth > 32768 || s.windowHeight > 32768 || s.updateChannel > 1 || s.speedrun > 2 || s.overlayItems > speedrun::overlay_all || s.overlayCorner > 3 ||
+        s.overlaySize > 2 || s.overlayBackground > 2 || s.overlaySplits > 3 || (s.renderer != "auto" && s.renderer != "gpu" && s.renderer != "cpu"))
         throw std::runtime_error("Invalid graphics settings");
 }
 Settings read_settings(const std::filesystem::path &file) {
@@ -86,6 +87,12 @@ Settings read_settings(const std::filesystem::path &file) {
             row >> std::quoted(s.renderer);
         else if (key == "launcher_window")
             row >> s.windowLeft >> s.windowTop >> s.windowWidth >> s.windowHeight >> s.windowMaximized;
+        else if (key == "speedrun")
+            row >> s.speedrun >> s.permadeath;
+        else if (key == "fps_counter")
+            row >> s.fpsCounter;
+        else if (key == "overlay")
+            row >> s.overlayItems >> s.overlayCorner >> s.overlaySize >> s.overlayBackground >> s.overlaySplits;
         else
             known = false;
         if (known) {
@@ -118,7 +125,9 @@ void write_settings(const std::filesystem::path &file, const Settings &s) {
         << "\nupdate_channel " << s.updateChannel << "\nrenderer " << std::quoted(s.renderer)
         << "\ndiscord_presence " << s.discordPresence << "\nimport_iso " << std::quoted(path_utf8(s.importIso))
         << "\nlauncher_window " << s.windowLeft << ' ' << s.windowTop << ' ' << s.windowWidth << ' '
-        << s.windowHeight << ' ' << s.windowMaximized << '\n';
+        << s.windowHeight << ' ' << s.windowMaximized << "\nspeedrun " << s.speedrun << ' ' << s.permadeath
+        << "\nfps_counter " << s.fpsCounter << "\noverlay " << s.overlayItems << ' ' << s.overlayCorner << ' '
+        << s.overlaySize << ' ' << s.overlayBackground << ' ' << s.overlaySplits << '\n';
     out.close();
     if (!out)
         throw std::runtime_error("Cannot finish saving settings");

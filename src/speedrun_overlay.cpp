@@ -1,0 +1,485 @@
+// SPDX-License-Identifier: GPL-3.0-only
+#include "speedrun_overlay.h"
+#include "speedrun_host.h"
+#include "speedrun_items.h"
+#include "ps2_runtime.h"
+#include <raylib.h>
+#include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <ctime>
+#include <iostream>
+#include <memory>
+#include <set>
+#ifdef _WIN32
+#include "launcher/display_font.h"
+#endif
+
+namespace openkai2::speedrun {
+namespace {
+std::atomic<bool> reset{false};
+
+double seconds() {
+    return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+std::string stamp() {
+    const auto now = std::time(nullptr);
+    std::tm local{};
+#ifdef _WIN32
+    localtime_s(&local, &now);
+#else
+    localtime_r(&now, &local);
+#endif
+    char text[32];
+    std::strftime(text, sizeof text, "%Y-%m-%d %H:%M:%S", &local);
+    return text;
+}
+
+std::string file_stamp() {
+    auto text = stamp();
+    for (auto &c : text)
+        if (c == ' ' || c == ':')
+            c = c == ' ' ? '_' : '-';
+    return text;
+}
+
+std::string format_delta(double difference) {
+    const char sign = difference < 0 ? '-' : '+';
+    const double size = std::fabs(difference);
+    char text[32];
+    if (size < 60)
+        std::snprintf(text, sizeof text, "%c%.2f", sign, std::floor(size * 100) / 100);
+    else
+        std::snprintf(text, sizeof text, "%c%s", sign, format_time(size, false).c_str());
+    return text;
+}
+
+struct Overlay {
+    OverlayOptions options;
+    bool speedrun = false;
+    Timer timer;
+    SpeedCheck speed;
+    std::unique_ptr<Watchdog> watchdog;
+    std::unique_ptr<LiveSplit> livesplit;
+    RunLog log;
+    SplitBook book;
+    std::vector<std::string> flags;
+    std::set<std::string> seen;
+    unsigned runs = 0;
+    bool recorded = true, personal_best = false;
+    double died_at = -1, game_time_sent = 0;
+    double fps_window = 0;
+    unsigned host_frames = 0, host_fps = 0;
+    Font font{}, label_font{};
+    bool hidden = false;
+    uint64_t last_fields = 0;
+    bool own_font = false, own_label = false;
+
+    void note(const std::string &line) {
+        std::cout << "[speedrun] " << line << std::endl;
+        log.write(stamp() + "  " + line);
+    }
+    void flag(const std::string &reason) {
+        if (std::find(flags.begin(), flags.end(), reason) != flags.end())
+            return;
+        flags.push_back(reason);
+        note("integrity: " + reason);
+    }
+    std::string times(double now, uint64_t fields) const {
+        return "real " + format_time(timer.real(now)) + "  ps2 " + format_time(timer.game(fields));
+    }
+    void save(bool finished, double real, const std::vector<Split> &wins) {
+        if (recorded)
+            return;
+        recorded = true;
+        Attempt attempt;
+        attempt.date = stamp();
+        attempt.finished = finished;
+        attempt.real = real;
+        for (const auto &win : wins)
+            attempt.splits.push_back(win.real);
+        personal_best = book.record(attempt);
+        try {
+            book.save(options.splits);
+        } catch (const std::exception &error) {
+            std::cout << "[speedrun] " << error.what() << std::endl;
+        }
+        if (personal_best)
+            note("personal best " + format_time(real));
+    }
+
+    void update(PS2Runtime &runtime, double now, uint64_t fields) {
+        const auto state = read_guest(runtime.memory().getRDRAM(), PS2_RAM_SIZE);
+        for (const auto &name : state.tasks)
+            if (seen.size() < 4096 && seen.insert(name).second)
+                std::cout << "[speedrun:task] " << name << std::endl;
+        const auto previous_wins = timer.wins();
+        const double previous_real = timer.real(now);
+        for (const auto event : timer.update(state, now, fields)) {
+            switch (event) {
+            case Event::started:
+            case Event::restarted:
+                save(false, previous_real, previous_wins);
+                ++runs;
+                recorded = false;
+                personal_best = false;
+                died_at = -1;
+                note("run " + std::to_string(runs) + " started (" + category_name(options.category) +
+                     (options.permadeath ? ", permadeath" : "") + ")");
+                if (livesplit) {
+                    livesplit->send("reset");
+                    livesplit->send("starttimer");
+                    livesplit->send("initgametime");
+                    livesplit->send("pausegametime");
+                }
+                break;
+            case Event::battle_won:
+                note("battle " + std::to_string(timer.wins().size()) + " won  real " +
+                     format_time(timer.wins().back().real) + "  ps2 " + format_time(timer.wins().back().game));
+                break;
+            case Event::finished: {
+                const auto result = timer.result();
+                note("run " + std::to_string(runs) + " finished  real " + format_time(result.real) + "  ps2 " +
+                     format_time(result.game) + "  battles " + std::to_string(timer.wins().size()) +
+                     (flags.empty() ? "  verified" : "  flagged"));
+                save(true, result.real, timer.wins());
+                if (livesplit) {
+                    livesplit->send("setgametime " + format_time(result.game));
+                    livesplit->send("split");
+                }
+                break;
+            }
+            case Event::died:
+                note("game over at " + times(now, fields));
+                if (options.permadeath) {
+                    died_at = now;
+                    save(false, timer.real(now), timer.wins());
+                    if (livesplit)
+                        livesplit->send("reset");
+                }
+                break;
+            default:
+                break;
+            }
+        }
+        if (speed.sample(now, fields))
+            flag("the game ran faster than a PS2 (" + std::to_string(int(speed.rate() + 0.5)) + " fields a second)");
+        if (watchdog)
+            for (const auto &reason : watchdog->flags())
+                flag(reason);
+        if (timer.phase() == Phase::running && livesplit && now - game_time_sent >= 0.25) {
+            game_time_sent = now;
+            livesplit->send("setgametime " + format_time(timer.game(fields)));
+        }
+        if (IsKeyPressed(KEY_F8) && !reset) {
+            note("reset by player at " + times(now, fields));
+            if (timer.phase() == Phase::running)
+                save(false, timer.real(now), timer.wins());
+            reset = true;
+        }
+        if (died_at >= 0 && now - died_at > 3.0 && !reset) {
+            note("permadeath: restarting the game");
+            reset = true;
+        }
+        if (reset)
+            runtime.requestStop();
+    }
+
+    void count(double now) {
+        ++host_frames;
+        if (fps_window == 0)
+            fps_window = now;
+        if (now - fps_window >= 0.5) {
+            host_fps = unsigned(host_frames / (now - fps_window) + 0.5);
+            host_frames = 0;
+            fps_window = now;
+        }
+    }
+
+    void load_font() {
+        if (const char *windows = std::getenv("WINDIR"))
+            for (const char *name : {"seguisb.ttf", "segoeuib.ttf", "segoeui.ttf", "tahomabd.ttf", "arialbd.ttf"}) {
+                const std::string path = std::string(windows) + "\\Fonts\\" + name;
+                if (FileExists(path.c_str())) {
+                    font = LoadFontEx(path.c_str(), 72, nullptr, 0);
+                    break;
+                }
+            }
+        own_label = font.texture.id != 0;
+        label_font = own_label ? font : GetFontDefault();
+#ifdef _WIN32
+        if (font.texture.id == 0)
+            font = LoadFontFromMemory(".ttf", launcher::display_font, int(launcher::display_font_size), 72,
+                                      nullptr, 0);
+#endif
+        own_font = font.texture.id != 0;
+        if (own_font)
+            SetTextureFilter(font.texture, TEXTURE_FILTER_BILINEAR);
+        else
+            font = GetFontDefault();
+    }
+
+    float draw_text(const Font &face, bool smooth, const std::string &value, float x, float y, float size,
+                    Color color) const {
+        if (!smooth)
+            size = std::max(10.0f, std::round(size / 10.0f) * 10.0f);
+        const float spacing = smooth ? 0.0f : size / 10.0f;
+        const Vector2 at{std::round(x), std::round(y)};
+        DrawTextEx(face, value.c_str(), {at.x + 1.0f, at.y + 1.0f}, size, spacing,
+                   Color{0, 0, 0, uint8_t(color.a * 0.7f)});
+        DrawTextEx(face, value.c_str(), at, size, spacing, color);
+        return MeasureTextEx(face, value.c_str(), size, spacing).x;
+    }
+    float text(const std::string &value, float x, float y, float size, Color color) const {
+        return draw_text(font, own_font, value, x, y, size, color);
+    }
+    float label(const std::string &value, float x, float y, float size, Color color) const {
+        return draw_text(label_font, own_label, value, x, y, size, color);
+    }
+    float text_width(const std::string &value, float size) const {
+        return MeasureTextEx(font, value.c_str(), size, own_font ? 0.0f : size / 10.0f).x;
+    }
+    float label_width(const std::string &value, float size) const {
+        if (!own_label)
+            size = std::max(10.0f, std::round(size / 10.0f) * 10.0f);
+        return MeasureTextEx(label_font, value.c_str(), size, own_label ? 0.0f : size / 10.0f).x;
+    }
+
+    struct Row {
+        std::string left, middle, right;
+        Color left_color{}, middle_color{}, right_color{};
+        float size = 14;
+        bool timer = false, highlight = false, rule = false;
+    };
+
+    void draw(double now) {
+        if (IsKeyPressed(KEY_F7))
+            hidden = !hidden;
+        if (hidden)
+            return;
+        const float scale_choice[] = {0.85f, 1.0f, 1.25f};
+        const float s = std::max(0.75f, float(GetScreenHeight()) / 1080.0f) * scale_choice[std::min(options.size, 2u)];
+        const Color white{245, 245, 240, 235}, dim{245, 245, 240, 110}, grey{190, 192, 196, 190},
+            faint{190, 192, 196, 120}, ahead{105, 210, 120, 240}, behind{232, 102, 88, 240},
+            gold{250, 196, 70, 245};
+        const unsigned corner = std::min(options.corner, 3u);
+        if (options.fps_counter) {
+            const std::string value = std::to_string(host_fps) + " fps";
+            const float size = 14 * s, width = label_width(value, size);
+            const bool left = speedrun && corner % 2 == 1;
+            label(value, left ? 14 * s : float(GetScreenWidth()) - width - 14 * s, 10 * s, size, faint);
+        }
+        if (!speedrun)
+            return;
+        const auto shows = [&](OverlayItem item) { return (options.items & overlay_bit(item)) != 0; };
+        const auto phase = timer.phase();
+        const auto view = make_view(timer, book, now, shows(show_splits) ? options.split_rows : 0);
+        const auto short_time = [](double value) {
+            char text[32];
+            if (value < 60) {
+                std::snprintf(text, sizeof text, "%.2f", std::floor(std::max(0.0, value) * 100) / 100);
+                return std::string(text);
+            }
+            return format_time(value);
+        };
+        const auto tone = [&](double difference, bool best_segment) {
+            return best_segment ? gold : difference < 0 ? ahead : behind;
+        };
+
+        std::vector<Row> rows;
+        if (shows(show_status)) {
+            Row row;
+            row.left = std::string(category_name(options.category)) + (options.permadeath ? "   Permadeath" : "");
+            row.left_color = grey;
+            row.right = died_at >= 0 ? "Game over" : flags.empty() ? "Verified" : "Flagged";
+            row.right_color = died_at >= 0 || !flags.empty() ? behind : ahead;
+            row.size = 12;
+            rows.push_back(row);
+        }
+        if (!view.rows.empty()) {
+            if (!rows.empty())
+                rows.push_back(Row{{}, {}, {}, {}, {}, {}, 6, false, false, true});
+            for (const auto &split : view.rows) {
+                Row row;
+                row.left = split.name;
+                row.left_color = split.done || split.current ? white : grey;
+                if (split.has_delta) {
+                    row.middle = format_delta(split.delta);
+                    row.middle_color = split.done ? tone(split.delta, split.gold) : behind;
+                }
+                row.right = split.has_time ? format_time(split.time) : "-";
+                row.right_color = split.done ? white : faint;
+                row.highlight = split.current;
+                row.size = 14;
+                rows.push_back(row);
+            }
+        }
+        if (shows(show_timer)) {
+            Row row;
+            row.timer = true;
+            row.right = format_time(view.timer);
+            row.right_color = phase == Phase::waiting ? dim
+                              : phase == Phase::finished && personal_best ? gold
+                              : view.pace < 0 ? ahead
+                              : view.pace > 0 ? behind
+                                              : white;
+            row.size = 40;
+            if (phase == Phase::waiting) {
+                row.left = "Start Dragon World";
+                row.left_color = faint;
+            }
+            rows.push_back(row);
+        }
+        auto info = [&](const char *name, const std::string &value, Color color) {
+            Row row;
+            row.left = name;
+            row.left_color = grey;
+            row.right = value;
+            row.right_color = color;
+            row.size = 13;
+            rows.push_back(row);
+        };
+        if (shows(show_segment) && phase == Phase::running)
+            info("Segment", short_time(view.segment), white);
+        if (shows(show_previous))
+            info("Previous segment", view.has_previous ? format_delta(view.previous) : "-",
+                 view.has_previous ? tone(view.previous, false) : faint);
+        if (shows(show_time_save))
+            info("Possible time save", view.has_time_save ? short_time(view.time_save) : "-", view.has_time_save ? white : faint);
+        if (shows(show_best_possible))
+            info("Best possible time", view.has_best_possible ? format_time(view.best_possible) : "-",
+                 view.has_best_possible ? white : faint);
+        if (shows(show_sum_of_best))
+            info("Sum of best", view.has_sum_of_best ? format_time(view.sum_of_best) : "-",
+                 view.has_sum_of_best ? white : faint);
+        if (shows(show_personal_best))
+            info("Personal best", book.has_best() ? format_time(book.best_time()) : "-",
+                 book.has_best() ? white : faint);
+        if (shows(show_ps2_time))
+            info("PS2 time", format_time(timer.game(last_fields)), white);
+        if (shows(show_attempts))
+            info("Attempts", std::to_string(view.attempt) + "  (" + std::to_string(view.finished) + " finished)", white);
+        if (rows.empty())
+            return;
+
+        const float pad = 11 * s, gap = 14 * s;
+        float column = 0;
+        for (const auto &row : rows)
+            if (!row.middle.empty() || (!row.rule && !row.timer && !row.right.empty() && row.size == 14))
+                column = std::max(column, label_width(row.right, row.size * s));
+        float width = 210 * s;
+        for (const auto &row : rows) {
+            if (row.rule)
+                continue;
+            const float size = row.size * s;
+            float need = row.left.empty() ? 0 : label_width(row.left, row.timer ? 12 * s : size) + gap;
+            if (row.timer)
+                need += text_width(row.right, size);
+            else if (!row.middle.empty() || row.size == 14)
+                need += label_width(row.middle, size) + gap + column;
+            else
+                need += label_width(row.right, size);
+            width = std::max(width, need + pad * 2);
+        }
+        width = std::ceil(width);
+        float height = pad * 2;
+        for (const auto &row : rows)
+            height += row.rule ? row.size * s : row.timer ? row.size * s * 1.1f : row.size * s * 1.6f;
+        const float x = corner % 2 == 0 ? 14 * s : float(GetScreenWidth()) - width - 14 * s;
+        float y = corner < 2 ? 12 * s : float(GetScreenHeight()) - height - 12 * s;
+        const unsigned char shade[] = {0, 105, 180};
+        if (const auto alpha = shade[std::min(options.background, 2u)])
+            DrawRectangleRounded({x, y, width, height}, 0.06f, 6, Color{10, 12, 18, alpha});
+        y += pad;
+        const float left = x + pad, right = x + width - pad;
+        for (const auto &row : rows) {
+            const float size = row.size * s;
+            if (row.rule) {
+                DrawRectangle(int(left), int(y + size / 2), int(right - left), std::max(1, int(s)),
+                              Color{255, 255, 255, 28});
+                y += size;
+                continue;
+            }
+            const float line = row.timer ? size * 1.1f : size * 1.6f, top = y + (line - size) / 2;
+            if (row.highlight)
+                DrawRectangleRounded({x + 3 * s, y, width - 6 * s, line}, 0.3f, 4, Color{255, 255, 255, 24});
+            if (row.timer) {
+                if (!row.left.empty())
+                    label(row.left, left, y + line - 17 * s, 12 * s, row.left_color);
+                text(row.right, right - text_width(row.right, size), top, size, row.right_color);
+            } else {
+                if (!row.left.empty())
+                    label(row.left, left, top, size, row.left_color);
+                if (!row.right.empty())
+                    label(row.right, right - label_width(row.right, size), top, size, row.right_color);
+                if (!row.middle.empty())
+                    label(row.middle, right - column - gap - label_width(row.middle, size), top, size, row.middle_color);
+            }
+            y += line;
+        }
+    }
+};
+
+std::unique_ptr<Overlay> overlay;
+
+void start(PS2Runtime &, void *) {
+    if (overlay)
+        overlay->load_font();
+}
+
+void draw(PS2Runtime &runtime, void *) {
+    if (!overlay)
+        return;
+    const double now = seconds();
+    const uint64_t fields = runtime.memory().gs().vsyncTick.load(std::memory_order_acquire);
+    if (overlay->speedrun)
+        overlay->update(runtime, now, fields);
+    overlay->last_fields = fields;
+    if (overlay->options.fps_counter)
+        overlay->count(now);
+    overlay->draw(now);
+}
+
+void shutdown(PS2Runtime &, void *) {
+    if (!overlay)
+        return;
+    if (overlay->speedrun) {
+        const double now = seconds();
+        if (overlay->timer.phase() == Phase::running) {
+            overlay->note("session ended during run " + std::to_string(overlay->runs));
+            overlay->save(false, overlay->timer.real(now), overlay->timer.wins());
+        }
+        overlay->note("session closed");
+    }
+    if (overlay->own_font)
+        UnloadFont(overlay->font);
+    overlay->own_font = overlay->own_label = false;
+}
+}
+
+void install_overlay(PS2Runtime &runtime, OverlayOptions options) {
+    overlay = std::make_unique<Overlay>();
+    overlay->speedrun = options.category != Category::off;
+    overlay->options = std::move(options);
+    if (overlay->speedrun) {
+        overlay->book = SplitBook::load(overlay->options.splits);
+        overlay->log.open(overlay->options.logs / ("run-" + file_stamp() + ".log"), "OpenKai2 speedrun log");
+        for (const auto &line : overlay->options.header)
+            overlay->log.write(line);
+        for (const auto &problem : overlay->options.problems)
+            overlay->flag(problem);
+        overlay->watchdog = std::make_unique<Watchdog>();
+        overlay->livesplit = std::make_unique<LiveSplit>();
+        std::cout << "[speedrun] log=" << overlay->log.path().string()
+                  << " splits=" << overlay->options.splits.string() << std::endl;
+    }
+    runtime.setDebugUiCallbacks(start, draw, shutdown, nullptr);
+}
+
+bool reset_requested() { return reset; }
+
+}

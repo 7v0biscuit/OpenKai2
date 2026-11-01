@@ -2,6 +2,7 @@
 #pragma once
 #include <filesystem>
 #include <string>
+#include "speedrun_items.h"
 
 namespace openkai2::launcher {
 struct Settings {
@@ -22,6 +23,11 @@ struct Settings {
     std::string renderer = "auto";
     int windowLeft = 0, windowTop = 0, windowWidth = 0, windowHeight = 0;
     bool windowMaximized = false;
+    unsigned speedrun = 0;
+    bool permadeath = false;
+    bool fpsCounter = false;
+    unsigned overlayItems = speedrun::overlay_defaults;
+    unsigned overlayCorner = 0, overlaySize = 1, overlayBackground = 1, overlaySplits = 1;
 };
 std::filesystem::path settings_path();
 Settings read_settings(const std::filesystem::path &file);

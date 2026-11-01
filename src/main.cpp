@@ -12,6 +12,9 @@
 #include "graphics_settings.h"
 #include "launcher/settings.h"
 #include "launcher/session.h"
+#include "launcher/version.h"
+#include "speedrun_host.h"
+#include "speedrun_overlay.h"
 #ifdef _WIN32
 #include "launcher/window.h"
 #endif
@@ -21,6 +24,7 @@
 #include "render/gpu_checks.h"
 #include "runtime_layout.h"
 #include "ps2_runtime.h"
+#include <algorithm>
 #include <exception>
 #include <cstdlib>
 #include <fstream>
@@ -108,7 +112,7 @@ void usage() {
 
 int main(int argc, char* argv[]) {
     StartupLog log;
-    bool interactive=false;
+    bool interactive=false, restart=false;
     try {
         openkai2::launcher::Settings preferences;
         try { preferences=openkai2::launcher::read_settings(openkai2::launcher::settings_path()); }
@@ -199,7 +203,41 @@ int main(int argc, char* argv[]) {
         std::cout << "[disc] Verified " << disc.files.size() << " files (" << disc.bytes_verified
                   << " bytes); refreshed " << disc.files_repaired << " cached files.\n"
                   << "[disc] ISO SHA-256: " << disc.image_sha256 << std::endl;
+        const auto category=openkai2::speedrun::Category(preferences.speedrun);
+        const bool speedrun=category!=openkai2::speedrun::Category::off;
         PS2Runtime runtime;
+        if (speedrun || preferences.fpsCounter) {
+            namespace run=openkai2::speedrun;
+            run::OverlayOptions overlay;
+            overlay.category=category;
+            overlay.permadeath=speedrun && preferences.permadeath;
+            overlay.fps_counter=preferences.fpsCounter;
+            overlay.items=preferences.overlayItems;
+            overlay.corner=preferences.overlayCorner;
+            overlay.size=preferences.overlaySize;
+            overlay.background=preferences.overlayBackground;
+            overlay.split_rows=run::overlay_split_rows[std::min(preferences.overlaySplits,3u)];
+            overlay.logs=log.path.parent_path()/"speedruns";
+            overlay.splits=log.path.parent_path().parent_path()/"splits"/
+                (std::string(category==run::Category::any ? "any" : "ngplus")+(overlay.permadeath ? "-permadeath" : "")+".txt");
+            if (speedrun) {
+                std::vector<run::DiscFileHash> hashes;
+                for (const auto& file : disc.files) hashes.push_back({file.path.generic_string(),file.sha256});
+                overlay.problems=run::check_game_files(hashes);
+                const auto exe=run::executable_path();
+                overlay.header={
+                    std::string("OpenKai2 ")+openkai2::launcher::application_version+" source "+OPENKAI2_SOURCE_REVISION,
+                    "executable sha256 "+(exe.empty() ? std::string("unknown") : openkai2::sha256_file(exe)),
+                    "iso sha256 "+disc.image_sha256,
+                    std::string("game executable sha256 ")+openkai2::retail_elf_sha256+" (US retail)",
+                    std::string("game data ")+(overlay.problems.empty() ? "matches the US retail disc" : "differs from the US retail disc"),
+                    std::string("category ")+run::category_name(category)+(overlay.permadeath ? " permadeath" : ""),
+                    "timing: starts when Dragon World starts, ends on the last hit of Kid Buu",
+                    "renderer "+openkai2::renderer_preference()+" fps_limit "+std::to_string(openkai2::window_fps_limit())+
+                        " size "+std::to_string(display.width)+"x"+std::to_string(display.height)+" mods off"};
+            }
+            run::install_overlay(runtime,std::move(overlay));
+        }
         if (!runtime.initialize("OpenKai2 | Dragon Ball Z: Budokai 2"))
             throw std::runtime_error("Runtime initialization failed; see the startup log");
         if (!runtime.loadELF(disc.executable.string()))
@@ -208,7 +246,9 @@ int main(int argc, char* argv[]) {
         paths.cdImage=std::filesystem::absolute(image);
         PS2Runtime::setIoPaths(paths);
         const auto modsDirectory=openkai2::mods::default_mods_directory();
-        const auto mods=openkai2::mods::enabled_mod_folders(modsDirectory);
+        const auto mods=speedrun ? std::vector<std::filesystem::path>{} : openkai2::mods::enabled_mod_folders(modsDirectory);
+        if (speedrun) std::cout << "[speedrun] " << openkai2::speedrun::category_name(category)
+                                << " run: mods are off" << std::endl;
         const auto applied=openkai2::mods::DiscOverlay::global().configure(paths.cdImage,mods);
         std::cout << "[mods] directory=" << modsDirectory.string() << " enabled=" << mods.size()
                   << " replaced_files=" << applied.replaced_files << " replaced_entries=" << applied.replaced_entries
@@ -234,7 +274,7 @@ int main(int argc, char* argv[]) {
         openkai2::mods::install_alternates(runtime.memory().getRDRAM(),PS2_RAM_SIZE,std::move(alternates));
         presence.update("Playing Budokai 2","In game");
         runtime.run();
-        return 0;
+        restart=openkai2::speedrun::reset_requested();
     } catch (const std::exception& error) {
         std::cerr << "[OpenKai2] " << error.what() << std::endl;
 #ifdef _WIN32
@@ -245,4 +285,9 @@ int main(int argc, char* argv[]) {
 #endif
         return 1;
     }
+    if (restart) {
+        std::cout << "[speedrun] restarting" << std::endl;
+        return openkai2::speedrun::relaunch(argc,argv) ? 0 : 1;
+    }
+    return 0;
 }

@@ -41,6 +41,12 @@ function(openkai2_attach_generated_sources)
     if(WIN32)
         target_link_libraries(openkai2_disc PUBLIC bcrypt)
     endif()
+    add_library(openkai2_speedrun STATIC "${project_root}/src/speedrun.cpp" "${project_root}/src/speedrun_host.cpp")
+    target_link_libraries(openkai2_speedrun PUBLIC openkai2_disc)
+    if(WIN32)
+        target_link_libraries(openkai2_speedrun PUBLIC ws2_32)
+    endif()
+    target_link_libraries(ps2EntryRunner PRIVATE openkai2_speedrun)
     add_library(openkai2_launcher_model STATIC "${project_root}/src/launcher/settings.cpp"
         "${project_root}/src/launcher/saves.cpp" "${project_root}/src/launcher/content_unlock.cpp" "${project_root}/src/launcher/session.cpp" "${project_root}/src/launcher/update.cpp")
     target_link_libraries(openkai2_launcher_model PUBLIC openkai2_disc)
@@ -519,7 +525,7 @@ function(openkai2_attach_generated_sources)
         target_link_libraries(ps2EntryRunner PRIVATE comdlg32)
     endif()
     target_link_libraries(ps2EntryRunner PRIVATE openkai2_vector_checks openkai2_gpu_checks)
-    target_sources(ps2EntryRunner PRIVATE ${generated_sources} "${project_root}/src/main.cpp"
+    target_sources(ps2EntryRunner PRIVATE ${generated_sources} "${project_root}/src/main.cpp" "${project_root}/src/speedrun_overlay.cpp"
         "${project_root}/src/runtime_checks.cpp" "${project_root}/src/content_unlock_checks.cpp" "${project_root}/src/ee_branch_checks.cpp" "${project_root}/src/stream_checks.cpp"
         "${project_root}/src/sound_transfer_checks.cpp" "${project_root}/src/asset_checks.cpp"
         "${project_root}/src/draw_setup_checks.cpp" "${project_root}/src/battle_command_checks.cpp" "${project_root}/src/battle_update_checks.cpp" "${project_root}/src/fight_state_checks.cpp" "${project_root}/src/attack_effect_checks.cpp" "${project_root}/src/impact_effect_checks.cpp" "${project_root}/src/actor_command_checks.cpp" "${project_root}/src/pause_menu_checks.cpp" "${project_root}/src/select_screen_checks.cpp" "${project_root}/src/story_checks.cpp" "${project_root}/src/animation_checks.cpp" "${project_root}/src/aura_checks.cpp" "${project_root}/src/fade_checks.cpp" "${project_root}/src/movie_checks.cpp" "${project_root}/src/mpeg_checks.cpp"
@@ -528,7 +534,7 @@ function(openkai2_attach_generated_sources)
     # preserves the existing translation batches during incremental builds.
     set_source_files_properties("$ENV{OPENKAI2_WORK_DIR}/budokai2-native/output/entry_109390_0x1093f8.cpp"
         TARGET_DIRECTORY ps2EntryRunner PROPERTIES SKIP_UNITY_BUILD_INCLUSION TRUE)
-    set_source_files_properties("${project_root}/src/main.cpp" "${project_root}/src/runtime_checks.cpp" "${project_root}/src/content_unlock_checks.cpp" "${project_root}/src/ee_branch_checks.cpp"
+    set_source_files_properties("${project_root}/src/main.cpp" "${project_root}/src/speedrun_overlay.cpp" "${project_root}/src/runtime_checks.cpp" "${project_root}/src/content_unlock_checks.cpp" "${project_root}/src/ee_branch_checks.cpp"
         "${project_root}/src/stream_checks.cpp" "${project_root}/src/sound_transfer_checks.cpp" "${project_root}/src/asset_checks.cpp"
         "${project_root}/src/draw_setup_checks.cpp" "${project_root}/src/battle_command_checks.cpp" "${project_root}/src/battle_update_checks.cpp" "${project_root}/src/fight_state_checks.cpp" "${project_root}/src/attack_effect_checks.cpp" "${project_root}/src/impact_effect_checks.cpp" "${project_root}/src/actor_command_checks.cpp" "${project_root}/src/pause_menu_checks.cpp" "${project_root}/src/select_screen_checks.cpp" "${project_root}/src/story_checks.cpp" "${project_root}/src/animation_checks.cpp" "${project_root}/src/aura_checks.cpp" "${project_root}/src/fade_checks.cpp" "${project_root}/src/movie_checks.cpp" "${project_root}/src/mpeg_checks.cpp"
         "${project_root}/src/mpeg_decode_checks.cpp"

@@ -391,6 +391,12 @@ std::string sha256_file(const std::filesystem::path& file) {
     return digest.finish();
 }
 
+std::string sha256_text(const std::string& text) {
+    Sha256 digest;
+    digest.update(reinterpret_cast<const uint8_t*>(text.data()),text.size());
+    return digest.finish();
+}
+
 DiscMount prepare_disc(const std::filesystem::path& image, const std::filesystem::path& cache,
                        const DiscOptions& options) {
     if (!std::filesystem::is_regular_file(image)) fail("Game ISO is required; a cached extraction cannot replace it");

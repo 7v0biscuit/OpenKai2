@@ -81,6 +81,14 @@ int main() {
         s.windowWidth = 1180;
         s.windowHeight = 760;
         s.windowMaximized = true;
+        s.speedrun = 2;
+        s.permadeath = true;
+        s.fpsCounter = true;
+        s.overlayItems = 0x5u;
+        s.overlayCorner = 3;
+        s.overlaySize = 2;
+        s.overlayBackground = 0;
+        s.overlaySplits = 3;
         write_settings(root / "settings.ini", s);
         auto read = read_settings(root / "settings.ini");
         require(read.iso == s.iso && read.fps == 144 && read.width == 2560 && read.height == 1440 &&
@@ -89,13 +97,23 @@ int main() {
                     !read.audio && read.volume == 75 &&
                     read.renderer == "gpu" && !read.autoUpdates && read.updateChannel == 0 &&
                     read.importIso == s.importIso && read.windowLeft == -1200 && read.windowTop == 40 &&
-                    read.windowWidth == 1180 && read.windowHeight == 760 && read.windowMaximized,
+                    read.windowWidth == 1180 && read.windowHeight == 760 && read.windowMaximized &&
+                    read.speedrun == 2 && read.permadeath && read.fpsCounter && read.overlayItems == 0x5u &&
+                    read.overlayCorner == 3 && read.overlaySize == 2 && read.overlayBackground == 0 &&
+                    read.overlaySplits == 3,
                 "Settings roundtrip changed values");
         require(read_settings(root / "absent.ini").fps == 240, "Default frame rate cap is not 240 FPS");
         require(read_settings(root / "absent.ini").audio && read_settings(root / "absent.ini").volume == 100,
                 "Game audio is not on at full volume by default");
         s.volume = 101;
         rejects([&] { write_settings(root / "settings.ini", s); });
+        s.volume = 75;
+        s.speedrun = 3;
+        rejects([&] { write_settings(root / "settings.ini", s); });
+        s.speedrun = 2;
+        s.overlayCorner = 4;
+        rejects([&] { write_settings(root / "settings.ini", s); });
+        s.overlayCorner = 3;
         s.volume = 75;
         auto original = bytes(root / "settings.ini");
         s.fps = 241;

@@ -63,7 +63,7 @@ constexpr COLORREF heroFrom = RGB(64, 24, 8), heroTo = RGB(15, 17, 31);
 constexpr int sidebarWidth = 220, contentLeft = 252, margin = 32;
 constexpr int heroTop = 124, heroBottom = 316, discTop = 332, discBottom = 420;
 constexpr int tilesTop = 436, tilesBottom = 516, keysTop = 540;
-constexpr int displayTop = 124, graphicsTop = 296, updatesTop = 468;
+constexpr int displayTop = 112, graphicsTop = 278, updatesTop = 444, speedrunTop = 558;
 
 enum Id {
     PlayTab = 101,
@@ -103,6 +103,9 @@ enum Id {
     DiscordActivity = 174,
     SaveListKind = 175,
     SelectSaves = 176,
+    SpeedrunMode = 177,
+    Permadeath = 178,
+    FpsCounter = 179,
     ModList = 180,
     ModToggle,
     ModUp,
@@ -130,9 +133,18 @@ enum Id {
     SpotMode = 218,
     TaskCapsules = 219,
     SaveReport = 220,
-    SourceLast = 221
+    SourceLast = 221,
+    OpenOverlay = 222,
+    CloseOverlay,
+    OverlayItems,
+    OverlayToggle,
+    OverlayCorner,
+    OverlaySize,
+    OverlayBackground,
+    OverlaySplits,
+    OverlayDefaults
 };
-constexpr int pageCount = 4, modsPage = 2, settingsPage = 3, importPage = 4;
+constexpr int pageCount = 4, modsPage = 2, settingsPage = 3, importPage = 4, overlayPage = 5;
 constexpr std::array<unsigned, 4> audioVolumes{100u, 75u, 50u, 25u};
 int audioChoice(const Settings &settings) {
     if (!settings.audio)
@@ -539,13 +551,15 @@ struct Window {
     std::wstring status = L"Choose your Budokai 2 ISO to get started.";
     int p(int n) const { return MulDiv(n, int(dpi), 96); }
     int unscale(int n) const { return MulDiv(n, 96, int(dpi)); }
+    int navigationPage() const { return page == importPage ? modsPage : page == overlayPage ? settingsPage : page; }
     bool busy() const { return task.valid(); }
     bool updating() const { return updateTask.valid(); }
     bool running() const { return child || externalGame; }
     bool dropdownOpen() const {
         for (auto [id, control] : controls)
             if ((id >= Renderer && id <= Audio) || id == UpdateChannel || id == AutomaticUpdates ||
-                id == SaveListKind || id == DiscordActivity || id == TargetMod || id == SpotMode)
+                id == SaveListKind || id == DiscordActivity || id == TargetMod || id == SpotMode ||
+                (id >= SpeedrunMode && id <= FpsCounter) || (id >= OverlayCorner && id <= OverlaySplits))
                 if (SendMessageW(control, CB_GETDROPPEDSTATE, 0, 0)) return true;
         return false;
     }
@@ -737,6 +751,10 @@ struct Window {
                                                           {InstallUpdate, L"Install"},
                                                           {ReleasePage, L"Release notes"},
                                                           {ResetGraphics, L"Restore defaults"},
+                                                          {OpenOverlay, L"Customize overlay…"},
+                                                          {CloseOverlay, L"Back to settings"},
+                                                          {OverlayToggle, L"Show / hide"},
+                                                          {OverlayDefaults, L"Restore defaults"},
                                                           {ClearImage, L"Crisp preset"},
                                                           {ChooseIso, L"Choose ISO…"},
                                                           {VerifyIso, L"Verify"},
@@ -778,6 +796,13 @@ struct Window {
         combo(AutoBackup, {L"Off", L"On"}, settings.autoBackups ? 1 : 0);
         combo(DiscordActivity,{L"Off",L"On"},settings.discordPresence ? 1 : 0);
         combo(SaveListKind,{L"Backups",L"Game saves"},0);
+        combo(SpeedrunMode, {L"Off", L"Any%", L"NG+"}, int(settings.speedrun));
+        combo(Permadeath, {L"Off", L"On"}, settings.permadeath ? 1 : 0);
+        combo(FpsCounter, {L"Off", L"On"}, settings.fpsCounter ? 1 : 0);
+        combo(OverlayCorner, {L"Top left", L"Top right", L"Bottom left", L"Bottom right"}, int(settings.overlayCorner));
+        combo(OverlaySize, {L"Small", L"Medium", L"Large"}, int(settings.overlaySize));
+        combo(OverlayBackground, {L"None", L"Light", L"Dark"}, int(settings.overlayBackground));
+        combo(OverlaySplits, {L"3 splits", L"5 splits", L"8 splits", L"12 splits"}, int(settings.overlaySplits));
         combo(Aspect, {L"4:3 (original)", L"16:9 (widescreen)", L"Stretch to window", L"Native pixels"},
               int(settings.aspect));
         combo(Audio, {L"Off", L"100% volume", L"75% volume", L"50% volume", L"25% volume"},
@@ -795,6 +820,8 @@ struct Window {
             reinterpret_cast<LONG_PTR>(save_list_procedure)));
         SetPropW(controls[BackupList], L"OpenKai2.SaveListProcedure", reinterpret_cast<HANDLE>(originalList));
         list(ModList, L"Mods", 40, false);
+        list(OverlayItems, L"Overlay items", 36, false);
+        refreshOverlayItems();
         list(ModContents, L"Mod contents", 30, false);
         list(SourceFiles, L"Source files", 30, false);
         list(TargetList, L"Import target", 30, false);
@@ -861,6 +888,7 @@ struct Window {
                              !stageProblem(size_t(SendMessageW(controls[SourceFiles], LB_GETCURSEL, 0, 0))));
         EnableWindow(controls[ImportSelected], modding && picked);
         EnableWindow(controls[Resolution], settings.windowMode == 0);
+        EnableWindow(controls[Permadeath], settings.speedrun != 0);
         for (int id : {UpdateChannel, AutomaticUpdates, CheckUpdates, InstallUpdate})
             EnableWindow(controls[id], !updating() &&
                          (id != InstallUpdate || (!busy() && !running() &&
@@ -925,6 +953,17 @@ struct Window {
             const int name = std::max(120, right - 20 - 120 - 10 - (x + 6));
             position(ModName, right - 20 - 120 - 10 - name + 10, panelBottom - 44, name - 20, 22);
             position(ModCreate, right - 20 - 120, panelBottom - 52, 120, 36);
+        } else if (page == overlayPage) {
+            const int panelBottom = h - 64, half = (content - 52) / 2, side = contentLeft + 32 + half;
+            position(CloseOverlay, right - 20 - 150, 136, 150, 34);
+            position(OverlayItems, contentLeft + 20, 228, half, std::max(120, panelBottom - 68 - 228));
+            position(OverlayToggle, contentLeft + 20, panelBottom - 52, 130, 36);
+            position(OverlayDefaults, contentLeft + 160, panelBottom - 52, 150, 36);
+            const int column = (content - 52 - half - 12) / 2;
+            position(OverlayCorner, side, 246, column, 34);
+            position(OverlaySize, side + column + 12, 246, column, 34);
+            position(OverlayBackground, side, 314, column, 34);
+            position(OverlaySplits, side + column + 12, 314, column, 34);
         } else if (page == importPage) {
             const int listsBottom = h - 210, targetTop = listsBottom + 12;
             int x = contentLeft + 20;
@@ -975,6 +1014,10 @@ struct Window {
             position(InstallUpdate, grid.x(2) + half + 10, Grid::field(updatesTop, 0),
                      grid.column - half - 10, 34);
             position(ReleasePage, right - 20 - 116, updatesTop + 10, 116, 28);
+            position(SpeedrunMode, grid.x(0), Grid::field(speedrunTop, 0), grid.column, 34);
+            position(Permadeath, grid.x(1), Grid::field(speedrunTop, 0), grid.column, 34);
+            position(FpsCounter, grid.x(2), Grid::field(speedrunTop, 0), grid.column, 34);
+            position(OpenOverlay, right - 20 - 170, speedrunTop + 10, 170, 28);
         }
         HWND previous = HWND_TOP;
         for (auto id : order) {
@@ -1003,7 +1046,7 @@ struct Window {
         buffer.frame.ball(p(38), p(48), p(15), {0, 0, p(sidebarWidth), p(h)});
         lettering(dc, L"OpenKai2", p(64), p(46), fonts.mark, ink, RGB(6, 7, 12), p(1));
         text(dc, L"Budokai 2 for PC", 64, 52, 150, 18, fonts.caption, muted);
-        const int chosen = page == importPage ? modsPage : page;
+        const int chosen = navigationPage();
         const RECT row{p(12), p(104 + chosen * 58), p(sidebarWidth - 12), p(154 + chosen * 58)};
         const int span = std::max(1L, row.right - row.left);
         cutShape(dc, row, cut(12), [&](int x, int) {
@@ -1025,13 +1068,14 @@ struct Window {
         text(dc, L"v" + wide(application_version), 24, h - 38, sidebarWidth - 48, 18, fonts.caption, faint);
     }
     void paintHeader(HDC dc, int w, int content) {
-        const wchar_t *titles[] = {L"Play", L"Saves", L"Mods", L"Settings", L"Import tool"};
+        const wchar_t *titles[] = {L"Play", L"Saves", L"Mods", L"Settings", L"Import tool", L"Speedrun overlay"};
         const wchar_t *subtitles[] = {
             L"",
             L"Import, back up and restore your memory card.",
             L"Characters, movesets and stages layered over your disc. Your ISO is never changed.",
             L"Saved automatically. Game settings apply at the next launch.",
-            L"Add characters, stages and movesets from other Dragon Ball Z games. Nothing in Budokai 2 is removed."};
+            L"Add characters, stages and movesets from other Dragon Ball Z games. Nothing in Budokai 2 is removed.",
+            L"Pick what the in-game overlay shows. Splits, deltas and best times are tracked for you."};
         lettering(dc, titles[page], p(contentLeft), p(60), fonts.title, ink, RGB(6, 7, 12), p(2));
         text(dc, subtitles[page], contentLeft, 72, content, 20, fonts.caption, muted,
              DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
@@ -1211,6 +1255,117 @@ struct Window {
                  DT_CENTER | DT_WORDBREAK | DT_NOPREFIX);
         }
         editFrame(dc, ModName);
+    }
+    void refreshOverlayItems() {
+        const auto list = controls[OverlayItems];
+        const auto chosen = SendMessageW(list, LB_GETCURSEL, 0, 0);
+        SendMessageW(list, LB_RESETCONTENT, 0, 0);
+        for (unsigned i = 0; i < speedrun::overlay_item_count; ++i) {
+            const auto &item = speedrun::overlay_item_text[i];
+            const std::wstring row = std::wstring((settings.overlayItems >> i) & 1u ? L"On" : L"Off") + L" \u00b7 " +
+                                     item.name + L" \u00b7 " + item.about;
+            SendMessageW(list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(row.c_str()));
+        }
+        SendMessageW(list, LB_SETCURSEL, chosen, 0);
+    }
+    void saveOverlay(const std::wstring &message) {
+        auto next = settings;
+        next.overlayCorner = unsigned(selected(OverlayCorner));
+        next.overlaySize = unsigned(selected(OverlaySize));
+        next.overlayBackground = unsigned(selected(OverlayBackground));
+        next.overlaySplits = unsigned(selected(OverlaySplits));
+        write_settings(settings_path(), next);
+        settings = std::move(next);
+        status = message;
+        error = false;
+        InvalidateRect(hwnd, nullptr, FALSE);
+    }
+    void paintOverlay(HDC dc, int h, int content) {
+        const int right = contentLeft + content, panelBottom = h - 64, half = (content - 52) / 2;
+        const int side = contentLeft + 32 + half, column = (content - 52 - half - 12) / 2;
+        panelBox(dc, contentLeft, 124, right, 196);
+        text(dc, L"Tracked automatically", contentLeft + 20, 136, content - 200, 22, fonts.strong);
+        text(dc, L"Splits happen on each battle won. Your best run, best segments and every attempt are saved after each run. "
+                 L"In game: F7 hides the overlay, F8 resets.",
+             contentLeft + 20, 160, content - 200, 32, fonts.caption, muted, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
+        panelBox(dc, contentLeft, 208, right, panelBottom);
+        caps(dc, L"SHOWN IN GAME", contentLeft + 20, 212, half);
+        caps(dc, L"POSITION", side, 228, 200);
+        caps(dc, L"SIZE", side + column + 12, 228, 200);
+        caps(dc, L"BACKGROUND", side, 296, 200);
+        caps(dc, L"SPLIT LIST", side + column + 12, 296, 200);
+        caps(dc, L"PREVIEW", side, 366, 200);
+
+        const int previewWidth = right - 20 - side;
+        const int previewHeight = std::max(80, std::min(previewWidth * 9 / 16, panelBottom - 20 - 386));
+        const RECT screen{p(side), p(386), p(side + previewWidth), p(386 + previewHeight)};
+        const int span = std::max(1L, screen.bottom - screen.top);
+        for (int y = screen.top; y < screen.bottom; ++y)
+            fill(dc, {screen.left, y, screen.right, y + 1},
+                 mix(RGB(70, 120, 190), RGB(46, 80, 40), (y - screen.top) * 255 / span));
+        const unsigned items = settings.overlayItems;
+        std::vector<std::pair<std::wstring, std::wstring>> rows;
+        if (items & speedrun::overlay_bit(speedrun::show_status))
+            rows.push_back({settings.speedrun == 2 ? L"NG+" : L"Any%", L"Verified"});
+        if (items & speedrun::overlay_bit(speedrun::show_splits)) {
+            const unsigned shown = speedrun::overlay_split_rows[std::min(settings.overlaySplits, 3u)];
+            for (unsigned i = 0; i < std::min(shown, 4u); ++i)
+                rows.push_back({L"Battle " + std::to_wstring(i + 1), i < 2 ? (i ? L"+0.84" : L"-1.20") : L""});
+        }
+        const bool big = items & speedrun::overlay_bit(speedrun::show_timer);
+        const wchar_t *names[] = {L"", L"", L"Segment", L"Previous segment", L"Possible time save", L"Best possible time",
+                                  L"Sum of best", L"Personal best", L"PS2 time", L"Attempts", L""};
+        std::vector<std::wstring> info;
+        for (unsigned i = speedrun::show_segment; i <= speedrun::show_attempts; ++i)
+            if (items & (1u << i))
+                info.push_back(names[i]);
+        const int scale[] = {85, 100, 125};
+        const int unit = std::max(1, previewHeight * scale[std::min(settings.overlaySize, 2u)] / 100);
+        const int row = std::max(5, unit / 22), timer = big ? row * 2 : 0;
+        const int boxWidth = std::max(40, previewWidth * 23 / 100 * scale[std::min(settings.overlaySize, 2u)] / 100);
+        const int boxHeight = int(rows.size() + info.size()) * row + timer + 8;
+        if (!rows.empty() || !info.empty() || big) {
+            const int corner = int(settings.overlayCorner);
+            const int left = corner % 2 ? screen.right - p(8) - p(boxWidth) : screen.left + p(8);
+            const int top = corner < 2 ? screen.top + p(8) : screen.bottom - p(8) - p(boxHeight);
+            RECT frame{left, top, left + p(boxWidth), top + p(boxHeight)};
+            if (settings.overlayBackground)
+                box(dc, frame, mix(RGB(60, 90, 120), RGB(8, 9, 14), settings.overlayBackground == 1 ? 120 : 210),
+                    mix(RGB(60, 90, 120), RGB(8, 9, 14), 90), 6);
+            int y = top + p(4);
+            auto bar = [&](int width, COLORREF color) {
+                fill(dc, {frame.left + p(5), y + p(row) / 3, frame.left + p(5) + p(width), y + p(row) * 2 / 3}, color);
+            };
+            for (const auto &[name, delta] : rows) {
+                bar(boxWidth * 2 / 5, mix(ink, RGB(20, 20, 20), 80));
+                if (!delta.empty())
+                    fill(dc, {frame.right - p(boxWidth / 2), y + p(row) / 3, frame.right - p(boxWidth / 3), y + p(row) * 2 / 3},
+                         delta[0] == L'-' ? green : red);
+                fill(dc, {frame.right - p(boxWidth / 4), y + p(row) / 3, frame.right - p(5), y + p(row) * 2 / 3},
+                     mix(ink, RGB(20, 20, 20), 120));
+                y += p(row);
+            }
+            if (big) {
+                fill(dc, {frame.right - p(boxWidth * 3 / 5), y + p(timer) / 5, frame.right - p(5), y + p(timer) * 4 / 5}, green);
+                y += p(timer);
+            }
+            for (size_t i = 0; i < info.size(); ++i) {
+                bar(boxWidth / 3, mix(muted, RGB(20, 20, 20), 60));
+                fill(dc, {frame.right - p(boxWidth / 4), y + p(row) / 3, frame.right - p(5), y + p(row) * 2 / 3},
+                     mix(ink, RGB(20, 20, 20), 120));
+                y += p(row);
+            }
+        }
+        if (settings.fpsCounter) {
+            const int corner = int(settings.overlayCorner);
+            const int width = std::max(12, previewWidth / 14);
+            const int left = corner % 2 ? screen.left + p(8) : screen.right - p(8) - p(width);
+            fill(dc, {left, screen.top + p(8), left + p(width), screen.top + p(8) + p(std::max(3, row * 2 / 3))},
+                 mix(ink, RGB(20, 20, 20), 100));
+        }
+        text(dc, settings.speedrun ? L"Speedrun mode is on." : L"Speedrun mode is off. Turn it on in Settings to use the overlay.",
+             side, 386 + previewHeight + 8, previewWidth, 18, fonts.caption, settings.speedrun ? muted : gold,
+             DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
     }
     void paintImport(HDC dc, int h, int content) {
         const int right = contentLeft + content, listsBottom = h - 210, targetTop = listsBottom + 12;
@@ -1425,7 +1580,7 @@ struct Window {
         auto section = [&](int top, int rows, const wchar_t *title, const std::wstring &note, COLORREF tone) {
             panelBox(dc, contentLeft, top, right, top + 44 + rows * 56 + 4);
             text(dc, title, contentLeft + 20, top + 12, 200, 22, fonts.strong);
-            text(dc, note, contentLeft + 120, top + 14, content - 140 - (top == updatesTop ? 130 : 0), 18,
+            text(dc, note, contentLeft + 120, top + 14, content - 140 - (top == updatesTop ? 130 : top == speedrunTop ? 184 : 0), 18,
                  fonts.caption, tone, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
         };
         auto label = [&](int top, int row, int column, const wchar_t *value) {
@@ -1459,6 +1614,14 @@ struct Window {
         label(updatesTop, 0, 0, L"CHANNEL");
         label(updatesTop, 0, 1, L"AUTOMATIC UPDATES");
         label(updatesTop, 0, 2, L"MANUAL CHECK");
+
+        section(speedrunTop, 1, L"Speedrun",
+                settings.speedrun ? L"Timer starts with Dragon World and stops on Kid Buu's last hit. Mods are off; F8 resets."
+                                  : L"Automatic splits, best times, run checks and a log for speedrun.com submissions",
+                muted);
+        label(speedrunTop, 0, 0, L"SPEEDRUN MODE");
+        label(speedrunTop, 0, 1, L"PERMADEATH");
+        label(speedrunTop, 0, 2, L"FPS COUNTER");
     }
     void paint() {
         PAINTSTRUCT ps{};
@@ -1494,6 +1657,8 @@ struct Window {
             paintMods(memory, h, content);
         else if (page == importPage)
             paintImport(memory, h, content);
+        else if (page == overlayPage)
+            paintOverlay(memory, h, content);
         else
             paintSettings(memory, content);
         const int footer = h - 34;
@@ -1580,7 +1745,7 @@ struct Window {
             dc = canvas.dc;
             const int id = int(item.CtlID);
             const bool navigation = id >= PlayTab && id <= SettingsTab;
-            const bool chosen = navigation && id == PlayTab + (page == importPage ? modsPage : page);
+            const bool chosen = navigation && id == PlayTab + navigationPage();
             const bool primary = id == Play;
             const bool taskChoice = (id == TaskCharacters && importTask == Task::characters) ||
                                     (id == TaskStages && importTask == Task::stages) ||
@@ -2576,7 +2741,7 @@ struct Window {
     }
     void timer() {
         presence.enable(settings.discordPresence);
-        const char* pages[]={"Choosing a game","Managing saves","Managing mods","Configuring settings","Importing mods"};
+        const char* pages[]={"Choosing a game","Managing saves","Managing mods","Configuring settings","Importing mods","Setting up a speedrun"};
         presence.update(running()?"Playing Budokai 2":"In launcher",running()?"In game":pages[page]);
         if(presence.status()!=lastPresenceStatus && !dropdownOpen()) {
             lastPresenceStatus=presence.status();InvalidateRect(hwnd,nullptr,FALSE);
@@ -2810,6 +2975,9 @@ struct Window {
         next.vsync = selected(Vsync) != 0;
         next.autoBackups = selected(AutoBackup) != 0;
         next.discordPresence=selected(DiscordActivity)!=0;
+        next.speedrun = unsigned(selected(SpeedrunMode));
+        next.permadeath = selected(Permadeath) != 0;
+        next.fpsCounter = selected(FpsCounter) != 0;
         next.aspect = unsigned(selected(Aspect));
         if (const int choice = selected(Audio); choice > 0) {
             next.audio = true;
@@ -2862,12 +3030,19 @@ struct Window {
                     L" selected. Ctrl+click or Shift+click selects several; Ctrl+A selects all.";
             refreshEnabled(); return;
         }
-        if (((id >= Renderer && id <= Audio) || id == DiscordActivity) && notification == CBN_SELCHANGE) {
+        if (((id >= Renderer && id <= Audio) || id == DiscordActivity || (id >= SpeedrunMode && id <= FpsCounter)) &&
+            notification == CBN_SELCHANGE) {
             saveOptions();
             if (id == DiscordActivity) {
                 presence.enable(settings.discordPresence);
                 status = L"Discord activity preference saved.";
             }
+            if (id == SpeedrunMode || id == Permadeath)
+                status = settings.speedrun
+                             ? std::wstring(L"Speedrun mode: ") + (settings.speedrun == 1 ? L"Any%" : L"NG+") +
+                                   (settings.permadeath ? L" with permadeath" : L"") +
+                                   L". Mods stay off while it is on; logs go to the logs\\speedruns folder."
+                             : L"Speedrun mode is off.";
             refreshEnabled();
             return;
         }
@@ -2976,6 +3151,45 @@ struct Window {
             const auto folder = mods::default_mods_directory();
             std::filesystem::create_directories(folder);
             ShellExecuteW(hwnd, L"open", folder.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+            return;
+        }
+        if (id == OpenOverlay && notification == BN_CLICKED) {
+            page = overlayPage;
+            refreshOverlayItems();
+            layout();
+            return;
+        }
+        if (id == CloseOverlay && notification == BN_CLICKED) {
+            page = settingsPage;
+            layout();
+            return;
+        }
+        if ((id == OverlayToggle && notification == BN_CLICKED) || (id == OverlayItems && notification == LBN_DBLCLK)) {
+            const auto row = SendMessageW(controls[OverlayItems], LB_GETCURSEL, 0, 0);
+            if (row < 0 || row >= LRESULT(speedrun::overlay_item_count)) {
+                status = L"Choose an item to show or hide.";
+                return;
+            }
+            settings.overlayItems ^= 1u << unsigned(row);
+            const bool on = (settings.overlayItems >> unsigned(row)) & 1u;
+            refreshOverlayItems();
+            saveOverlay(std::wstring(speedrun::overlay_item_text[row].name) + (on ? L" is shown." : L" is hidden."));
+            return;
+        }
+        if (id >= OverlayCorner && id <= OverlaySplits && notification == CBN_SELCHANGE) {
+            saveOverlay(L"Overlay layout saved.");
+            return;
+        }
+        if (id == OverlayDefaults && notification == BN_CLICKED) {
+            const Settings defaults;
+            settings.overlayItems = defaults.overlayItems;
+            for (auto [control, value] : {std::pair<int, unsigned>{OverlayCorner, defaults.overlayCorner},
+                                          {OverlaySize, defaults.overlaySize},
+                                          {OverlayBackground, defaults.overlayBackground},
+                                          {OverlaySplits, defaults.overlaySplits}})
+                SendMessageW(controls[control], CB_SETCURSEL, value, 0);
+            refreshOverlayItems();
+            saveOverlay(L"Overlay restored to its defaults.");
             return;
         }
         if (id == CloseImporter) {
@@ -3328,7 +3542,7 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
             return 0;
         case WM_GETMINMAXINFO: {
             auto *limits = reinterpret_cast<MINMAXINFO *>(lp);
-            limits->ptMinTrackSize = {self->p(1000), self->p(680)};
+            limits->ptMinTrackSize = {self->p(1000), self->p(720)};
             return 0;
         }
         case WM_DPICHANGED: {
@@ -3462,7 +3676,7 @@ int run_window(const std::filesystem::path &initialIso) {
     RECT work{};
     SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
     int width = std::min<int>(state.p(1120), int(work.right - work.left) - state.p(24));
-    int height = std::min<int>(state.p(740), int(work.bottom - work.top) - state.p(24));
+    int height = std::min<int>(state.p(760), int(work.bottom - work.top) - state.p(24));
     int left = work.left + (work.right - work.left - width) / 2, top = work.top + (work.bottom - work.top - height) / 2;
     const auto &saved = state.settings;
     const RECT last{saved.windowLeft, saved.windowTop, saved.windowLeft + saved.windowWidth, saved.windowTop + saved.windowHeight};
