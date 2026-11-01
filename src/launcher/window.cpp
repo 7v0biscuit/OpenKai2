@@ -489,6 +489,7 @@ struct Grid {
     static int field(int top, int row) { return label(top, row) + 18; }
 };
 LRESULT CALLBACK combo_procedure(HWND, UINT, WPARAM, LPARAM);
+LRESULT CALLBACK drop_list_procedure(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK button_procedure(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK edit_procedure(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK save_list_procedure(HWND, UINT, WPARAM, LPARAM);
@@ -585,6 +586,7 @@ struct Window {
     std::unique_ptr<netplay::Room> room;
     bool roomHost = false;
     bool directJoin = false;
+    double navPosition = -1;
     std::string joinAddress;
     uint16_t roomPort = 0;
     struct Notice {
@@ -1191,7 +1193,12 @@ struct Window {
         lettering(dc, L"OpenKai2", p(64), p(46), fonts.mark, ink, RGB(6, 7, 12), p(1));
         text(dc, L"Budokai 2 for PC", 64, 52, 150, 18, fonts.caption, muted);
         const int chosen = navigationPage();
-        const RECT row{p(12), p(104 + chosen * 58), p(sidebarWidth - 12), p(154 + chosen * 58)};
+        if (navPosition < 0)
+            navPosition = chosen;
+        if (std::abs(navPosition - chosen) > 0.001)
+            SetTimer(hwnd, 2, 15, nullptr);
+        const int slot = int(std::lround(navPosition * 58));
+        const RECT row{p(12), p(104 + slot), p(sidebarWidth - 12), p(154 + slot)};
         const int span = std::max(1L, row.right - row.left);
         cutShape(dc, row, cut(12), [&](int x, int) {
             return mix(mix(sidebar, orange, 58), mix(sidebar, orange, 14), (x - row.left) * 255 / span);
@@ -2991,6 +2998,16 @@ struct Window {
                         : L"Game running. Save tools unlock when you close it.";
         ShowWindow(hwnd, SW_MINIMIZE);
     }
+    void animate() {
+        const double target = navigationPage();
+        navPosition += (target - navPosition) * 0.32;
+        if (std::abs(target - navPosition) < 0.02) {
+            navPosition = target;
+            KillTimer(hwnd, 2);
+        }
+        RECT side{0, 0, p(sidebarWidth), p(104 + 6 * 58)};
+        RedrawWindow(hwnd, &side, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW);
+    }
     void timer() {
         presence.enable(settings.discordPresence);
         const char* pages[]={"Choosing a game","Setting up online play","Setting up a speedrun","Managing mods","Managing saves","Configuring settings","Importing mods","Setting up a speedrun"};
@@ -3958,8 +3975,26 @@ struct Window {
                   << " volume=" << settings.volume << std::endl;
         error = false;
     }
+    void dropListOpened(HWND combo) {
+        COMBOBOXINFO info{};
+        info.cbSize = sizeof info;
+        if (!GetComboBoxInfo(combo, &info) || !info.hwndList || GetPropW(info.hwndList, L"OpenKai2.DropProcedure"))
+            return;
+        auto old = reinterpret_cast<WNDPROC>(
+            SetWindowLongPtrW(info.hwndList, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(drop_list_procedure)));
+        SetPropW(info.hwndList, L"OpenKai2.DropProcedure", reinterpret_cast<HANDLE>(old));
+        SetWindowPos(info.hwndList, nullptr, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+    }
     void command(int id, int notification) {
         lastInput = std::chrono::steady_clock::now();
+        if (const auto found = controls.find(id); found != controls.end() &&
+            (notification == CBN_DROPDOWN || notification == CBN_CLOSEUP) &&
+            (GetWindowLongPtrW(found->second, GWL_STYLE) & CBS_DROPDOWNLIST) == CBS_DROPDOWNLIST) {
+            if (notification == CBN_DROPDOWN)
+                dropListOpened(found->second);
+            InvalidateRect(found->second, nullptr, FALSE);
+        }
         if (picking)
             return;
         if (id >= PlayTab && id <= SettingsTab) {
@@ -4476,8 +4511,14 @@ LRESULT CALLBACK combo_procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) 
         std::optional<Canvas> canvas(std::in_place, screen, rect);
         auto dc = canvas->dc;
         const bool enabled = IsWindowEnabled(hwnd) != FALSE, focused = GetFocus() == hwnd;
+        const bool dropped = SendMessageW(hwnd, CB_GETDROPPEDSTATE, 0, 0) != 0;
+        const bool hot = enabled && GetPropW(hwnd, L"OpenKai2.Hot") != nullptr;
+        const COLORREF face = !enabled ? panel : dropped ? mix(field, orange, 14) : hot ? mix(field, ink, 10) : field;
         owner->backdrop(dc, hwnd, rect, panel);
-        owner->box(dc, rect, enabled ? field : panel, focused ? orange : enabled ? border : mix(panel, border, 140), 8);
+        owner->box(dc, rect, face,
+                   focused || dropped ? orange : hot ? mix(border, orange, 110) : enabled ? border : mix(panel, border, 140), 8);
+        if (enabled)
+            fill(dc, {rect.left + owner->p(8), rect.top + 1, rect.right - owner->p(8), rect.top + 2}, mix(face, ink, 16));
         const auto index = SendMessageW(hwnd, CB_GETCURSEL, 0, 0);
         std::wstring label;
         if (index >= 0) {
@@ -4497,12 +4538,14 @@ LRESULT CALLBACK combo_procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) 
         DrawTextW(dc, label.c_str(), int(label.size()), &text,
                   DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
         SelectObject(dc, old);
-        const int x = rect.right - owner->p(18), y = rect.bottom / 2;
-        auto pen = CreatePen(PS_SOLID, owner->p(2), enabled ? (focused ? orange : muted) : faint);
+        const int x = rect.right - owner->p(18), y = rect.bottom / 2, flip = dropped ? -1 : 1;
+        fill(dc, {x - owner->p(16), rect.top + owner->p(8), x - owner->p(15), rect.bottom - owner->p(8)},
+                    mix(face, border, 200));
+        auto pen = CreatePen(PS_SOLID, owner->p(2), enabled ? (focused || dropped || hot ? orange : muted) : faint);
         auto previous = SelectObject(dc, pen);
-        MoveToEx(dc, x - owner->p(4), y - owner->p(2), nullptr);
-        LineTo(dc, x, y + owner->p(2));
-        LineTo(dc, x + owner->p(5), y - owner->p(3));
+        MoveToEx(dc, x - owner->p(4), y - flip * owner->p(2), nullptr);
+        LineTo(dc, x, y + flip * owner->p(2));
+        LineTo(dc, x + owner->p(4) + (flip > 0 ? 1 : 0), y - flip * owner->p(2) - (flip > 0 ? 1 : 0));
         SelectObject(dc, previous);
         DeleteObject(pen);
         canvas.reset();
@@ -4515,11 +4558,41 @@ LRESULT CALLBACK combo_procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) 
         SetCursor(LoadCursor(nullptr, IDC_HAND));
         return TRUE;
     }
+    if (message == WM_MOUSEMOVE && !GetPropW(hwnd, L"OpenKai2.Hot")) {
+        SetPropW(hwnd, L"OpenKai2.Hot", reinterpret_cast<HANDLE>(1));
+        TRACKMOUSEEVENT track{sizeof track, TME_LEAVE, hwnd, 0};
+        TrackMouseEvent(&track);
+        InvalidateRect(hwnd, nullptr, FALSE);
+    }
+    if (message == WM_MOUSELEAVE) {
+        RemovePropW(hwnd, L"OpenKai2.Hot");
+        InvalidateRect(hwnd, nullptr, FALSE);
+    }
+    if (message == WM_NCDESTROY)
+        RemovePropW(hwnd, L"OpenKai2.Hot");
     const auto result = original ? CallWindowProcW(original, hwnd, message, wp, lp)
                                  : DefWindowProcW(hwnd, message, wp, lp);
     if (message == WM_SETFOCUS || message == WM_KILLFOCUS || message == WM_ENABLE ||
-        message == CB_SETCURSEL)
+        message == CB_SETCURSEL || message == CB_SHOWDROPDOWN || message == WM_LBUTTONDOWN)
         InvalidateRect(hwnd, nullptr, FALSE);
+    return result;
+}
+LRESULT CALLBACK drop_list_procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
+    auto original = reinterpret_cast<WNDPROC>(GetPropW(hwnd, L"OpenKai2.DropProcedure"));
+    const auto result = original ? CallWindowProcW(original, hwnd, message, wp, lp) : DefWindowProcW(hwnd, message, wp, lp);
+    if (message == WM_NCPAINT || message == WM_SHOWWINDOW) {
+        if (auto dc = GetWindowDC(hwnd)) {
+            RECT bounds{};
+            GetWindowRect(hwnd, &bounds);
+            OffsetRect(&bounds, -bounds.left, -bounds.top);
+            auto brush = CreateSolidBrush(mix(border, orange, 120));
+            FrameRect(dc, &bounds, brush);
+            DeleteObject(brush);
+            ReleaseDC(hwnd, dc);
+        }
+    }
+    if (message == WM_NCDESTROY)
+        RemovePropW(hwnd, L"OpenKai2.DropProcedure");
     return result;
 }
 LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
@@ -4551,7 +4624,10 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
             self->command(LOWORD(wp), HIWORD(wp));
             return 0;
         case WM_TIMER:
-            self->timer();
+            if (wp == 2)
+                self->animate();
+            else
+                self->timer();
             return 0;
         case onlineChanged:
             self->refreshOnlineLists();
