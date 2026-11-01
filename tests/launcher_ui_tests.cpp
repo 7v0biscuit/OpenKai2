@@ -166,10 +166,8 @@ int main() {
                 require(IsWindowEnabled(GetDlgItem(w,110)) != FALSE,
                         "Background update check blocked choosing an ISO");
                 click(w,106);
-                mouse_choice(GetDlgItem(w,174),1);
-                require(read_settings(settings_path()).discordPresence,"Discord preference was not saved");
-                mouse_choice(GetDlgItem(w,174),0);
-                require(!read_settings(settings_path()).discordPresence,"Discord preference did not switch off");
+                require(GetDlgItem(w,174)==nullptr,"The Discord toggle is still in the launcher");
+                require(read_settings(settings_path()).discordPresence,"Discord activity is not on by default");
                 for(int id=140;id<=150;++id) {
                     if(id==148)continue;
                     auto combo=GetDlgItem(w,id);
@@ -244,10 +242,10 @@ int main() {
                         "Graphics defaults did not reset");
                 require(!reset.autoBackups && !reset.autoUpdates && reset.updateChannel==0,
                         "Reset graphics changed save/update preferences");
-                require(!reset.discordPresence,"Reset graphics changed the Discord preference");
+                require(reset.discordPresence,"Reset graphics changed the Discord preference");
                 require(reset.audio && reset.volume==50,"Reset graphics changed the audio preference");
                 SetWindowPos(w,nullptr,0,0,1000,680,SWP_NOZORDER|SWP_NOACTIVATE);
-                for(int id : {140,141,142,143,144,145,146,147,149,150,160,161,162,163,164,170,173,174}) {
+                for(int id : {140,141,142,143,144,145,146,147,149,150,160,161,162,163,164,170,173}) {
                     RECT bounds{},client{};GetWindowRect(GetDlgItem(w,id),&bounds);GetClientRect(w,&client);
                     MapWindowPoints(nullptr,w,reinterpret_cast<POINT*>(&bounds),2);
                     require(bounds.left>=0 && bounds.top>=0 && bounds.right<=client.right &&

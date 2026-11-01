@@ -62,7 +62,9 @@ settings.
 
 - **Add friend:** pick a player and press **Add friend**. They get a notification
   and can accept. A request sent while they are offline waits until they come
-  online. Friends appear at the top of the Players list, with their status.
+  online. Friends are listed in the sidebar on every page, online ones first,
+  with their status. Pick a friend there to invite or remove them, or
+  double-click to invite.
 - **Invite:** pick a player and press **Invite**. Your room opens and the invite
   is sent. The invited player gets a Windows notification and an **Accept** /
   **Decline** banner, and joins without needing the room password.

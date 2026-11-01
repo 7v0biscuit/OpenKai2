@@ -173,8 +173,10 @@ enum Id {
     InvitePlayer,
     AddFriend,
     NoticeAccept,
-    NoticeDecline
+    NoticeDecline,
+    FriendList
 };
+constexpr int friendsTop = 462;
 constexpr int pageCount = 6, onlinePage = 1, speedrunPage = 2, modsPage = 3, savesPage = 4, settingsPage = 5, importPage = 6,
               overlayPage = 7;
 constexpr std::array<unsigned, 4> audioVolumes{100u, 75u, 50u, 25u};
@@ -607,7 +609,7 @@ struct Window {
     std::chrono::steady_clock::time_point lastConnect{};
     std::string connectedProfile, onlineProblem;
     std::vector<online::Room> roomRows;
-    std::vector<std::pair<std::string, std::string>> playerRows;
+    std::vector<std::pair<std::string, std::string>> playerRows, friendRows;
     std::set<std::string> requestedFriends;
     std::string hostingRoom, hostingToken, pendingInvitee;
     std::chrono::steady_clock::time_point inviteDeadline{};
@@ -621,7 +623,7 @@ struct Window {
     bool dropdownOpen() const {
         for (auto [id, control] : controls)
             if ((id >= Renderer && id <= Audio) || id == UpdateChannel || id == AutomaticUpdates ||
-                id == SaveListKind || id == DiscordActivity || id == TargetMod || id == SpotMode ||
+                id == SaveListKind || id == TargetMod || id == SpotMode ||
                 (id >= SpeedrunMode && id <= FpsCounter) || (id >= OverlayCorner && id <= OverlaySplits) || id == OnlineDelay || id == OnlineProfile || id == OnlineListed)
                 if (SendMessageW(control, CB_GETDROPPEDSTATE, 0, 0)) return true;
         return false;
@@ -783,7 +785,14 @@ struct Window {
             ShowWindow(c, visible ? SW_SHOWNA : SW_HIDE);
     }
     void initialize() {
-        presence.enable(settings.discordPresence);
+        if (!settings.discordPresence) {
+            settings.discordPresence = true;
+            try {
+                write_settings(settings_path(), settings);
+            } catch (const std::exception &) {
+            }
+        }
+        presence.enable(true);
         fonts.make(dpi, letteringFace);
         for (auto [id, label] :
              std::vector<std::pair<int, const wchar_t *>>{{PlayTab, L"Play"},
@@ -869,7 +878,6 @@ struct Window {
         combo(Upscaler, {L"Nearest", L"Bilinear", L"Bicubic", L"AMD FSR 1", L"Lanczos", L"Sharp pixels"}, int(settings.upscaler));
         combo(Vsync, {L"Off", L"On"}, settings.vsync ? 1 : 0);
         combo(AutoBackup, {L"Off", L"On"}, settings.autoBackups ? 1 : 0);
-        combo(DiscordActivity,{L"Off",L"On"},settings.discordPresence ? 1 : 0);
         combo(SaveListKind,{L"Backups",L"Game saves"},0);
         combo(SpeedrunMode, {L"Off", L"Any%", L"NG+"}, int(settings.speedrun));
         combo(Permadeath, {L"Off", L"On"}, settings.permadeath ? 1 : 0);
@@ -920,6 +928,7 @@ struct Window {
         edit(JoinPassword, L"Only for locked rooms");
         list(RoomList, L"Rooms", 34, false);
         list(PlayerList, L"Players", 34, false);
+        list(FriendList, L"Friends", 32, false);
         onlineShared->window = hwnd;
         SetWindowTextW(controls[OnlinePort], std::to_wstring(settings.onlinePort).c_str());
         SetWindowTextW(controls[OnlineAddress], wide(settings.onlineAddress).c_str());
@@ -1017,7 +1026,8 @@ struct Window {
         };
         for (int i = 0; i < pageCount; ++i)
             place(PlayTab + i, 12, 104 + i * 58, sidebarWidth - 24, 50);
-        position(DiscordActivity, 24, h - 130, sidebarWidth - 48, 32);
+        if (!friendRows.empty())
+            position(FriendList, 12, friendsTop + 30, sidebarWidth - 24, std::max(32, h - 56 - friendsTop - 30));
         if (hasNotice()) {
             position(NoticeDecline, contentLeft + content - 96, 64, 96, 30);
             position(NoticeAccept, contentLeft + content - 96 - 10 - 96, 64, 96, 30);
@@ -1207,15 +1217,19 @@ struct Window {
         fill(dc, accent, orange);
         buffer.frame.halo(accent, 0, p(10), ember, 110);
 
-        const int top = h - 162;
-        line(dc, p(24), p(top - 10), p(sidebarWidth - 48), border);
-        caps(dc, L"DISCORD ACTIVITY", 24, top + 6, sidebarWidth - 48);
-        const auto state = presence.status();
-        text(dc, !settings.discordPresence ? L"Activity sharing is off"
-                  : state == PresenceStatus::connected ? L"Connected to Discord"
-                  : L"Discord isn't open", 24, top + 74, sidebarWidth - 48, 18,
-             fonts.caption, state == PresenceStatus::connected ? green : muted,
-             DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        line(dc, p(24), p(friendsTop - 6), p(sidebarWidth - 48), border);
+        caps(dc, L"FRIENDS", 24, friendsTop + 6, sidebarWidth - 48);
+        const size_t onlineFriends = std::count_if(friendRows.begin(), friendRows.end(), [&](const auto &row) {
+            return directory && directory->player(row.first).has_value();
+        });
+        if (!friendRows.empty()) {
+            const auto count = std::to_wstring(onlineFriends) + L" online";
+            const int width = measure(dc, count, fonts.caption);
+            text(dc, count, sidebarWidth - 24 - width, friendsTop + 4, width, 18, fonts.caption, onlineFriends ? green : faint,
+                 DT_LEFT | DT_SINGLELINE | DT_NOPREFIX);
+        } else
+            text(dc, activeProfile() ? L"Add friends from the Players list on the Online page." : L"Add a profile on the Online page to make friends.",
+                 24, friendsTop + 32, sidebarWidth - 48, 40, fonts.caption, muted, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
         text(dc, L"v" + wide(application_version), 24, h - 38, sidebarWidth - 48, 18, fonts.caption, faint);
     }
     void paintHeader(HDC dc, int w, int content) {
@@ -1779,7 +1793,7 @@ struct Window {
         const int split = contentLeft + (content * 62) / 100, bottom = h - 64 + 6;
         section(contentLeft, onlineListsTop, split - 6, bottom, L"Rooms", L"Updates live. Same version and disc needed.",
                 split - 6 - 20 - 100 - 12);
-        section(split + 6, onlineListsTop, right, bottom, L"Players", L"Friends first");
+        section(split + 6, onlineListsTop, right, bottom, L"Players", L"Friends are in the sidebar");
         const int listTop = onlineListsTop + 44;
         if (roomRows.empty())
             text(dc, !online ? L"Rooms appear here when you are online." : L"No open rooms right now. Host one, or invite a player.",
@@ -2072,9 +2086,11 @@ struct Window {
         }
         const bool chosen = (item.itemState & ODS_SELECTED) != 0;
         const bool list = item.CtlType == ODT_LISTBOX;
-        fill(dc, r, list ? field : panel);
+        const bool friends = item.hwndItem == controls[FriendList];
+        const COLORREF base = friends ? sidebar : list ? field : panel;
+        fill(dc, r, base);
         if (chosen) {
-            fill(dc, r, mix(list ? field : panel, orange, 26));
+            fill(dc, r, mix(base, orange, 26));
             fill(dc, {r.left, r.top + p(list ? 8 : 6), r.left + p(3), r.bottom - p(list ? 8 : 6)}, orange);
         }
         std::wstring value;
@@ -3009,7 +3025,7 @@ struct Window {
         RedrawWindow(hwnd, &side, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW);
     }
     void timer() {
-        presence.enable(settings.discordPresence);
+        presence.enable(true);
         const char* pages[]={"Choosing a game","Setting up online play","Setting up a speedrun","Managing mods","Managing saves","Configuring settings","Importing mods","Setting up a speedrun"};
         presence.update(running()?"Playing Budokai 2":"In launcher",running()?"In game":pages[page]);
         if(presence.status()!=lastPresenceStatus && !dropdownOpen()) {
@@ -3559,14 +3575,40 @@ struct Window {
         std::vector<std::wstring> labels;
         const auto profile = activeProfile();
         const auto players = directory ? directory->players() : std::vector<online::Player>{};
+        std::string selectedFriend;
+        if (const auto row = SendMessageW(controls[FriendList], LB_GETCURSEL, 0, 0); row >= 0 && size_t(row) < friendRows.size())
+            selectedFriend = friendRows[size_t(row)].first;
+        friendRows.clear();
+        std::vector<std::pair<bool, std::wstring>> friendLabels;
         if (profile)
             for (const auto &entry : settings.onlineFriends)
                 if (entry.owner == profile->id) {
                     const auto found = std::find_if(players.begin(), players.end(), [&](const auto &player) { return player.id == entry.id; });
-                    playerRows.emplace_back(entry.id, found == players.end() ? entry.name : found->name);
-                    labels.push_back(L"★ " + wide(playerRows.back().second) + L" · " +
-                                     (found == players.end() ? std::wstring(L"offline") : wide(found->status)));
+                    friendRows.emplace_back(entry.id, found == players.end() ? entry.name : found->name);
+                    friendLabels.emplace_back(found != players.end(), wide(friendRows.back().second) + L" · " +
+                                                  (found == players.end() ? std::wstring(L"offline") : wide(found->status)));
                 }
+        std::vector<size_t> order(friendRows.size());
+        for (size_t i = 0; i < order.size(); ++i)
+            order[i] = i;
+        std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) { return friendLabels[a].first > friendLabels[b].first; });
+        {
+            auto rows = friendRows;
+            auto texts = friendLabels;
+            for (size_t i = 0; i < order.size(); ++i) {
+                friendRows[i] = rows[order[i]];
+                friendLabels[i] = texts[order[i]];
+            }
+        }
+        SendMessageW(controls[FriendList], WM_SETREDRAW, FALSE, 0);
+        SendMessageW(controls[FriendList], LB_RESETCONTENT, 0, 0);
+        for (size_t i = 0; i < friendRows.size(); ++i) {
+            const auto label = (friendLabels[i].first ? L"On · " : L"Off · ") + friendLabels[i].second;
+            SendMessageW(controls[FriendList], LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
+            if (friendRows[i].first == selectedFriend)
+                SendMessageW(controls[FriendList], LB_SETCURSEL, WPARAM(i), 0);
+        }
+        SendMessageW(controls[FriendList], WM_SETREDRAW, TRUE, 0);
         for (const auto &player : players) {
             if (isFriend(player.id))
                 continue;
@@ -3589,13 +3631,15 @@ struct Window {
             SetWindowTextW(controls[AddFriend], L"Add friend");
         else
             SetWindowTextW(controls[AddFriend], L"Remove friend");
-        if (page == onlinePage)
-            layout();
+        layout();
         InvalidateRect(hwnd, nullptr, FALSE);
     }
     std::string selectedPlayerId() const {
         const auto row = SendMessageW(controls.at(PlayerList), LB_GETCURSEL, 0, 0);
-        return row >= 0 && size_t(row) < playerRows.size() ? playerRows[size_t(row)].first : std::string();
+        if (row >= 0 && size_t(row) < playerRows.size())
+            return playerRows[size_t(row)].first;
+        const auto chosen = SendMessageW(controls.at(FriendList), LB_GETCURSEL, 0, 0);
+        return chosen >= 0 && size_t(chosen) < friendRows.size() ? friendRows[size_t(chosen)].first : std::string();
     }
     bool hasNotice() const {
         std::lock_guard lock(onlineShared->mutex);
@@ -3954,7 +3998,7 @@ struct Window {
         next.upscaler = unsigned(selected(Upscaler));
         next.vsync = selected(Vsync) != 0;
         next.autoBackups = selected(AutoBackup) != 0;
-        next.discordPresence=selected(DiscordActivity)!=0;
+        next.discordPresence = true;
         next.speedrun = unsigned(selected(SpeedrunMode));
         next.permadeath = selected(Permadeath) != 0;
         next.fpsCounter = selected(FpsCounter) != 0;
@@ -4028,13 +4072,9 @@ struct Window {
                     L" selected. Ctrl+click or Shift+click selects several; Ctrl+A selects all.";
             refreshEnabled(); return;
         }
-        if (((id >= Renderer && id <= Audio) || id == DiscordActivity || (id >= SpeedrunMode && id <= FpsCounter)) &&
+        if (((id >= Renderer && id <= Audio) || (id >= SpeedrunMode && id <= FpsCounter)) &&
             notification == CBN_SELCHANGE) {
             saveOptions();
-            if (id == DiscordActivity) {
-                presence.enable(settings.discordPresence);
-                status = L"Discord activity preference saved.";
-            }
             if (id == SpeedrunMode || id == Permadeath)
                 status = settings.speedrun
                              ? std::wstring(L"Speedrun mode: ") + (settings.speedrun == 1 ? L"Any%" : L"NG+") +
@@ -4089,8 +4129,17 @@ struct Window {
             toggleFriend();
             return;
         }
-        if (id == PlayerList && notification == LBN_SELCHANGE) {
+        if ((id == PlayerList || id == FriendList) && notification == LBN_SELCHANGE) {
+            SendMessageW(controls[id == PlayerList ? FriendList : PlayerList], LB_SETCURSEL, WPARAM(-1), 0);
             SetWindowTextW(controls[AddFriend], isFriend(selectedPlayerId()) ? L"Remove friend" : L"Add friend");
+            return;
+        }
+        if (id == FriendList && notification == LBN_DBLCLK) {
+            if (disc)
+                invitePlayer();
+            else
+                status = L"Choose your Budokai 2 ISO first.", error = true;
+            InvalidateRect(hwnd, nullptr, FALSE);
             return;
         }
         if ((id == UpdateChannel || id == AutomaticUpdates) && notification == CBN_SELCHANGE) {
@@ -4671,7 +4720,7 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
             const bool list = target == self->controls[BackupList] || target == self->controls[ModList] ||
                               target == self->controls[SourceFiles] || target == self->controls[TargetList] ||
                               target == self->controls[RoomList] || target == self->controls[PlayerList];
-            const COLORREF color = list ? field : panel;
+            const COLORREF color = target == self->controls[FriendList] ? sidebar : list ? field : panel;
             SetDCBrushColor(reinterpret_cast<HDC>(wp), color);
             SetTextColor(reinterpret_cast<HDC>(wp), ink);
             SetBkColor(reinterpret_cast<HDC>(wp), color);

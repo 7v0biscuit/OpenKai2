@@ -6,7 +6,8 @@ required. The launcher reports its current page; the game reports an active
 Budokai 2 session. Activity includes elapsed session time and the application's
 icon. ISO paths, save names and hardware details are never included.
 
-Use **Discord activity** in the launcher sidebar to turn sharing on or off.
+Activity sharing is always on. To hide it, use Discord's own activity privacy
+settings.
 The choice is saved and also applies to a running game within a few seconds.
 Closing the application clears its activity. Discord being closed or
 unresponsive does not prevent launching or playing.
