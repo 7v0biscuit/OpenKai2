@@ -3315,9 +3315,13 @@ struct Window {
         }
         if (identity::claims_developer(name)) {
             if (!identity::developer_seed()) {
-                status = L"[DEV] is reserved for the OpenKai2 developer.";
-                error = true;
-                return;
+                const auto key = choose(false, false, L"[DEV] needs the developer key. Choose dev.key");
+                if (key.empty() || !identity::install_developer_key(key)) {
+                    status = key.empty() ? L"[DEV] is reserved for the OpenKai2 developer."
+                                         : L"That file is not the OpenKai2 developer key.";
+                    error = true;
+                    return;
+                }
             }
             name = identity::developer_name;
         }

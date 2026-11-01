@@ -39,7 +39,7 @@ void tags() {
     require(id::without_developer_tag("Joint [DEV]") == "Joint", "tag removed");
     require(id::without_developer_tag("[DEV]") == "Player", "empty name falls back");
     require(id::without_developer_tag("A [DEV] B (dev)") == "A B", "every tag removed");
-    require(id::allowed_name("Joint [DEV]", true) == "Biscuit [DEV]", "developer profile is renamed");
+    require(id::allowed_name("Joint [DEV]", true) == "[DEV] Biscuit", "developer profile is renamed");
     require(id::allowed_name("Joint [DEV]", false) == "Joint", "others lose the tag");
     require(id::allowed_name("Goku", false) == "Goku", "plain names stay");
 }
@@ -58,7 +58,7 @@ void claims() {
         const auto seed = id::read_developer_key(file);
         require(seed.has_value(), "the developer key matches the built-in public key");
         const auto real = id::sign_claim(*seed, id::developer_name, "nonce-2");
-        require(id::verified_name(id::developer_name, "nonce-2", crypto::to_hex(real.data(), 64)) == "Biscuit [DEV]",
+        require(id::verified_name(id::developer_name, "nonce-2", crypto::to_hex(real.data(), 64)) == "[DEV] Biscuit",
                 "the developer's claim is accepted");
         require(id::verified_name(id::developer_name, "nonce-3", crypto::to_hex(real.data(), 64)) == "Biscuit",
                 "a replayed claim is refused");

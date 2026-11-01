@@ -9,8 +9,9 @@ online, and you can keep several. Each profile has its own key, created on your
 PC, which proves to other players that you are you. Friends and invites are tied
 to the profile, not to the name.
 
-The **[DEV]** tag is reserved for the OpenKai2 developer. Any other name that
-uses it has the tag removed.
+The **[DEV]** tag is reserved for the OpenKai2 developer, whose profile is
+**[DEV] Biscuit**. Adding a [DEV] name asks for the developer key; without it the
+tag is removed, and other players' games check the key's signature too.
 
 ## Finding a match
 

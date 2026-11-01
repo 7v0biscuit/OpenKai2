@@ -2,6 +2,7 @@
 #include "dev_identity.h"
 #include "disc_image.h"
 #include <fstream>
+#include <mutex>
 #include <random>
 #include <vector>
 
@@ -143,9 +144,34 @@ std::optional<crypto::Seed> read_developer_key(const std::filesystem::path &file
 
 std::filesystem::path developer_key_file() { return default_cache_directory().parent_path() / "dev.key"; }
 
+namespace {
+std::mutex seedMutex;
+std::optional<std::optional<crypto::Seed>> cachedSeed;
+}
+
 std::optional<crypto::Seed> developer_seed() {
-    static const auto seed = read_developer_key(developer_key_file());
-    return seed;
+    std::lock_guard lock(seedMutex);
+    if (!cachedSeed)
+        cachedSeed = read_developer_key(developer_key_file());
+    return *cachedSeed;
+}
+
+bool install_developer_key(const std::filesystem::path &source) {
+    const auto seed = read_developer_key(source);
+    if (!seed)
+        return false;
+    const auto target = developer_key_file();
+    std::error_code error;
+    std::filesystem::create_directories(target.parent_path(), error);
+    {
+        std::ofstream out(target, std::ios::trunc);
+        out << crypto::to_hex(seed->data(), seed->size()) << '\n';
+        if (!out)
+            return false;
+    }
+    std::lock_guard lock(seedMutex);
+    cachedSeed = seed;
+    return true;
 }
 
 std::string claim_message(const std::string &name, const std::string &context) {
