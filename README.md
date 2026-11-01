@@ -11,6 +11,8 @@ Native PC recompilation of **Dragon Ball Z: Budokai 2**, built with
 · [Setup and controls](docs/windows.md)
 · [Modding](docs/modding.md)
 · [Speedrun mode](docs/speedrun.md)
+· [Online play](docs/online.md)
+· [Save states](docs/save-states.md)
 · [Development status](docs/status.md)
 · [Report an issue](https://github.com/7v0biscuit/OpenKai2/issues/new/choose)
 

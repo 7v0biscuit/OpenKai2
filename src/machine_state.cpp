@@ -2,6 +2,7 @@
 #include "machine_state.h"
 #include "disc_image.h"
 #include "host_input.h"
+#include "netplay.h"
 #include "state_archive.h"
 #include "runtime/ee_scheduler.h"
 #include <atomic>
@@ -207,6 +208,8 @@ void point(EeScheduler &scheduler) {
 }
 }
 
+uint64_t machine_memory_hash() { return machineMemory ? hash_memory() : 0; }
+
 void set_machine_memory(const uint8_t *rdram, size_t bytes) {
     machineMemory = rdram;
     machineMemoryBytes = bytes;
@@ -232,12 +235,15 @@ bool machine_state_pending() { return hasPending.load(); }
 
 void machine_state_point(EeScheduler &scheduler) {
     const bool pendingRequest = hasPending.load(std::memory_order_acquire);
-    if (!probe::enabled && !pendingRequest)
+    auto *session = netplay::active();
+    if (!probe::enabled && !pendingRequest && !session)
         return;
     std::string reason;
     const bool savable = scheduler.stateSavable(&reason);
     if (probe::enabled && savable)
         probe::point(scheduler);
+    if (session && savable)
+        session->state_point();
     if (!pendingRequest)
         return;
     if (!savable) {

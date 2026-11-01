@@ -2,6 +2,7 @@
 #pragma once
 #include <filesystem>
 #include <string>
+#include <vector>
 #include "speedrun_items.h"
 
 namespace openkai2::launcher {
@@ -28,6 +29,12 @@ struct Settings {
     bool fpsCounter = false;
     unsigned overlayItems = speedrun::overlay_defaults;
     unsigned overlayCorner = 0, overlaySize = 1, overlayBackground = 1, overlaySplits = 1;
+    std::string onlineName = "Player";
+    std::string onlineAddress;
+    unsigned onlinePort = 7350, onlineDelay = 2;
+    std::vector<std::string> onlineProfiles;
+    std::string onlineRoom, onlinePassword, onlineLobby;
+    bool onlineListed = true;
 };
 std::filesystem::path settings_path();
 Settings read_settings(const std::filesystem::path &file);

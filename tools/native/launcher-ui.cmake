@@ -12,11 +12,13 @@ function(openkai2_add_launcher_ui project_root enable_tests)
     add_library(openkai2_launcher_ui STATIC
         "${project_root}/src/launcher/window.cpp"
         "${project_root}/src/launcher/update_windows.cpp"
+        "${project_root}/src/lobby.cpp"
+        "${project_root}/src/net_socket.cpp"
         "${font_source}")
     target_include_directories(openkai2_launcher_ui PRIVATE "${project_root}/src")
     target_compile_features(openkai2_launcher_ui PUBLIC cxx_std_17)
     target_link_libraries(openkai2_launcher_ui PUBLIC openkai2_launcher_model openkai2_discord_presence
-        comdlg32 shell32 ole32 uuid gdi32 winhttp)
+        comdlg32 shell32 ole32 uuid gdi32 winhttp ws2_32)
     if(MSVC)
         target_compile_options(openkai2_launcher_ui PRIVATE /utf-8)
     endif()

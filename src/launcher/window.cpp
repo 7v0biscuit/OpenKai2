@@ -8,6 +8,7 @@
 #include "launcher/settings.h"
 #include "launcher/update.h"
 #include "launcher/version.h"
+#include "lobby.h"
 #include "mods/budokai3.h"
 #include "mods/disc_identity.h"
 #include "mods/importer.h"
@@ -63,13 +64,15 @@ constexpr COLORREF heroFrom = RGB(64, 24, 8), heroTo = RGB(15, 17, 31);
 constexpr int sidebarWidth = 220, contentLeft = 252, margin = 32;
 constexpr int heroTop = 124, heroBottom = 316, discTop = 332, discBottom = 420;
 constexpr int tilesTop = 436, tilesBottom = 516, keysTop = 540;
-constexpr int displayTop = 112, graphicsTop = 278, updatesTop = 444, speedrunTop = 558;
+constexpr int displayTop = 112, graphicsTop = 278, speedrunTop = 444, updatesTop = 558;
+constexpr int onlineProfileTop = 112, onlineHostTop = 228, onlineRoomsTop = 400;
 
 enum Id {
     PlayTab = 101,
     SavesTab,
     ModsTab,
     SettingsTab,
+    OnlineTab,
     ChooseIso = 110,
     VerifyIso,
     Play,
@@ -142,9 +145,26 @@ enum Id {
     OverlaySize,
     OverlayBackground,
     OverlaySplits,
-    OverlayDefaults
+    OverlayDefaults,
+    OnlineName = 240,
+    OnlineDelay,
+    OnlinePort,
+    OnlineAddress,
+    HostGame,
+    JoinGame,
+    OnlineProfile,
+    ProfileAdd,
+    ProfileRemove,
+    OnlineRoom,
+    OnlinePassword,
+    OnlineListed,
+    OnlineLobby,
+    RefreshRooms,
+    RoomList,
+    JoinPassword,
+    JoinRoom
 };
-constexpr int pageCount = 4, modsPage = 2, settingsPage = 3, importPage = 4, overlayPage = 5;
+constexpr int pageCount = 5, modsPage = 2, settingsPage = 3, onlinePage = 4, importPage = 5, overlayPage = 6;
 constexpr std::array<unsigned, 4> audioVolumes{100u, 75u, 50u, 25u};
 int audioChoice(const Settings &settings) {
     if (!settings.audio)
@@ -549,6 +569,10 @@ struct Window {
     bool installRequested = false;
     std::chrono::steady_clock::time_point lastInput = std::chrono::steady_clock::now();
     std::wstring status = L"Choose your Budokai 2 ISO to get started.";
+    std::wstring onlineArguments;
+    std::vector<lobby::Room> rooms;
+    std::wstring roomsMessage = L"Press Refresh to see open rooms.";
+    std::future<std::pair<std::vector<lobby::Room>, std::string>> roomTask;
     int p(int n) const { return MulDiv(n, int(dpi), 96); }
     int unscale(int n) const { return MulDiv(n, 96, int(dpi)); }
     int navigationPage() const { return page == importPage ? modsPage : page == overlayPage ? settingsPage : page; }
@@ -559,7 +583,7 @@ struct Window {
         for (auto [id, control] : controls)
             if ((id >= Renderer && id <= Audio) || id == UpdateChannel || id == AutomaticUpdates ||
                 id == SaveListKind || id == DiscordActivity || id == TargetMod || id == SpotMode ||
-                (id >= SpeedrunMode && id <= FpsCounter) || (id >= OverlayCorner && id <= OverlaySplits))
+                (id >= SpeedrunMode && id <= FpsCounter) || (id >= OverlayCorner && id <= OverlaySplits) || id == OnlineDelay || id == OnlineProfile || id == OnlineListed)
                 if (SendMessageW(control, CB_GETDROPPEDSTATE, 0, 0)) return true;
         return false;
     }
@@ -747,6 +771,13 @@ struct Window {
                                                           {SaveReport, L"Disc report…"},
                                                           {CloseImporter, L"Back to mods"},
                                                           {SettingsTab, L"Settings"},
+                                                          {OnlineTab, L"Online"},
+                                                          {HostGame, L"Host room"},
+                                                          {JoinGame, L"Join address"},
+                                                          {ProfileAdd, L"Add"},
+                                                          {ProfileRemove, L"Remove"},
+                                                          {RefreshRooms, L"Refresh"},
+                                                          {JoinRoom, L"Join room"},
                                                           {CheckUpdates, L"Check now"},
                                                           {InstallUpdate, L"Install"},
                                                           {ReleasePage, L"Release notes"},
@@ -799,6 +830,15 @@ struct Window {
         combo(SpeedrunMode, {L"Off", L"Any%", L"NG+"}, int(settings.speedrun));
         combo(Permadeath, {L"Off", L"On"}, settings.permadeath ? 1 : 0);
         combo(FpsCounter, {L"Off", L"On"}, settings.fpsCounter ? 1 : 0);
+        {
+            std::vector<std::wstring> delays;
+            for (unsigned d = 1; d <= 8; ++d)
+                delays.push_back(std::to_wstring(d) + (d == 1 ? L" frame" : L" frames") + (d == 2 ? L" (default)" : L""));
+            combo(OnlineDelay, delays, int(settings.onlineDelay) - 1);
+        }
+        combo(OnlineListed, {L"Not listed", L"Listed"}, settings.onlineListed ? 1 : 0);
+        combo(OnlineProfile, {}, 0);
+        fillProfiles();
         combo(OverlayCorner, {L"Top left", L"Top right", L"Bottom left", L"Bottom right"}, int(settings.overlayCorner));
         combo(OverlaySize, {L"Small", L"Medium", L"Large"}, int(settings.overlaySize));
         combo(OverlayBackground, {L"None", L"Light", L"Dark"}, int(settings.overlayBackground));
@@ -827,6 +867,22 @@ struct Window {
         list(TargetList, L"Import target", 30, false);
         edit(ModName, L"New mod name");
         edit(EntryFilter, L"Search characters");
+        edit(OnlineName, L"Name for a new profile");
+        edit(OnlinePort, L"7350");
+        edit(OnlineAddress, L"Or type an address (IP or IP:port)");
+        edit(OnlineRoom, L"Room name");
+        edit(OnlinePassword, L"No password");
+        edit(OnlineLobby, L"Server address");
+        edit(JoinPassword, L"Only for locked rooms");
+        list(RoomList, L"Rooms", 34, false);
+        SetWindowTextW(controls[OnlinePort], std::to_wstring(settings.onlinePort).c_str());
+        SetWindowTextW(controls[OnlineAddress], wide(settings.onlineAddress).c_str());
+        SetWindowTextW(controls[OnlineRoom], wide(settings.onlineRoom).c_str());
+        SetWindowTextW(controls[OnlinePassword], wide(settings.onlinePassword).c_str());
+        SetWindowTextW(controls[OnlineLobby], wide(settings.onlineLobby).c_str());
+        for (auto [id, limit] : {std::pair{OnlineName, 24}, {OnlinePort, 5}, {OnlineAddress, 255}, {OnlineRoom, 40},
+                                 {OnlinePassword, 64}, {OnlineLobby, 255}, {JoinPassword, 64}})
+            SendMessageW(controls[id], EM_SETLIMITTEXT, WPARAM(limit), 0);
         for (auto [id, c] : controls)
             SendMessageW(c, WM_SETFONT, reinterpret_cast<WPARAM>(fonts.body), TRUE);
         SetTimer(hwnd, 1, 75, nullptr);
@@ -847,8 +903,10 @@ struct Window {
         for (int id : {ChooseIso, VerifyIso})
             EnableWindow(controls[id], !busy() && !running() &&
                          (id != VerifyIso || !candidateIso.empty()));
-        for (int id : {Play, ImportFolder, ImportFile, Backup, OpenSaves, OpenBackups, UnlockAll})
+        for (int id : {Play, ImportFolder, ImportFile, Backup, OpenSaves, OpenBackups, UnlockAll, HostGame, JoinGame, JoinRoom})
             EnableWindow(controls[id], active);
+        EnableWindow(controls[ProfileRemove], !settings.onlineProfiles.empty());
+        EnableWindow(controls[RefreshRooms], !roomTask.valid());
         const auto selections = selectedSaveRows().size();
         EnableWindow(controls[Restore], active && !gameSaveList() && selections == 1u);
         EnableWindow(controls[DeleteSelected], active && selections != 0u);
@@ -900,7 +958,7 @@ struct Window {
         GetClientRect(hwnd, &rect);
         const int w = unscale(rect.right), h = unscale(rect.bottom);
         const int content = w - contentLeft - margin, right = contentLeft + content;
-        std::vector<int> order{PlayTab, SavesTab, ModsTab, SettingsTab};
+        std::vector<int> order{PlayTab, SavesTab, ModsTab, SettingsTab, OnlineTab};
         auto position = [&](int id, int x, int y, int width, int height) {
             place(id, x, y, width, height);
             order.push_back(id);
@@ -953,6 +1011,29 @@ struct Window {
             const int name = std::max(120, right - 20 - 120 - 10 - (x + 6));
             position(ModName, right - 20 - 120 - 10 - name + 10, panelBottom - 44, name - 20, 22);
             position(ModCreate, right - 20 - 120, panelBottom - 52, 120, 36);
+        } else if (page == onlinePage) {
+            const Grid grid(content);
+            const int half = (grid.column - 10) / 2, bottom = h - 64;
+            position(OnlineProfile, grid.x(0), Grid::field(onlineProfileTop, 0), grid.column, 34);
+            position(OnlineName, grid.x(1), Grid::field(onlineProfileTop, 0) + 6, grid.column, 22);
+            position(ProfileAdd, grid.x(2), Grid::field(onlineProfileTop, 0), half, 34);
+            position(ProfileRemove, grid.x(2) + half + 10, Grid::field(onlineProfileTop, 0), half, 34);
+            position(OnlineRoom, grid.x(0), Grid::field(onlineHostTop, 0) + 6, grid.column, 22);
+            position(OnlinePassword, grid.x(1), Grid::field(onlineHostTop, 0) + 6, grid.column, 22);
+            position(OnlinePort, grid.x(2), Grid::field(onlineHostTop, 0) + 6, grid.column, 22);
+            position(OnlineDelay, grid.x(0), Grid::field(onlineHostTop, 1), grid.column, 34);
+            position(OnlineListed, grid.x(1), Grid::field(onlineHostTop, 1), grid.column, 34);
+            position(HostGame, grid.x(2), Grid::field(onlineHostTop, 1), grid.column, 36);
+            position(OnlineLobby, grid.x(0), Grid::field(onlineRoomsTop, 0) + 6, grid.column, 22);
+            position(RefreshRooms, grid.x(1), Grid::field(onlineRoomsTop, 0), half, 34);
+            position(JoinPassword, grid.x(2), Grid::field(onlineRoomsTop, 0) + 6, grid.column, 22);
+            const int listTop = Grid::field(onlineRoomsTop, 0) + 48;
+            position(RoomList, contentLeft + 20, listTop, content - 40, std::max(34, bottom - 56 - listTop));
+            if (rooms.empty())
+                ShowWindow(controls[RoomList], SW_HIDE);
+            position(OnlineAddress, grid.x(0), bottom - 46, grid.column, 22);
+            position(JoinGame, grid.x(1), bottom - 52, half + 30, 36);
+            position(JoinRoom, grid.x(2), bottom - 52, grid.column, 36);
         } else if (page == overlayPage) {
             const int panelBottom = h - 64, half = (content - 52) / 2, side = contentLeft + 32 + half;
             position(CloseOverlay, right - 20 - 150, 136, 150, 34);
@@ -1068,12 +1149,13 @@ struct Window {
         text(dc, L"v" + wide(application_version), 24, h - 38, sidebarWidth - 48, 18, fonts.caption, faint);
     }
     void paintHeader(HDC dc, int w, int content) {
-        const wchar_t *titles[] = {L"Play", L"Saves", L"Mods", L"Settings", L"Import tool", L"Speedrun overlay"};
+        const wchar_t *titles[] = {L"Play", L"Saves", L"Mods", L"Settings", L"Online", L"Import tool", L"Speedrun overlay"};
         const wchar_t *subtitles[] = {
             L"",
             L"Import, back up and restore your memory card.",
             L"Characters, movesets and stages layered over your disc. Your ISO is never changed.",
             L"Saved automatically. Game settings apply at the next launch.",
+            L"Play versus mode with a friend over the internet.",
             L"Add characters, stages and movesets from other Dragon Ball Z games. Nothing in Budokai 2 is removed.",
             L"Pick what the in-game overlay shows. Splits, deltas and best times are tracked for you."};
         lettering(dc, titles[page], p(contentLeft), p(60), fonts.title, ink, RGB(6, 7, 12), p(2));
@@ -1574,6 +1656,39 @@ struct Window {
                (occupant ? L" with " + wide(occupant->name) : L"") +
                L"; press R2 (Right Shift) there to switch between them. " + into;
     }
+    void paintOnline(HDC dc, int h, int content) {
+        const int right = contentLeft + content;
+        const Grid grid(content);
+        auto section = [&](int top, int bottom, const wchar_t *title, const std::wstring &note) {
+            panelBox(dc, contentLeft, top, right, bottom);
+            text(dc, title, contentLeft + 20, top + 12, 200, 22, fonts.strong);
+            text(dc, note, contentLeft + 140, top + 14, content - 160, 18, fonts.caption, muted,
+                 DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        };
+        auto label = [&](int top, int row, int column, const wchar_t *value) {
+            caps(dc, value, grid.x(column), Grid::label(top, row), grid.column);
+        };
+        section(onlineProfileTop, onlineProfileTop + 104, L"Profile",
+                settings.onlineProfiles.empty() ? L"Add a profile to play online. Its name is shown to other players."
+                                                : L"Your profile name is shown to other players.");
+        label(onlineProfileTop, 0, 0, L"PROFILE");
+        label(onlineProfileTop, 0, 1, L"NEW PROFILE");
+        section(onlineHostTop, onlineHostTop + 160, L"Host a room",
+                L"You are player 1. Forward the TCP port on your router if players can't connect.");
+        label(onlineHostTop, 0, 0, L"ROOM NAME (OPTIONAL)");
+        label(onlineHostTop, 0, 1, L"PASSWORD (OPTIONAL)");
+        label(onlineHostTop, 0, 2, L"PORT");
+        label(onlineHostTop, 1, 0, L"INPUT DELAY");
+        label(onlineHostTop, 1, 1, L"SERVER BROWSER");
+        section(onlineRoomsTop, h - 64 + 6, L"Rooms",
+                L"Same OpenKai2 version and disc needed. Mods, save states and speedrun mode are off online.");
+        label(onlineRoomsTop, 0, 0, L"SERVER");
+        label(onlineRoomsTop, 0, 2, L"ROOM PASSWORD");
+        if (rooms.empty())
+            text(dc, roomTask.valid() ? L"Looking for rooms…" : roomsMessage, contentLeft + 20,
+                 Grid::field(onlineRoomsTop, 0) + 62, content - 40, 18, fonts.caption, muted,
+                 DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+    }
     void paintSettings(HDC dc, int content) {
         const int right = contentLeft + content;
         const Grid grid(content);
@@ -1659,6 +1774,8 @@ struct Window {
             paintImport(memory, h, content);
         else if (page == overlayPage)
             paintOverlay(memory, h, content);
+        else if (page == onlinePage)
+            paintOnline(memory, h, content);
         else
             paintSettings(memory, content);
         const int footer = h - 34;
@@ -1691,7 +1808,7 @@ struct Window {
         }
     }
     COLORREF surface(int id, const RECT &r) const {
-        if (id >= PlayTab && id <= SettingsTab)
+        if (id >= PlayTab && id <= OnlineTab)
             return sidebar;
         if (id == Play) {
             const int width = std::max(1, p(contentWidth()));
@@ -1718,6 +1835,11 @@ struct Window {
             LineTo(dc, left + p(4), top + p(6));
             LineTo(dc, left + size - p(4), top + p(6));
             LineTo(dc, left + size - p(4), top);
+        } else if (id == OnlineTab) {
+            Ellipse(dc, left, top, left + size, top + size);
+            Ellipse(dc, left + size / 4, top, left + size - size / 4, top + size);
+            MoveToEx(dc, left, top + size / 2, nullptr);
+            LineTo(dc, left + size, top + size / 2);
         } else if (id == ModsTab) {
             const int half = size / 2 - p(1);
             for (int i = 0; i < 4; ++i) {
@@ -1744,7 +1866,7 @@ struct Window {
             Canvas canvas(item.hDC, r);
             dc = canvas.dc;
             const int id = int(item.CtlID);
-            const bool navigation = id >= PlayTab && id <= SettingsTab;
+            const bool navigation = id >= PlayTab && id <= OnlineTab;
             const bool chosen = navigation && id == PlayTab + navigationPage();
             const bool primary = id == Play;
             const bool taskChoice = (id == TaskCharacters && importTask == Task::characters) ||
@@ -2726,8 +2848,10 @@ struct Window {
             throw std::runtime_error("Cannot locate the game executable");
         std::wstring command = quote_argument(exe) + L" --fps-limit=" +
                                std::to_wstring(settings.fps) + L" --renderer=" +
-                               wide(settings.renderer) + L" " +
+                               wide(settings.renderer) + onlineArguments + L" " +
                                quote_argument(settings.iso.wstring());
+        const bool online = !onlineArguments.empty();
+        onlineArguments.clear();
         STARTUPINFOW startup{};
         startup.cb = sizeof(startup);
         PROCESS_INFORMATION process{};
@@ -2736,16 +2860,19 @@ struct Window {
             throw std::runtime_error("Cannot start the game process");
         CloseHandle(process.hThread);
         child = process.hProcess;
-        status = L"Game running. Save tools unlock when you close it.";
+        status = online ? L"Online game running. Save tools unlock when you close it."
+                        : L"Game running. Save tools unlock when you close it.";
         ShowWindow(hwnd, SW_MINIMIZE);
     }
     void timer() {
         presence.enable(settings.discordPresence);
-        const char* pages[]={"Choosing a game","Managing saves","Managing mods","Configuring settings","Importing mods","Setting up a speedrun"};
+        const char* pages[]={"Choosing a game","Managing saves","Managing mods","Configuring settings","Setting up online play","Importing mods","Setting up a speedrun"};
         presence.update(running()?"Playing Budokai 2":"In launcher",running()?"In game":pages[page]);
         if(presence.status()!=lastPresenceStatus && !dropdownOpen()) {
             lastPresenceStatus=presence.status();InvalidateRect(hwnd,nullptr,FALSE);
         }
+        if (roomTask.valid() && roomTask.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready)
+            roomsArrived();
         for (const bool background : {false, true}) {
             auto &work = background ? updateTask : task;
             if (!work.valid() || work.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
@@ -2959,6 +3086,211 @@ struct Window {
         CoTaskMemFree(name);
         return path;
     }
+    static std::wstring trimmed(std::wstring value) {
+        const auto first = value.find_first_not_of(L" \t");
+        const auto last = value.find_last_not_of(L" \t");
+        return first == std::wstring::npos ? std::wstring() : value.substr(first, last - first + 1);
+    }
+    void fillProfiles() {
+        const auto box = controls[OnlineProfile];
+        SendMessageW(box, CB_RESETCONTENT, 0, 0);
+        int chosen = -1;
+        for (size_t i = 0; i < settings.onlineProfiles.size(); ++i) {
+            SendMessageW(box, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(wide(settings.onlineProfiles[i]).c_str()));
+            if (settings.onlineProfiles[i] == settings.onlineName)
+                chosen = int(i);
+        }
+        if (settings.onlineProfiles.empty())
+            SendMessageW(box, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"No profile yet"));
+        SendMessageW(box, CB_SETCURSEL, WPARAM(chosen < 0 ? 0 : chosen), 0);
+        EnableWindow(box, !settings.onlineProfiles.empty());
+    }
+    bool saveOnline() {
+        Settings next = settings;
+        next.onlineAddress = utf8(trimmed(textOf(OnlineAddress)));
+        next.onlineRoom = utf8(trimmed(textOf(OnlineRoom)));
+        next.onlinePassword = utf8(textOf(OnlinePassword));
+        next.onlineLobby = utf8(trimmed(textOf(OnlineLobby)));
+        next.onlineListed = selected(OnlineListed) == 1;
+        const auto port = trimmed(textOf(OnlinePort));
+        unsigned value = 0;
+        for (wchar_t c : port)
+            value = c >= L'0' && c <= L'9' && value < 100000 ? value * 10 + unsigned(c - L'0') : 100000;
+        if (port.empty() || value < 1 || value > 65535) {
+            status = L"Enter a port between 1 and 65535.";
+            error = true;
+            return false;
+        }
+        next.onlinePort = value;
+        next.onlineDelay = unsigned(std::clamp(selected(OnlineDelay), 0, 7) + 1);
+        if (!settings.onlineProfiles.empty()) {
+            const int chosen = std::clamp(selected(OnlineProfile), 0, int(settings.onlineProfiles.size()) - 1);
+            next.onlineName = settings.onlineProfiles[size_t(chosen)];
+        }
+        try {
+            write_settings(settings_path(), next);
+        } catch (const std::exception &e) {
+            status = wide(e.what());
+            error = true;
+            return false;
+        }
+        settings = std::move(next);
+        error = false;
+        return true;
+    }
+    bool profileReady() {
+        if (!settings.onlineProfiles.empty() &&
+            std::find(settings.onlineProfiles.begin(), settings.onlineProfiles.end(), settings.onlineName) !=
+                settings.onlineProfiles.end())
+            return true;
+        status = L"Add a profile before playing online.";
+        error = true;
+        SetFocus(controls[OnlineName]);
+        return false;
+    }
+    void addProfile() {
+        const auto name = trimmed(textOf(OnlineName));
+        const auto value = utf8(name);
+        if (name.empty() || value.size() > 24) {
+            status = L"Type a profile name of up to 24 characters.";
+            error = true;
+            return;
+        }
+        if (settings.onlineProfiles.size() >= 32) {
+            status = L"Remove a profile before adding another.";
+            error = true;
+            return;
+        }
+        Settings next = settings;
+        if (std::find(next.onlineProfiles.begin(), next.onlineProfiles.end(), value) == next.onlineProfiles.end())
+            next.onlineProfiles.push_back(value);
+        next.onlineName = value;
+        write_settings(settings_path(), next);
+        settings = std::move(next);
+        SetWindowTextW(controls[OnlineName], L"");
+        fillProfiles();
+        status = L"Profile " + name + L" is ready for online play.";
+        error = false;
+        refreshEnabled();
+    }
+    void removeProfile() {
+        if (settings.onlineProfiles.empty())
+            return;
+        const int chosen = std::clamp(selected(OnlineProfile), 0, int(settings.onlineProfiles.size()) - 1);
+        Settings next = settings;
+        const auto name = next.onlineProfiles[size_t(chosen)];
+        next.onlineProfiles.erase(next.onlineProfiles.begin() + chosen);
+        next.onlineName = next.onlineProfiles.empty() ? std::string("Player") : next.onlineProfiles.front();
+        write_settings(settings_path(), next);
+        settings = std::move(next);
+        fillProfiles();
+        status = L"Profile " + wide(name) + L" removed.";
+        error = false;
+        refreshEnabled();
+    }
+    void refreshRooms() {
+        if (roomTask.valid() || !saveOnline())
+            return;
+        if (settings.onlineLobby.empty()) {
+            status = L"Enter a server address to see rooms.";
+            error = true;
+            return;
+        }
+        rooms.clear();
+        SendMessageW(controls[RoomList], LB_RESETCONTENT, 0, 0);
+        roomTask = std::async(std::launch::async, [server = settings.onlineLobby] {
+            std::string problem;
+            auto found = lobby::fetch_rooms(server, problem);
+            return std::make_pair(std::move(found), problem);
+        });
+        status = L"Looking for rooms…";
+        layout();
+        refreshEnabled();
+        InvalidateRect(hwnd, nullptr, FALSE);
+    }
+    void roomsArrived() {
+        auto [found, problem] = roomTask.get();
+        rooms = std::move(found);
+        std::stable_sort(rooms.begin(), rooms.end(), [](const lobby::Room &a, const lobby::Room &b) {
+            return (a.version == application_version) > (b.version == application_version);
+        });
+        SendMessageW(controls[RoomList], LB_RESETCONTENT, 0, 0);
+        for (const auto &room : rooms) {
+            std::wstring row = wide(room.name.empty() ? room.host + "'s room" : room.name) + L" \u00b7 " + wide(room.host) +
+                               L" \u00b7 " + (room.locked ? L"Password" : L"Open");
+            if (room.version != application_version)
+                row += L" \u00b7 Version " + wide(room.version);
+            SendMessageW(controls[RoomList], LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(row.c_str()));
+        }
+        roomsMessage = !problem.empty() ? L"Server not reachable: " + wide(problem)
+                                        : L"No open rooms. Host one, or refresh later.";
+        status = !problem.empty() ? roomsMessage
+                 : rooms.empty()  ? roomsMessage
+                                  : std::to_wstring(rooms.size()) + (rooms.size() == 1 ? L" room found." : L" rooms found.");
+        error = !problem.empty();
+        if (page == onlinePage)
+            layout();
+        refreshEnabled();
+        InvalidateRect(hwnd, nullptr, FALSE);
+    }
+    void joinRoom() {
+        const auto row = SendMessageW(controls[RoomList], LB_GETCURSEL, 0, 0);
+        if (row < 0 || size_t(row) >= rooms.size()) {
+            status = L"Choose a room to join.";
+            error = true;
+            return;
+        }
+        const auto &room = rooms[size_t(row)];
+        if (room.version != application_version) {
+            status = L"This room uses OpenKai2 " + wide(room.version) + L". Both players need the same version.";
+            error = true;
+            return;
+        }
+        const auto password = textOf(JoinPassword);
+        if (room.locked && password.empty()) {
+            status = L"This room has a password. Type it in Room password.";
+            error = true;
+            SetFocus(controls[JoinPassword]);
+            return;
+        }
+        launchOnline(false, wide(room.address) + L":" + std::to_wstring(room.port), password);
+    }
+    void launchOnline(bool host, const std::wstring &target, const std::wstring &password) {
+        if (!saveOnline() || !profileReady())
+            return;
+        std::wstring arguments = L" --netplay=" + (host ? L"host:" + std::to_wstring(settings.onlinePort) : L"join:" + target) +
+                                 L" --netplay-delay=" + std::to_wstring(settings.onlineDelay) + L" " +
+                                 quote_argument(L"--netplay-name=" + wide(settings.onlineName));
+        if (!password.empty())
+            arguments += L" " + quote_argument(L"--netplay-password=" + password);
+        if (host && !settings.onlineRoom.empty())
+            arguments += L" " + quote_argument(L"--netplay-room=" + wide(settings.onlineRoom));
+        if (host && settings.onlineListed && !settings.onlineLobby.empty())
+            arguments += L" " + quote_argument(L"--netplay-lobby=" + wide(settings.onlineLobby));
+        onlineArguments = arguments;
+        start(Job::launch, settings.iso);
+        status = host ? (settings.onlineListed && !settings.onlineLobby.empty()
+                             ? L"Starting the game. Your room is listed while you wait for a player."
+                             : L"Starting the game. Waiting for a player on port " + std::to_wstring(settings.onlinePort) + L".")
+                      : L"Starting the game and joining " + target + L"…";
+    }
+    void startOnline(bool host) {
+        if (!saveOnline())
+            return;
+        if (host) {
+            launchOnline(true, L"", wide(settings.onlinePassword));
+            return;
+        }
+        if (settings.onlineAddress.empty()) {
+            status = L"Type the host's address to join directly.";
+            error = true;
+            return;
+        }
+        std::wstring target = wide(settings.onlineAddress);
+        if (std::count(settings.onlineAddress.begin(), settings.onlineAddress.end(), ':') != 1)
+            target += L":" + std::to_wstring(settings.onlinePort);
+        launchOnline(false, target, textOf(JoinPassword));
+    }
     void saveOptions() {
         Settings next = settings;
         next.renderer = selected(Renderer) == 1   ? "gpu"
@@ -2999,9 +3331,9 @@ struct Window {
         lastInput = std::chrono::steady_clock::now();
         if (picking)
             return;
-        if (id >= PlayTab && id <= SettingsTab) {
+        if (id >= PlayTab && id <= OnlineTab) {
             page = id - PlayTab;
-            for (int tab = PlayTab; tab <= SettingsTab; ++tab)
+            for (int tab = PlayTab; tab <= OnlineTab; ++tab)
                 InvalidateRect(controls[tab], nullptr, FALSE);
             if (page == modsPage)
                 refreshMods();
@@ -3044,6 +3376,31 @@ struct Window {
                                    L". Mods stay off while it is on; logs go to the logs\\speedruns folder."
                              : L"Speedrun mode is off.";
             refreshEnabled();
+            return;
+        }
+        if ((id == OnlineDelay || id == OnlineListed || id == OnlineProfile) && notification == CBN_SELCHANGE) {
+            if (saveOnline())
+                status = id == OnlineDelay    ? L"Input delay saved. It is used when you host."
+                         : id == OnlineListed ? (settings.onlineListed ? L"Your rooms will be listed on the server."
+                                                                       : L"Your rooms will not be listed.")
+                                              : L"Profile " + wide(settings.onlineName) + L" selected.";
+            return;
+        }
+        if ((id == OnlinePort || id == OnlineAddress || id == OnlineRoom || id == OnlinePassword || id == OnlineLobby) &&
+            notification == EN_KILLFOCUS) {
+            saveOnline();
+            return;
+        }
+        if (id == ProfileAdd && notification == BN_CLICKED) {
+            addProfile();
+            return;
+        }
+        if (id == ProfileRemove && notification == BN_CLICKED) {
+            removeProfile();
+            return;
+        }
+        if (id == RefreshRooms && notification == BN_CLICKED) {
+            refreshRooms();
             return;
         }
         if ((id == UpdateChannel || id == AutomaticUpdates) && notification == CBN_SELCHANGE) {
@@ -3226,6 +3583,10 @@ struct Window {
             start(Job::verify, candidateIso);
         else if (id == Play && disc)
             start(Job::launch, settings.iso);
+        else if ((id == HostGame || id == JoinGame) && notification == BN_CLICKED && disc)
+            startOnline(id == HostGame);
+        else if (((id == JoinRoom && notification == BN_CLICKED) || (id == RoomList && notification == LBN_DBLCLK)) && disc)
+            joinRoom();
         else if (id == ImportFolder && disc) {
             auto p = choose(true);
             if (!p.empty())
@@ -3715,6 +4076,7 @@ int run_window(const std::filesystem::path &initialIso) {
                          {FCONTROL | FVIRTKEY, '2', SavesTab},
                          {FCONTROL | FVIRTKEY, '3', ModsTab},
                          {FCONTROL | FVIRTKEY, '4', SettingsTab},
+                         {FCONTROL | FVIRTKEY, '5', OnlineTab},
                          {FVIRTKEY, VK_F5, Play}};
     const auto accelerators = CreateAcceleratorTableW(shortcuts, int(std::size(shortcuts)));
     struct AcceleratorCleanup {

@@ -21,6 +21,10 @@ void validate_settings(const Settings &s) {
         s.windowWidth > 32768 || s.windowHeight > 32768 || s.updateChannel > 1 || s.speedrun > 2 || s.overlayItems > speedrun::overlay_all || s.overlayCorner > 3 ||
         s.overlaySize > 2 || s.overlayBackground > 2 || s.overlaySplits > 3 || (s.renderer != "auto" && s.renderer != "gpu" && s.renderer != "cpu"))
         throw std::runtime_error("Invalid graphics settings");
+    if (s.onlinePort < 1 || s.onlinePort > 65535 || s.onlineDelay < 1 || s.onlineDelay > 8 || s.onlineName.size() > 64 ||
+        s.onlineAddress.size() > 255 || s.onlineRoom.size() > 64 || s.onlinePassword.size() > 64 ||
+        s.onlineLobby.size() > 255 || s.onlineProfiles.size() > 32)
+        throw std::runtime_error("Invalid online settings");
 }
 Settings read_settings(const std::filesystem::path &file) {
     Settings s;
@@ -93,6 +97,23 @@ Settings read_settings(const std::filesystem::path &file) {
             row >> s.fpsCounter;
         else if (key == "overlay")
             row >> s.overlayItems >> s.overlayCorner >> s.overlaySize >> s.overlayBackground >> s.overlaySplits;
+        else if (key == "online")
+            row >> std::quoted(s.onlineName) >> std::quoted(s.onlineAddress) >> s.onlinePort >> s.onlineDelay;
+        else if (key == "online_room")
+            row >> std::quoted(s.onlineRoom) >> std::quoted(s.onlinePassword) >> s.onlineListed >> std::quoted(s.onlineLobby);
+        else if (key == "online_profiles") {
+            s.onlineProfiles.clear();
+            std::string rest;
+            std::getline(row, rest);
+            row.clear();
+            std::istringstream names(rest);
+            std::string name;
+            while (names >> std::quoted(name))
+                s.onlineProfiles.push_back(name);
+            if (!names.eof())
+                throw std::runtime_error("Invalid settings value: " + key);
+            row.setstate(std::ios::eofbit);
+        }
         else
             known = false;
         if (known) {
@@ -127,7 +148,13 @@ void write_settings(const std::filesystem::path &file, const Settings &s) {
         << "\nlauncher_window " << s.windowLeft << ' ' << s.windowTop << ' ' << s.windowWidth << ' '
         << s.windowHeight << ' ' << s.windowMaximized << "\nspeedrun " << s.speedrun << ' ' << s.permadeath
         << "\nfps_counter " << s.fpsCounter << "\noverlay " << s.overlayItems << ' ' << s.overlayCorner << ' '
-        << s.overlaySize << ' ' << s.overlayBackground << ' ' << s.overlaySplits << '\n';
+        << s.overlaySize << ' ' << s.overlayBackground << ' ' << s.overlaySplits << "\nonline "
+        << std::quoted(s.onlineName) << ' ' << std::quoted(s.onlineAddress) << ' ' << s.onlinePort << ' '
+        << s.onlineDelay << "\nonline_room " << std::quoted(s.onlineRoom) << ' ' << std::quoted(s.onlinePassword) << ' '
+        << s.onlineListed << ' ' << std::quoted(s.onlineLobby) << "\nonline_profiles";
+    for (const auto &name : s.onlineProfiles)
+        out << ' ' << std::quoted(name);
+    out << '\n';
     out.close();
     if (!out)
         throw std::runtime_error("Cannot finish saving settings");

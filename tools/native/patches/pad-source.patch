@@ -8,7 +8,7 @@
  #include <cstring>
  
  namespace
-@@ -130,8 +131,12 @@
+@@ -130,8 +131,15 @@
  
  namespace {
      openkai2::LatchedPadState hostPads[2];
@@ -18,10 +18,13 @@
 +void set_pad_source(PadSource source) {
 +    padSource.store(source,std::memory_order_release);
 +}
++LatchedPadState::Packet consume_host_input(int port) {
++    return port>=0 && port<2 ? hostPads[port].consume() : LatchedPadState::neutral();
++}
  void reset_host_input() {
      for (auto& pad:hostPads) pad.reset();
  }
-@@ -151,6 +156,16 @@
+@@ -151,6 +159,16 @@
  }
  bool PSPadBackend::readState(int port,int slot,uint8_t* data,size_t size) {
      if (!data || size<32u) return false;

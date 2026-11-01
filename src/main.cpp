@@ -16,6 +16,7 @@
 #include "speedrun_host.h"
 #include "speedrun_overlay.h"
 #include "machine_state.h"
+#include "netplay_game.h"
 #include "runtime/ee_scheduler.h"
 #ifdef _WIN32
 #include "launcher/window.h"
@@ -125,6 +126,7 @@ int main(int argc, char* argv[]) {
         const auto displayEnvironment=std::getenv("OPENKAI2_FPS_LIMIT");
         std::string fpsLimit=displayEnvironment ? displayEnvironment : std::to_string(preferences.fps);
         std::filesystem::path image;
+        openkai2::netplay::Arguments online;
 #ifdef _WIN32
         int count=0;
         auto arguments=CommandLineToArgvW(GetCommandLineW(),&count);
@@ -138,6 +140,12 @@ int main(int argc, char* argv[]) {
             }else if(i->rfind(L"--fps-limit=",0u)==0u){
                 const auto value=i->substr(12u);
                 fpsLimit=std::string(value.begin(),value.end());
+                i=positional.erase(i);
+            }else if(i->rfind(L"--netplay",0u)==0u){
+                const int bytes=WideCharToMultiByte(CP_UTF8,0,i->c_str(),int(i->size()),nullptr,0,nullptr,nullptr);
+                std::string value(size_t(std::max(bytes,0)),'\0');
+                if(bytes>0)WideCharToMultiByte(CP_UTF8,0,i->c_str(),int(i->size()),value.data(),bytes,nullptr,nullptr);
+                if(!openkai2::netplay::parse_argument(value,online))throw std::runtime_error("unknown option "+value);
                 i=positional.erase(i);
             }else ++i;
         }
@@ -160,6 +168,7 @@ int main(int argc, char* argv[]) {
             if(argument.rfind("--renderer=",0u)==0u)renderer=argument.substr(11u);
             else if(argument.rfind("--fps-limit=",0u)==0u)
                 fpsLimit=argument.substr(12u);
+            else if(openkai2::netplay::parse_argument(argument,online)){}
             else positional.push_back(argument);
         }
         openkai2::set_window_fps_limit(openkai2::parse_window_fps_limit(fpsLimit));
@@ -205,7 +214,7 @@ int main(int argc, char* argv[]) {
         std::cout << "[disc] Verified " << disc.files.size() << " files (" << disc.bytes_verified
                   << " bytes); refreshed " << disc.files_repaired << " cached files.\n"
                   << "[disc] ISO SHA-256: " << disc.image_sha256 << std::endl;
-        const auto category=openkai2::speedrun::Category(preferences.speedrun);
+        const auto category=online.enabled ? openkai2::speedrun::Category::off : openkai2::speedrun::Category(preferences.speedrun);
         const bool speedrun=category!=openkai2::speedrun::Category::off;
         PS2Runtime runtime;
         openkai2::set_machine_state_identity(std::string(OPENKAI2_SOURCE_REVISION)+":"+disc.image_sha256);
@@ -259,9 +268,13 @@ int main(int argc, char* argv[]) {
         paths.cdImage=std::filesystem::absolute(image);
         PS2Runtime::setIoPaths(paths);
         const auto modsDirectory=openkai2::mods::default_mods_directory();
-        const auto mods=speedrun ? std::vector<std::filesystem::path>{} : openkai2::mods::enabled_mod_folders(modsDirectory);
+        const auto mods=speedrun || online.enabled ? std::vector<std::filesystem::path>{} : openkai2::mods::enabled_mod_folders(modsDirectory);
         if (speedrun) std::cout << "[speedrun] " << openkai2::speedrun::category_name(category)
                                 << " run: mods are off" << std::endl;
+        if (online.enabled) {
+            std::cout << "[netplay] online play: mods are off" << std::endl;
+            openkai2::netplay::prepare_memory_card(online);
+        }
         const auto applied=openkai2::mods::DiscOverlay::global().configure(paths.cdImage,mods);
         std::cout << "[mods] directory=" << modsDirectory.string() << " enabled=" << mods.size()
                   << " replaced_files=" << applied.replaced_files << " replaced_entries=" << applied.replaced_entries
@@ -285,8 +298,12 @@ int main(int argc, char* argv[]) {
         if (!alternates.empty())
             std::cout << "[mods] select: R2 switches characters on shared spots" << std::endl;
         openkai2::mods::install_alternates(runtime.memory().getRDRAM(),PS2_RAM_SIZE,std::move(alternates));
-        presence.update("Playing Budokai 2","In game");
+        presence.update("Playing Budokai 2",online.enabled ? "Online" : "In game");
+        std::unique_ptr<openkai2::netplay::Session> session;
+        if (online.enabled)
+            session=openkai2::netplay::start_game_session(runtime,online,std::string(OPENKAI2_SOURCE_REVISION)+":"+disc.image_sha256);
         runtime.run();
+        openkai2::netplay::stop_game_session(session);
         restart=openkai2::speedrun::reset_requested();
     } catch (const std::exception& error) {
         std::cerr << "[OpenKai2] " << error.what() << std::endl;

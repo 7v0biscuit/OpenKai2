@@ -4,6 +4,7 @@
 #include "speedrun_items.h"
 #include "host_input.h"
 #include "machine_state.h"
+#include "netplay.h"
 #include <fstream>
 #include <iterator>
 #include <mutex>
@@ -289,6 +290,31 @@ struct Overlay {
         label(message, x + 12 * s, y + 6 * s, size, Color{245, 245, 240, 235});
     }
 
+    void online(const openkai2::netplay::Status &status) {
+        namespace net = openkai2::netplay;
+        std::string text;
+        Color color{245, 245, 240, 235};
+        if (status.phase == net::Phase::playing) {
+            text = "Online  vs " + status.opponent + "   " + std::to_string(status.ping_ms) + " ms   delay " +
+                   std::to_string(status.delay);
+            if (status.waiting)
+                text += "   waiting for " + status.opponent;
+        } else {
+            text = status.message;
+        }
+        if (status.desynced) {
+            text += "   out of sync";
+            color = Color{255, 120, 110, 240};
+        }
+        if (text.empty())
+            return;
+        const float s = std::max(0.75f, float(GetScreenHeight()) / 1080.0f), size = 16 * s;
+        const float width = label_width(text, size), x = (float(GetScreenWidth()) - width) / 2 - 10 * s;
+        const float y = 14 * s;
+        DrawRectangleRounded({x, y, width + 20 * s, size + 10 * s}, 0.35f, 6, Color{10, 12, 18, 160});
+        label(text, x + 10 * s, y + 5 * s, size, color);
+    }
+
     void count(double now) {
         ++host_frames;
         if (fps_window == 0)
@@ -546,7 +572,10 @@ void draw(PS2Runtime &runtime, void *) {
     if (overlay->speedrun)
         overlay->update(runtime, now, fields);
     overlay->last_fields = fields;
-    if (!overlay->speedrun && !openkai2::machine_state_pending()) {
+    auto *session = openkai2::netplay::active();
+    if (session && (IsKeyPressed(KEY_F5) || IsKeyPressed(KEY_F9)))
+        toast("Save states are off in online play");
+    else if (!overlay->speedrun && !openkai2::machine_state_pending()) {
         if (IsKeyPressed(KEY_F5))
             save_slot(1);
         else if (IsKeyPressed(KEY_F9))
@@ -563,6 +592,8 @@ void draw(PS2Runtime &runtime, void *) {
     }
     if (!message.empty())
         overlay->notice(message);
+    if (session)
+        overlay->online(session->status());
 }
 
 void shutdown(PS2Runtime &, void *) {

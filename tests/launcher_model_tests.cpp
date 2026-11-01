@@ -89,6 +89,15 @@ int main() {
         s.overlaySize = 2;
         s.overlayBackground = 0;
         s.overlaySplits = 3;
+        s.onlineName = "Son Goku";
+        s.onlineAddress = "203.0.113.7";
+        s.onlinePort = 7351;
+        s.onlineDelay = 4;
+        s.onlineProfiles = {"Son Goku", "Vegeta \"Prince\""};
+        s.onlineRoom = "Kame House";
+        s.onlinePassword = "turtle";
+        s.onlineListed = false;
+        s.onlineLobby = "lobby.example.org:7351";
         write_settings(root / "settings.ini", s);
         auto read = read_settings(root / "settings.ini");
         require(read.iso == s.iso && read.fps == 144 && read.width == 2560 && read.height == 1440 &&
@@ -100,7 +109,10 @@ int main() {
                     read.windowWidth == 1180 && read.windowHeight == 760 && read.windowMaximized &&
                     read.speedrun == 2 && read.permadeath && read.fpsCounter && read.overlayItems == 0x5u &&
                     read.overlayCorner == 3 && read.overlaySize == 2 && read.overlayBackground == 0 &&
-                    read.overlaySplits == 3,
+                    read.overlaySplits == 3 && read.onlineName == "Son Goku" &&
+                    read.onlineAddress == "203.0.113.7" && read.onlinePort == 7351 && read.onlineDelay == 4 &&
+                    read.onlineProfiles == s.onlineProfiles && read.onlineRoom == "Kame House" &&
+                    read.onlinePassword == "turtle" && !read.onlineListed && read.onlineLobby == s.onlineLobby,
                 "Settings roundtrip changed values");
         require(read_settings(root / "absent.ini").fps == 240, "Default frame rate cap is not 240 FPS");
         require(read_settings(root / "absent.ini").audio && read_settings(root / "absent.ini").volume == 100,

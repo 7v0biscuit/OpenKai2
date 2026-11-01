@@ -45,6 +45,7 @@ private:
 };
 using PadSource=bool(*)(int port,LatchedPadState::Packet& packet);
 void set_pad_source(PadSource source);
+LatchedPadState::Packet consume_host_input(int port);
 void reset_host_input();
 void poll_host_input();
 void publish_host_input(int,const LatchedPadState::Packet&);

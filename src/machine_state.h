@@ -24,6 +24,7 @@ void request_machine_load(std::vector<uint8_t> data, std::function<void(MachineS
 bool machine_state_pending();
 void machine_state_point(EeScheduler &scheduler);
 void set_machine_memory(const uint8_t *rdram, size_t bytes);
+uint64_t machine_memory_hash();
 
 std::vector<uint8_t> wrap_machine_state(const std::vector<uint8_t> &body);
 bool unwrap_machine_state(const std::vector<uint8_t> &file, std::vector<uint8_t> &body, std::string &problem);

@@ -1,0 +1,117 @@
+--- a/Kernel/Stubs/CD.cpp
++++ b/Kernel/Stubs/CD.cpp
+@@ -31,6 +31,9 @@
+ 
+         uint32_t g_cdStReadTraceCount = 0u;
+         CdStreamTimingState g_cdStreamTiming;
++        int64_t g_guestClockBase = 0;
++        uint64_t g_guestClockTick = 0;
++        bool g_guestClockSet = false;
+ 
+         uint64_t currentCdStreamTick(PS2Runtime *runtime)
+         {
+@@ -508,6 +511,34 @@
+         setReturnS32(ctx, ok ? 1 : 0);
+     }
+ 
++    std::time_t guestClockNow(PS2Runtime *runtime)
++    {
++        const uint64_t tick = runtime != nullptr ? runtime->eeScheduler().currentVSyncTick() : 0u;
++        if (!g_guestClockSet)
++        {
++            const std::time_t now = std::time(nullptr);
++            std::tm local{};
++#ifdef _WIN32
++            localtime_s(&local, &now);
++#else
++            localtime_r(&now, &local);
++#endif
++            std::tm utc{};
++#ifdef _WIN32
++            gmtime_s(&utc, &now);
++#else
++            gmtime_r(&now, &utc);
++#endif
++            utc.tm_isdst = local.tm_isdst;
++            const int64_t offset = int64_t(std::mktime(&local)) - int64_t(std::mktime(&utc));
++            g_guestClockBase = int64_t(now) + offset;
++            g_guestClockTick = tick;
++            g_guestClockSet = true;
++        }
++        const uint64_t elapsed = tick >= g_guestClockTick ? tick - g_guestClockTick : 0u;
++        return std::time_t(g_guestClockBase + int64_t(elapsed * 1001u / 60000u));
++    }
++
+     void sceCdReadClock(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+     {
+         uint32_t clockAddr = getRegU32(ctx, 4);
+@@ -518,12 +549,12 @@
+             return;
+         }
+ 
+-        std::time_t now = std::time(nullptr);
++        const std::time_t now = guestClockNow(runtime);
+         std::tm localTm{};
+ #ifdef _WIN32
+-        localtime_s(&localTm, &now);
++        gmtime_s(&localTm, &now);
+ #else
+-        localtime_r(&now, &localTm);
++        gmtime_r(&now, &localTm);
+ #endif
+ 
+         // sceCdCLOCK format (BCD fields).
+@@ -990,7 +1021,7 @@
+     void serializeCdStubState(StateArchive &archive)
+     {
+         archive.section(0x44434453u);
+-        archive(g_cdStreamTiming);
++        archive(g_cdStreamTiming, g_guestClockBase, g_guestClockTick, g_guestClockSet);
+     }
+ 
+ }
+--- a/Kernel/Stubs/MemoryCard.cpp
++++ b/Kernel/Stubs/MemoryCard.cpp
+@@ -285,10 +285,19 @@
+             std::memcpy(dst, value.c_str(), value.size() + 1u);
+         }
+ 
++        bool g_stableCardDates = false;
++
+         void writeMcDateTime(SceMcStDateTime &out, std::time_t value)
+         {
+             std::tm tm{};
+-            if (!localtimeSafeMc(&value, &tm))
++            if (g_stableCardDates)
++            {
++                tm.tm_year = 103;
++                tm.tm_mon = 10;
++                tm.tm_mday = 14;
++                tm.tm_hour = 12;
++            }
++            else if (!localtimeSafeMc(&value, &tm))
+             {
+                 std::memset(&out, 0, sizeof(out));
+                 return;
+@@ -1530,6 +1539,11 @@
+     {
+         setReturnS32(ctx, 1);
+     }
++    void setStableCardDates(bool stable)
++    {
++        g_stableCardDates = stable;
++    }
++
+     void serializeMemoryCardStubState(StateArchive &archive)
+     {
+         std::lock_guard<std::mutex> lock(g_mcStateMutex);
+--- a/Kernel/Stubs/MemoryCard.h
++++ b/Kernel/Stubs/MemoryCard.h
+@@ -10,6 +10,7 @@
+ 
+ namespace ps2_stubs
+ {
++    void setStableCardDates(bool stable);
+ 
+     struct MemoryCardDebugOpenFile
+     {
