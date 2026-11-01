@@ -175,6 +175,35 @@ std::vector<uint8_t> without_unloadable_files(const std::vector<uint8_t> &pack) 
     return out;
 }
 
+std::vector<uint8_t> budokai2_stage_effects(const std::vector<uint8_t> &pack) {
+    if (pack.size() < 32 || std::memcmp(pack.data(), "#AMB", 4) != 0)
+        return pack;
+    const uint32_t count = get32(pack, 16), records = get32(pack, 20);
+    if (count > 4096 || records < 24 || records + uint64_t(count) * 16 > pack.size())
+        throw std::runtime_error("A Budokai 3 stage pack's records run past its end");
+    std::vector<uint8_t> texture;
+    for (uint32_t i = count; i-- > 0;) {
+        const uint32_t at = get32(pack, records + i * 16), size = get32(pack, records + i * 16 + 4);
+        if (size && at <= pack.size() && size <= pack.size() - at && std::memcmp(pack.data() + at, "#AMT", 4) == 0) {
+            texture.assign(pack.begin() + at, pack.begin() + at + size);
+            break;
+        }
+    }
+    if (texture.empty())
+        throw std::runtime_error("A Budokai 3 stage pack holds no effect texture");
+    std::vector<uint8_t> out(0x30, 0);
+    std::copy(pack.begin(), pack.begin() + 16, out.begin());
+    put32(out, 16, 1);
+    put32(out, 20, 0x20);
+    put32(out, 24, 0x30);
+    put32(out, 0x20, 0x30);
+    put32(out, 0x24, uint32_t(texture.size()));
+    put32(out, 0x28, 2);
+    out.insert(out.end(), texture.begin(), texture.end());
+    out.resize((out.size() + 15) / 16 * 16, 0);
+    return out;
+}
+
 std::vector<std::string> unloadable_pack_files(const std::vector<uint8_t> &pack) {
     std::vector<std::string> marks;
     if (pack.size() < 32 || std::memcmp(pack.data(), "#AMB", 4) != 0)
@@ -246,6 +275,14 @@ std::vector<StageMod> load_stage_mods(const std::vector<fs::path> &mods, const D
                         if (notes)
                             notes->push_back("stage: skipped " + current->name + " (" + where + "): its pack holds " +
                                              marks.front() + " files, which Budokai 2 can't load; import the stage again");
+                        current.reset();
+                        packNames.clear();
+                        return;
+                    }
+                    if (bytes.size() >= 32 && std::memcmp(bytes.data(), "#AMB", 4) == 0 && get32(bytes, 16) > 64) {
+                        if (notes)
+                            notes->push_back("stage: skipped " + current->name + " (" + where +
+                                             "): it was imported by an older version and froze the game; import the stage again");
                         current.reset();
                         packNames.clear();
                         return;
@@ -420,7 +457,7 @@ std::vector<std::pair<uint32_t, std::vector<uint8_t>>> budokai3_stage_files(Sour
         });
         if (found == first.end())
             throw std::runtime_error("The stage " + stage.internal + " has no " + mark + " file");
-        auto bytes = without_unloadable_files(*found);
+        auto bytes = offset == 0x4Cu ? budokai2_stage_effects(*found) : *found;
         texture_version_1(bytes);
         files.push_back({offset, std::move(bytes)});
     }

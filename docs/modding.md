@@ -323,24 +323,26 @@ current stage's index at `0x373C60` and `0x373CAC`.
 
 ### Stage mods
 
-**Experimental since v0.1.62.** A Budokai 3 stage imported as it is froze the
-game when chosen, jumping to `0x231712` while loading. The import tool drops
-the `#AME` particle files from the stage's `#AMB` pack, so the stage loads
-without its particle effects. Whether that alone avoids the freeze is not yet
-confirmed in a fight.
+**Experimental since v0.1.62.** A Budokai 3 stage's file at `0x4C` is an
+`#AMB` of 641 slots, indexed by effect: `#AME` particle effects, whole
+animated stage objects (`#AMO` models, `#AMM` motions, `#AMC`, their own
+`#AMT` textures), `#MTA` files, and the stage's effect texture in the last
+slot. Budokai 2's stage packs hold up to 37 slots: the effect texture first,
+then `#AME` effects. Loaded as it was, a Budokai 3 pack froze the game
+(`0x231712`). The import tool now builds a Budokai 2 pack holding only the
+effect texture, so the stage loads and fights run on it, without its particle
+effects and animated objects. Confirmed in a fight on Budokai 3's Town.
 
-`#AME` itself is not the cause on its own: Budokai 2's own stage packs hold
-them too. Each stage `#AMB` (the file at `0x4C`) starts with one `#AMT`, then
-up to 36 `#AME` slots, some of them empty. Every `#AMB` record is 16 bytes:
-offset, size, a loader word, and 0. Budokai 2 sets the loader word to 1 for
+`#AME` itself is not the cause: Budokai 2's own stage packs hold
+them too. Every `#AMB` record is 16 bytes:
+offset, size, a loader word, and 0. Both games set the loader word to 1 for
 `#AMO`, 2 for `#AMT`, 3 for `#AMM`, 4 for `#AMP`, 5 for `#AMC`, 6 for `#AML`
 and 8 for `#SPX`, and to `0xFFFFFFFF` for files the pack loader leaves alone
-(`#AME`, `#ASE`, `#BCM`, `#BSK`, nested `#AMB` and `STD`). Budokai 3's stage
-packs use the same words, so the freeze lies elsewhere.
+(`#AME`, `#ASE`, `#BCM`, `#BSK`, nested `#AMB` and `STD`).
 
 Stage mods holding a pack with a kind the loader table at `0x33D680` lacks
-are skipped with a startup log line; ones made with v0.1.59 to v0.1.61 need
-importing again. `stage_mods_enabled` in `src/mods/stages.h` turns stage
+are skipped with a startup log line, as are packs of more than 64 slots,
+which stage imports made before v0.1.65 left behind; import those again. `stage_mods_enabled` in `src/mods/stages.h` turns stage
 mods off.
 
 The four B stages (records 9 to 12: ISLAND B, TOWN B, R&R BASE B and SNOW B)

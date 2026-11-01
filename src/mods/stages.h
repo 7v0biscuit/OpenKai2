@@ -49,6 +49,7 @@ std::vector<std::pair<uint32_t, std::vector<uint8_t>>> budokai3_stage_files(Sour
 inline constexpr const char *budokai2_pack_kinds[] = {"AMG", "AMT", "AMM", "AMO", "AMC", "AML", "AMP"};
 std::vector<std::string> unloadable_pack_files(const std::vector<uint8_t> &pack);
 std::vector<uint8_t> without_unloadable_files(const std::vector<uint8_t> &pack);
+std::vector<uint8_t> budokai2_stage_effects(const std::vector<uint8_t> &pack);
 std::optional<std::string> budokai3_stage_problem(SourceDisc &disc, const DiscStage &stage);
 
 std::optional<std::vector<DiscStage>> read_disc_stages(SourceDisc &disc);

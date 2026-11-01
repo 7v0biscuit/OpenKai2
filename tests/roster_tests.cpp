@@ -385,7 +385,7 @@ int main() {
         for (const auto &file : stageFiles)
             offsets.push_back(file.first);
         require(offsets == std::vector<uint32_t>{0x40, 0x44, 0x48, 0x4C, 0x50, 0x54, 0x58, 0x5C} &&
-                    stageFiles[0].second[4] == 1 && stageFiles[3].second.size() == 0x70 && get32(stageFiles[3].second.data() + 16) == 1 &&
+                    stageFiles[0].second[4] == 1 && stageFiles[3].second.size() == 0x50 && get32(stageFiles[3].second.data() + 16) == 1 &&
                     get32(stageFiles[3].second.data() + 0x24) == 32 && unloadable_pack_files(stageFiles[3].second).empty() &&
                     std::memcmp(stageFiles[3].second.data(), "#AMB", 4) == 0 && stageFiles[4].second[4] == 4 &&
                     get32(stageFiles[3].second.data() + get32(stageFiles[3].second.data() + 0x20) + 12) == 1 &&
@@ -443,6 +443,11 @@ int main() {
             require(load_stage_mods({stageMod}, stageOverlay, &notes).empty() && notes.size() == 1 &&
                         notes[0].find("#AMX") != std::string::npos,
                     "A stage with files Budokai 2 can't load was applied");
+            write(added_dir / "budo_3.bin", amb(std::vector<Bytes>(100)));
+            notes.clear();
+            require(load_stage_mods({stageMod}, stageOverlay, &notes).empty() && notes.size() == 1 &&
+                        notes[0].find("older version") != std::string::npos,
+                    "A stage imported by an older version was applied");
             write(added_dir / "budo_3.bin", stageAmb);
             const auto loaded = load_stage_mods({stageMod}, stageOverlay);
             auto table = stageMemory;
