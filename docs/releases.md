@@ -42,9 +42,9 @@ links are supplied by GitHub automatically.
 
 After all packages pass validation and publication, superseded development
 releases and their tags are removed. Newer publications and stable releases
-are retained. Historical change notes remain available. Keep the current runtime-input
-branch for reproducible packaging; remove superseded input branches after
-verifying the replacement release.
+are retained. Historical change notes remain available. The workflow then deletes
+every branch except `main` and the current runtime-input branch, which is kept
+for reproducible packaging.
 
 To retry packaging with workflow fixes while preserving an existing release tag,
 push the corrected packaging commit to `release/v<version>`. The branch name must

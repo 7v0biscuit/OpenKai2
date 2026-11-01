@@ -150,3 +150,9 @@ jobs:
                       and release['publishedAt'] < current['publishedAt']):
                   subprocess.run(['gh', 'release', 'delete', release['tagName'],
                                   '--yes', '--cleanup-tag'], check=True)
+          keep = {'main', 'release-input/' + tag}
+          branches = json.loads(subprocess.check_output([
+              'gh', 'api', '--paginate', 'repos/{owner}/{repo}/branches', '--jq', '[.[].name]']))
+          for branch in branches:
+              if branch not in keep:
+                  subprocess.run(['gh', 'api', '-X', 'DELETE', 'repos/{owner}/{repo}/git/refs/heads/' + branch], check=True)
