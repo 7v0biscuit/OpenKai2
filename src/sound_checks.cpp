@@ -110,8 +110,8 @@ void verify_sound_registers() {
             memory.write32(chcr-8u,0x2200u);memory.write32(chcr,0x01000201u);
         }
         const auto completion=memory.takeDmaStart();
-        require(completion && completion->delayCycles==(partial ? 128u : 256u)*768u,
-            "AutoDMA completion does not match the 48 kHz stereo frame duration");
+        require(completion && completion->stream && completion->delayCycles==(partial ? 128u : 256u)*768u*2u,
+            "AutoDMA completion does not wait for the SPU2, with twice the 48 kHz stereo frame duration as a fallback");
         auto audio=memory.takeAudio();require(audio.size()==1u && audio[0].core==core,"AutoDMA lost its core or block");
         for(unsigned i=0;i<256u;++i)require(audio[0].samples[i*2u]==int16_t(i*73u)
             && audio[0].samples[i*2u+1u]==int16_t(-int(i*61u)-1),"AutoDMA changed stereo order or signed PCM");

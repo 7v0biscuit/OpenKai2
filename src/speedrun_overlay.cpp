@@ -2,6 +2,7 @@
 #include "speedrun_overlay.h"
 #include "speedrun_host.h"
 #include "speedrun_items.h"
+#include "host_input.h"
 #include "ps2_runtime.h"
 #include <raylib.h>
 #include <algorithm>
@@ -21,6 +22,7 @@
 namespace openkai2::speedrun {
 namespace {
 std::atomic<bool> reset{false};
+std::atomic<bool> to_menu{false};
 
 double seconds() {
     return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -76,6 +78,8 @@ struct Overlay {
     unsigned host_frames = 0, host_fps = 0;
     Font font{}, label_font{};
     bool hidden = false;
+    bool skipping = false;
+    double skip_started = 0, last_press = 0;
     uint64_t last_fields = 0;
     bool own_font = false, own_label = false;
 
@@ -114,6 +118,8 @@ struct Overlay {
 
     void update(PS2Runtime &runtime, double now, uint64_t fields) {
         const auto state = read_guest(runtime.memory().getRDRAM(), PS2_RAM_SIZE);
+        if (skipping)
+            skip_to_menu(state, now);
         for (const auto &name : state.tasks)
             if (seen.size() < 4096 && seen.insert(name).second)
                 std::cout << "[speedrun:task] " << name << std::endl;
@@ -153,9 +159,10 @@ struct Overlay {
                 }
                 break;
             }
+            case Event::battle_lost:
             case Event::died:
-                note("game over at " + times(now, fields));
-                if (options.permadeath) {
+                note(std::string(event == Event::died ? "game over" : "fight lost") + " at " + times(now, fields));
+                if (options.permadeath && died_at < 0) {
                     died_at = now;
                     save(false, timer.real(now), timer.wins());
                     if (livesplit)
@@ -181,12 +188,35 @@ struct Overlay {
                 save(false, timer.real(now), timer.wins());
             reset = true;
         }
-        if (died_at >= 0 && now - died_at > 3.0 && !reset) {
-            note("permadeath: restarting the game");
+        if (died_at >= 0 && now - died_at > 2.5 && !reset) {
+            note("permadeath: run over, back to the main menu");
+            to_menu = true;
             reset = true;
         }
         if (reset)
             runtime.requestStop();
+    }
+
+    void skip_to_menu(const GuestState &state, double now) {
+        if (skip_started == 0)
+            skip_started = now;
+        if (state.main_menu || now - skip_started > 240.0) {
+            skipping = false;
+            note(state.main_menu ? "back at the main menu" : "stopped returning to the main menu");
+            return;
+        }
+        if (now - last_press < 0.45)
+            return;
+        last_press = now;
+        const bool title = !state.title_menu &&
+                           (state.press_start ||
+                            std::find(state.tasks.begin(), state.tasks.end(), "# OPENING #") != state.tasks.end() ||
+                            std::find(state.tasks.begin(), state.tasks.end(), "LOGO") != state.tasks.end());
+        auto packet = LatchedPadState::neutral();
+        const uint16_t buttons = uint16_t(~(title ? 0x0008u : 0x4000u));
+        packet[2] = uint8_t(buttons);
+        packet[3] = uint8_t(buttons >> 8);
+        publish_host_input(0, packet);
     }
 
     void count(double now) {
@@ -268,10 +298,17 @@ struct Overlay {
             gold{250, 196, 70, 245};
         const unsigned corner = std::min(options.corner, 3u);
         if (options.fps_counter) {
-            const std::string value = std::to_string(host_fps) + " fps";
-            const float size = 14 * s, width = label_width(value, size);
+            const std::string value = std::to_string(host_fps) + " FPS";
+            const float size = 20 * s, width = label_width(value, size), padX = 9 * s, padY = 4 * s;
             const bool left = speedrun && corner % 2 == 1;
-            label(value, left ? 14 * s : float(GetScreenWidth()) - width - 14 * s, 10 * s, size, faint);
+            const float x = left ? 14 * s : float(GetScreenWidth()) - width - 14 * s - padX * 2, y = 10 * s;
+            DrawRectangleRounded({x, y, width + padX * 2, size + padY * 2}, 0.35f, 6, Color{10, 12, 18, 150});
+            label(value, x + padX, y + padY, size, Color{245, 245, 240, 230});
+        }
+        if (skipping) {
+            const std::string value = "Returning to the main menu";
+            const float size = 18 * s, width = label_width(value, size);
+            label(value, (float(GetScreenWidth()) - width) / 2, float(GetScreenHeight()) - 60 * s, size, grey);
         }
         if (!speedrun)
             return;
@@ -295,7 +332,7 @@ struct Overlay {
             Row row;
             row.left = std::string(category_name(options.category)) + (options.permadeath ? "   Permadeath" : "");
             row.left_color = grey;
-            row.right = died_at >= 0 ? "Game over" : flags.empty() ? "Verified" : "Flagged";
+            row.right = died_at >= 0 ? "Run over" : flags.empty() ? "Verified" : "Flagged";
             row.right_color = died_at >= 0 || !flags.empty() ? behind : ahead;
             row.size = 12;
             rows.push_back(row);
@@ -464,6 +501,7 @@ void shutdown(PS2Runtime &, void *) {
 void install_overlay(PS2Runtime &runtime, OverlayOptions options) {
     overlay = std::make_unique<Overlay>();
     overlay->speedrun = options.category != Category::off;
+    overlay->skipping = options.skip_to_menu;
     overlay->options = std::move(options);
     if (overlay->speedrun) {
         overlay->book = SplitBook::load(overlay->options.splits);
@@ -481,5 +519,6 @@ void install_overlay(PS2Runtime &runtime, OverlayOptions options) {
 }
 
 bool reset_requested() { return reset; }
+bool restart_to_menu() { return to_menu; }
 
 }

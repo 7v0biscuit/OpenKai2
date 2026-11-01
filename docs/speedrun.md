@@ -10,8 +10,8 @@ Turn it on under **Settings → Speedrun**:
 | Setting | Choices |
 |---|---|
 | Speedrun mode | Off, Any%, NG+ |
-| Permadeath | A game over in Dragon World restarts the game and the timer |
-| FPS counter | Small frame counter in the corner, also outside speedrun mode |
+| Permadeath | Losing any fight in Dragon World, with Goku or a partner, ends the run: the game resets to the main menu and the timer resets |
+| FPS counter | Frame counter in the top corner, also outside speedrun mode |
 
 While speedrun mode is on, mods are not loaded.
 
@@ -48,7 +48,7 @@ compares the run with your best run and shows:
 | Personal best | Your fastest finished run |
 | PS2 time | Time counted from the console's frames |
 | Attempts | Runs started, and how many finished |
-| Run checks | Category, permadeath, and Verified, Flagged or Game over |
+| Run checks | Category, permadeath, and Verified, Flagged or Run over |
 
 In game, **F7** hides the overlay and **F8** resets: the game restarts and the
 attempt is saved.

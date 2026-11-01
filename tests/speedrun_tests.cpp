@@ -43,8 +43,11 @@ bool has(const std::vector<Event> &events, Event event) {
 
 void reads_tasks() {
     Guest guest;
-    guest.tasks({"TITLE", "TITLEMENU"});
+    guest.tasks({"TITLE", "PRESSSTART", "MOKUJI"});
     auto state = guest.read();
+    require(state.press_start && state.main_menu, "Title and main menu not recognised");
+    guest.tasks({"TITLE", "TITLEMENU"});
+    state = guest.read();
     require(state.tasks.size() == 2 && state.tasks[1] == "TITLEMENU", "Task list was not walked");
     require(!state.intro && !state.dragon_world, "Title screen read as Dragon World");
     guest.tasks({"DW_SEQ", "DW INTRO MAIN", "DWI_SYSTEM"});
@@ -76,7 +79,10 @@ void times_a_run() {
     guest.battle(false, 0);
     timer.update(guest.read(), 20.0, 1000);
     guest.battle(true, -1);
-    require(!has(timer.update(guest.read(), 21.0, 1060), Event::battle_won), "Loss counted as a win");
+    {
+        const auto lost = timer.update(guest.read(), 21.0, 1060);
+        require(!has(lost, Event::battle_won) && has(lost, Event::battle_lost), "Loss not reported as a loss");
+    }
     guest.battle(false, 0);
     timer.update(guest.read(), 22.0, 1120);
     guest.battle(true, 1);

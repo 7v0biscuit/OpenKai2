@@ -13,6 +13,7 @@ struct OverlayOptions {
     Category category = Category::off;
     bool permadeath = false;
     bool fps_counter = false;
+    bool skip_to_menu = false;
     unsigned items = 0, corner = 0, size = 1, background = 1, split_rows = 5;
     std::filesystem::path logs;
     std::filesystem::path splits;
@@ -22,5 +23,6 @@ struct OverlayOptions {
 
 void install_overlay(PS2Runtime &runtime, OverlayOptions options);
 bool reset_requested();
+bool restart_to_menu();
 
 }

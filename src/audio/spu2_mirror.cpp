@@ -45,8 +45,11 @@ void reportStream(unsigned core) {
 }
 
 u8 *iopPhysMem(u32 address) { return iopMemory ? iopMemory + (address & 0x1fffffu) : nullptr; }
-void spu2DMA4Irq() {}
-void spu2DMA7Irq() {}
+namespace {
+std::array<bool, 2> dmaIrq{};
+}
+void spu2DMA4Irq() { dmaIrq[0] = true; }
+void spu2DMA7Irq() { dmaIrq[1] = true; }
 void spu2Irq() {}
 
 void spu2Output(StereoOut32 out) {
@@ -68,6 +71,7 @@ void reset(uint8_t *iopRam, uint64_t now) {
     lClocks = psxRegs.cycle;
     mixed.clear();
     streamCounts = {};
+    dmaIrq = {};
     std::memset(spu2regs, 0, sizeof(spu2regs));
     std::memset(_spu2mem, 0, sizeof(_spu2mem));
     std::memset(_spu2mem + 0x2800, 7, 0x10);
@@ -128,6 +132,18 @@ void advance(uint64_t now) {
         return;
     clock(now);
     TimeUpdate(psxRegs.cycle);
+}
+
+bool take_dma_irq(unsigned core) {
+    if (core > 1u || !dmaIrq[core])
+        return false;
+    dmaIrq[core] = false;
+    return true;
+}
+
+void clear_dma_irq(unsigned core) {
+    if (core <= 1u)
+        dmaIrq[core] = false;
 }
 
 void take_output(std::vector<int16_t> &samples) {

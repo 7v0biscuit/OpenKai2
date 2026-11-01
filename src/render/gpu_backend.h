@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #pragma once
 #include "runtime/gs/gs_backend.h"
+#include <array>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <utility>
@@ -30,6 +32,8 @@ private:
 GpuRenderStats gpu_render_statistics();
 const char* gpu_draw_unsupported(const GSPrimitiveBatch& batch);
 std::vector<std::pair<std::string,uint64_t>> gpu_fallback_counts();
+std::vector<std::array<uint64_t,3>> gpu_wait_counts();
+const char* gpu_wait_name(unsigned reason);
 std::unique_ptr<GSRasterBackend> make_raster_backend();
 void initialize_window_gpu();void shutdown_window_gpu();
 void set_renderer_preference(const std::string& preference);

@@ -45,6 +45,8 @@ void shutdown_window_gpu(){
             <<" tiles="<<s.tiles<<" uploaded_bytes="<<s.uploads<<" readback_bytes="<<s.readbacks<<" culled_draws="<<s.culled<<" gpu_transfers="<<s.gpuTransfers<<'\n';
         std::cout<<"[renderer:palette] loads="<<s.paletteLoads<<" reused="<<s.paletteReuses<<'\n';
         for(const auto& [key,count]:gpu_fallback_counts())std::cout<<"[renderer:fallback] "<<key<<" draws="<<count<<'\n';
+        for(const auto& wait:gpu_wait_counts())if(wait[1])
+            std::cout<<"[renderer:wait] reason="<<gpu_wait_name(unsigned(wait[0]))<<" waits="<<wait[1]<<" total_us="<<wait[2]<<'\n';
     }
     gpu::shutdown_device();
 }

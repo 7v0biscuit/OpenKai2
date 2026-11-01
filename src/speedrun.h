@@ -28,6 +28,9 @@ struct GuestState {
     bool dragon_world = false;
     bool battle = false;
     bool battle_over = false;
+    bool main_menu = false;
+    bool press_start = false;
+    bool title_menu = false;
     int32_t result = 0;
     std::vector<std::string> tasks;
 };
@@ -38,7 +41,7 @@ struct Split {
 };
 
 enum class Phase { waiting, running, finished };
-enum class Event { none, started, restarted, battle_won, finished, died };
+enum class Event { none, started, restarted, battle_won, battle_lost, finished, died };
 
 class Timer {
   public:

@@ -47,6 +47,12 @@ GuestState read_guest(const uint8_t *rdram, size_t bytes) {
             state.credits = true;
         else if (starts(name, "[BTL]"))
             state.battle = true;
+        else if (name == "MOKUJI")
+            state.main_menu = true;
+        else if (name == "PRESSSTART")
+            state.press_start = true;
+        else if (name == "TITLEMENU")
+            state.title_menu = true;
         if (starts(name, "DW") || starts(name, "#[DW"))
             state.dragon_world = true;
         state.tasks.push_back(std::move(name));
@@ -74,6 +80,8 @@ std::vector<Event> Timer::update(const GuestState &state, double real, uint64_t 
             wins_.push_back({this->real(real), game(fields)});
             events.push_back(Event::battle_won);
         }
+        if (state.battle_over && !battle_over_ && state.result == -1)
+            events.push_back(Event::battle_lost);
         if (state.game_over && !game_over_)
             events.push_back(Event::died);
         if (state.credits && !credits_) {

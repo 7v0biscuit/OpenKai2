@@ -212,6 +212,14 @@ int main(int argc, char* argv[]) {
             overlay.category=category;
             overlay.permadeath=speedrun && preferences.permadeath;
             overlay.fps_counter=preferences.fpsCounter;
+            if (const char* menu=std::getenv("OPENKAI2_MAIN_MENU"); menu && *menu=='1') {
+                overlay.skip_to_menu=true;
+#ifdef _WIN32
+                _putenv_s("OPENKAI2_MAIN_MENU","");
+#else
+                unsetenv("OPENKAI2_MAIN_MENU");
+#endif
+            }
             overlay.items=preferences.overlayItems;
             overlay.corner=preferences.overlayCorner;
             overlay.size=preferences.overlaySize;
@@ -287,6 +295,13 @@ int main(int argc, char* argv[]) {
     }
     if (restart) {
         std::cout << "[speedrun] restarting" << std::endl;
+        if (openkai2::speedrun::restart_to_menu()) {
+#ifdef _WIN32
+            _putenv_s("OPENKAI2_MAIN_MENU","1");
+#else
+            setenv("OPENKAI2_MAIN_MENU","1",1);
+#endif
+        }
         return openkai2::speedrun::relaunch(argc,argv) ? 0 : 1;
     }
     return 0;

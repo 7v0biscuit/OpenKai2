@@ -1,0 +1,102 @@
+--- a/emulator/core/iop_memory.h
++++ b/emulator/core/iop_memory.h
+@@ -36,6 +36,7 @@
+         {
+             int irq = 0;
+             uint64_t delayCycles = 0;
++            bool stream = false;
+         };
+ 
+         IopMemory();
+--- a/emulator/core/iop_memory.cpp
++++ b/emulator/core/iop_memory.cpp
+@@ -328,6 +328,7 @@
+         const bool pcmWrite=(value&1u)!=0u && (readHardware32(0x1F9001B0u+core*0x400u)&(1u<<core))!=0u;
+         // Every transfer towards the SPU2 also reaches the mirrored core; with
+         // AutoDMA enabled it reads the stream from IOP memory as it plays.
++        if(pcmWrite)openkai2::spu2::clear_dma_irq(core);
+         if((value&1u)!=0u) {
+             const uint32_t source=physicalAddress(readHardware32(address-8u));
+             openkai2::spu2::dma_write(core,source,uint32_t(std::min<uint64_t>(transferWords*4u,RamSize)),clock());
+@@ -341,7 +342,8 @@
+         }
+         m_dmaStart = DmaStart{
+             secondCore ? kDmaSpu1Irq : kDmaSpu0Irq,
+-            pcmWrite ? transferWords*768u : std::max<uint64_t>(transferWords * 2u, 64u),
++            pcmWrite ? transferWords*768u*2u : std::max<uint64_t>(transferWords * 2u, 64u),
++            pcmWrite,
+         };
+     }
+ 
+--- a/emulator/iop_emulator.cpp
++++ b/emulator/iop_emulator.cpp
+@@ -1,4 +1,5 @@
+ #include "iop_emulator.h"
++#include <set>
+ #include "audio/spu2_mirror.h"
+ #include "cdvd_rpc.h"
+ #include "imports/iop_cdvd.h"
+@@ -190,7 +191,13 @@
+         void schedulePendingDma()
+         {
+             if (const auto dma = memory.takeDmaStart())
++            {
+                 pendingDmaInterrupts[dma->irq] = totalCycles + dma->delayCycles;
++                if (dma->stream)
++                    streamDmaInterrupts.insert(dma->irq);
++                else
++                    streamDmaInterrupts.erase(dma->irq);
++            }
+         }
+ 
+         bool readRam(uint32_t address, void *destination, size_t size) const
+@@ -545,6 +552,7 @@
+                     continue;
+                 }
+                 completed.push_back(it->first);
++                streamDmaInterrupts.erase(it->first);
+                 it = pendingDmaInterrupts.erase(it);
+             }
+             try
+@@ -615,8 +623,10 @@
+                 if(!stopWhenIdle && idleUntil>totalCycles && target<=idleUntil) {
+                     totalCycles=target;return;
+                 }
++                if(!streamDmaInterrupts.empty())idleUntil=0;
+                 while (totalCycles < target)
+                 {
++                    followStreamDma();
+                     servicePendingDmaInterrupts();
+                     servicePendingGuestCallbacks();
+                     timrman.serviceDue(totalCycles, *this);
+@@ -630,7 +640,9 @@
+                         if (!pendingGuestCallbacks.empty())
+                             nextWake = std::min(nextWake, pendingGuestCallbacks.begin()->first);
+                         nextWake = timrman.nextEventCycle(nextWake);
+-                        idleUntil=nextWake;
++                        if (!streamDmaInterrupts.empty())
++                            nextWake = std::min(nextWake, totalCycles + kStreamStepCycles);
++                        idleUntil=streamDmaInterrupts.empty() ? nextWake : 0;
+                         totalCycles = std::max(totalCycles + 1u, std::min(target, nextWake));
+                         continue;
+                     }
+@@ -787,6 +799,19 @@
+         IopLoadcore loadcore;
+         std::map<int, Module> modules;
+         std::map<int, uint64_t> pendingDmaInterrupts;
++        std::set<int> streamDmaInterrupts;
++        static constexpr uint64_t kStreamStepCycles = 36864u;
++
++        void followStreamDma()
++        {
++            if (streamDmaInterrupts.empty())
++                return;
++            openkai2::spu2::advance(totalCycles);
++            for (const int irq : streamDmaInterrupts)
++                if (openkai2::spu2::take_dma_irq(irq == 0x28 ? 1u : 0u))
++                    if (auto pending = pendingDmaInterrupts.find(irq); pending != pendingDmaInterrupts.end())
++                        pending->second = std::min(pending->second, totalCycles);
++        }
+         std::multimap<uint64_t, ScheduledGuestCallback> pendingGuestCallbacks;
+         uint32_t nextModuleId = 1;
+         uint32_t moduleCursor = kModuleLoadBase;
