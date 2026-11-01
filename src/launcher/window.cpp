@@ -10,6 +10,7 @@
 #include "launcher/version.h"
 #include "dev_identity.h"
 #include "netplay.h"
+#include "room.h"
 #include "online.h"
 #include <deque>
 #include "mods/budokai3.h"
@@ -581,6 +582,11 @@ struct Window {
     std::chrono::steady_clock::time_point lastInput = std::chrono::steady_clock::now();
     std::wstring status = L"Choose your Budokai 2 ISO to get started.";
     std::wstring onlineArguments;
+    std::unique_ptr<netplay::Room> room;
+    bool roomHost = false;
+    bool directJoin = false;
+    std::string joinAddress;
+    uint16_t roomPort = 0;
     struct Notice {
         bool invite = true;
         online::Invite inviteMessage;
@@ -942,7 +948,10 @@ struct Window {
             EnableWindow(controls[id], !busy() && !running() &&
                          (id != VerifyIso || !candidateIso.empty()));
         for (int id : {Play, ImportFolder, ImportFile, Backup, OpenSaves, OpenBackups, UnlockAll, HostGame, JoinGame, JoinRoom})
-            EnableWindow(controls[id], active);
+            EnableWindow(controls[id], active && (!room || id == (roomHost ? HostGame : directJoin ? JoinGame : JoinRoom)));
+        SetWindowTextW(controls[HostGame], room && roomHost ? L"Close room" : L"Host room");
+        SetWindowTextW(controls[JoinRoom], room && !roomHost && !directJoin ? L"Cancel" : L"Join room");
+        SetWindowTextW(controls[JoinGame], room && !roomHost && directJoin ? L"Cancel" : L"Join address");
         EnableWindow(controls[ProfileRemove], !settings.onlineProfiles.empty());
         const bool online = directory && directory->connected();
         EnableWindow(controls[InvitePlayer], online && disc.has_value() && !busy());
@@ -1071,7 +1080,6 @@ struct Window {
             position(ProfileRemove, grid.x(2) + half + 10, Grid::field(onlineProfileTop, 0), half, 34);
             position(OnlineRoom, grid.x(0), Grid::field(onlineHostTop, 0) + 6, grid.column, 22);
             position(OnlinePassword, grid.x(1), Grid::field(onlineHostTop, 0) + 6, grid.column, 22);
-            position(OnlinePort, grid.x(2), Grid::field(onlineHostTop, 0) + 6, grid.column, 22);
             position(OnlineDelay, grid.x(0), Grid::field(onlineHostTop, 1), grid.column, 34);
             position(OnlineListed, grid.x(1), Grid::field(onlineHostTop, 1), grid.column, 34);
             position(HostGame, grid.x(2), Grid::field(onlineHostTop, 1), grid.column, 36);
@@ -1756,7 +1764,9 @@ struct Window {
                 L"You are player 1. Your router's port is opened automatically when it allows it.");
         label(onlineHostTop, 0, 0, L"ROOM NAME (OPTIONAL)");
         label(onlineHostTop, 0, 1, L"PASSWORD (OPTIONAL)");
-        label(onlineHostTop, 0, 2, L"PORT");
+        label(onlineHostTop, 0, 2, L"CONNECTION");
+        text(dc, L"Port and router are set up for you.", grid.x(2), Grid::field(onlineHostTop, 0) + 8, grid.column, 18,
+             fonts.caption, muted, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
         label(onlineHostTop, 1, 0, L"INPUT DELAY");
         label(onlineHostTop, 1, 1, L"WHO CAN SEE IT");
         const int split = contentLeft + (content * 62) / 100, bottom = h - 64 + 6;
@@ -3276,16 +3286,6 @@ struct Window {
         next.onlinePassword = utf8(textOf(OnlinePassword));
         next.onlineVisibility = unsigned(std::clamp(selected(OnlineListed), 0, 2));
         next.onlineListed = next.onlineVisibility != 2;
-        const auto port = trimmed(textOf(OnlinePort));
-        unsigned value = 0;
-        for (wchar_t c : port)
-            value = c >= L'0' && c <= L'9' && value < 100000 ? value * 10 + unsigned(c - L'0') : 100000;
-        if (port.empty() || value < 1 || value > 65535) {
-            status = L"Enter a port between 1 and 65535.";
-            error = true;
-            return false;
-        }
-        next.onlinePort = value;
         next.onlineDelay = unsigned(std::clamp(selected(OnlineDelay), 0, 8));
         if (!settings.onlineProfiles.empty()) {
             const int chosen = std::clamp(selected(OnlineProfile), 0, int(settings.onlineProfiles.size()) - 1);
@@ -3688,8 +3688,10 @@ struct Window {
                     status = L"That room uses another OpenKai2 version.", error = true;
                 else if (!disc)
                     status = L"Choose your Budokai 2 ISO first.", error = true;
-                else
+                else {
+                    directJoin = false;
                     launchOnline(false, wide(room->address) + L":" + std::to_wstring(room->port), wide(notice.inviteMessage.token));
+                }
             } else
                 status = L"Invite declined.";
         } else {
@@ -3741,12 +3743,13 @@ struct Window {
             error = true;
             return;
         }
-        if (running()) {
+        if (running() || room) {
             if (!hostingRoom.empty() && directory->room(hostingRoom)) {
                 directory->invite(id, hostingRoom, hostingToken);
                 status = L"Invite sent to " + wide(player->name) + L".";
             } else {
-                status = L"Close the running game first, or host a room to invite players.";
+                status = room ? L"Your room is still opening. Try again in a moment."
+                              : L"Close the running game first, or host a room to invite players.";
                 error = true;
             }
             return;
@@ -3758,12 +3761,16 @@ struct Window {
     }
     void onlineTick() {
         ensureOnline();
+        roomTick();
         const bool runningNow = running();
         if (directory && directory->connected() && runningNow != wasRunning)
-            directory->set_status(runningNow ? (hostingRoom.empty() ? "in a match" : "hosting") : "online");
+            directory->set_status(runningNow ? "in a match" : room ? (roomHost ? "hosting" : "joining") : "online");
         if (!runningNow && wasRunning) {
             hostingRoom.clear();
             pendingInvitee.clear();
+            if (room && room->status().phase == netplay::RoomPhase::ready)
+                room.reset();
+            refreshEnabled();
         }
         wasRunning = runningNow;
         if (!pendingInvitee.empty() && directory) {
@@ -3800,39 +3807,102 @@ struct Window {
             SetFocus(controls[JoinPassword]);
             return;
         }
+        directJoin = false;
         launchOnline(false, wide(room.address) + L":" + std::to_wstring(room.port), password);
     }
     void launchOnline(bool host, const std::wstring &target, const std::wstring &password) {
-        if (!saveOnline() || !profileReady())
+        if (!saveOnline() || !profileReady() || room)
             return;
-        const std::wstring delay = settings.onlineDelay ? std::to_wstring(settings.onlineDelay) : L"auto";
-        std::wstring arguments = L" --netplay=" + (host ? L"host:" + std::to_wstring(settings.onlinePort) : L"join:" + target) +
-                                 L" --netplay-delay=" + delay + L" " +
-                                 quote_argument(L"--netplay-name=" + wide(settings.onlineName));
-        if (!password.empty())
-            arguments += L" " + quote_argument(L"--netplay-password=" + password);
-        if (!settings.onlineLobby.empty())
-            arguments += L" " + quote_argument(L"--netplay-lobby=" + wide(settings.onlineLobby));
+        netplay::RoomOptions options;
+        options.host = host;
+        options.name = settings.onlineName;
+        options.version = application_version;
+        options.delay = settings.onlineDelay;
+        options.lobby = settings.onlineLobby;
+        options.port = netplay::default_port;
         if (host) {
             hostingRoom = online::new_id();
             hostingToken = online::new_id();
-            if (!settings.onlineRoom.empty())
-                arguments += L" " + quote_argument(L"--netplay-room=" + wide(settings.onlineRoom));
             const unsigned visibility = pendingInvitee.empty() ? settings.onlineVisibility
                                                                : settings.onlineVisibility == 0 ? 0u : 1u;
-            if (visibility == 0)
-                arguments += L" --netplay-list";
-            else if (visibility == 1)
-                arguments += L" --netplay-invite-only";
-            arguments += L" --netplay-room-id=" + wide(hostingRoom) + L" --netplay-invite-token=" + wide(hostingToken);
+            options.password = utf8(password);
+            options.invite_token = hostingToken;
+            options.room = settings.onlineRoom;
+            options.room_id = hostingRoom;
+            options.listed = visibility != 2;
+            options.hidden = visibility == 1;
         } else {
             hostingRoom.clear();
+            auto address = utf8(target);
+            uint16_t port = netplay::default_port;
+            if (const auto colon = address.rfind(':'); colon != std::string::npos && address.find(':') == colon) {
+                port = uint16_t(std::clamp(std::atoi(address.substr(colon + 1).c_str()), 1, 65535));
+                address.resize(colon);
+            }
+            options.address = address;
+            options.port = port;
+            options.password = utf8(password);
+            joinAddress = address;
+            roomPort = port;
         }
-        onlineArguments = arguments;
-        start(Job::launch, settings.iso);
-        status = host ? (settings.onlineVisibility == 0 ? L"Starting the game. Your room is listed while you wait for a player."
-                                                        : L"Starting the game. Waiting for a player.")
-                      : L"Starting the game and joining " + target + L"…";
+        roomHost = host;
+        room = std::make_unique<netplay::Room>(options);
+        room->start();
+        if (directory && directory->connected())
+            directory->set_status(host ? "hosting" : "joining");
+        status = host ? L"Opening your room\u2026" : L"Joining " + target + L"\u2026";
+        error = false;
+        refreshEnabled();
+        InvalidateRect(hwnd, nullptr, FALSE);
+    }
+    void closeRoom(const std::wstring &message) {
+        room.reset();
+        hostingRoom.clear();
+        pendingInvitee.clear();
+        if (directory && directory->connected())
+            directory->set_status("online");
+        status = message;
+        error = false;
+        refreshEnabled();
+        InvalidateRect(hwnd, nullptr, FALSE);
+    }
+    void roomTick() {
+        if (!room || running())
+            return;
+        const auto state = room->status();
+        std::wstring next = wide(state.message);
+        if (state.phase == netplay::RoomPhase::failed) {
+            room.reset();
+            hostingRoom.clear();
+            status = next.empty() ? L"Could not connect." : next;
+            error = true;
+            refreshEnabled();
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return;
+        }
+        if (state.phase == netplay::RoomPhase::ready) {
+            std::wstring arguments = L" --netplay=" +
+                                     (roomHost ? L"host:" + std::to_wstring(state.port)
+                                               : L"join:" + wide(joinAddress) + L":" + std::to_wstring(roomPort)) +
+                                     L" --netplay-delay=" + std::to_wstring(state.delay) + L" " +
+                                     quote_argument(L"--netplay-name=" + wide(settings.onlineName)) + L" " +
+                                     quote_argument(L"--netplay-password=" + wide(state.key));
+            onlineArguments = arguments;
+            std::cout << "[launcher:online] room ready with " << state.opponent << " ping " << state.ping_ms
+                      << " ms delay " << state.delay << std::endl;
+            start(Job::launch, settings.iso);
+            status = L"Connected to " + wide(state.opponent) + L" (" + std::to_wstring(state.ping_ms) +
+                     L" ms). Starting the match\u2026";
+            error = false;
+            refreshEnabled();
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return;
+        }
+        if (!next.empty() && next != status) {
+            status = next;
+            error = false;
+            InvalidateRect(hwnd, nullptr, FALSE);
+        }
     }
     void startOnline(bool host) {
         if (!saveOnline())
@@ -3849,6 +3919,7 @@ struct Window {
         std::wstring target = wide(settings.onlineAddress);
         if (std::count(settings.onlineAddress.begin(), settings.onlineAddress.end(), ':') != 1)
             target += L":" + std::to_wstring(settings.onlinePort);
+        directJoin = true;
         launchOnline(false, target, textOf(JoinPassword));
     }
     void saveOptions() {
@@ -3951,7 +4022,7 @@ struct Window {
                 reconnect();
             return;
         }
-        if ((id == OnlinePort || id == OnlineAddress || id == OnlineRoom || id == OnlinePassword) &&
+        if ((id == OnlineAddress || id == OnlineRoom || id == OnlinePassword) &&
             notification == EN_KILLFOCUS) {
             saveOnline();
             return;
@@ -4167,9 +4238,11 @@ struct Window {
             start(Job::verify, candidateIso);
         else if (id == Play && disc)
             start(Job::launch, settings.iso);
+        else if ((id == HostGame || id == JoinGame || id == JoinRoom) && notification == BN_CLICKED && room)
+            closeRoom(L"Room closed.");
         else if ((id == HostGame || id == JoinGame) && notification == BN_CLICKED && disc)
             startOnline(id == HostGame);
-        else if (((id == JoinRoom && notification == BN_CLICKED) || (id == RoomList && notification == LBN_DBLCLK)) && disc)
+        else if (((id == JoinRoom && notification == BN_CLICKED) || (id == RoomList && notification == LBN_DBLCLK)) && disc && !room)
             joinRoom();
         else if (((id == InvitePlayer && notification == BN_CLICKED) || (id == PlayerList && notification == LBN_DBLCLK)) && disc)
             invitePlayer();

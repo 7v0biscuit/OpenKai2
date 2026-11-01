@@ -22,6 +22,7 @@ inline constexpr uint32_t protocol_version = 3;
 inline constexpr uint16_t default_port = 7350;
 inline constexpr unsigned max_delay = 8;
 inline constexpr uint64_t hash_interval = 120;
+inline constexpr uint8_t probe_message = 12;
 
 using Input = std::array<uint8_t, 6>;
 Input neutral_input();

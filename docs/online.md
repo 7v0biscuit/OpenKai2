@@ -34,8 +34,12 @@ the **Players** list update live; there is nothing to refresh.
 - **Join a room:** pick it and press **Join room**, or double-click it. Rooms
   with a password need it typed in the box below the list. The list shows each
   room's ping; "no reply" means the host's port can't be reached from your PC.
-- **Join by address:** type the host's address (`IP` or `IP:port`) and press
-  **Join address**.
+- **Join by address:** type the host's address and press **Join address**. Add
+  `:port` only if the host's room shows a port other than 7350.
+
+The game does not start while you wait. Both launchers first meet in the room,
+check the version, password and connection, and measure the ping. Only then do
+both games start together. Press **Cancel** or **Close room** to stop waiting.
 
 ## Hosting
 
@@ -44,13 +48,15 @@ Fill in **Host a room** and press **Host room**:
 | Setting | |
 | --- | --- |
 | Room name, password | Both optional. |
-| Port | TCP port to host on (7350). |
 | Input delay | **Auto** picks it from the ping when someone joins. |
 | Who can see it | **Public** lists the room. **Invite only** hides it from the list; invited players can still join. **Not listed** shares no room at all; give players your address. |
 
-The host is player 1. The launcher asks your router to open the port (UPnP). If
-your router doesn't allow that and nobody can join, forward TCP port 7350 to your
-PC in the router's settings.
+The host is player 1. There is no port to set: the room uses TCP port 7350, or
+the next free one, and asks your router to open it (UPnP). The match then uses
+the same port the other player already reached, so a room that someone can join
+also works for the match. If your router doesn't allow UPnP and nobody can
+join, forward the port shown in the launcher to your PC in the router's
+settings.
 
 ## Friends and invites
 
@@ -63,8 +69,9 @@ PC in the router's settings.
 
 ## In the match
 
-When a player joins, the host sends its memory card and full game state, so both
-games start the same. The games then exchange button presses a few frames ahead
+When both games start, they connect again with a one-time key from the room, and
+the host sends its memory card and full game state, so both games start the
+same. Your controls work while the games link up. The games then exchange button presses a few frames ahead
 and run in lockstep. Every two seconds they compare memory; if they ever differ,
 the in-game bar shows **out of sync**. The bar at the top shows the opponent,
 ping and input delay.

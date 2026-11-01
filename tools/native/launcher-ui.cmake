@@ -14,6 +14,7 @@ function(openkai2_add_launcher_ui project_root enable_tests)
         "${project_root}/src/launcher/update_windows.cpp"
         "${project_root}/src/net_socket.cpp"
         "${project_root}/src/netplay.cpp"
+        "${project_root}/src/room.cpp"
         "${project_root}/src/mqtt.cpp"
         "${project_root}/src/online.cpp"
         "${project_root}/src/nat.cpp"

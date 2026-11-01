@@ -79,8 +79,10 @@ Socket Socket::listen(uint16_t port) {
     const SocketHandle handle = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (handle == OK_INVALID)
         throw std::runtime_error("cannot open a network socket");
+#ifndef _WIN32
     int on = 1;
     setsockopt(handle, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char *>(&on), sizeof on);
+#endif
     sockaddr_in address{};
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = htonl(INADDR_ANY);

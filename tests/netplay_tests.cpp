@@ -4,6 +4,7 @@
 #include <functional>
 #include <optional>
 #include "netplay.h"
+#include "room.h"
 #include <cstring>
 #include <iostream>
 #include <map>
@@ -114,7 +115,7 @@ void two_players_stay_in_step() {
             if (status.phase == Phase::ended)
                 return;
             Input port0{}, port1{};
-            if (!session.inputs(port0, port1))
+            if (!session.inputs(port0, port1) && session.status().phase == Phase::ended)
                 return;
             if (status.phase == Phase::playing) {
                 if (!playedFrom)
@@ -439,11 +440,64 @@ void service_rooms_invites_passwords() {
     server.join();
 }
 
+void room_checks_before_launch() {
+    auto wait = [](Room &room) {
+        for (int i = 0; i < 400; ++i) {
+            const auto status = room.status();
+            if (status.phase == RoomPhase::ready || status.phase == RoomPhase::failed)
+                return status;
+            std::this_thread::sleep_for(std::chrono::milliseconds(25));
+        }
+        return room.status();
+    };
+    RoomOptions hostOptions;
+    hostOptions.port = 7450;
+    hostOptions.name = "Goku";
+    hostOptions.password = "kame";
+    hostOptions.version = "test";
+    hostOptions.upnp = false;
+    openkai2::net::Socket blocker = openkai2::net::Socket::listen(7450);
+    Room host(hostOptions);
+    host.start();
+    uint16_t port = 0;
+    for (int i = 0; i < 200 && !(port = host.status().port); ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    require(port != 0 && port != 7450, "a busy port is skipped");
+    auto join = [&](const std::string &password, const std::string &version) {
+        RoomOptions options;
+        options.host = false;
+        options.address = "127.0.0.1";
+        options.port = port;
+        options.name = "Vegeta";
+        options.password = password;
+        options.version = version;
+        auto room = std::make_unique<Room>(options);
+        room->start();
+        return room;
+    };
+    require(probe_room("127.0.0.1", port, 2000).has_value(), "an open room answers ping probes");
+    auto wrong = join("nope", "test");
+    require(wait(*wrong).message == "Wrong room password", "a wrong password is refused: " + wrong->status().message);
+    auto old = join("kame", "old");
+    require(wait(*old).message.find("same version") != std::string::npos, "another version is refused");
+    auto guest = join("kame", "test");
+    const auto joined = wait(*guest), hosted = wait(host);
+    require(joined.phase == RoomPhase::ready && hosted.phase == RoomPhase::ready,
+            "both players are checked: " + joined.message + " / " + hosted.message);
+    require(joined.key == hosted.key && joined.key.size() == 32, "both get the same session key");
+    require(joined.delay == hosted.delay && joined.delay >= 1, "both use the same delay");
+    require(joined.opponent == "Goku" && hosted.opponent == "Vegeta", "both see each other");
+    host.stop();
+    openkai2::net::Socket again = openkai2::net::Socket::listen(port);
+    require(again.valid(), "the game can reuse the room's port");
+}
+
 int main() {
     try {
         compression_round_trip();
         snapshot_round_trip();
         two_players_stay_in_step();
+        room_checks_before_launch();
         wrong_build_is_refused();
         name_rules();
         service_format();

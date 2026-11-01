@@ -14,6 +14,7 @@
 namespace openkai2::netplay {
 namespace {
 enum Message : uint8_t { hello = 1, welcome, reject, snapshot, input, hash, ping, pong, bye, profile, confirm, probe };
+static_assert(probe == probe_message);
 constexpr uint32_t max_message = 96u << 20;
 constexpr size_t max_snapshot = 160u << 20;
 constexpr auto remote_timeout = std::chrono::seconds(20);
@@ -474,7 +475,15 @@ int Session::handshake() {
 void Session::run() {
     try {
         if (options_.host) {
-            listener_ = net::Socket::listen(options_.port);
+            for (int attempt = 0; !listener_.valid(); ++attempt) {
+                try {
+                    listener_ = net::Socket::listen(options_.port);
+                } catch (const std::exception &) {
+                    if (attempt >= 40 || stopping_)
+                        throw;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(250));
+                }
+            }
             listeningPort_ = listener_.local_port();
             online::Listing listing;
             nat::PortMapping mapping;
@@ -541,7 +550,7 @@ void Session::run() {
                 status_.message = "Connecting to " + options_.address;
             }
             std::string error;
-            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
             while (!stopping_ && !socket_.valid() && std::chrono::steady_clock::now() < deadline) {
                 socket_ = net::Socket::connect(options_.address, options_.port, error);
                 if (!socket_.valid())
@@ -721,10 +730,8 @@ bool Session::inputs(Input &port0, Input &port1) {
         std::lock_guard lock(mutex_);
         if (status_.phase == Phase::ended)
             return false;
-        if (!locked_) {
-            port0 = port1 = neutral_input();
-            return true;
-        }
+        if (!locked_)
+            return false;
         tick = machine_.tick();
         if (tick == cachedTick_) {
             port0 = cached0_;
