@@ -791,7 +791,7 @@ struct Window {
         combo(Antialiasing, {L"Off", L"FXAA"}, int(settings.antialiasing));
         combo(Filtering, {L"Game default", L"Nearest (sharp)", L"Bilinear (3D surfaces)"},
               int(settings.textureFilter));
-        combo(Upscaler, {L"Nearest", L"Bilinear", L"Bicubic", L"AMD FSR 1"}, int(settings.upscaler));
+        combo(Upscaler, {L"Nearest", L"Bilinear", L"Bicubic", L"AMD FSR 1", L"Lanczos", L"Sharp pixels"}, int(settings.upscaler));
         combo(Vsync, {L"Off", L"On"}, settings.vsync ? 1 : 0);
         combo(AutoBackup, {L"Off", L"On"}, settings.autoBackups ? 1 : 0);
         combo(DiscordActivity,{L"Off",L"On"},settings.discordPresence ? 1 : 0);
@@ -1154,7 +1154,7 @@ struct Window {
              DT_SINGLELINE | DT_PATH_ELLIPSIS | DT_NOPREFIX);
 
         const int tile = (content - 24) / 3;
-        const wchar_t *scaling[] = {L"Nearest", L"Bilinear", L"Bicubic", L"FSR 1"};
+        const wchar_t *scaling[] = {L"Nearest", L"Bilinear", L"Bicubic", L"FSR 1", L"Lanczos", L"Sharp pixel"};
         const wchar_t *aspects[] = {L"4:3", L"16:9", L"Stretched", L"Native pixels"};
         const std::wstring captions[] = {L"VIDEO", L"DISPLAY", L"SAVES"};
         const std::wstring values[] = {
@@ -1162,7 +1162,7 @@ struct Window {
             settings.windowMode ? L"Borderless" : std::to_wstring(settings.width) + L" × " + std::to_wstring(settings.height),
             settings.autoBackups ? L"Auto backup" : L"Manual backup"};
         const std::wstring details[] = {
-            std::wstring(scaling[std::min(3u, settings.upscaler)]) + L" upscaling" +
+            std::wstring(scaling[std::min(5u, settings.upscaler)]) + L" upscaling" +
                 (settings.antialiasing ? L", FXAA" : L""),
             std::wstring(aspects[std::min(3u, settings.aspect)]) + L", " +
                 (settings.fps ? std::to_wstring(settings.fps) + L" FPS cap" : L"uncapped") +

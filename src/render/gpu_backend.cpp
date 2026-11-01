@@ -10,6 +10,7 @@
 #include <atomic>
 #include <bitset>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <iostream>
 #include <limits>
@@ -41,6 +42,16 @@ using Pages=std::bitset<gpu::PageCount>;
 std::atomic<uint64_t> totalGpuDraws{},totalCpuDraws{},totalBatches{},totalTiles{},totalUploads{},totalReadbacks{},totalCulled{};
 std::atomic<uint64_t> totalPaletteLoads{},totalPaletteReuses{},totalGpuTransfers{};
 bool indexed(unsigned psm){return psm==19u || psm==20u || psm==27u || psm==36u || psm==44u;}
+std::mutex fallbackMutex;
+std::map<std::string,uint64_t> fallbackCounts;
+void countFallback(const GSPrimitiveBatch& batch,const char* reason){
+    const auto& c=batch.state.context;
+    char key[160];
+    std::snprintf(key,sizeof key,"reason=%s prim=%u frame_psm=0x%x z_psm=0x%x tex_psm=0x%x tex=%ux%u",reason,unsigned(batch.state.prim.type),
+                  unsigned(c.frame.psm),unsigned(c.zbuf.psm),unsigned(c.tex0.psm),batch.state.textureWidth,batch.state.textureHeight);
+    std::lock_guard lock(fallbackMutex);
+    if(++fallbackCounts[key]==1u && fallbackCounts.size()<=64u)std::cout<<"[renderer:fallback] "<<key<<std::endl;
+}
 bool fourBit(unsigned psm){return psm==20u || psm==36u || psm==44u;}
 uint32_t bits(float value){uint32_t result;std::memcpy(&result,&value,4u);return result;}
 uint32_t rgba(const GSVertex& v){return uint32_t(v.r)|(uint32_t(v.g)<<8u)|(uint32_t(v.b)<<16u)|(uint32_t(v.a)<<24u);}
@@ -202,11 +213,7 @@ struct GpuRasterBackend::Impl {
         const bool triangle=s.prim.type==GS_PRIM_TRIANGLE || s.prim.type==GS_PRIM_TRISTRIP || s.prim.type==GS_PRIM_TRIFAN;
         const bool textured=s.prim.tme && (sprite || triangle);
         const bool flatDepth=triangle && batch.vertices[0].z==batch.vertices[1].z && batch.vertices[1].z==batch.vertices[2].z;
-        if((!sprite && !point && !line && !triangle)
-            || batch.vertexCount!=(point ? 1u : triangle ? 3u : 2u) || (c.frame.psm!=0u && c.frame.psm!=1u && c.frame.psm!=2u && c.frame.psm!=10u)
-            || (c.zbuf.psm!=0u && c.zbuf.psm!=1u && c.zbuf.psm!=2u && c.zbuf.psm!=10u && c.zbuf.psm!=48u && c.zbuf.psm!=49u && c.zbuf.psm!=50u && c.zbuf.psm!=58u) || s.scanmsk!=0u)return false;
-        if(textured && (!lut[(t.psm&63u)*8u] || !s.textureWidth || !s.textureHeight || s.textureWidth>1024u || s.textureHeight>1024u))return false;
-        if(textured && indexed(t.psm) && t.cpsm!=0u && t.cpsm!=1u && t.cpsm!=2u && t.cpsm!=10u)return false;
+        if(gpu_draw_unsupported(batch))return false;
         float minX=0,maxX=0,minY=0,maxY=0;const unsigned width=std::max<unsigned>(c.frame.fbw,1u);
         for(unsigned i=0;i<batch.vertexCount;++i){const auto& v=batch.vertices[i];
             if(!std::isfinite(v.x) || !std::isfinite(v.y) || !std::isfinite(v.z) || !std::isfinite(v.s) || !std::isfinite(v.t) || !std::isfinite(v.q) || std::abs(v.x)>65536.0f || std::abs(v.y)>65536.0f || v.z<0.0 || v.z>(triangle && !flatDepth ? 4294901760.0 : 4294967295.0))return false;
@@ -301,6 +308,8 @@ void GpuRasterBackend::Submit(const GSPrimitiveBatch& batch){
     if(!m->vram || !batch.vertexCount)return;
     const size_t at=m->commands.size();m->commands.resize(at+gpu::CommandWords);
     if(m->cpuFrame || !m->encode(batch,m->commands.data()+at,writes,sources,footprint) || !m->ready()){
+        const char* reason=gpu_draw_unsupported(batch);
+        countFallback(batch,reason ? reason : m->cpuFrame ? "after-earlier-fallback" : !m->ready() ? "device-not-ready" : "draw-area");
         m->commands.resize(at);m->footprintValid=false;m->loadedPaletteValid=false;
         m->materialize();m->cpu.Submit(batch);m->cpuDirty.set();m->cpuFrame=true;++m->statistics.cpuDraws;totalCpuDraws.fetch_add(1u,std::memory_order_relaxed);return;
     }
@@ -447,6 +456,24 @@ void GpuRasterBackend::WriteVram(uint32_t psm,uint32_t base,uint32_t width,uint3
 void GpuRasterBackend::SnapshotVram(std::vector<uint8_t>& out)const{std::lock_guard lock(m->mutex);m->materialize();m->cpu.SnapshotVram(out);}
 GSTransferSnapshot GpuRasterBackend::GetTransferSnapshot()const{std::lock_guard lock(m->mutex);return m->cpu.GetTransferSnapshot();}
 GpuRenderStats GpuRasterBackend::stats()const{std::lock_guard lock(m->mutex);return m->statistics;}
+const char* gpu_draw_unsupported(const GSPrimitiveBatch& batch){
+    const auto& s=batch.state;const auto& c=s.context;const auto& t=c.tex0;const auto& lut=gpu::address_tables();
+    const bool sprite=s.prim.type==GS_PRIM_SPRITE,point=s.prim.type==GS_PRIM_POINT;
+    const bool line=s.prim.type==GS_PRIM_LINE || s.prim.type==GS_PRIM_LINESTRIP;
+    const bool triangle=s.prim.type==GS_PRIM_TRIANGLE || s.prim.type==GS_PRIM_TRISTRIP || s.prim.type==GS_PRIM_TRIFAN;
+    const bool textured=s.prim.tme && (sprite || triangle);
+    if((!sprite && !point && !line && !triangle) || batch.vertexCount!=(point ? 1u : triangle ? 3u : 2u))return "primitive";
+    if(c.frame.psm!=0u && c.frame.psm!=1u && c.frame.psm!=2u && c.frame.psm!=10u)return "frame-format";
+    if(c.zbuf.psm!=0u && c.zbuf.psm!=1u && c.zbuf.psm!=2u && c.zbuf.psm!=10u && c.zbuf.psm!=48u && c.zbuf.psm!=49u && c.zbuf.psm!=50u && c.zbuf.psm!=58u)return "depth-format";
+    if(s.scanmsk!=0u)return "scan-mask";
+    if(textured && !lut[(t.psm&63u)*8u])return "texture-format";
+    if(textured && (!s.textureWidth || !s.textureHeight || s.textureWidth>1024u || s.textureHeight>1024u))return "texture-size";
+    if(textured && indexed(t.psm) && t.cpsm!=0u && t.cpsm!=1u && t.cpsm!=2u && t.cpsm!=10u)return "palette-format";
+    return nullptr;
+}
+std::vector<std::pair<std::string,uint64_t>> gpu_fallback_counts(){
+    std::lock_guard lock(fallbackMutex);return {fallbackCounts.begin(),fallbackCounts.end()};
+}
 GpuRenderStats gpu_render_statistics(){return {totalGpuDraws.load(std::memory_order_relaxed),totalCpuDraws.load(std::memory_order_relaxed),totalBatches.load(std::memory_order_relaxed),totalTiles.load(std::memory_order_relaxed),totalUploads.load(std::memory_order_relaxed),totalReadbacks.load(std::memory_order_relaxed),totalCulled.load(std::memory_order_relaxed),totalPaletteLoads.load(std::memory_order_relaxed),totalPaletteReuses.load(std::memory_order_relaxed),totalGpuTransfers.load(std::memory_order_relaxed)};}
 std::unique_ptr<GSRasterBackend> make_raster_backend(){return std::make_unique<GpuRasterBackend>();}
 }

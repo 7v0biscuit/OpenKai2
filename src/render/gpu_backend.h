@@ -3,6 +3,8 @@
 #include "runtime/gs/gs_backend.h"
 #include <memory>
 #include <string>
+#include <utility>
+#include <vector>
 namespace openkai2 {
 struct GpuRenderStats {
     uint64_t gpuDraws=0,cpuDraws=0,batches=0,tiles=0,uploads=0,readbacks=0,culled=0;
@@ -26,6 +28,8 @@ private:
     struct Impl;std::unique_ptr<Impl> m;
 };
 GpuRenderStats gpu_render_statistics();
+const char* gpu_draw_unsupported(const GSPrimitiveBatch& batch);
+std::vector<std::pair<std::string,uint64_t>> gpu_fallback_counts();
 std::unique_ptr<GSRasterBackend> make_raster_backend();
 void initialize_window_gpu();void shutdown_window_gpu();
 void set_renderer_preference(const std::string& preference);

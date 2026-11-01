@@ -16,7 +16,7 @@ std::filesystem::path settings_path() {
 }
 void validate_settings(const Settings &s) {
     if (s.fps > 240 || s.width < 640 || s.width > 7680 || s.height < 448 || s.height > 4320 ||
-        s.windowMode > 1 || s.antialiasing > 1 || s.textureFilter > 2 || s.upscaler > 3 ||
+        s.windowMode > 1 || s.antialiasing > 1 || s.textureFilter > 2 || s.upscaler > 5 ||
         s.aspect > 3 || s.volume > 100 || s.windowWidth < 0 || s.windowHeight < 0 ||
         s.windowWidth > 32768 || s.windowHeight > 32768 || s.updateChannel > 1 || s.speedrun > 2 || s.overlayItems > speedrun::overlay_all || s.overlayCorner > 3 ||
         s.overlaySize > 2 || s.overlayBackground > 2 || s.overlaySplits > 3 || (s.renderer != "auto" && s.renderer != "gpu" && s.renderer != "cpu"))

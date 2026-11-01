@@ -41,6 +41,28 @@ void main(){
  vec3 four=two*0.5+0.25*(readAt(p-dir*0.5)+readAt(p+dir*0.5));
  float result=luma(four);finalColor=vec4(result<lo || result>hi ? two : four,1.0)*fragColor*colDiffuse;
 })GLSL";
+constexpr const char *lanczosSource = R"GLSL(#version 330
+in vec2 fragTexCoord; in vec4 fragColor;
+uniform sampler2D texture0; uniform vec4 colDiffuse;
+uniform vec2 sourceSize; uniform vec2 contentMax;
+out vec4 finalColor;
+float lanczos(float x){x=abs(x);if(x<1e-5)return 1.0;if(x>=3.0)return 0.0;float p=3.14159265*x;return 3.0*sin(p)*sin(p/3.0)/(p*p);}
+void main(){vec2 pos=fragTexCoord*sourceSize-0.5,base=floor(pos),f=fract(pos);vec3 sum=vec3(0);float total=0.0;
+ for(int y=-2;y<=3;++y)for(int x=-2;x<=3;++x){float w=lanczos(float(x)-f.x)*lanczos(float(y)-f.y);vec2 uv=(base+vec2(x,y)+0.5)/sourceSize;
+  sum+=texture(texture0,clamp(uv,0.5/sourceSize,contentMax-0.5/sourceSize)).rgb*w;total+=w;}
+ finalColor=vec4(clamp(sum/total,0.0,1.0),1.0)*fragColor*colDiffuse;
+})GLSL";
+constexpr const char *sharpSource = R"GLSL(#version 330
+in vec2 fragTexCoord; in vec4 fragColor;
+uniform sampler2D texture0; uniform vec4 colDiffuse;
+uniform vec2 sourceSize; uniform vec2 contentMax;
+out vec4 finalColor;
+vec3 texel(vec2 at){return texture(texture0,clamp((at+0.5)/sourceSize,0.5/sourceSize,contentMax-0.5/sourceSize)).rgb;}
+void main(){vec2 pos=fragTexCoord*sourceSize-0.5,base=floor(pos),f=fract(pos);
+ vec2 region=max(fwidth(pos),vec2(1e-4));f=clamp((f-0.5)/region+0.5,0.0,1.0);
+ vec3 top=mix(texel(base),texel(base+vec2(1,0)),f.x),bottom=mix(texel(base+vec2(0,1)),texel(base+vec2(1,1)),f.x);
+ finalColor=vec4(mix(top,bottom,f.y),1.0)*fragColor*colDiffuse;
+})GLSL";
 constexpr const char *cubicSource = R"GLSL(#version 330
 in vec2 fragTexCoord; in vec4 fragColor;
 uniform sampler2D texture0; uniform vec4 colDiffuse;
@@ -172,7 +194,7 @@ void PresentationFilter::drawImage(Texture2D frame, Rectangle source, Rectangle 
         drawFsr(frame, source, destination, cacheOutput);
         return;
     }
-    const bool cubic = s.upscaler >= 2;
+    const bool cubic = s.upscaler == 2;
     SetTextureFilter(frame, s.upscaler == 1 ? TEXTURE_FILTER_BILINEAR : TEXTURE_FILTER_POINT);
     const bool clampLinear = s.upscaler == 1 && (source.width < float(frame.width) ||
                                                  std::abs(source.height) < float(frame.height));
@@ -180,6 +202,12 @@ void PresentationFilter::drawImage(Texture2D frame, Rectangle source, Rectangle 
     if (cubic) {
         if (!cubic_.id)cubic_ = shader(cubicSource);
         dimensions(cubic_,frame,source);selected=cubic_;
+    } else if (s.upscaler == 4) {
+        if (!lanczos_.id)lanczos_ = shader(lanczosSource);
+        dimensions(lanczos_,frame,source);selected=lanczos_;
+    } else if (s.upscaler == 5) {
+        if (!sharp_.id)sharp_ = shader(sharpSource);
+        dimensions(sharp_,frame,source);selected=sharp_;
     } else if (clampLinear) {
         if (!linear_.id)linear_ = shader(linearSource);
         dimensions(linear_,frame,source);selected=linear_;
@@ -230,6 +258,8 @@ void PresentationFilter::close() {
     if(output_.id){UnloadRenderTexture(output_);output_={};}
     if(fsrTarget_.id){UnloadRenderTexture(fsrTarget_);fsrTarget_={};}
     if(easu_.id){UnloadShader(easu_);easu_={};}
+    if(lanczos_.id){UnloadShader(lanczos_);lanczos_={};}
+    if(sharp_.id){UnloadShader(sharp_);sharp_={};}
     if(rcas_.id){UnloadShader(rcas_);rcas_={};}
     if (target_.id) {
         UnloadRenderTexture(target_);
@@ -287,7 +317,7 @@ int test_presentation_filters() {
             return result;
         };
         for (unsigned aa = 0; aa < 2; ++aa)
-            for (unsigned scaler = 0; scaler < 4; ++scaler) {
+            for (unsigned scaler = 0; scaler < 6; ++scaler) {
                 auto result = draw(aa, scaler);
                 require(result.size() == 80u * 64u, "Display output dimensions changed");
                 for (unsigned y = 0; y < 64; ++y)
@@ -309,6 +339,25 @@ int test_presentation_filters() {
         for (size_t i = 0; i < fsr.size(); ++i)
             if (std::abs(int(fsr[i].r) - int(bilinear[i].r)) > 8) ++changed;
         require(changed > 16, "FSR did not produce edge-adaptive output distinct from bilinear");
+        const auto cubicOut = draw(0, 2), lanczosOut = draw(0, 4), integerSharp = draw(0, 5), integerNearest = draw(0, 0);
+        require([&] {
+            for (size_t i = 0; i < integerSharp.size(); ++i)
+                if (std::abs(int(integerSharp[i].r) - int(integerNearest[i].r)) > 2) return false;
+            return true;
+        }(), "Sharp pixels blurred an integer scale");
+        outputRect = {16, 8, 40, 40};
+        const auto sharpOut = draw(0, 5), nearestOut = draw(0, 0);
+        outputRect = {16, 8, 48, 48};
+        unsigned lanczosDiff = 0, sharpSoft = 0, nearestSoft = 0;
+        for (size_t i = 0; i < cubicOut.size(); ++i) {
+            if (std::abs(int(lanczosOut[i].r) - int(cubicOut[i].r)) > 2) ++lanczosDiff;
+            if (sharpOut[i].r > 8 && sharpOut[i].r < 247) ++sharpSoft;
+            if (nearestOut[i].r > 8 && nearestOut[i].r < 247) ++nearestSoft;
+        }
+        require(lanczosDiff > 8, "Lanczos matched bicubic output");
+        const std::string sharpCounts = "Sharp pixels did not keep edges crisp with a one-pixel blend: soft=" +
+                                        std::to_string(sharpSoft) + " nearest=" + std::to_string(nearestSoft);
+        require(sharpSoft > nearestSoft && sharpSoft < 400, sharpCounts.c_str());
         const auto equivalent=[](const std::vector<Color>& a,const std::vector<Color>& b){
             if(a.size()!=b.size())return false;
             for(size_t i=0;i<a.size();++i)
@@ -316,7 +365,7 @@ int test_presentation_filters() {
                    std::abs(int(a[i].b)-int(b[i].b))>1 || a[i].a!=b[i].a)return false;
             return true;
         };
-        for(unsigned aa=0;aa<2;++aa)for(unsigned scaler=0;scaler<4;++scaler){
+        for(unsigned aa=0;aa<2;++aa)for(unsigned scaler=0;scaler<6;++scaler){
             if(!aa && scaler<2)continue;
             const auto expected=draw(aa,scaler),first=draw(aa,scaler,100),repeat=draw(aa,scaler,100);
             require(equivalent(first,expected) && equivalent(repeat,expected),"Cached filtering changed image orientation or colors");
@@ -364,7 +413,7 @@ int test_presentation_filters() {
         UnloadTexture(source);
         CloseWindow();
         set_graphics_settings(saved);
-        std::cout << "Display filter comparisons passed: all eight AA/scaler combinations (including FSR 1 EASU/RCAS), content "
+        std::cout << "Display filter comparisons passed: all twelve AA/scaler combinations (including FSR 1 EASU/RCAS, Lanczos and sharp pixels), content "
                      "bounds, orientation, letterboxing, native-size edge smoothing and completion-aware filter reuse.\n";
         return 0;
     } catch (...) {

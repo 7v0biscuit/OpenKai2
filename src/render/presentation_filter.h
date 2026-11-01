@@ -17,7 +17,7 @@ class PresentationFilter {
     std::array<uint64_t,12> cacheKey_{};
     bool cacheValid_ = false;
     uint64_t processed_ = 0, reused_ = 0;
-    Shader edge_{}, cubic_{}, linear_{}, easu_{}, rcas_{};
+    Shader edge_{}, cubic_{}, linear_{}, easu_{}, rcas_{}, lanczos_{}, sharp_{};
     RenderTexture2D target_{}, fsrTarget_{}, output_{};
 };
 int test_presentation_filters();

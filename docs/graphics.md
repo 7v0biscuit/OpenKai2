@@ -24,7 +24,7 @@ extracted application. The game ISO is required in every renderer mode.
 ## Display settings
 
 The launcher saves resolution, windowed/borderless display mode, VSync, FXAA,
-texture filtering and nearest/bilinear/bicubic presentation scaling. The default
+texture filtering and nearest, bilinear, bicubic, FSR 1, Lanczos or sharp-pixel presentation scaling. The default
 aspect ratio is 4:3; 16:9, stretch and native pixel aspect are also available.
 FXAA and scaling operate on the completed game image. AMD FSR 1 uses the
 original full-precision EASU and RCAS shaders for spatial
@@ -32,6 +32,12 @@ upscaling and sharpening. It runs after optional FXAA and clamps all reads to
 the active image, excluding framebuffer padding and letterboxing. A smaller
 output uses bicubic filtering. FSR processes the completed image, including UI;
 it does not reduce guest CPU work or generate frames.
+
+**Lanczos** resamples with a 6×6 Lanczos-3 kernel: sharper than bicubic, with
+slight ringing on hard edges. **Sharp pixels** keeps each game pixel square and
+blends only the one output pixel where two meet, so non-integer scales stay
+crisp without the shimmer of nearest scaling. At whole-number scales it matches
+nearest exactly.
 
 FSR 3/4 are not available. Temporal reconstruction requires depth, motion
 vectors, jitter and history management, plus a supported backend. The current
@@ -140,6 +146,13 @@ The launcher’s **Crisp preset** selects bicubic scaling, original texture
 filtering and no FXAA. It preserves resolution, aspect ratio, frame limit,
 VSync and save/update preferences. Spatial upscaling cannot recover detail
 absent from the original image.
+
+When the GPU renderer cannot draw a primitive (an unsupported framebuffer,
+depth or texture format, or a draw outside VRAM), it draws it on the CPU, and
+the rest of that frame stays on the CPU. Each kind of fallback is logged once as
+`[renderer:fallback] reason=... prim=... frame_psm=... tex_psm=...`, and the
+counts are listed when the game closes. A stage or effect that drops the frame
+rate on the GPU renderer shows up there.
 
 Completed-frame timing is reported separately from window redraw counts. The
 `performance:frames` line records measured presentation rate, frame-interval
