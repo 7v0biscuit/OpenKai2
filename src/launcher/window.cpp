@@ -879,10 +879,11 @@ struct Window {
         std::vector<std::wstring> resolutions;
         for (auto [w, h] : sizes)
             resolutions.push_back(std::to_wstring(w) + L" × " + std::to_wstring(h));
-        combo(Renderer, {L"Automatic", L"OpenGL (GPU)", L"Software (CPU)"},
-              settings.renderer == "gpu"   ? 1
-              : settings.renderer == "cpu" ? 2
-                                           : 0);
+        combo(Renderer, {L"Automatic", L"OpenGL (GPU)", L"Vulkan (GPU)", L"Software (CPU)"},
+              settings.renderer == "gpu"      ? 1
+              : settings.renderer == "vulkan" ? 2
+              : settings.renderer == "cpu"    ? 3
+                                              : 0);
         combo(Fps, fps, int(std::find(rates.begin(), rates.end(), settings.fps) - rates.begin()));
         combo(Resolution, resolutions,
               int(std::find(sizes.begin(), sizes.end(), size) - sizes.begin()));
@@ -1361,7 +1362,10 @@ struct Window {
         const wchar_t *aspects[] = {L"4:3", L"16:9", L"Stretched", L"Native pixels"};
         const std::wstring captions[] = {L"VIDEO", L"DISPLAY", L"SAVES"};
         const std::wstring values[] = {
-            settings.renderer == "cpu" ? L"Software" : settings.renderer == "gpu" ? L"OpenGL" : L"Automatic",
+            settings.renderer == "cpu"      ? L"Software"
+            : settings.renderer == "gpu"    ? L"OpenGL"
+            : settings.renderer == "vulkan" ? L"Vulkan"
+                                            : L"Automatic",
             settings.windowMode ? L"Borderless" : std::to_wstring(settings.width) + L" × " + std::to_wstring(settings.height),
             settings.autoBackups ? L"Auto backup" : L"Manual backup"};
         const std::wstring details[] = {
@@ -4024,7 +4028,8 @@ struct Window {
     void saveOptions() {
         Settings next = settings;
         next.renderer = selected(Renderer) == 1   ? "gpu"
-                        : selected(Renderer) == 2 ? "cpu"
+                        : selected(Renderer) == 2 ? "vulkan"
+                        : selected(Renderer) == 3 ? "cpu"
                                                   : "auto";
         next.fps = rates.at(size_t(selected(Fps)));
         const auto size = sizes.at(size_t(selected(Resolution)));

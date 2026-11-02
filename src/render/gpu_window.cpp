@@ -10,13 +10,18 @@ namespace openkai2 {
 namespace {
 std::string preference=[] {const auto value=std::getenv("OPENKAI2_RENDERER");return value ? std::string(value) : std::string("auto");}();
 }
-void set_renderer_preference(const std::string& value){if(value!="auto" && value!="gpu" && value!="cpu")throw std::runtime_error("Renderer must be auto, gpu, or cpu");preference=value;}
+void set_renderer_preference(const std::string& value){if(value!="auto" && value!="gpu" && value!="vulkan" && value!="cpu")throw std::runtime_error("Renderer must be auto, gpu, vulkan, or cpu");preference=value;}
 const std::string& renderer_preference(){return preference;}
 void initialize_window_gpu(){
     if(preference=="cpu"){std::cout<<"[renderer] selected=cpu reason=requested\n";return;}
-    if(preference!="auto" && preference!="gpu")throw std::runtime_error("OPENKAI2_RENDERER must be auto, gpu, or cpu");
+    if(preference!="auto" && preference!="gpu" && preference!="vulkan")throw std::runtime_error("OPENKAI2_RENDERER must be auto, gpu, vulkan, or cpu");
+    std::string error;
+    if(preference=="vulkan"){
+        if(gpu::initialize_vulkan(error)){std::cout<<"[renderer] selected=vulkan-compute device="<<gpu::current_device()->description()<<"\n";return;}
+        std::cerr<<"[renderer] vulkan unavailable reason="<<error<<", trying OpenGL\n";error.clear();
+    }
     GLFWwindow* share=glfwGetCurrentContext();const bool ownsGlfw=share==nullptr;
-    std::string error;GLFWwindow* worker=nullptr;
+    GLFWwindow* worker=nullptr;
     if(glfwInit()){
         glfwWindowHint(GLFW_VISIBLE,GLFW_FALSE);glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR,4);glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR,3);glfwWindowHint(GLFW_OPENGL_PROFILE,GLFW_OPENGL_CORE_PROFILE);
         worker=glfwCreateWindow(1,1,"OpenKai2 GPU renderer",nullptr,share);

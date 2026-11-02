@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
+#include <cstdlib>
 #include "gpu_checks.h"
 #include "gpu_backend.h"
 #include "gpu_device.h"
@@ -479,19 +480,21 @@ int run_gpu_checks(bool required){
         gpu::verify_address_tables();checkFootprints();std::cout<<"GPU swizzle address references passed.\n";
         std::string error;
 #ifdef _WIN32
-        try{set_renderer_preference("gpu");initialize_window_gpu();}catch(const std::exception& e){error=e.what();}
+        const char* wanted=std::getenv("OPENKAI2_RENDERER");
+        try{set_renderer_preference(wanted && std::string(wanted)=="vulkan" ? "vulkan" : "gpu");initialize_window_gpu();}catch(const std::exception& e){error=e.what();}
         const bool initialized=bool(gpu::current_device());
 #else
         const bool initialized=gpu::initialize_headless(error);
 #endif
         if(!initialized){std::cout<<"GPU checks unavailable: "<<error<<'\n';return required ? 1 : 77;}
+        std::cout<<"GPU checks device: "<<gpu::current_device()->description()<<'\n';
         checkFlatDepth();checkDepthPlanes();checkPaletteReuse();checkPresentationReadbacks();checkEmptyTriangles();checkMaterials();checkIntegerPipeline();checkFormats();checkLines();checkCoherence();checkTransferPages();checkGpuTransfers();checkRebind();checkClears();checkSourceChanges();checkPartialReadbacks();checkGsWorker();
         const auto before=gpu_render_statistics().gpuDraws;verify_vector_runtime_gpu();
         if(gpu_render_statistics().gpuDraws-before!=8u)throw std::runtime_error("VIF/PATH1 integration did not execute eight GPU triangles");
-        auto device=gpu::current_device();device->post([](gpu::Api&){throw std::runtime_error("GPU failure propagation fixture");});
-        try{device->invoke([](gpu::Api&){});}catch(const std::exception&){}
+        auto device=gpu::current_device();device->post([](gpu::Host&){throw std::runtime_error("GPU failure propagation fixture");});
+        try{device->invoke([](gpu::Host&){});}catch(const std::exception&){}
         bool propagated=false;
-        try{device->invoke([](gpu::Api&){});}catch(const std::exception& e){propagated=std::string(e.what())=="GPU failure propagation fixture";}
+        try{device->invoke([](gpu::Host&){});}catch(const std::exception& e){propagated=std::string(e.what())=="GPU failure propagation fixture";}
         if(!propagated)throw std::runtime_error("GPU asynchronous failure did not propagate");
         gpu::shutdown_device();
         std::cout<<"GPU renderer comparisons passed: 10 constant-depth and 8 overlapping depth-plane cases, 256 material states, 104 format states, 65536 integer pipeline draws, 576 point/line draws, 128 source-state draws, 19 presentation readback cases, selective readbacks, writebacks, uploads, target transitions, feedback fallback, VRAM replacement, eight VIF/PATH1 GPU triangles, 600 GIF strips through the GS thread and asynchronous failure propagation.\n";return 0;

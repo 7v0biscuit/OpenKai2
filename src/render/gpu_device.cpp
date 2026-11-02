@@ -2,6 +2,7 @@
 #include "gpu_device.h"
 #include "work_timings.h"
 #include <condition_variable>
+#include <cstdlib>
 #include <deque>
 #include <future>
 #include <mutex>
@@ -13,10 +14,21 @@
 namespace openkai2::gpu {
 namespace {
 constexpr size_t queueDepth=16u;
+struct OpenGlHost final:Host {
+    Api& api;const std::string& description;
+    OpenGlHost(Api& a,const std::string& d):api(a),description(d){}
+    std::unique_ptr<Compute> create()override{return make_opengl_compute(api,description);}
+};
+struct VulkanHost final:Host {
+    std::unique_ptr<Compute> keeper;
+    std::unique_ptr<Compute> create()override{
+        std::string error;auto made=make_vulkan_compute(error);if(!made)throw std::runtime_error("Vulkan renderer: "+error);return made;
+    }
+};
 }
 struct Device::Impl {
     Context context;Api api;std::string description;std::thread thread;
-    std::mutex mutex;std::condition_variable changed;std::deque<std::function<void(Api&)>> jobs;
+    std::mutex mutex;std::condition_variable changed;std::deque<std::function<void(Host&)>> jobs;
     bool stopping=false,finished=false;std::exception_ptr failure;
     explicit Impl(Context c):context(std::move(c)){}
     ~Impl(){if(context.destroy)context.destroy();}
@@ -25,35 +37,42 @@ Device::Device(Context context):m(std::make_unique<Impl>(std::move(context))) {
     auto ready=std::make_shared<std::promise<void>>();auto future=ready->get_future();
     m->thread=std::thread([this,ready]{
         try {
-            m->context.bind();m->api.load(m->context.resolve);
-            Int major=0,minor=0;m->api.GetIntegerv(0x821b,&major);m->api.GetIntegerv(0x821c,&minor);
-            if(major<4 || (major==4 && minor<3))throw std::runtime_error("OpenGL 4.3 is required for GPU rasterization");
-            Int bindings=0;m->api.GetIntegerv(0x90dd,&bindings);
-            if(bindings<6)throw std::runtime_error("Insufficient shader storage buffer bindings");
-            m->description=reinterpret_cast<const char*>(m->api.GetString(0x1f01));
+            std::unique_ptr<Host> host;
+            if(m->context.vulkan){
+                auto vulkan=std::make_unique<VulkanHost>();vulkan->keeper=vulkan->create();m->description=vulkan->keeper->description();host=std::move(vulkan);
+            }else{
+                m->context.bind();m->api.load(m->context.resolve);
+                Int major=0,minor=0;m->api.GetIntegerv(0x821b,&major);m->api.GetIntegerv(0x821c,&minor);
+                if(major<4 || (major==4 && minor<3))throw std::runtime_error("OpenGL 4.3 is required for GPU rasterization");
+                Int bindings=0;m->api.GetIntegerv(0x90dd,&bindings);
+                if(bindings<6)throw std::runtime_error("Insufficient shader storage buffer bindings");
+                m->description=reinterpret_cast<const char*>(m->api.GetString(0x1f01));
+                host=std::make_unique<OpenGlHost>(m->api,m->description);
+            }
             ready->set_value();
             for(;;){
-                std::function<void(Api&)> job;
+                std::function<void(Host&)> job;
                 {
                     std::unique_lock lock(m->mutex);m->changed.wait(lock,[&]{return m->stopping || !m->jobs.empty();});
                     if(m->jobs.empty() && m->stopping)break;
                     job=std::move(m->jobs.front());m->jobs.pop_front();m->changed.notify_all();
                 }
-                try{job(m->api);}catch(...){std::lock_guard lock(m->mutex);if(!m->failure)m->failure=std::current_exception();}
+                try{job(*host);}catch(...){std::lock_guard lock(m->mutex);if(!m->failure)m->failure=std::current_exception();}
             }
-            m->api.Finish();
+            if(!m->context.vulkan)m->api.Finish();
+            host.reset();
         }catch(...){
             const auto error=std::current_exception();
             {std::lock_guard lock(m->mutex);if(!m->failure)m->failure=error;}
             try{ready->set_exception(error);}catch(const std::future_error&){}
         }
-        try{m->context.release();}catch(...){}
+        try{if(m->context.release)m->context.release();}catch(...){}
         {std::lock_guard lock(m->mutex);m->finished=true;m->changed.notify_all();}
     });
     try{future.get();}catch(...){stop();throw;}
 }
 Device::~Device(){stop();}
-void Device::post(std::function<void(Api&)> job) {
+void Device::post(std::function<void(Host&)> job) {
     std::unique_lock lock(m->mutex);
     if(m->jobs.size()>=queueDepth){RuntimeWorkTimer wait(RuntimeWork::gpuWait);m->changed.wait(lock,[&]{return m->jobs.size()<queueDepth || m->failure || m->stopping || m->finished;});}
     m->changed.wait(lock,[&]{return m->jobs.size()<queueDepth || m->failure || m->stopping || m->finished;});
@@ -61,9 +80,9 @@ void Device::post(std::function<void(Api&)> job) {
     if(m->stopping || m->finished)throw std::runtime_error("GPU device has stopped");
     m->jobs.push_back(std::move(job));m->changed.notify_all();
 }
-void Device::invoke(std::function<void(Api&)> job) {
+void Device::invoke(std::function<void(Host&)> job) {
     auto done=std::make_shared<std::promise<void>>();auto future=done->get_future();
-    post([job=std::move(job),done](Api& api){try{job(api);done->set_value();}catch(...){done->set_exception(std::current_exception());}});
+    post([job=std::move(job),done](Host& host){try{job(host);done->set_value();}catch(...){done->set_exception(std::current_exception());}});
     future.get();
 }
 void Device::stop(){
@@ -93,7 +112,9 @@ namespace {
     };
 }
 #endif
+bool initialize_vulkan(std::string& error){Context c;c.vulkan=true;return initialize_device(std::move(c),error);}
 bool initialize_headless(std::string& error){
+    if(const char* renderer=std::getenv("OPENKAI2_RENDERER");renderer && std::string(renderer)=="vulkan")return initialize_vulkan(error);
 #ifdef _WIN32
     error="Headless EGL validation is available on Linux";return false;
 #else

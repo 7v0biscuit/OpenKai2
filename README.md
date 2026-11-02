@@ -24,7 +24,7 @@ files.
 
 - **The game:** intro, menus, versus fights, and Dragon World with its board and
   fights. Music, voices and sound effects play.
-- **Graphics:** GPU rendering (OpenGL 4.3) with a CPU fallback, resolutions up to
+- **Graphics:** GPU rendering (OpenGL 4.3 or Vulkan) with a CPU fallback, resolutions up to
   4K, 16:9, FXAA, and several upscalers including AMD FSR 1.
 - **Online play:** versus over the internet from the launcher, with profiles,
   friends, invites, a room browser and room passwords. Both games run in lockstep

@@ -1,0 +1,33 @@
+// SPDX-License-Identifier: GPL-3.0-only
+#pragma once
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
+
+namespace openkai2::gpu {
+
+struct Range {
+    uint32_t offset = 0, size = 0;
+};
+
+class Compute {
+  public:
+    virtual ~Compute() = default;
+    virtual const std::string &description() const = 0;
+    virtual void create(const std::vector<uint32_t> &tables) = 0;
+    virtual void upload(uint32_t offset, const void *data, size_t size) = 0;
+    virtual void raster(const std::vector<uint32_t> &commands, const std::vector<uint32_t> &bins,
+                        const std::vector<uint32_t> &references, const std::vector<uint32_t> &palette) = 0;
+    virtual void transfer(const std::vector<uint32_t> &job, unsigned pixels) = 0;
+    virtual void read(const std::vector<Range> &ranges, uint8_t *destination) = 0;
+    virtual void finish() = 0;
+    virtual void destroy() = 0;
+};
+
+std::unique_ptr<Compute> make_vulkan_compute(std::string &error);
+bool vulkan_available() noexcept;
+
+}

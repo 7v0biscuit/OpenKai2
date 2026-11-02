@@ -120,6 +120,12 @@ int main() {
                     read.onlineFriends[0].name == "Krillin \"K\"" && read.onlineFriends[0].id == std::string(64, 'c'),
                 "Settings roundtrip changed values");
         {
+            auto vulkan = s;
+            vulkan.renderer = "vulkan";
+            write_settings(root / "vulkan.ini", vulkan);
+            require(read_settings(root / "vulkan.ini").renderer == "vulkan", "Vulkan renderer setting was not kept");
+        }
+        {
             auto unchecked = s;
             unchecked.overlayItems = 0x1u;
             write_settings(root / "unchecked.ini", unchecked);

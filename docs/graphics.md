@@ -1,9 +1,9 @@
 # GPU rendering
 
-OpenKai2 uses an OpenGL 4.3 compute renderer when a compatible driver is
-available. It draws game geometry into emulated VRAM on the GPU. Install a
-current graphics driver before launching. The CPU renderer remains available
-for compatibility and comparison.
+OpenKai2 draws game geometry into emulated VRAM on the GPU with compute
+shaders, through OpenGL 4.3 or Vulkan 1.0. Install a current graphics driver
+before launching. The CPU renderer remains available for compatibility and
+comparison.
 
 ## Select a renderer
 
@@ -12,13 +12,18 @@ use the CPU. From PowerShell, with the extracted ZIP version:
 
 ```powershell
 .\OpenKai2.exe --renderer=gpu "D:\Games\Budokai 2 USA.iso"
+.\OpenKai2.exe --renderer=vulkan "D:\Games\Budokai 2 USA.iso"
 .\OpenKai2.exe --renderer=cpu "D:\Games\Budokai 2 USA.iso"
 ```
 
-`gpu` requires successful GPU initialization and reports an error if it fails.
-Both modes retain software handling for unsupported draw states. For a
+`gpu` uses OpenGL and reports an error if it cannot start. `vulkan` (**Vulkan
+(GPU)** in the launcher) runs the same shaders through Vulkan. It needs a GPU
+with 64-bit shader math, which nearly every desktop GPU has, and falls back to
+OpenGL if Vulkan cannot start. `auto` uses OpenGL. The log line
+`[renderer] selected=vulkan-compute device=...` shows that Vulkan is in use.
+All modes retain software handling for unsupported draw states. For a
 self-contained launcher or installed shortcut, set `OPENKAI2_RENDERER` to `gpu`,
-`cpu`, or `auto` before launching. This environment setting also works with the
+`vulkan`, `cpu`, or `auto` before launching. This environment setting also works with the
 extracted application. The game ISO is required in every renderer mode.
 
 ## Display settings
