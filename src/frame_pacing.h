@@ -5,7 +5,7 @@
 #include <cstdint>
 namespace openkai2 {
 struct FramePacingSummary {
-    uint64_t frames=0,intervals=0,elapsedUs=0,workUs=0,maxUs=0,late=0;
+    uint64_t frames=0,intervals=0,elapsedUs=0,workUs=0,maxUs=0,late=0,maxWorkUs=0;
     uint64_t p50Us=0,p95Us=0,p99Us=0;
     double fps() const {return elapsedUs ? double(intervals)*1000000.0/double(elapsedUs) : 0.0;}
 };
@@ -15,7 +15,7 @@ public:
         *this=FramePacing{};previous_=nowUs;havePrevious_=true;
     }
     void record(uint64_t nowUs,uint64_t workUs) {
-        ++summary_.frames;summary_.workUs+=workUs;
+        ++summary_.frames;summary_.workUs+=workUs;summary_.maxWorkUs=std::max(summary_.maxWorkUs,workUs);
         if(havePrevious_ && nowUs>=previous_){
             const auto interval=nowUs-previous_;++summary_.intervals;summary_.elapsedUs+=interval;
             summary_.maxUs=std::max(summary_.maxUs,interval);summary_.late+=interval>25000u;

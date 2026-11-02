@@ -429,7 +429,11 @@ PresentationFrame GpuRasterBackend::Present(const GSPresentationRequest& request
         std::lock_guard lock(m->mutex);
         const Pages pages=presentationPages(request),dirty=m->gpuDirty&pages;m->cpuFrame=false;
         if(!m->resources || !dirty.any())return m->cpu.Present(request);
-        snapshot.assign(m->vram,m->vram+m->size);m->submit();
+        if(snapshot.size()!=m->size || pages.all())snapshot.assign(m->vram,m->vram+m->size);
+        else for(unsigned p=0;p<gpu::PageCount;){if(!pages[p]){++p;continue;}const unsigned start=p;while(p<gpu::PageCount && pages[p])++p;
+            const size_t offset=size_t(start)*gpu::PageBytes,end=std::min<size_t>(size_t(p)*gpu::PageBytes,m->size);
+            if(offset<end)std::memcpy(snapshot.data()+offset,m->vram+offset,end-offset);}
+        m->submit();
         m->statistics.readbacks+=dirty.count()*gpu::PageBytes;totalReadbacks.fetch_add(dirty.count()*gpu::PageBytes,std::memory_order_relaxed);
         auto done=std::make_shared<std::promise<void>>();readback=done->get_future();
         m->device->post([r=m->resources,dirty,ram=snapshot.data(),done](gpu::Api& gl){

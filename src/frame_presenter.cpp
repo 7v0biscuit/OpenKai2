@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "frame_presenter.h"
+#include "simulation_pacing.h"
+#include "work_timings.h"
 #include <chrono>
 #include <utility>
 #include <ostream>
@@ -71,10 +73,24 @@ void FramePresenter::run() {
         }
         if(sample.frames){
             std::ostringstream line;
+            static uint64_t lastFields=0,lastLate=0,lastGuest=0,lastFence=0,lastDma=0;
+            const uint64_t fields=field_lateness.fields.load(std::memory_order_relaxed);
+            const uint64_t lateFields=field_lateness.late.load(std::memory_order_relaxed);
+            const uint64_t guest=runtime_work_total_ns(RuntimeWork::guest);
+            const uint64_t fence=runtime_work_total_ns(RuntimeWork::gsFence);
+            const uint64_t dma=runtime_work_total_ns(RuntimeWork::dmaPending);
             line<<"[performance:sample] elapsed_ms="<<sampleElapsed<<" completed="<<sample.frames
                 <<" measured_fps="<<sample.fps()<<" interval_p95_us_upper="<<sample.p95Us
                 <<" interval_p99_us_upper="<<sample.p99Us<<" max_interval_us="<<sample.maxUs
-                <<" intervals_over_25ms="<<sample.late<<'\n';
+                <<" intervals_over_25ms="<<sample.late
+                <<" render_avg_us="<<(sample.frames?sample.workUs/sample.frames:0u)<<" render_max_us="<<sample.maxWorkUs
+                <<" game_fields="<<(fields-lastFields)<<" game_late_fields="<<(lateFields-lastLate)
+                <<" game_max_late_us="<<field_lateness.longest.exchange(0,std::memory_order_relaxed)
+                <<" game_busy_ms="<<(guest-lastGuest)/1000000u
+                <<" gs_fence_ms="<<(fence-lastFence)/1000000u<<" gs_fence_max_us="<<take_runtime_work_max_ns(RuntimeWork::gsFence)/1000u
+                <<" dma_wait_ms="<<(dma-lastDma)/1000000u<<" dma_wait_max_us="<<take_runtime_work_max_ns(RuntimeWork::dmaPending)/1000u
+                <<" gpu_wait_max_us="<<take_runtime_work_max_ns(RuntimeWork::gpuWait)/1000u<<'\n';
+            lastFields=fields;lastLate=lateFields;lastGuest=guest;lastFence=fence;lastDma=dma;
             std::cout<<line.str();
         }
         processed=generation;

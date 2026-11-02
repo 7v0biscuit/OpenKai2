@@ -6,7 +6,7 @@
 #include <sstream>
 namespace openkai2 {
 namespace {
-struct Total {std::atomic<uint64_t> calls{0},nanoseconds{0};};
+struct Total {std::atomic<uint64_t> calls{0},nanoseconds{0},longest{0};};
 std::array<Total,unsigned(RuntimeWork::count)> totals;
 constexpr const char* names[]={"guest-executor","dma-submit","dma-pending","vu0","vu1","path1-submit","gif-path23","gpu-wait","gs-fence"};
 void report(unsigned index) noexcept {
@@ -21,8 +21,12 @@ void report(unsigned index) noexcept {
 }
 void record_runtime_work(RuntimeWork work,uint64_t nanoseconds) noexcept {
     auto& total=totals[unsigned(work)];total.nanoseconds.fetch_add(nanoseconds,std::memory_order_relaxed);
+    for(auto seen=total.longest.load(std::memory_order_relaxed);nanoseconds>seen &&
+        !total.longest.compare_exchange_weak(seen,nanoseconds,std::memory_order_relaxed);){}
     const auto calls=total.calls.fetch_add(1,std::memory_order_relaxed)+1u;
     if(calls>=64u && (calls&(calls-1u))==0u)report(unsigned(work));
 }
 void flush_runtime_work() noexcept {for(unsigned i=0;i<totals.size();++i)report(i);}
+uint64_t runtime_work_total_ns(RuntimeWork work) noexcept {return totals[unsigned(work)].nanoseconds.load(std::memory_order_relaxed);}
+uint64_t take_runtime_work_max_ns(RuntimeWork work) noexcept {return totals[unsigned(work)].longest.exchange(0,std::memory_order_relaxed);}
 }

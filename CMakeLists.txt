@@ -116,7 +116,7 @@ endif()
 if(BUILD_TESTING)
     find_package(Threads REQUIRED)
     add_executable(openkai2_presenter_tests tests/frame_presenter_tests.cpp
-        src/frame_presenter.cpp src/frame_presenter_checks.cpp src/display_settings.cpp)
+        src/frame_presenter.cpp src/frame_presenter_checks.cpp src/display_settings.cpp src/work_timings.cpp)
     target_include_directories(openkai2_presenter_tests PRIVATE src)
     target_compile_features(openkai2_presenter_tests PRIVATE cxx_std_17)
     target_link_libraries(openkai2_presenter_tests PRIVATE Threads::Threads)

@@ -366,7 +366,7 @@ function(openkai2_attach_generated_sources)
         "${project_root}/src/host_input_checks.cpp" "${project_root}/src/frame_presenter_checks.cpp"
         "${project_root}/src/pad_checks.cpp")
     add_executable(openkai2_presenter_tests "${project_root}/tests/frame_presenter_tests.cpp"
-        "${project_root}/src/frame_presenter.cpp" "${project_root}/src/frame_presenter_checks.cpp" "${project_root}/src/display_settings.cpp")
+        "${project_root}/src/frame_presenter.cpp" "${project_root}/src/frame_presenter_checks.cpp" "${project_root}/src/display_settings.cpp" "${project_root}/src/work_timings.cpp")
     target_include_directories(openkai2_presenter_tests PRIVATE "${project_root}/src")
     target_compile_features(openkai2_presenter_tests PRIVATE cxx_std_17)
     target_link_libraries(openkai2_presenter_tests PRIVATE Threads::Threads)
