@@ -22,8 +22,10 @@ struct Request {
     bool load = false;
     std::vector<uint8_t> data;
     std::function<void(MachineStateResult)> done;
+    std::chrono::steady_clock::time_point made = std::chrono::steady_clock::now();
 };
 std::mutex requestMutex;
+std::string blockedBy;
 std::optional<Request> pending;
 std::atomic<bool> hasPending{false};
 std::string identity;
@@ -231,7 +233,25 @@ void request_machine_load(std::vector<uint8_t> data, std::function<void(MachineS
     hasPending = true;
 }
 
-bool machine_state_pending() { return hasPending.load(); }
+bool machine_state_pending() {
+    if (!hasPending.load())
+        return false;
+    Request expired;
+    std::string why;
+    {
+        std::lock_guard lock(requestMutex);
+        if (!pending || std::chrono::steady_clock::now() - pending->made < std::chrono::seconds(3))
+            return hasPending.load();
+        expired = std::move(*pending);
+        pending.reset();
+        hasPending = false;
+        why = blockedBy.empty() ? std::string("the game is busy") : blockedBy;
+    }
+    std::cerr << "[state] request dropped after 3 s: " << why << std::endl;
+    if (expired.done)
+        expired.done(MachineStateResult{false, "not available right now (" + why + "). Try again in a moment", {}});
+    return false;
+}
 
 void machine_state_point(EeScheduler &scheduler) {
     const bool pendingRequest = hasPending.load(std::memory_order_acquire);
@@ -247,8 +267,11 @@ void machine_state_point(EeScheduler &scheduler) {
     if (!pendingRequest)
         return;
     if (!savable) {
-        if (reason != "a movie is playing")
+        if (reason != "a movie is playing") {
+            std::lock_guard lock(requestMutex);
+            blockedBy = reason;
             return;
+        }
         Request refused;
         {
             std::lock_guard lock(requestMutex);

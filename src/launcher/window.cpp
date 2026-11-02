@@ -589,7 +589,7 @@ struct Window {
     bool roomHost = false;
     bool directJoin = false;
     double navPosition = -1, navFrom = 0, navTo = -1;
-    bool navAnimating = false;
+    bool navAnimating = false, navSnapped = false;
     std::chrono::steady_clock::time_point navStart{};
     std::string joinAddress;
     uint16_t roomPort = 0;
@@ -1211,10 +1211,9 @@ struct Window {
             navFrom = navPosition;
             navTo = chosen;
             navStart = std::chrono::steady_clock::now();
-            if (!navAnimating) {
-                navAnimating = true;
+            if (!navAnimating)
                 PostMessageW(hwnd, navigationFrame, 0, 0);
-            }
+            navAnimating = true;
         }
         const int slot = int(std::lround(navPosition * 58));
         const RECT row{p(12), p(104 + slot), p(sidebarWidth - 12), p(154 + slot)};
@@ -2043,7 +2042,8 @@ struct Window {
             dc = canvas.dc;
             const int id = int(item.CtlID);
             const bool navigation = id >= PlayTab && id <= SettingsTab;
-            const bool chosen = navigation && id == PlayTab + navigationPage();
+            const double highlight = navPosition < 0 ? double(navigationPage()) : navPosition;
+            const bool chosen = navigation && std::abs(highlight - double(id - PlayTab)) < 0.5;
             const bool primary = id == Play;
             const bool taskChoice = (id == TaskCharacters && importTask == Task::characters) ||
                                     (id == TaskStages && importTask == Task::stages) ||
@@ -2055,7 +2055,7 @@ struct Window {
             COLORREF label;
             const bool lit = (primary || taskChoice || id == ImportSelected) && enabled;
             if (navigation) {
-                if (hot && !chosen)
+                if (hot && std::abs(highlight - double(id - PlayTab)) >= 1.0)
                     box(dc, r, mix(sidebar, ink, 10), mix(sidebar, ink, 10), 10);
                 label = chosen || hot ? ink : muted;
             } else if (lit) {
@@ -2096,7 +2096,8 @@ struct Window {
                 DrawTextW(dc, text, -1, &textRect, DT_SINGLELINE | DT_VCENTER | DT_CENTER | DT_NOPREFIX);
             }
             SelectObject(dc, old);
-            if ((item.itemState & ODS_FOCUS) && !(item.itemState & ODS_NOFOCUSRECT) && !chosen) {
+            if ((item.itemState & ODS_FOCUS) && !(item.itemState & ODS_NOFOCUSRECT) && !chosen &&
+                !(navigation && id == PlayTab + navigationPage())) {
                 RECT focus = r;
                 InflateRect(&focus, -p(3), -p(3));
                 SetDCPenColor(dc, lit ? RGB(36, 16, 4) : navigation ? mix(sidebar, orange, 70) : orange);
@@ -3042,19 +3043,39 @@ struct Window {
                         : L"Game running. Save tools unlock when you close it.";
         ShowWindow(hwnd, SW_MINIMIZE);
     }
-    void animate() {
+    void stepAnimation() {
         if (!navAnimating)
             return;
         constexpr double duration = 170.0;
         const double elapsed =
             std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - navStart).count();
         const double t = std::clamp(elapsed / duration, 0.0, 1.0);
-        const double eased = 1.0 - std::pow(1.0 - t, 3.0);
-        navPosition = navFrom + (navTo - navFrom) * eased;
+        navPosition = navFrom + (navTo - navFrom) * (1.0 - std::pow(1.0 - t, 3.0));
         if (t >= 1.0) {
             navPosition = navTo;
             navAnimating = false;
         }
+    }
+    void finishSlide() {
+        navPosition = navTo;
+        navAnimating = false;
+        RECT side{0, p(96), p(sidebarWidth), p(104 + 6 * 58 + 8)};
+        RedrawWindow(hwnd, &side, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW);
+    }
+    void animate() {
+        if (!navAnimating)
+            return;
+        if (dropdownOpen()) {
+            navPosition = navTo;
+            navAnimating = false;
+            navSnapped = true;
+            return;
+        }
+        if (HIWORD(GetQueueStatus(QS_KEY | QS_MOUSEBUTTON))) {
+            finishSlide();
+            return;
+        }
+        stepAnimation();
         RECT side{0, p(96), p(sidebarWidth), p(104 + 6 * 58 + 8)};
         RedrawWindow(hwnd, &side, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW);
         if (!navAnimating)
@@ -4103,10 +4124,19 @@ struct Window {
             if (notification == CBN_DROPDOWN)
                 dropListOpened(found->second);
             InvalidateRect(found->second, nullptr, FALSE);
+            if (notification == CBN_CLOSEUP && navSnapped) {
+                navSnapped = false;
+                RECT side{0, p(96), p(sidebarWidth), p(104 + 6 * 58 + 8)};
+                RedrawWindow(hwnd, &side, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN);
+            }
         }
         if (picking)
             return;
         if (id >= PlayTab && id <= SettingsTab) {
+            if (page == id - PlayTab) {
+                SetFocus(controls[id]);
+                return;
+            }
             page = id - PlayTab;
             for (int tab = PlayTab; tab <= SettingsTab; ++tab)
                 InvalidateRect(controls[tab], nullptr, FALSE);
