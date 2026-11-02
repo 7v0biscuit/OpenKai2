@@ -27,9 +27,10 @@ struct Guest {
             put(address + task_next, i + 1 < names.size() ? 0x80000000u | (address + 0x80) : task_end);
         }
     }
-    void battle(bool over, int32_t result) {
+    void battle(bool over, int32_t result, uint32_t reason = 6u) {
         put(battle_over, over ? 1u : 0u);
         put(battle_result, uint32_t(result));
+        put(battle_reason, reason);
     }
     GuestState read() const { return read_guest(memory.data(), memory.size()); }
 };
@@ -109,6 +110,45 @@ void sees_death() {
     guest.tasks({"#[DW GOVER] ENMA"});
     require(has(timer.update(guest.read(), 3.0, 120), Event::died), "Game over not reported");
     require(!has(timer.update(guest.read(), 3.1, 126), Event::died), "Game over reported twice");
+}
+
+void counts_every_loss() {
+    Guest guest;
+    Timer timer;
+    guest.tasks({"[BTL] MAIN"});
+    guest.battle(true, -1);
+    guest.tasks({"DW INTRO MAIN", "[BTL] MAIN"});
+    require(!has(timer.update(guest.read(), 1.0, 0), Event::battle_lost), "Stale fight result ended a new run");
+    guest.battle(false, 0);
+    timer.update(guest.read(), 2.0, 60);
+    guest.battle(true, 0, reason_time_out);
+    require(has(timer.update(guest.read(), 3.0, 120), Event::battle_lost) && timer.last_loss() == "time out",
+            "Time out with health left not counted as a loss");
+    guest.battle(false, 0);
+    timer.update(guest.read(), 4.0, 180);
+    guest.battle(true, 0, 16u);
+    require(has(timer.update(guest.read(), 5.0, 240), Event::battle_lost) && timer.last_loss() == "draw",
+            "Draw not counted as a loss");
+    guest.battle(false, 0);
+    timer.update(guest.read(), 6.0, 300);
+    guest.battle(true, -1);
+    const auto knocked = timer.update(guest.read(), 7.0, 360);
+    require(has(knocked, Event::battle_lost) && !has(knocked, Event::battle_won) && timer.last_loss() == "knocked out",
+            "Knock out not counted as a loss");
+    require(timer.losses() == 3 && timer.wins().empty(), "Losses miscounted");
+    guest.battle(false, 0);
+    timer.update(guest.read(), 8.0, 420);
+    guest.battle(true, 1);
+    require(has(timer.update(guest.read(), 9.0, 480), Event::battle_won) && timer.losses() == 3,
+            "Win after losses miscounted");
+    guest.tasks({"DW INTRO MAIN"});
+    guest.battle(false, 0);
+    timer.update(guest.read(), 10.0, 540);
+    guest.tasks({"DW SEQ"});
+    timer.update(guest.read(), 11.0, 600);
+    guest.tasks({"DW INTRO MAIN"});
+    timer.update(guest.read(), 12.0, 660);
+    require(timer.losses() == 0 && timer.last_loss().empty(), "Restart kept old losses");
 }
 
 void formats() {
@@ -228,6 +268,7 @@ int main() {
         reads_tasks();
         times_a_run();
         sees_death();
+        counts_every_loss();
         formats();
         checks();
         splits();

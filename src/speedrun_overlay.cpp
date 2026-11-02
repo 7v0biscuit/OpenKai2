@@ -228,7 +228,8 @@ struct Overlay {
             }
             case Event::battle_lost:
             case Event::died:
-                note(std::string(event == Event::died ? "game over" : "fight lost") + " at " + times(now, fields));
+                note(std::string(event == Event::died ? "game over" : "fight lost (" + timer.last_loss() + ")") + " at " +
+                     times(now, fields));
                 if (options.permadeath && died_at < 0) {
                     died_at = now;
                     save(false, timer.real(now), timer.wins());
@@ -409,6 +410,13 @@ struct Overlay {
             DrawRectangleRounded({x, y, width + padX * 2, size + padY * 2}, 0.35f, 6, Color{10, 12, 18, 150});
             label(value, x + padX, y + padY, size, Color{245, 245, 240, 230});
         }
+        if (died_at >= 0 && speedrun) {
+            const std::string value = "GAME OVER   permadeath";
+            const float size = 46 * s, width = label_width(value, size);
+            const float x = (float(GetScreenWidth()) - width) / 2, y = float(GetScreenHeight()) * 0.42f;
+            DrawRectangleRounded({x - 24 * s, y - 14 * s, width + 48 * s, size + 28 * s}, 0.25f, 6, Color{10, 12, 18, 200});
+            label(value, x, y, size, Color{232, 102, 88, 245});
+        }
         if (skipping) {
             const std::string value = "Returning to the main menu";
             const float size = 18 * s, width = label_width(value, size);
@@ -436,6 +444,8 @@ struct Overlay {
         if (shows(show_status)) {
             Row row;
             row.left = std::string(category_name(options.category)) + (options.permadeath ? "   Permadeath" : "");
+            if (!options.permadeath && timer.losses())
+                row.left += "   Lost " + std::to_string(timer.losses());
             row.left_color = grey;
             row.right = died_at >= 0 ? "Run over" : flags.empty() ? "Verified" : "Flagged";
             row.right_color = died_at >= 0 || !flags.empty() ? behind : ahead;

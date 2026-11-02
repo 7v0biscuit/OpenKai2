@@ -60,28 +60,43 @@ GuestState read_guest(const uint8_t *rdram, size_t bytes) {
     }
     state.result = int32_t(word(rdram, bytes, battle_result));
     state.battle_over = word(rdram, bytes, battle_over) == 1u;
+    state.reason = word(rdram, bytes, battle_reason);
     return state;
+}
+
+std::string loss_name(const GuestState &state) {
+    if (state.result == -1)
+        return "knocked out";
+    if (state.reason == reason_time_out)
+        return "time out";
+    return "draw";
 }
 
 void Timer::reset() { *this = Timer{}; }
 
 std::vector<Event> Timer::update(const GuestState &state, double real, uint64_t fields) {
     std::vector<Event> events;
-    if (state.intro && !intro_) {
+    const bool fresh = state.intro && !intro_;
+    if (fresh) {
         events.push_back(phase_ == Phase::waiting ? Event::started : Event::restarted);
         phase_ = Phase::running;
         start_real_ = real;
         start_fields_ = fields;
         wins_.clear();
         final_ = {};
+        losses_ = 0;
+        last_loss_.clear();
     }
     if (phase_ == Phase::running) {
-        if (state.battle_over && !battle_over_ && state.result == 1) {
+        const bool ended = state.battle_over && !battle_over_ && !fresh;
+        if (ended && state.result == 1) {
             wins_.push_back({this->real(real), game(fields)});
             events.push_back(Event::battle_won);
-        }
-        if (state.battle_over && !battle_over_ && state.result == -1)
+        } else if (ended) {
+            ++losses_;
+            last_loss_ = loss_name(state);
             events.push_back(Event::battle_lost);
+        }
         if (state.game_over && !game_over_)
             events.push_back(Event::died);
         if (state.credits && !credits_) {

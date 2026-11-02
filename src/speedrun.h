@@ -19,6 +19,8 @@ inline constexpr uint32_t task_name_bytes = 20u;
 inline constexpr uint32_t task_limit = 1024u;
 inline constexpr uint32_t battle_result = 0x3A4D58u;
 inline constexpr uint32_t battle_over = 0x3A4D60u;
+inline constexpr uint32_t battle_reason = 0x3A4D64u;
+inline constexpr uint32_t reason_time_out = 4u;
 inline constexpr double field_rate = 60000.0 / 1001.0;
 
 struct GuestState {
@@ -32,9 +34,11 @@ struct GuestState {
     bool press_start = false;
     bool title_menu = false;
     int32_t result = 0;
+    uint32_t reason = 0;
     std::vector<std::string> tasks;
 };
 GuestState read_guest(const uint8_t *rdram, size_t bytes);
+std::string loss_name(const GuestState &state);
 
 struct Split {
     double real = 0, game = 0;
@@ -50,6 +54,8 @@ class Timer {
     double real(double now) const;
     double game(uint64_t fields) const;
     const std::vector<Split> &wins() const { return wins_; }
+    unsigned losses() const { return losses_; }
+    const std::string &last_loss() const { return last_loss_; }
     Split result() const { return final_; }
     void reset();
 
@@ -59,6 +65,8 @@ class Timer {
     uint64_t start_fields_ = 0;
     std::vector<Split> wins_;
     Split final_;
+    unsigned losses_ = 0;
+    std::string last_loss_;
     bool intro_ = false, game_over_ = false, credits_ = false, battle_over_ = false;
 };
 

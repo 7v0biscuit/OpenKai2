@@ -10,7 +10,7 @@ Turn it on in the launcher's **Speedrun** page (Ctrl+3):
 | Setting | Choices |
 |---|---|
 | Speedrun mode | Off, Any%, NG+ |
-| Permadeath | Losing any fight in Dragon World, with Goku or a partner, ends the run: the game resets to the main menu and the timer resets |
+| Permadeath | Any Dragon World fight that is not won ends the run, whoever is fighting and however much health is left: knock outs, time outs and draws all count. **GAME OVER** shows, then the game resets to the main menu and the timer resets |
 | FPS counter | Frame counter in the top corner, also outside speedrun mode |
 
 While speedrun mode is on, mods are not loaded.
@@ -48,7 +48,7 @@ compares the run with your best run and shows:
 | Personal best | Your fastest finished run |
 | PS2 time | Time counted from the console's frames |
 | Attempts | Runs started, and how many finished |
-| Run checks | Category, permadeath, and Verified, Flagged or Run over. Always shown |
+| Run checks | Category, permadeath, fights lost (without permadeath), and Verified, Flagged or Run over. Always shown |
 
 Run checks can't be turned off while speedrun mode is on, so every recording
 shows whether the run is verified. In game, **F7** hides the rest of the
@@ -82,7 +82,8 @@ The log is separate from the splits files. It records:
   executable, the ISO and the game executable;
 - whether the game data matches the US retail disc;
 - the category, permadeath and display settings;
-- every run start, battle won (real and PS2 time), game over, reset and finish.
+- every run start, battle won (real and PS2 time), fight lost (knocked out,
+  time out or draw), game over, reset and finish.
 
 Each line ends with a checksum chained to the line before it, so edited or
 removed lines show up. It is a checksum, not a signature.
