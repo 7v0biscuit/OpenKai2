@@ -765,6 +765,18 @@ struct Window {
         return value;
     }
     int selected(int id) const { return int(SendMessageW(controls.at(id), CB_GETCURSEL, 0, 0)); }
+    struct Placement {
+        int x, y, w, h;
+        bool visible;
+    };
+    std::map<int, Placement> *planning = nullptr;
+    void conceal(int id) {
+        if (planning) {
+            if (auto found = planning->find(id); found != planning->end())
+                found->second.visible = false;
+        } else
+            ShowWindow(controls.at(id), SW_HIDE);
+    }
     void place(int id, int x, int y, int w, int h, bool visible = true) {
         auto c = controls.at(id);
         wchar_t type[32]{};
@@ -775,6 +787,10 @@ struct Window {
             allocatedHeight = std::max(allocatedHeight, p(36)) + int(rows) * p(34) + p(8);
             SendMessageW(c, CB_SETITEMHEIGHT, WPARAM(-1), p(h - 6));
             SendMessageW(c, CB_SETITEMHEIGHT, 0, p(34));
+        }
+        if (planning) {
+            (*planning)[id] = Placement{p(x), p(y), p(w), allocatedHeight, visible};
+            return;
         }
         SetWindowPos(c, nullptr, p(x), p(y), p(w), allocatedHeight,
                      SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS);
@@ -1018,6 +1034,8 @@ struct Window {
         const int w = unscale(rect.right), h = unscale(rect.bottom);
         const int content = w - contentLeft - margin, right = contentLeft + content;
         std::vector<int> order{PlayTab, OnlineTab, SpeedrunTab, ModsTab, SavesTab, SettingsTab};
+        std::map<int, Placement> plan;
+        planning = &plan;
         auto position = [&](int id, int x, int y, int width, int height) {
             place(id, x, y, width, height);
             order.push_back(id);
@@ -1046,7 +1064,7 @@ struct Window {
             position(BackupList, contentLeft + 20, 382, content - 40,
                      std::max(60, panelBottom - 84 - 382));
             if (emptySaveList())
-                ShowWindow(controls[BackupList], SW_HIDE);
+                conceal(BackupList);
             position(SaveListKind, right - 180, 342, 160, 32);
             if (!gameSaveList())
                 position(Restore, contentLeft + 20, panelBottom - 52, 130, 36);
@@ -1066,7 +1084,7 @@ struct Window {
             position(ModRemove, contentsLeft + 2 * (third + 10), panelBottom - 100, half - 2 * (third + 10), 36);
             if (modList.empty())
                 for (int id : {ModList, ModContents, ModRename, ModDelete, ModRemove})
-                    ShowWindow(controls[id], SW_HIDE);
+                    conceal(id);
             int x = contentLeft + 20;
             for (auto [id, width] : {std::pair{ModToggle, 150}, {ModUp, 100}, {ModDown, 110}, {ModRefresh, 90}}) {
                 position(id, x, panelBottom - 52, width, 36);
@@ -1107,9 +1125,9 @@ struct Window {
             position(InvitePlayer, playersLeft + 20, bottom - 48, (playersWidth - 10) / 2, 34);
             position(AddFriend, playersLeft + 30 + (playersWidth - 10) / 2, bottom - 48, (playersWidth - 10) / 2, 34);
             if (roomRows.empty())
-                ShowWindow(controls[RoomList], SW_HIDE);
+                conceal(RoomList);
             if (playerRows.empty())
-                ShowWindow(controls[PlayerList], SW_HIDE);
+                conceal(PlayerList);
         } else if (page == overlayPage) {
             const int panelBottom = h - 64, half = (content - 52) / 2, side = contentLeft + 32 + half;
             position(CloseOverlay, right - 20 - 150, 136, 150, 34);
@@ -1173,16 +1191,31 @@ struct Window {
             position(ReleasePage, right - 20 - 116, updatesTop + 10, 116, 28);
 
         }
-        HWND previous = HWND_TOP;
-        for (auto id : order) {
-            auto control = controls.at(id);
-            SetWindowPos(control, previous, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-            previous = control;
+        planning = nullptr;
+        if (auto batch = BeginDeferWindowPos(int(controls.size()))) {
+            HWND previous = HWND_TOP;
+            for (auto id : order) {
+                auto control = controls.at(id);
+                const auto found = plan.find(id);
+                const bool shown = (GetWindowLongPtrW(control, GWL_STYLE) & WS_VISIBLE) != 0;
+                UINT flags = SWP_NOACTIVATE | SWP_NOCOPYBITS;
+                if (found == plan.end())
+                    flags |= SWP_NOMOVE | SWP_NOSIZE;
+                else if (found->second.visible != shown)
+                    flags |= found->second.visible ? SWP_SHOWWINDOW : SWP_HIDEWINDOW;
+                const auto &where = found == plan.end() ? Placement{} : found->second;
+                if (batch)
+                    batch = DeferWindowPos(batch, control, previous, where.x, where.y, where.w, where.h, flags);
+                previous = control;
+            }
+            for (auto [id, control] : controls)
+                if (batch && std::find(order.begin(), order.end(), id) == order.end() &&
+                    (GetWindowLongPtrW(control, GWL_STYLE) & WS_VISIBLE))
+                    batch = DeferWindowPos(batch, control, nullptr, 0, 0, 0, 0,
+                                           SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_HIDEWINDOW);
+            if (batch)
+                EndDeferWindowPos(batch);
         }
-        for (auto [id, control] : controls)
-            if (std::find(order.begin(), order.end(), id) == order.end() &&
-                (GetWindowLongPtrW(control, GWL_STYLE) & WS_VISIBLE))
-                ShowWindow(control, SW_HIDE);
         refreshEnabled();
     }
     COLORREF stateColor() const {
@@ -1886,6 +1919,22 @@ struct Window {
             EndPaint(hwnd, &ps);
             return;
         }
+        const auto glowing = renderFrame();
+        BitBlt(dc, 0, 0, rect.right, rect.bottom, buffer.dc, 0, 0, SRCCOPY);
+        EndPaint(hwnd, &ps);
+        if (paintedPage != page || paintedSize != std::pair<int, int>{rect.right, rect.bottom} || paintedGlow != glowing) {
+            paintedPage = page;
+            paintedSize = {rect.right, rect.bottom};
+            paintedGlow = glowing;
+            for (auto [id, control] : controls)
+                InvalidateRect(control, nullptr, FALSE);
+        }
+    }
+    std::vector<int> renderFrame() {
+        RECT rect{};
+        GetClientRect(hwnd, &rect);
+        if (rect.right <= 0 || rect.bottom <= 0)
+            return {};
         buffer.make(rect.right, rect.bottom);
         auto memory = buffer.dc;
         const int w = unscale(rect.right), h = unscale(rect.bottom);
@@ -1938,15 +1987,7 @@ struct Window {
                 buffer.frame.halo(*r, cut(10), p(14), ember, 80);
                 glowing.push_back(id);
             }
-        BitBlt(dc, 0, 0, rect.right, rect.bottom, memory, 0, 0, SRCCOPY);
-        EndPaint(hwnd, &ps);
-        if (paintedPage != page || paintedSize != std::pair<int, int>{rect.right, rect.bottom} || paintedGlow != glowing) {
-            paintedPage = page;
-            paintedSize = {rect.right, rect.bottom};
-            paintedGlow = glowing;
-            for (auto [id, control] : controls)
-                InvalidateRect(control, nullptr, FALSE);
-        }
+        return glowing;
     }
     COLORREF surface(int id, const RECT &r) const {
         if (id >= PlayTab && id <= SettingsTab)
@@ -4047,11 +4088,11 @@ struct Window {
                 return;
             }
             page = id - PlayTab;
-            for (int tab = PlayTab; tab <= SettingsTab; ++tab)
-                InvalidateRect(controls[tab], nullptr, FALSE);
             if (page == modsPage)
                 refreshMods();
+            renderFrame();
             layout();
+            InvalidateRect(hwnd, nullptr, FALSE);
             SetFocus(controls[id]);
             return;
         }
@@ -4533,6 +4574,8 @@ LRESULT CALLBACK button_procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp)
     } else if (message == WM_SETCURSOR && IsWindowEnabled(hwnd)) {
         SetCursor(LoadCursor(nullptr, IDC_HAND));
         return TRUE;
+    } else if (message == WM_ERASEBKGND && (GetWindowLongPtrW(hwnd, GWL_STYLE) & BS_TYPEMASK) == BS_OWNERDRAW) {
+        return 1;
     }
     return original ? CallWindowProcW(original, hwnd, message, wp, lp)
                     : DefWindowProcW(hwnd, message, wp, lp);
@@ -4698,6 +4741,19 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
                          SWP_NOZORDER | SWP_NOACTIVATE);
             self->layout();
             return 0;
+        }
+        case WM_CTLCOLORBTN:
+        case WM_CTLCOLORSTATIC: {
+            const auto target = reinterpret_cast<HWND>(lp);
+            RECT bounds{};
+            GetWindowRect(target, &bounds);
+            MapWindowPoints(nullptr, hwnd, reinterpret_cast<POINT *>(&bounds), 2);
+            const COLORREF color = bounds.left < self->p(sidebarWidth) ? sidebar
+                                   : message == WM_CTLCOLORSTATIC ? field : panel;
+            SetDCBrushColor(reinterpret_cast<HDC>(wp), color);
+            SetTextColor(reinterpret_cast<HDC>(wp), message == WM_CTLCOLORSTATIC ? muted : ink);
+            SetBkColor(reinterpret_cast<HDC>(wp), color);
+            return reinterpret_cast<LRESULT>(GetStockObject(DC_BRUSH));
         }
         case WM_CTLCOLOREDIT: {
             SetDCBrushColor(reinterpret_cast<HDC>(wp), field);
