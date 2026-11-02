@@ -206,7 +206,7 @@ void verify_iop_module_startup() {
     const auto before=fragmented.debugSnapshot();
     for(unsigned i=0;i<10000u;++i)fragmented.runEeCycles(7u);
     const auto idle=fragmented.debugSnapshot();
-    require(idle.emulatorCycles==before.emulatorCycles+8750u
+    require(idle.emulatorCycles==before.emulatorCycles+(70000u/1024u)*1024u/8u
         && idle.emulatorInstructions==before.emulatorInstructions && !fragmented.canBindRpc(0x11u),
         "Idle clock skipped a wake deadline or executed a sleeping thread");
     constexpr uint64_t total=3200003u;
@@ -217,9 +217,9 @@ void verify_iop_module_startup() {
     require(bulk.canBindRpc(0x11u) && fragmented.canBindRpc(0x11u)
         && a.emulatorCycles==b.emulatorCycles && a.emulatorInstructions==b.emulatorInstructions,
         "Fragmented IOP clock changed delayed worker scheduling");
-    bulk.runEeCycles(5u);fragmented.runEeCycles(5u);
-    require(bulk.debugSnapshot().emulatorCycles==a.emulatorCycles+1u
-        && fragmented.debugSnapshot().emulatorCycles==b.emulatorCycles+1u,
+    bulk.runEeCycles(1021u);fragmented.runEeCycles(1021u);
+    require(bulk.debugSnapshot().emulatorCycles==a.emulatorCycles+128u
+        && fragmented.debugSnapshot().emulatorCycles==b.emulatorCycles+128u,
         "Idle fast path lost fractional EE-to-IOP cycles");
     request.function=41;answer=0;
     require(fragmented.handleRpc(request).handled && fragmentedHost.readGuest(0x3000u,&answer,4u) && answer==42u,

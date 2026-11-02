@@ -70,7 +70,7 @@ constexpr int heroTop = 124, heroBottom = 316, discTop = 332, discBottom = 420;
 constexpr int tilesTop = 436, tilesBottom = 516, keysTop = 540;
 constexpr int displayTop = 112, graphicsTop = 278, updatesTop = 444, speedrunTop = 112, speedrunRulesTop = 228;
 constexpr int onlineProfileTop = 112, onlineHostTop = 228, onlineListsTop = 400;
-constexpr UINT onlineChanged = WM_APP + 30, onlineNotice = WM_APP + 31, navigationFrame = WM_APP + 32;
+constexpr UINT onlineChanged = WM_APP + 30, onlineNotice = WM_APP + 31;
 
 enum Id {
     PlayTab = 101,
@@ -491,7 +491,6 @@ struct Grid {
     static int field(int top, int row) { return label(top, row) + 18; }
 };
 LRESULT CALLBACK combo_procedure(HWND, UINT, WPARAM, LPARAM);
-LRESULT CALLBACK drop_list_procedure(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK button_procedure(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK edit_procedure(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK save_list_procedure(HWND, UINT, WPARAM, LPARAM);
@@ -588,9 +587,6 @@ struct Window {
     std::unique_ptr<netplay::Room> room;
     bool roomHost = false;
     bool directJoin = false;
-    double navPosition = -1, navFrom = 0, navTo = -1;
-    bool navAnimating = false, navSnapped = false;
-    std::chrono::steady_clock::time_point navStart{};
     std::string joinAddress;
     uint16_t roomPort = 0;
     struct Notice {
@@ -1205,18 +1201,7 @@ struct Window {
         lettering(dc, L"OpenKai2", p(64), p(46), fonts.mark, ink, RGB(6, 7, 12), p(1));
         text(dc, L"Budokai 2 for PC", 64, 52, 150, 18, fonts.caption, muted);
         const int chosen = navigationPage();
-        if (navPosition < 0)
-            navPosition = navTo = chosen;
-        if (chosen != navTo) {
-            navFrom = navPosition;
-            navTo = chosen;
-            navStart = std::chrono::steady_clock::now();
-            if (!navAnimating)
-                PostMessageW(hwnd, navigationFrame, 0, 0);
-            navAnimating = true;
-        }
-        const int slot = int(std::lround(navPosition * 58));
-        const RECT row{p(12), p(104 + slot), p(sidebarWidth - 12), p(154 + slot)};
+        const RECT row{p(12), p(104 + chosen * 58), p(sidebarWidth - 12), p(154 + chosen * 58)};
         const int span = std::max(1L, row.right - row.left);
         cutShape(dc, row, cut(12), [&](int x, int) {
             return mix(mix(sidebar, orange, 58), mix(sidebar, orange, 14), (x - row.left) * 255 / span);
@@ -1906,19 +1891,6 @@ struct Window {
         const int w = unscale(rect.right), h = unscale(rect.bottom);
         const int content = w - contentLeft - margin;
         const size_t pixels = size_t(rect.right) * size_t(rect.bottom);
-        if (navAnimating && ps.rcPaint.right <= p(sidebarWidth) && ambient.size() == pixels &&
-            paintedSize == std::pair<int, int>{rect.right, rect.bottom} && paintedPage == page) {
-            GdiFlush();
-            const int strip = std::min<int>(p(sidebarWidth), rect.right);
-            for (int y = 0; y < rect.bottom; ++y)
-                std::copy_n(ambient.begin() + ptrdiff_t(size_t(y) * size_t(rect.right)), strip,
-                            buffer.frame.pixels + size_t(y) * size_t(rect.right));
-            paintSidebar(memory, h);
-            BitBlt(dc, ps.rcPaint.left, ps.rcPaint.top, ps.rcPaint.right - ps.rcPaint.left,
-                   ps.rcPaint.bottom - ps.rcPaint.top, memory, ps.rcPaint.left, ps.rcPaint.top, SRCCOPY);
-            EndPaint(hwnd, &ps);
-            return;
-        }
         if (ambient.size() != pixels) {
             fill(memory, rect, background);
             fill(memory, {0, 0, p(sidebarWidth), rect.bottom}, sidebar);
@@ -2042,8 +2014,7 @@ struct Window {
             dc = canvas.dc;
             const int id = int(item.CtlID);
             const bool navigation = id >= PlayTab && id <= SettingsTab;
-            const double highlight = navPosition < 0 ? double(navigationPage()) : navPosition;
-            const bool chosen = navigation && std::abs(highlight - double(id - PlayTab)) < 0.5;
+            const bool chosen = navigation && id == PlayTab + navigationPage();
             const bool primary = id == Play;
             const bool taskChoice = (id == TaskCharacters && importTask == Task::characters) ||
                                     (id == TaskStages && importTask == Task::stages) ||
@@ -2055,7 +2026,7 @@ struct Window {
             COLORREF label;
             const bool lit = (primary || taskChoice || id == ImportSelected) && enabled;
             if (navigation) {
-                if (hot && std::abs(highlight - double(id - PlayTab)) >= 1.0)
+                if (hot && !chosen)
                     box(dc, r, mix(sidebar, ink, 10), mix(sidebar, ink, 10), 10);
                 label = chosen || hot ? ink : muted;
             } else if (lit) {
@@ -2096,8 +2067,7 @@ struct Window {
                 DrawTextW(dc, text, -1, &textRect, DT_SINGLELINE | DT_VCENTER | DT_CENTER | DT_NOPREFIX);
             }
             SelectObject(dc, old);
-            if ((item.itemState & ODS_FOCUS) && !(item.itemState & ODS_NOFOCUSRECT) && !chosen &&
-                !(navigation && id == PlayTab + navigationPage())) {
+            if ((item.itemState & ODS_FOCUS) && !(item.itemState & ODS_NOFOCUSRECT) && !chosen) {
                 RECT focus = r;
                 InflateRect(&focus, -p(3), -p(3));
                 SetDCPenColor(dc, lit ? RGB(36, 16, 4) : navigation ? mix(sidebar, orange, 70) : orange);
@@ -3042,49 +3012,6 @@ struct Window {
         status = online ? L"Online game running. Save tools unlock when you close it."
                         : L"Game running. Save tools unlock when you close it.";
         ShowWindow(hwnd, SW_MINIMIZE);
-    }
-    void stepAnimation() {
-        if (!navAnimating)
-            return;
-        constexpr double duration = 170.0;
-        const double elapsed =
-            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - navStart).count();
-        const double t = std::clamp(elapsed / duration, 0.0, 1.0);
-        navPosition = navFrom + (navTo - navFrom) * (1.0 - std::pow(1.0 - t, 3.0));
-        if (t >= 1.0) {
-            navPosition = navTo;
-            navAnimating = false;
-        }
-    }
-    void finishSlide() {
-        navPosition = navTo;
-        navAnimating = false;
-        RECT side{0, p(96), p(sidebarWidth), p(104 + 6 * 58 + 8)};
-        RedrawWindow(hwnd, &side, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW);
-    }
-    void animate() {
-        if (!navAnimating)
-            return;
-        if (dropdownOpen()) {
-            navPosition = navTo;
-            navAnimating = false;
-            navSnapped = true;
-            return;
-        }
-        if (HIWORD(GetQueueStatus(QS_KEY | QS_MOUSEBUTTON))) {
-            finishSlide();
-            return;
-        }
-        stepAnimation();
-        RECT side{0, p(96), p(sidebarWidth), p(104 + 6 * 58 + 8)};
-        RedrawWindow(hwnd, &side, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW);
-        if (!navAnimating)
-            return;
-        static const auto flush = reinterpret_cast<HRESULT(WINAPI *)()>(
-            reinterpret_cast<void *>(GetProcAddress(LoadLibraryW(L"dwmapi.dll"), "DwmFlush")));
-        if (!flush || FAILED(flush()))
-            Sleep(2);
-        PostMessageW(hwnd, navigationFrame, 0, 0);
     }
     void timer() {
         presence.enable(true);
@@ -4081,17 +4008,6 @@ struct Window {
                   << " volume=" << settings.volume << std::endl;
         error = false;
     }
-    void dropListOpened(HWND combo) {
-        COMBOBOXINFO info{};
-        info.cbSize = sizeof info;
-        if (!GetComboBoxInfo(combo, &info) || !info.hwndList || GetPropW(info.hwndList, L"OpenKai2.DropProcedure"))
-            return;
-        auto old = reinterpret_cast<WNDPROC>(
-            SetWindowLongPtrW(info.hwndList, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(drop_list_procedure)));
-        SetPropW(info.hwndList, L"OpenKai2.DropProcedure", reinterpret_cast<HANDLE>(old));
-        SetWindowPos(info.hwndList, nullptr, 0, 0, 0, 0,
-                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
-    }
     bool keyboardShortcut(int id) {
         const HWND focus = GetFocus();
         auto focused = [&](int control) { return controls.count(control) && controls.at(control) == focus; };
@@ -4121,14 +4037,7 @@ struct Window {
         if (const auto found = controls.find(id); found != controls.end() &&
             (notification == CBN_DROPDOWN || notification == CBN_CLOSEUP) &&
             (GetWindowLongPtrW(found->second, GWL_STYLE) & CBS_DROPDOWNLIST) == CBS_DROPDOWNLIST) {
-            if (notification == CBN_DROPDOWN)
-                dropListOpened(found->second);
             InvalidateRect(found->second, nullptr, FALSE);
-            if (notification == CBN_CLOSEUP && navSnapped) {
-                navSnapped = false;
-                RECT side{0, p(96), p(sidebarWidth), p(104 + 6 * 58 + 8)};
-                RedrawWindow(hwnd, &side, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN);
-            }
         }
         if (picking)
             return;
@@ -4728,24 +4637,6 @@ LRESULT CALLBACK combo_procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) 
         InvalidateRect(hwnd, nullptr, FALSE);
     return result;
 }
-LRESULT CALLBACK drop_list_procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
-    auto original = reinterpret_cast<WNDPROC>(GetPropW(hwnd, L"OpenKai2.DropProcedure"));
-    const auto result = original ? CallWindowProcW(original, hwnd, message, wp, lp) : DefWindowProcW(hwnd, message, wp, lp);
-    if (message == WM_NCPAINT || message == WM_SHOWWINDOW) {
-        if (auto dc = GetWindowDC(hwnd)) {
-            RECT bounds{};
-            GetWindowRect(hwnd, &bounds);
-            OffsetRect(&bounds, -bounds.left, -bounds.top);
-            auto brush = CreateSolidBrush(mix(border, orange, 120));
-            FrameRect(dc, &bounds, brush);
-            DeleteObject(brush);
-            ReleaseDC(hwnd, dc);
-        }
-    }
-    if (message == WM_NCDESTROY)
-        RemovePropW(hwnd, L"OpenKai2.DropProcedure");
-    return result;
-}
 LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
     auto *self = reinterpret_cast<Window *>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
     if (message == WM_NCCREATE) {
@@ -4776,9 +4667,6 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
             return 0;
         case WM_TIMER:
             self->timer();
-            return 0;
-        case navigationFrame:
-            self->animate();
             return 0;
         case onlineChanged:
             self->refreshOnlineLists();
