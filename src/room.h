@@ -7,6 +7,8 @@
 #include <thread>
 #include "nat.h"
 #include "net_socket.h"
+#include "relay.h"
+#include <memory>
 
 namespace openkai2::netplay {
 
@@ -28,7 +30,8 @@ struct RoomStatus {
     RoomPhase phase = RoomPhase::opening;
     std::string message, opponent, key;
     unsigned delay = 0, ping_ms = 0;
-    uint16_t port = 0;
+    uint16_t port = 0, local_port = 0;
+    bool relayed = false;
 };
 
 class Room {
@@ -46,7 +49,10 @@ class Room {
     void run();
     void run_host();
     void run_join();
-    bool check_guest(net::Socket &socket, std::string &problem);
+    bool check_guest(Link &link, std::string &problem);
+    bool join_over(Link &link, const std::string &channel);
+    void bridge_host(std::string channel, uint16_t port);
+    bool bridge_guest(const std::string &channel);
     void set(RoomPhase phase, const std::string &message);
 
     RoomOptions options_;
@@ -56,6 +62,9 @@ class Room {
     mutable std::mutex mutex_;
     RoomStatus status_;
     net::Socket *active_ = nullptr;
+    std::unique_ptr<RelayLink> roomLink_, gameLink_;
+    RelayBridge bridge_;
+    std::thread bridger_;
     void track(net::Socket *socket);
 };
 

@@ -33,7 +33,8 @@ the **Players** list update live; there is nothing to refresh.
 
 - **Join a room:** pick it and press **Join room**, or double-click it. Rooms
   with a password need it typed in the box below the list. The list shows each
-  room's ping; "no reply" means the host's port can't be reached from your PC.
+  room's ping; "via relay" means the host can't be reached directly, and the
+  match will go through the online service instead.
 - **Join by address:** type the host's address and press **Join address**. Add
   `:port` only if the host's room shows a port other than 7350.
 - **Keyboard:** Enter in the password box joins the selected room, Enter in the
@@ -54,12 +55,12 @@ Fill in **Host a room** and press **Host room**:
 | Input delay | **Auto** picks it from the ping when someone joins. |
 | Who can see it | **Public** lists the room. **Invite only** hides it from the list; invited players can still join. **Not listed** shares no room at all; give players your address. |
 
-The host is player 1. There is no port to set: the room uses TCP port 7350, or
-the next free one, and asks your router to open it (UPnP). The match then uses
-the same port the other player already reached, so a room that someone can join
-also works for the match. If your router doesn't allow UPnP and nobody can
-join, forward the port shown in the launcher to your PC in the router's
-settings.
+The host is player 1. There is nothing to set up. The room uses TCP port 7350,
+or the next free one, and asks your router to open it (UPnP). When a player
+can't reach the room directly, because of the router or a firewall, both
+launchers connect through the online service instead and the match runs
+through it automatically. A direct connection has a lower ping, so it is always
+tried first.
 
 ## Friends and invites
 

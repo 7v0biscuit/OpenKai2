@@ -92,7 +92,7 @@ if(BUILD_TESTING)
     target_compile_features(openkai2_identity_tests PRIVATE cxx_std_17)
     target_link_libraries(openkai2_identity_tests PRIVATE openkai2_disc)
     add_test(NAME identity COMMAND openkai2_identity_tests)
-    add_executable(openkai2_netplay_tests tests/netplay_tests.cpp src/netplay.cpp src/room.cpp src/net_socket.cpp src/mqtt.cpp src/online.cpp
+    add_executable(openkai2_netplay_tests tests/netplay_tests.cpp src/netplay.cpp src/room.cpp src/relay.cpp src/net_socket.cpp src/mqtt.cpp src/online.cpp
         src/nat.cpp src/dev_identity.cpp src/ed25519.cpp)
     target_include_directories(openkai2_netplay_tests PRIVATE src)
     target_compile_features(openkai2_netplay_tests PRIVATE cxx_std_17)

@@ -160,6 +160,13 @@ bool Socket::receive_all(void *data, size_t size) {
     return size == 0;
 }
 
+long Socket::receive_some(void *data, size_t size) {
+    if (!valid() || !size)
+        return -1;
+    const int got = int(::recv(raw(handle_), static_cast<char *>(data), int(size > (1u << 20) ? (1u << 20) : size), 0));
+    return got;
+}
+
 bool Socket::readable(int timeout_ms) { return valid() && wait_readable(raw(handle_), timeout_ms); }
 
 void Socket::shutdown() {

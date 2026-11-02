@@ -42,6 +42,7 @@
 #include <future>
 #include <iostream>
 #include <map>
+#include <utility>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -587,7 +588,7 @@ struct Window {
     std::unique_ptr<netplay::Room> room;
     bool roomHost = false;
     bool directJoin = false;
-    std::string joinAddress;
+    std::string joinAddress, joinRoomId;
     uint16_t roomPort = 0;
     struct Notice {
         bool invite = true;
@@ -3590,7 +3591,7 @@ struct Window {
         for (const auto &room : roomRows) {
             std::wstring ping = L"…";
             if (const auto found = pings.find(room.id); found != pings.end())
-                ping = found->second < 0 ? L"no reply" : std::to_wstring(found->second) + L" ms";
+                ping = found->second < 0 ? L"via relay" : std::to_wstring(found->second) + L" ms";
             std::wstring row = wide(room.name.empty() ? room.host + "'s room" : room.name) + L" · " + wide(room.host) +
                                L" · " + (room.version == application_version ? ping : L"version " + wide(room.version)) +
                                L" · " + (room.locked ? L"Password" : L"Open");
@@ -3781,6 +3782,7 @@ struct Window {
                     status = L"Choose your Budokai 2 ISO first.", error = true;
                 else {
                     directJoin = false;
+                    joinRoomId = room->id;
                     launchOnline(false, wide(room->address) + L":" + std::to_wstring(room->port), wide(notice.inviteMessage.token));
                 }
             } else
@@ -3899,6 +3901,7 @@ struct Window {
             return;
         }
         directJoin = false;
+        joinRoomId = room.id;
         launchOnline(false, wide(room.address) + L":" + std::to_wstring(room.port), password);
     }
     void launchOnline(bool host, const std::wstring &target, const std::wstring &password) {
@@ -3933,6 +3936,7 @@ struct Window {
             options.address = address;
             options.port = port;
             options.password = utf8(password);
+            options.room_id = std::exchange(joinRoomId, std::string());
             joinAddress = address;
             roomPort = port;
         }
@@ -3963,6 +3967,8 @@ struct Window {
         const auto state = room->status();
         std::wstring next = wide(state.message);
         if (state.phase == netplay::RoomPhase::failed) {
+            std::cout << "[launcher:online] room " << (roomHost ? "hosting" : "joining") << " failed: " << state.message
+                      << std::endl;
             room.reset();
             hostingRoom.clear();
             status = next.empty() ? L"Could not connect." : next;
@@ -3974,13 +3980,14 @@ struct Window {
         if (state.phase == netplay::RoomPhase::ready) {
             std::wstring arguments = L" --netplay=" +
                                      (roomHost ? L"host:" + std::to_wstring(state.port)
-                                               : L"join:" + wide(joinAddress) + L":" + std::to_wstring(roomPort)) +
+                                      : state.relayed ? L"join:127.0.0.1:" + std::to_wstring(state.local_port)
+                                                      : L"join:" + wide(joinAddress) + L":" + std::to_wstring(roomPort)) +
                                      L" --netplay-delay=" + std::to_wstring(state.delay) + L" " +
                                      quote_argument(L"--netplay-name=" + wide(settings.onlineName)) + L" " +
                                      quote_argument(L"--netplay-password=" + wide(state.key));
             onlineArguments = arguments;
             std::cout << "[launcher:online] room ready with " << state.opponent << " ping " << state.ping_ms
-                      << " ms delay " << state.delay << std::endl;
+                      << " ms delay " << state.delay << (state.relayed ? " via relay" : " direct") << std::endl;
             start(Job::launch, settings.iso);
             status = L"Connected to " + wide(state.opponent) + L" (" + std::to_wstring(state.ping_ms) +
                      L" ms). Starting the match\u2026";
@@ -3990,6 +3997,7 @@ struct Window {
             return;
         }
         if (!next.empty() && next != status) {
+            std::cout << "[launcher:online] " << state.message << std::endl;
             status = next;
             error = false;
             InvalidateRect(hwnd, nullptr, FALSE);

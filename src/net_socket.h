@@ -24,6 +24,7 @@ class Socket {
     bool valid() const { return handle_ >= 0; }
     bool send_all(const void *data, size_t size);
     bool receive_all(void *data, size_t size);
+    long receive_some(void *data, size_t size);
     bool readable(int timeout_ms);
     void shutdown();
     void close();

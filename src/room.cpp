@@ -21,6 +21,8 @@ std::vector<std::string> fields(const std::string &line) {
     std::istringstream in(line);
     while (std::getline(in, part, '\t'))
         out.push_back(part);
+    if (!line.empty() && line.back() == '\t')
+        out.emplace_back();
     return out;
 }
 
@@ -51,6 +53,13 @@ void Room::track(net::Socket *socket) {
 
 void Room::stop() {
     stopping_ = true;
+    bridge_.stop();
+    if (bridger_.joinable())
+        bridger_.join();
+    if (gameLink_)
+        gameLink_->close();
+    if (roomLink_)
+        roomLink_->close();
     {
         std::lock_guard lock(mutex_);
         if (active_)
@@ -84,7 +93,7 @@ void Room::run() {
     }
 }
 
-bool Room::check_guest(net::Socket &socket, std::string &problem) {
+bool Room::check_guest(Link &socket, std::string &problem) {
     std::string line;
     char first = 0;
     if (!socket.readable(5000) || !socket.receive_all(&first, 1)) {
@@ -199,27 +208,71 @@ void Room::run_host() {
         room.port = port;
         room.version = options_.version;
         room.address = address;
-        if (address.empty() || !listing.open(options_.lobby, room, error))
+        if (address.empty())
+            room.address = "relay";
+        if (!listing.open(options_.lobby, room, error))
             waiting += " (not listed: " + error + ")";
         else
-            waiting = "Waiting for a player in " + roomName +
-                      (mapped ? "" : " (if nobody can join, forward TCP port " + std::to_string(port) + " on your router)");
+            waiting = "Waiting for a player in " + roomName;
+        (void)mapped;
     } else if (options_.upnp) {
         std::string error, address;
         mapping_.open(port, address, error);
     }
+    std::mutex knockMutex;
+    std::deque<std::string> knocks;
+    mqtt::Client knocker;
+    if (!options_.room_id.empty()) {
+        std::string error;
+        knocker.on_message([&](const std::string &, const std::string &channel) {
+            std::lock_guard lock(knockMutex);
+            if (valid_channel(channel) && knocks.size() < 8)
+                knocks.push_back(channel);
+        });
+        if (knocker.connect(options_.lobby, "ok2k-" + new_session_key().substr(0, 16), {}, error))
+            knocker.subscribe(knock_topic(options_.room_id));
+    }
     set(RoomPhase::waiting, waiting);
     while (!stopping_) {
-        auto socket = listener.accept(250);
-        if (!socket.valid())
-            continue;
+        std::string channel;
+        {
+            std::lock_guard lock(knockMutex);
+            if (!knocks.empty()) {
+                channel = knocks.front();
+                knocks.pop_front();
+            }
+        }
         std::string problem;
-        track(&socket);
-        const bool accepted = check_guest(socket, problem);
-        track(nullptr);
+        bool accepted = false;
+        net::Socket socket;
+        if (!channel.empty()) {
+            auto link = std::make_unique<RelayLink>();
+            std::string error;
+            if (link->open(options_.lobby, channel, 'a', error)) {
+                accepted = check_guest(*link, problem);
+                if (accepted) {
+                    roomLink_ = std::move(link);
+                    std::lock_guard lock(mutex_);
+                    status_.relayed = true;
+                    status_.message = "Connected through the online service";
+                }
+            } else
+                problem = error;
+        } else {
+            socket = listener.accept(250);
+            if (!socket.valid())
+                continue;
+            track(&socket);
+            SocketLink link(socket);
+            accepted = check_guest(link, problem);
+            track(nullptr);
+        }
         if (accepted) {
+            knocker.close();
             listing.close();
             listener.close();
+            if (!channel.empty())
+                bridger_ = std::thread([this, channel, port] { bridge_host(channel + "g", port); });
             set(RoomPhase::ready, "Connection checked. Starting the match.");
             return;
         }
@@ -233,49 +286,119 @@ void Room::run_host() {
         status_.opponent.clear();
         status_.message = waiting + " (a player could not join: " + problem + ")";
     }
+    knocker.close();
     listing.close();
 }
 
+void Room::bridge_host(std::string channel, uint16_t port) {
+    auto link = std::make_unique<RelayLink>();
+    std::string error;
+    if (!link->open(options_.lobby, channel, 'a', error))
+        return;
+    while (!stopping_ && link->alive() && !link->readable(250)) {
+    }
+    net::Socket game;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(90);
+    while (!stopping_ && !game.valid() && std::chrono::steady_clock::now() < deadline) {
+        game = net::Socket::connect("127.0.0.1", port, error);
+        if (!game.valid())
+            std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    }
+    if (!game.valid() || stopping_)
+        return;
+    gameLink_ = std::move(link);
+    bridge_.start(*gameLink_, std::move(game));
+}
+
+bool Room::bridge_guest(const std::string &channel) {
+    auto link = std::make_unique<RelayLink>();
+    std::string error;
+    if (!link->open(options_.lobby, channel, 'b', error))
+        return false;
+    net::Socket listener;
+    try {
+        listener = net::Socket::listen(0);
+    } catch (const std::exception &) {
+        return false;
+    }
+    {
+        std::lock_guard lock(mutex_);
+        status_.local_port = listener.local_port();
+    }
+    gameLink_ = std::move(link);
+    bridger_ = std::thread([this, listener = std::move(listener)]() mutable {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(90);
+        while (!stopping_ && std::chrono::steady_clock::now() < deadline) {
+            auto game = listener.accept(250);
+            if (!game.valid())
+                continue;
+            bridge_.start(*gameLink_, std::move(game));
+            return;
+        }
+    });
+    return true;
+}
+
 void Room::run_join() {
-    set(RoomPhase::opening, "Connecting to " + options_.address);
+    const bool relayable = !options_.room_id.empty();
+    const bool direct = options_.address != "relay";
     net::Socket socket;
     std::string error;
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
-    while (!stopping_ && !socket.valid() && std::chrono::steady_clock::now() < deadline) {
-        socket = net::Socket::connect(options_.address, options_.port, error);
-        if (!socket.valid())
-            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    if (direct) {
+        set(RoomPhase::opening, "Connecting to " + options_.address);
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(relayable ? 4 : 15);
+        while (!stopping_ && !socket.valid() && std::chrono::steady_clock::now() < deadline) {
+            socket = net::Socket::connect(options_.address, options_.port, error);
+            if (!socket.valid())
+                std::this_thread::sleep_for(std::chrono::milliseconds(400));
+        }
     }
     if (stopping_)
         return;
-    struct Tracked {
-        Room &room;
-        ~Tracked() { room.track(nullptr); }
-    } tracked{*this};
-    track(&socket);
-    if (!socket.valid()) {
+    if (socket.valid()) {
+        struct Tracked {
+            Room &room;
+            ~Tracked() { room.track(nullptr); }
+        } tracked{*this};
+        track(&socket);
+        SocketLink link(socket);
+        join_over(link, {});
+        return;
+    }
+    if (!relayable) {
         set(RoomPhase::failed, "Cannot reach the room. The host may need to forward TCP port " +
                                    std::to_string(options_.port) + " on their router.");
         return;
     }
+    set(RoomPhase::opening, "Connecting through the online service");
+    const std::string channel = new_session_key().substr(0, 16);
+    roomLink_ = std::make_unique<RelayLink>();
+    if (!roomLink_->open(options_.lobby, channel, 'b', error) || !roomLink_->knock(options_.room_id)) {
+        set(RoomPhase::failed, "Cannot reach the online service: " + error);
+        return;
+    }
+    join_over(*roomLink_, channel);
+}
+
+bool Room::join_over(Link &socket, const std::string &channel) {
     if (!socket.send_text(std::string(room_greeting) + "\t" + clean(options_.version) + "\t" + clean(options_.name) + "\t" +
                           clean(options_.password) + "\n")) {
         set(RoomPhase::failed, "Connection lost");
-        return;
+        return false;
     }
     std::string line;
-    if (!socket.receive_line(line, 512, 10000)) {
+    if (!socket.receive_line(line, 512, 12000)) {
         set(RoomPhase::failed, "The room did not answer. It may be full or closed.");
-        return;
+        return false;
     }
     auto reply = fields(line);
     if (reply.size() >= 2 && reply[0] == "NO") {
         set(RoomPhase::failed, reply[1]);
-        return;
+        return false;
     }
     if (reply.size() < 2 || reply[0] != "OK") {
         set(RoomPhase::failed, "That address is not an OpenKai2 room");
-        return;
+        return false;
     }
     {
         std::lock_guard lock(mutex_);
@@ -286,13 +409,13 @@ void Room::run_join() {
     while (!stopping_) {
         if (!socket.receive_line(line, 128, 10000)) {
             set(RoomPhase::failed, "The connection to the host is not stable");
-            return;
+            return false;
         }
         auto parts = fields(line);
         if (parts.size() == 2 && parts[0] == "PING") {
             if (!socket.send_text("PONG\t" + parts[1] + "\n")) {
                 set(RoomPhase::failed, "Connection lost");
-                return;
+                return false;
             }
             continue;
         }
@@ -300,21 +423,27 @@ void Room::run_join() {
             const unsigned delay = unsigned(std::strtoul(parts[1].c_str(), nullptr, 10));
             if (delay < 1 || delay > max_delay || parts[2].size() != 32) {
                 set(RoomPhase::failed, "The host sent a bad start message");
-                return;
+                return false;
+            }
+            if (!channel.empty() && !bridge_guest(channel + "g")) {
+                set(RoomPhase::failed, "Could not open the match connection");
+                return false;
             }
             socket.send_text("GO\n");
-            socket.close();
+            socket.shutdown();
             std::lock_guard lock(mutex_);
             status_.delay = delay;
             status_.key = parts[2];
             status_.ping_ms = unsigned(std::strtoul(parts[3].c_str(), nullptr, 10));
+            status_.relayed = !channel.empty();
             status_.phase = RoomPhase::ready;
             status_.message = "Connection checked. Starting the match.";
-            return;
+            return true;
         }
         set(RoomPhase::failed, "The host sent an unknown message");
-        return;
+        return false;
     }
+    return false;
 }
 
 }

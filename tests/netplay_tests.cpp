@@ -5,6 +5,7 @@
 #include <optional>
 #include "netplay.h"
 #include "room.h"
+#include "relay.h"
 #include <cstring>
 #include <iostream>
 #include <map>
@@ -480,6 +481,25 @@ void room_checks_before_launch() {
     require(wait(*wrong).message == "Wrong room password", "a wrong password is refused: " + wrong->status().message);
     auto old = join("kame", "old");
     require(wait(*old).message.find("same version") != std::string::npos, "another version is refused");
+    {
+        RoomOptions open = hostOptions;
+        open.password.clear();
+        open.port = 7460;
+        Room openRoom(open);
+        openRoom.start();
+        uint16_t openPort = 0;
+        for (int i = 0; i < 200 && !(openPort = openRoom.status().port); ++i)
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        RoomOptions visitor;
+        visitor.host = false;
+        visitor.address = "127.0.0.1";
+        visitor.port = openPort;
+        visitor.name = "Krillin";
+        visitor.version = "test";
+        Room joiner(visitor);
+        joiner.start();
+        require(wait(joiner).phase == RoomPhase::ready, "a room without a password lets players in: " + joiner.status().message);
+    }
     auto guest = join("kame", "test");
     const auto joined = wait(*guest), hosted = wait(host);
     require(joined.phase == RoomPhase::ready && hosted.phase == RoomPhase::ready,
@@ -492,12 +512,110 @@ void room_checks_before_launch() {
     require(again.valid(), "the game can reuse the room's port");
 }
 
+void relay_through_service() {
+    namespace on = openkai2::online;
+    std::atomic<bool> stopping{false};
+    std::atomic<uint16_t> servicePort{0};
+    std::thread server([&] {
+        openkai2::mqtt::serve(0, stopping, [&](uint16_t port) { servicePort = port; }, &on::allow_service_publish);
+    });
+    for (int i = 0; i < 300 && !servicePort; ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    struct Stop {
+        std::atomic<bool> &flag;
+        std::thread &thread;
+        ~Stop() {
+            flag = true;
+            if (thread.joinable())
+                thread.join();
+        }
+    } stopServer{stopping, server};
+    require(servicePort != 0, "relay service starts");
+    const std::string service = "127.0.0.1:" + std::to_string(servicePort.load());
+    {
+        RelayLink a, b;
+        std::string error;
+        require(a.open(service, "0123456789abcdef", 'a', error) && b.open(service, "0123456789abcdef", 'b', error),
+                "relay links open: " + error);
+        std::vector<uint8_t> sent(3u << 20u), got(sent.size());
+        for (size_t i = 0; i < sent.size(); ++i)
+            sent[i] = uint8_t((i * 2654435761u) >> 13u);
+        bool wrote = false;
+        std::thread writer([&] { wrote = a.send_all(sent.data(), sent.size()); });
+        const bool read = b.receive_all(got.data(), got.size());
+        writer.join();
+        require(wrote && read, "relay sends and receives");
+        require(got == sent, "relay delivers every byte in order");
+        b.send_text("back\n");
+        std::string line;
+        require(a.receive_line(line, 16, 5000) && line == "back", "relay works both ways");
+    }
+    RoomOptions hostOptions;
+    hostOptions.port = 7470;
+    hostOptions.name = "Goku";
+    hostOptions.version = "test";
+    hostOptions.upnp = false;
+    hostOptions.listed = true;
+    hostOptions.address = "relay";
+    hostOptions.lobby = service;
+    hostOptions.room_id = on::new_id();
+    Room host(hostOptions);
+    host.start();
+    for (int i = 0; i < 400 && host.status().phase != RoomPhase::waiting; ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    require(host.status().phase == RoomPhase::waiting, "relay host waits: " + host.status().message);
+    RoomOptions joinOptions;
+    joinOptions.host = false;
+    joinOptions.address = "relay";
+    joinOptions.name = "Vegeta";
+    joinOptions.version = "test";
+    joinOptions.lobby = service;
+    joinOptions.room_id = hostOptions.room_id;
+    Room guest(joinOptions);
+    guest.start();
+    for (int i = 0; i < 1500; ++i) {
+        if (guest.status().phase == RoomPhase::ready || guest.status().phase == RoomPhase::failed)
+            break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    const auto joined = guest.status(), hosted = host.status();
+    require(joined.phase == RoomPhase::ready && joined.relayed && joined.local_port != 0,
+            "the guest joins through the relay: " + joined.message + " / host: " + hosted.message);
+    require(hosted.phase == RoomPhase::ready && hosted.relayed && joined.key == hosted.key,
+            "the host accepts the relayed guest: " + hosted.message);
+    auto hostGame = openkai2::net::Socket::listen(hosted.port);
+    std::string error;
+    auto guestGame = openkai2::net::Socket::connect("127.0.0.1", joined.local_port, error);
+    require(guestGame.valid(), "the guest game reaches its local bridge");
+    openkai2::net::Socket hostSide;
+    for (int i = 0; i < 400 && !hostSide.valid(); ++i)
+        hostSide = hostGame.accept(25);
+    std::vector<uint8_t> payload(200000);
+    for (size_t i = 0; i < payload.size(); ++i)
+        payload[i] = uint8_t(i * 7u);
+    require(guestGame.send_all(payload.data(), payload.size()), "the guest game sends");
+    for (int i = 0; i < 400 && !hostSide.valid(); ++i)
+        hostSide = hostGame.accept(25);
+    require(hostSide.valid(), "the host bridge reaches the host game");
+    std::vector<uint8_t> arrived(payload.size());
+    require(hostSide.readable(10000) && hostSide.receive_all(arrived.data(), arrived.size()) && arrived == payload,
+            "match data crosses the relay to the host");
+    require(hostSide.send_all(payload.data(), 1000) && guestGame.readable(10000) &&
+                guestGame.receive_all(arrived.data(), 1000) && std::equal(arrived.begin(), arrived.begin() + 1000, payload.begin()),
+            "match data crosses the relay to the guest");
+    guestGame.close();
+    hostSide.close();
+    guest.stop();
+    host.stop();
+}
+
 int main() {
     try {
         compression_round_trip();
         snapshot_round_trip();
         two_players_stay_in_step();
         room_checks_before_launch();
+        relay_through_service();
         wrong_build_is_refused();
         name_rules();
         service_format();
