@@ -18,12 +18,15 @@ bool precise_wait_until(std::condition_variable &cv, std::unique_lock<std::mutex
         cv.wait(lock, ready);
         return true;
     }
+    bool slept = false;
     while (!ready()) {
         const auto now = steady_clock::now();
         if (now >= deadline) {
-            record_pacing_oversleep(now - deadline);
+            if (slept)
+                record_pacing_oversleep(now - deadline);
             return ready();
         }
+        slept = true;
         const auto left = deadline - now;
         if (left > milliseconds(25)) {
             cv.wait_until(lock, deadline - milliseconds(20), ready);
