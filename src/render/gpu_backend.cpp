@@ -158,6 +158,7 @@ struct GpuRasterBackend::Impl {
     void submit(){
         footprintValid=false;
         if(commands.empty())return;
+        RuntimeWorkTimer timing(RuntimeWork::gsBatch);
         std::vector<uint32_t> bins,refs;bins.reserve(activeTiles.size()*4u);refs.reserve(references);
         for(auto id:activeTiles){auto& list=tileCommands[id];bins.insert(bins.end(),{id&255u,id>>8u,uint32_t(refs.size()),uint32_t(list.size())});refs.insert(refs.end(),list.begin(),list.end());list.clear();}
         if(palette.empty())palette.push_back(0u);
@@ -313,6 +314,10 @@ void GpuRasterBackend::Initialize(uint8_t* vram,uint32_t size){
 }
 void GpuRasterBackend::Reset(){std::lock_guard lock(m->mutex);m->materialize();m->cpu.Reset();m->clut.fill(0u);m->cbp.fill(0u);++m->clutGeneration;m->cpuFrame=false;m->loadedPaletteValid=false;}
 void GpuRasterBackend::Submit(const GSPrimitiveBatch& batch){
+    thread_local unsigned sampled=0;
+    struct Sample{bool on;std::chrono::steady_clock::time_point began;
+        ~Sample(){if(on)record_runtime_work(RuntimeWork::gsDraw,16u*uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now()-began).count()));}
+    } timing{(++sampled&15u)==0u,{}};if(timing.on)timing.began=std::chrono::steady_clock::now();
     std::lock_guard lock(m->mutex);Pages writes,sources;bool footprint=false;
     if(!m->vram || !batch.vertexCount)return;
     const size_t at=m->commands.size();m->commands.resize(at+gpu::CommandWords);

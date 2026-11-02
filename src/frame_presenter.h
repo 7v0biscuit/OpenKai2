@@ -48,5 +48,6 @@ private:
     FramePresenter* previous_;
 };
 void present_guest_field(uint64_t tick);
+uint64_t latest_presented_frame() noexcept;
 void verify_frame_presenter();
 }

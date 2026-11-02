@@ -2,6 +2,7 @@
 #include "speedrun_overlay.h"
 #include "speedrun_host.h"
 #include "speedrun_items.h"
+#include "frame_presenter.h"
 #include "host_input.h"
 #include "machine_state.h"
 #include "netplay.h"
@@ -141,6 +142,7 @@ struct Overlay {
     double died_at = -1, game_time_sent = 0;
     double fps_window = 0;
     unsigned host_frames = 0, host_fps = 0;
+    uint64_t counted_frame = 0;
     Font font{}, label_font{};
     bool hidden = false;
     bool skipping = false;
@@ -318,7 +320,11 @@ struct Overlay {
     }
 
     void count(double now) {
-        ++host_frames;
+        const uint64_t frame = openkai2::latest_presented_frame();
+        if (frame != counted_frame) {
+            counted_frame = frame;
+            ++host_frames;
+        }
         if (fps_window == 0)
             fps_window = now;
         if (now - fps_window >= 0.5) {

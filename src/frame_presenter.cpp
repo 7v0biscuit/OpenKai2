@@ -9,7 +9,8 @@
 #include <sstream>
 
 namespace openkai2 {
-namespace { thread_local FramePresenter* fieldPresenter=nullptr; }
+namespace { thread_local FramePresenter* fieldPresenter=nullptr; std::atomic<uint64_t> latestFrame{0}; }
+uint64_t latest_presented_frame() noexcept { return latestFrame.load(std::memory_order_acquire); }
 FieldPresentationScope::FieldPresentationScope(FramePresenter& presenter):previous_(fieldPresenter){fieldPresenter=&presenter;}
 FieldPresentationScope::~FieldPresentationScope(){fieldPresenter=previous_;}
 void present_guest_field(uint64_t tick){if(fieldPresenter)fieldPresenter->request(tick);}
@@ -73,7 +74,10 @@ void FramePresenter::run() {
         }
         if(sample.frames){
             std::ostringstream line;
-            static uint64_t lastFields=0,lastLate=0,lastGuest=0,lastFence=0,lastDma=0;
+            static uint64_t lastFields=0,lastLate=0,lastGuest=0,lastFence=0,lastDma=0,lastWorker=0,lastDraw=0,lastBatch=0;
+            const uint64_t worker=runtime_work_total_ns(RuntimeWork::gsWorker);
+            const uint64_t draw=runtime_work_total_ns(RuntimeWork::gsDraw);
+            const uint64_t batch=runtime_work_total_ns(RuntimeWork::gsBatch);
             const uint64_t fields=field_lateness.fields.load(std::memory_order_relaxed);
             const uint64_t lateFields=field_lateness.late.load(std::memory_order_relaxed);
             const uint64_t guest=runtime_work_total_ns(RuntimeWork::guest);
@@ -86,16 +90,21 @@ void FramePresenter::run() {
                 <<" render_avg_us="<<(sample.frames?sample.workUs/sample.frames:0u)<<" render_max_us="<<sample.maxWorkUs
                 <<" game_fields="<<(fields-lastFields)<<" game_late_fields="<<(lateFields-lastLate)
                 <<" game_max_late_us="<<field_lateness.longest.exchange(0,std::memory_order_relaxed)
+                <<" pacing_oversleep_max_us="<<pacing_oversleep.exchange(0,std::memory_order_relaxed)
                 <<" game_busy_ms="<<(guest-lastGuest)/1000000u
                 <<" gs_fence_ms="<<(fence-lastFence)/1000000u<<" gs_fence_max_us="<<take_runtime_work_max_ns(RuntimeWork::gsFence)/1000u
                 <<" dma_wait_ms="<<(dma-lastDma)/1000000u<<" dma_wait_max_us="<<take_runtime_work_max_ns(RuntimeWork::dmaPending)/1000u
-                <<" gpu_wait_max_us="<<take_runtime_work_max_ns(RuntimeWork::gpuWait)/1000u<<'\n';
+                <<" gpu_wait_max_us="<<take_runtime_work_max_ns(RuntimeWork::gpuWait)/1000u
+                <<" gs_busy_ms="<<(worker-lastWorker)/1000000u<<" gs_draw_ms="<<(draw-lastDraw)/1000000u
+                <<" gs_batch_ms="<<(batch-lastBatch)/1000000u<<'\n';
+            lastWorker=worker;lastDraw=draw;lastBatch=batch;
             lastFields=fields;lastLate=lateFields;lastGuest=guest;lastFence=fence;lastDma=dma;
             std::cout<<line.str();
         }
         processed=generation;
         rendered_.fetch_add(1u,std::memory_order_relaxed);
         completed_.store(processed,std::memory_order_release);
+        latestFrame.fetch_add(1u,std::memory_order_acq_rel);
     }
 }
 }
