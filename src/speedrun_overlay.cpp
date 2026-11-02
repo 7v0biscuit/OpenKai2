@@ -387,7 +387,7 @@ struct Overlay {
     void draw(double now) {
         if (IsKeyPressed(KEY_F7))
             hidden = !hidden;
-        if (hidden)
+        if (hidden && !speedrun)
             return;
         const float scale_choice[] = {0.85f, 1.0f, 1.25f};
         const float s = std::max(0.75f, float(GetScreenHeight()) / 1080.0f) * scale_choice[std::min(options.size, 2u)];
@@ -395,7 +395,7 @@ struct Overlay {
             faint{190, 192, 196, 120}, ahead{105, 210, 120, 240}, behind{232, 102, 88, 240},
             gold{250, 196, 70, 245};
         const unsigned corner = std::min(options.corner, 3u);
-        if (options.fps_counter) {
+        if (options.fps_counter && !hidden) {
             const std::string value = std::to_string(host_fps) + " FPS";
             const float size = 20 * s, width = label_width(value, size), padX = 9 * s, padY = 4 * s;
             const bool left = speedrun && corner % 2 == 1;
@@ -410,7 +410,8 @@ struct Overlay {
         }
         if (!speedrun)
             return;
-        const auto shows = [&](OverlayItem item) { return (options.items & overlay_bit(item)) != 0; };
+        const unsigned visible = hidden ? overlay_required : options.items | overlay_required;
+        const auto shows = [&](OverlayItem item) { return (visible & overlay_bit(item)) != 0; };
         const auto phase = timer.phase();
         const auto view = make_view(timer, book, now, shows(show_splits) ? options.split_rows : 0);
         const auto short_time = [](double value) {

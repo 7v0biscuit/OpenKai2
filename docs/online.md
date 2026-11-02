@@ -36,6 +36,9 @@ the **Players** list update live; there is nothing to refresh.
   room's ping; "no reply" means the host's port can't be reached from your PC.
 - **Join by address:** type the host's address and press **Join address**. Add
   `:port` only if the host's room shows a port other than 7350.
+- **Keyboard:** Enter in the password box joins the selected room, Enter in the
+  address box joins that address, Enter in **New profile** adds it, **Esc**
+  stops waiting in a room and **Ctrl+R** refreshes the lists.
 
 The game does not start while you wait. Both launchers first meet in the room,
 check the version, password and connection, and measure the ping. Only then do

@@ -96,7 +96,10 @@ Settings read_settings(const std::filesystem::path &file) {
         else if (key == "fps_counter")
             row >> s.fpsCounter;
         else if (key == "overlay")
+        {
             row >> s.overlayItems >> s.overlayCorner >> s.overlaySize >> s.overlayBackground >> s.overlaySplits;
+            s.overlayItems |= speedrun::overlay_required;
+        }
         else if (key == "online")
             row >> std::quoted(s.onlineName) >> std::quoted(s.onlineAddress) >> s.onlinePort >> s.onlineDelay;
         else if (key == "online_room")

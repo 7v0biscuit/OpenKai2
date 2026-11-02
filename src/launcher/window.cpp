@@ -1447,8 +1447,9 @@ struct Window {
         SendMessageW(list, LB_RESETCONTENT, 0, 0);
         for (unsigned i = 0; i < speedrun::overlay_item_count; ++i) {
             const auto &item = speedrun::overlay_item_text[i];
+            const bool locked = (speedrun::overlay_required >> i) & 1u;
             const std::wstring row = std::wstring((settings.overlayItems >> i) & 1u ? L"On" : L"Off") + L" \u00b7 " +
-                                     item.name + L" \u00b7 " + item.about;
+                                     item.name + L" \u00b7 " + (locked ? L"Always shown. " : L"") + item.about;
             SendMessageW(list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(row.c_str()));
         }
         SendMessageW(list, LB_SETCURSEL, chosen, 0);
@@ -1800,9 +1801,14 @@ struct Window {
         label(onlineHostTop, 1, 0, L"INPUT DELAY");
         label(onlineHostTop, 1, 1, L"WHO CAN SEE IT");
         const int split = contentLeft + (content * 62) / 100, bottom = h - 64 + 6;
-        section(contentLeft, onlineListsTop, split - 6, bottom, L"Rooms", L"Updates live. Same version and disc needed.",
+        const std::wstring roomNote = roomRows.empty() ? std::wstring(L"Updates live. Same version and disc needed.")
+                                      : std::to_wstring(roomRows.size()) + (roomRows.size() == 1 ? L" open room" : L" open rooms") +
+                                            L". Double-click one to join.";
+        section(contentLeft, onlineListsTop, split - 6, bottom, L"Rooms", roomNote,
                 split - 6 - 20 - 100 - 12);
-        section(split + 6, onlineListsTop, right, bottom, L"Players", L"Friends are in the sidebar");
+        section(split + 6, onlineListsTop, right, bottom, L"Players",
+                playerRows.empty() ? std::wstring(L"Friends are in the sidebar")
+                                   : std::to_wstring(playerRows.size()) + L" online \u00b7 friends are in the sidebar");
         const int listTop = onlineListsTop + 44;
         if (roomRows.empty())
             text(dc, !online ? L"Rooms appear here when you are online." : L"No open rooms right now. Host one, or invite a player.",
@@ -4065,8 +4071,32 @@ struct Window {
         SetWindowPos(info.hwndList, nullptr, 0, 0, 0, 0,
                      SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
     }
+    bool keyboardShortcut(int id) {
+        const HWND focus = GetFocus();
+        auto focused = [&](int control) { return controls.count(control) && controls.at(control) == focus; };
+        if (id == IDOK) {
+            if (focused(OnlineName))
+                addProfile();
+            else if (focused(JoinPassword) && disc && !room)
+                joinRoom();
+            else if (focused(OnlineAddress) && disc && !room) {
+                directJoin = true;
+                startOnline(false);
+            } else
+                return false;
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return true;
+        }
+        if (id == IDCANCEL && room) {
+            closeRoom(roomHost ? L"Room closed." : L"Stopped joining.");
+            return true;
+        }
+        return false;
+    }
     void command(int id, int notification) {
         lastInput = std::chrono::steady_clock::now();
+        if ((id == IDOK || id == IDCANCEL) && keyboardShortcut(id))
+            return;
         if (const auto found = controls.find(id); found != controls.end() &&
             (notification == CBN_DROPDOWN || notification == CBN_CLOSEUP) &&
             (GetWindowLongPtrW(found->second, GWL_STYLE) & CBS_DROPDOWNLIST) == CBS_DROPDOWNLIST) {
@@ -4145,7 +4175,7 @@ struct Window {
             removeProfile();
             return;
         }
-        if (id == RefreshRooms && notification == BN_CLICKED) {
+        if (id == RefreshRooms && (notification == BN_CLICKED || notification == 1)) {
             {
                 std::lock_guard lock(onlineShared->mutex);
                 onlineShared->pings.clear();
@@ -4299,6 +4329,13 @@ struct Window {
             const auto row = SendMessageW(controls[OverlayItems], LB_GETCURSEL, 0, 0);
             if (row < 0 || row >= LRESULT(speedrun::overlay_item_count)) {
                 status = L"Choose an item to show or hide.";
+                return;
+            }
+            if ((speedrun::overlay_required >> unsigned(row)) & 1u) {
+                status = std::wstring(speedrun::overlay_item_text[row].name) +
+                         L" are always shown so moderators can verify every run.";
+                error = false;
+                InvalidateRect(hwnd, nullptr, FALSE);
                 return;
             }
             settings.overlayItems ^= 1u << unsigned(row);
@@ -4912,6 +4949,7 @@ int run_window(const std::filesystem::path &initialIso) {
                          {FCONTROL | FVIRTKEY, '4', ModsTab},
                          {FCONTROL | FVIRTKEY, '5', SavesTab},
                          {FCONTROL | FVIRTKEY, '6', SettingsTab},
+                         {FCONTROL | FVIRTKEY, 'R', RefreshRooms},
                          {FVIRTKEY, VK_F5, Play}};
     const auto accelerators = CreateAcceleratorTableW(shortcuts, int(std::size(shortcuts)));
     struct AcceleratorCleanup {

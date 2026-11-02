@@ -84,7 +84,7 @@ int main() {
         s.speedrun = 2;
         s.permadeath = true;
         s.fpsCounter = true;
-        s.overlayItems = 0x5u;
+        s.overlayItems = 0x5u | openkai2::speedrun::overlay_required;
         s.overlayCorner = 3;
         s.overlaySize = 2;
         s.overlayBackground = 0;
@@ -110,7 +110,7 @@ int main() {
                     read.renderer == "gpu" && !read.autoUpdates && read.updateChannel == 0 &&
                     read.importIso == s.importIso && read.windowLeft == -1200 && read.windowTop == 40 &&
                     read.windowWidth == 1180 && read.windowHeight == 760 && read.windowMaximized &&
-                    read.speedrun == 2 && read.permadeath && read.fpsCounter && read.overlayItems == 0x5u &&
+                    read.speedrun == 2 && read.permadeath && read.fpsCounter && read.overlayItems == (0x5u | openkai2::speedrun::overlay_required) &&
                     read.overlayCorner == 3 && read.overlaySize == 2 && read.overlayBackground == 0 &&
                     read.overlaySplits == 3 && read.onlineName == "Son Goku" &&
                     read.onlineAddress == "203.0.113.7" && read.onlinePort == 7351 && read.onlineDelay == 4 &&
@@ -119,6 +119,13 @@ int main() {
                     read.onlineKeys == s.onlineKeys && read.onlineVisibility == 1 && read.onlineFriends.size() == 1 &&
                     read.onlineFriends[0].name == "Krillin \"K\"" && read.onlineFriends[0].id == std::string(64, 'c'),
                 "Settings roundtrip changed values");
+        {
+            auto unchecked = s;
+            unchecked.overlayItems = 0x1u;
+            write_settings(root / "unchecked.ini", unchecked);
+            require(read_settings(root / "unchecked.ini").overlayItems & openkai2::speedrun::overlay_required,
+                    "Run checks could be turned off in the settings file");
+        }
         require(read_settings(root / "absent.ini").fps == 240, "Default frame rate cap is not 240 FPS");
         require(read_settings(root / "absent.ini").audio && read_settings(root / "absent.ini").volume == 100,
                 "Game audio is not on at full volume by default");

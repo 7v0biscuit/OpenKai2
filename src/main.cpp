@@ -233,7 +233,7 @@ int main(int argc, char* argv[]) {
                 unsetenv("OPENKAI2_MAIN_MENU");
 #endif
             }
-            overlay.items=preferences.overlayItems;
+            overlay.items=preferences.overlayItems|openkai2::speedrun::overlay_required;
             overlay.corner=preferences.overlayCorner;
             overlay.size=preferences.overlaySize;
             overlay.background=preferences.overlayBackground;

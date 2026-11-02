@@ -42,6 +42,7 @@ inline constexpr unsigned overlay_defaults =
     overlay_bit(show_timer) | overlay_bit(show_splits) | overlay_bit(show_segment) | overlay_bit(show_previous) |
     overlay_bit(show_sum_of_best) | overlay_bit(show_personal_best) | overlay_bit(show_attempts) |
     overlay_bit(show_status);
+inline constexpr unsigned overlay_required = overlay_bit(show_status);
 inline constexpr unsigned overlay_split_rows[] = {3, 5, 8, 12};
 
 }

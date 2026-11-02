@@ -48,10 +48,11 @@ compares the run with your best run and shows:
 | Personal best | Your fastest finished run |
 | PS2 time | Time counted from the console's frames |
 | Attempts | Runs started, and how many finished |
-| Run checks | Category, permadeath, and Verified, Flagged or Run over |
+| Run checks | Category, permadeath, and Verified, Flagged or Run over. Always shown |
 
-In game, **F7** hides the overlay and **F8** resets: the game restarts and the
-attempt is saved.
+Run checks can't be turned off while speedrun mode is on, so every recording
+shows whether the run is verified. In game, **F7** hides the rest of the
+overlay and **F8** resets: the game restarts and the attempt is saved.
 
 ## Splits
 
