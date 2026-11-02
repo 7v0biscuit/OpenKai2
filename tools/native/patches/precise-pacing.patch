@@ -1,0 +1,28 @@
+--- a/Kernel/EeScheduler.cpp
++++ b/Kernel/EeScheduler.cpp
+@@ -7,6 +7,7 @@
+ #include "startup_diagnostics.h"
+ #include "guest_timing.h"
+ #include "simulation_pacing.h"
++#include "precise_wait.h"
+ 
+ #include "ps2_log.h"
+ #include "ps2_runtime_macros.h"
+@@ -1853,7 +1854,7 @@
+ 
+             if (now < pacingDeadline)
+             {
+-                m_eventCv.wait_until(lock, pacingDeadline, [this]()
++                openkai2::precise_wait_until(m_eventCv, lock, pacingDeadline, [this]()
+                                      { return !m_events.empty() ||
+                                               m_stopRequested.load(std::memory_order_acquire); });
+                 if (!m_events.empty() || m_stopRequested.load(std::memory_order_acquire))
+@@ -2096,7 +2097,7 @@
+         }
+     }
+ 
+-    const bool signaled = m_eventCv.wait_until(lock, hostDeadline, [this]()
++    const bool signaled = openkai2::precise_wait_until(m_eventCv, lock, hostDeadline, [this]()
+                                                { return !m_events.empty() ||
+                                                         m_stopRequested.load(std::memory_order_acquire); });
+     if (!signaled)

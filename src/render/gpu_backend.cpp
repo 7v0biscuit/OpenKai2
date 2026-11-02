@@ -356,7 +356,7 @@ void GpuRasterBackend::Submit(const GSPrimitiveBatch& batch){
         }
     }else for(unsigned y=command[3]/8u;y<=command[5]/8u;++y)for(unsigned x=command[2]/8u;x<=command[4]/8u;++x)addTile(y*256u+x);
     if(!footprint){m->gpuDirty|=writes;m->batchWrites|=writes;m->batchSources|=sources;}
-    if(index>=511u || m->references>=65536u)m->submit();
+    if(index>=4095u || m->references>=(1u<<20u))m->submit();
 }
 void GpuRasterBackend::LoadClut(const GSTex0Reg& t,const GSTexClutReg& tc){
     std::lock_guard lock(m->mutex);m->footprintValid=false;if(!m->vram)return;bool load=indexed(t.psm);
