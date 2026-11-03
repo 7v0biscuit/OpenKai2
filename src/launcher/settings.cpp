@@ -17,7 +17,7 @@ std::filesystem::path settings_path() {
 void validate_settings(const Settings &s) {
     if (s.fps > 240 || s.width < 640 || s.width > 7680 || s.height < 448 || s.height > 4320 ||
         s.windowMode > 1 || s.antialiasing > 1 || s.textureFilter > 2 || s.upscaler > 5 ||
-        s.aspect > 3 || s.volume > 100 || s.windowWidth < 0 || s.windowHeight < 0 ||
+        s.aspect > 3 || s.volume > 100 || s.cpuDifficulty > 3 || s.windowWidth < 0 || s.windowHeight < 0 ||
         s.windowWidth > 32768 || s.windowHeight > 32768 || s.updateChannel > 1 || s.speedrun > 2 || s.overlayItems > speedrun::overlay_all || s.overlayCorner > 3 ||
         s.overlaySize > 2 || s.overlayBackground > 2 || s.overlaySplits > 3 || (s.renderer != "auto" && s.renderer != "gpu" && s.renderer != "vulkan" && s.renderer != "cpu"))
         throw std::runtime_error("Invalid graphics settings");
@@ -77,6 +77,8 @@ Settings read_settings(const std::filesystem::path &file) {
             row >> s.vsync;
         else if (key == "audio")
             row >> s.audio;
+        else if (key == "cpu_difficulty")
+            row >> s.cpuDifficulty;
         else if (key == "volume")
             row >> s.volume;
         else if (key == "auto_backups")
@@ -162,7 +164,7 @@ void write_settings(const std::filesystem::path &file, const Settings &s) {
         << "\nwidth " << s.width << "\nheight " << s.height << "\nwindow_mode " << s.windowMode
         << "\nantialiasing " << s.antialiasing << "\ntexture_filter " << s.textureFilter
         << "\nupscaler " << s.upscaler << "\naspect " << s.aspect << "\nvsync " << s.vsync
-        << "\naudio " << s.audio << "\nvolume " << s.volume
+        << "\naudio " << s.audio << "\nvolume " << s.volume << "\ncpu_difficulty " << s.cpuDifficulty
         << "\nauto_backups " << s.autoBackups << "\nauto_updates " << s.autoUpdates
         << "\nupdate_channel " << s.updateChannel << "\nrenderer " << std::quoted(s.renderer)
         << "\ndiscord_presence " << s.discordPresence << "\nimport_iso " << std::quoted(path_utf8(s.importIso))

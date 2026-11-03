@@ -69,7 +69,7 @@ constexpr COLORREF heroFrom = RGB(64, 24, 8), heroTo = RGB(15, 17, 31);
 constexpr int sidebarWidth = 220, contentLeft = 252, margin = 32;
 constexpr int heroTop = 124, heroBottom = 316, discTop = 332, discBottom = 420;
 constexpr int tilesTop = 436, tilesBottom = 516, keysTop = 540;
-constexpr int displayTop = 112, graphicsTop = 278, updatesTop = 444, speedrunTop = 112, speedrunRulesTop = 228;
+constexpr int displayTop = 112, graphicsTop = 278, gameTop = 444, updatesTop = 554, speedrunTop = 112, speedrunRulesTop = 228;
 constexpr int onlineProfileTop = 112, onlineHostTop = 228, onlineListsTop = 400;
 constexpr UINT onlineChanged = WM_APP + 30, onlineNotice = WM_APP + 31;
 
@@ -103,6 +103,7 @@ enum Id {
     AutoBackup,
     Aspect,
     Audio,
+    CpuDifficulty,
     UpdateChannel = 160,
     AutomaticUpdates,
     CheckUpdates,
@@ -621,7 +622,7 @@ struct Window {
     bool running() const { return child || externalGame; }
     bool dropdownOpen() const {
         for (auto [id, control] : controls)
-            if ((id >= Renderer && id <= Audio) || id == UpdateChannel || id == AutomaticUpdates ||
+            if ((id >= Renderer && id <= CpuDifficulty) || id == UpdateChannel || id == AutomaticUpdates ||
                 id == SaveListKind || id == TargetMod || id == SpotMode ||
                 (id >= SpeedrunMode && id <= FpsCounter) || (id >= OverlayCorner && id <= OverlaySplits) || id == OnlineDelay || id == OnlineProfile || id == OnlineListed)
                 if (SendMessageW(control, CB_GETDROPPEDSTATE, 0, 0)) return true;
@@ -915,6 +916,7 @@ struct Window {
               int(settings.aspect));
         combo(Audio, {L"Off", L"100% volume", L"75% volume", L"50% volume", L"25% volume"},
               audioChoice(settings));
+        combo(CpuDifficulty, {L"Game setting", L"Z1", L"Z2", L"Z3"}, int(std::min(settings.cpuDifficulty, 3u)));
         combo(UpdateChannel, {L"Stable", L"Stable and prerelease"}, int(settings.updateChannel));
         combo(AutomaticUpdates, {L"Off", L"On"}, settings.autoUpdates ? 1 : 0);
         combo(TargetMod, {}, 0);
@@ -1185,6 +1187,7 @@ struct Window {
             position(Upscaler, grid.x(0), Grid::field(graphicsTop, 1), grid.column, 34);
             position(ClearImage, grid.x(1), Grid::field(graphicsTop, 1), grid.column, 34);
             position(ResetGraphics, grid.x(2), Grid::field(graphicsTop, 1), grid.column, 34);
+            position(CpuDifficulty, grid.x(0), Grid::field(gameTop, 0), grid.column, 34);
             position(UpdateChannel, grid.x(0), Grid::field(updatesTop, 0), grid.column, 34);
             position(AutomaticUpdates, grid.x(1), Grid::field(updatesTop, 0), grid.column, 34);
             position(CheckUpdates, grid.x(2), Grid::field(updatesTop, 0), half, 34);
@@ -1870,6 +1873,14 @@ struct Window {
         label(graphicsTop, 0, 2, L"TEXTURE FILTERING");
         label(graphicsTop, 1, 0, L"UPSCALING");
         label(graphicsTop, 1, 1, L"PRESETS");
+
+        const wchar_t *const cpuNotes[] = {
+            L"The CPU plays at the Game Difficulty and COM Level set in the game's Options.",
+            L"Z1: the strongest CPU behaviour in every fight, and its hits do 10% more damage.",
+            L"Z2: the strongest CPU, 20% stronger hits, 10% less damage taken and faster Ki.",
+            L"Z3: the strongest CPU, 30% stronger hits, 20% less damage taken and much faster Ki."};
+        section(gameTop, 1, L"Game", cpuNotes[std::min(settings.cpuDifficulty, 3u)], muted);
+        label(gameTop, 0, 0, L"CPU DIFFICULTY");
 
         std::wstring message = updateStatus;
         if (updating()) {
@@ -4040,6 +4051,7 @@ struct Window {
         next.textureFilter = unsigned(selected(Filtering));
         next.upscaler = unsigned(selected(Upscaler));
         next.vsync = selected(Vsync) != 0;
+        next.cpuDifficulty = unsigned(std::max(0, selected(CpuDifficulty)));
         next.autoBackups = selected(AutoBackup) != 0;
         next.discordPresence = true;
         next.speedrun = unsigned(selected(SpeedrunMode));
@@ -4130,7 +4142,7 @@ struct Window {
                     L" selected. Ctrl+click or Shift+click selects several; Ctrl+A selects all.";
             refreshEnabled(); return;
         }
-        if (((id >= Renderer && id <= Audio) || (id >= SpeedrunMode && id <= FpsCounter)) &&
+        if (((id >= Renderer && id <= CpuDifficulty) || (id >= SpeedrunMode && id <= FpsCounter)) &&
             notification == CBN_SELCHANGE) {
             saveOptions();
             if (id == SpeedrunMode || id == Permadeath)

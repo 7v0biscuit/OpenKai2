@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
+#include "cpu_difficulty.h"
 #include "discord_presence.h"
 #include "host_audio.h"
 #include "disc_image.h"
@@ -298,6 +299,10 @@ int main(int argc, char* argv[]) {
         if (!alternates.empty())
             std::cout << "[mods] select: R2 switches characters on shared spots" << std::endl;
         openkai2::mods::install_alternates(runtime.memory().getRDRAM(),PS2_RAM_SIZE,std::move(alternates));
+        const unsigned cpuLevel=speedrun || online.enabled ? 0u : std::min(preferences.cpuDifficulty,3u);
+        openkai2::cpu::install(runtime.memory().getRDRAM(),PS2_RAM_SIZE,cpuLevel,!speedrun && !online.enabled);
+        if (cpuLevel) std::cout << "[cpu] difficulty " << openkai2::cpu::level_name(cpuLevel) << std::endl;
+        else if (preferences.cpuDifficulty) std::cout << "[cpu] difficulty Z levels are off in speedrun mode and online" << std::endl;
         presence.update("Playing Budokai 2",online.enabled ? "Online" : "In game");
         std::unique_ptr<openkai2::netplay::Session> session;
         if (online.enabled)

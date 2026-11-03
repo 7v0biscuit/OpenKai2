@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
+#include "cpu_difficulty.h"
 #include "mods/select_alternates.h"
 #include "host_input.h"
 #include <algorithm>
@@ -90,6 +91,8 @@ void install_alternates(uint8_t *memory, size_t bytes, SelectAlternates alternat
 
 namespace openkai2 {
 void observe_pad_packet(int port, const uint8_t *packet) {
+    if (port == 0)
+        cpu::on_frame();
     auto &state = mods::installed();
     std::lock_guard lock(state.mutex);
     if (!state.memory || port < 0 || port > 1)

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
+#include "cpu_difficulty.h"
 #include "speedrun_overlay.h"
 #include "speedrun_host.h"
 #include "speedrun_items.h"
@@ -631,6 +632,11 @@ void draw(PS2Runtime &runtime, void *) {
             save_slot(1);
         else if (IsKeyPressed(KEY_F9))
             load_slot(1);
+    }
+    if (!overlay->speedrun && !session && IsKeyPressed(KEY_F6)) {
+        unsigned level = 0;
+        if (openkai2::cpu::cycle(level))
+            toast(std::string("CPU difficulty: ") + openkai2::cpu::level_name(level));
     }
     if (overlay->options.fps_counter)
         overlay->count(now);

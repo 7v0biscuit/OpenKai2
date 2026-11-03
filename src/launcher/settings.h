@@ -18,6 +18,7 @@ struct Settings {
     bool vsync = true, autoBackups = true;
     bool audio = true;
     unsigned volume = 100;
+    unsigned cpuDifficulty = 0;
     bool autoUpdates = true;
     bool discordPresence = true;
     unsigned updateChannel = 1;

@@ -30,6 +30,8 @@ files.
   friends, invites, a room browser and room passwords. Both games run in lockstep
   and check that they stay in sync.
 - **Save states:** F5 saves and F9 loads the whole console.
+- **CPU difficulty:** Z1, Z2 and Z3 levels above Very Hard, set in the launcher or
+  with F6 in game. See [docs/cpu-difficulty.md](docs/cpu-difficulty.md).
 - **Speedrun mode:** a timer and overlay following the speedrun.com rules, with
   splits, permadeath and a checksummed log for moderators.
 - **Mods:** add characters, movesets and stages from other Dragon Ball PS2 games

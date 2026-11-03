@@ -124,6 +124,17 @@ int main() {
             vulkan.renderer = "vulkan";
             write_settings(root / "vulkan.ini", vulkan);
             require(read_settings(root / "vulkan.ini").renderer == "vulkan", "Vulkan renderer setting was not kept");
+            vulkan.cpuDifficulty = 3;
+            write_settings(root / "vulkan.ini", vulkan);
+            require(read_settings(root / "vulkan.ini").cpuDifficulty == 3, "CPU difficulty was not kept");
+            vulkan.cpuDifficulty = 4;
+            bool refused = false;
+            try {
+                write_settings(root / "bad.ini", vulkan);
+            } catch (const std::exception &) {
+                refused = true;
+            }
+            require(refused, "CPU difficulty past Z3 was accepted");
         }
         {
             auto unchecked = s;
