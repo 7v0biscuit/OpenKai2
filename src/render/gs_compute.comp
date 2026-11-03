@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #version 430 core
-// One invocation owns one destination pixel. Tile command lists retain guest
-// draw order. Texture/target aliases are synchronized by the host backend.
 layout(local_size_x=8,local_size_y=8) in;
 layout(std430,binding=0) buffer Vram {uint memory[];};
 layout(std430,binding=1) readonly buffer Commands {uint commands[];};
@@ -83,6 +81,8 @@ float qValue(float q){return abs(q)>1.0e-8 ? q : 1.0;}
 bool shadePixel(uint c,ivec2 position,uint destinationDepth,out uvec4 color,out uint z){
     uint flags=word(c,1u);uint a=vertex(c,0u),b=vertex(c,1u),d=vertex(c,2u);
     vec2 uv=vec2(0.0);uint fog=0u;
+    uint method=(word(c,9u)>>17u)&3u;
+    bool needDepth=method>=2u || word(c,14u)==0u;
     if(word(c,0u)==0u){
         color=unpackColor(word(a,4u));z=word(c,88u);fog=word(a,5u);
     }else if(word(c,0u)==1u){
@@ -98,8 +98,10 @@ bool shadePixel(uint c,ivec2 position,uint destinationDepth,out uvec4 color,out 
         vec4 ca=vec4(unpackColor(word(a,4u))),cb=vec4(unpackColor(word(b,4u)));
         precise vec4 channels=ca+(cb-ca)*t;
         color=(flags&4u)!=0u ? uvec4(clamp(ivec4(channels),ivec4(0),ivec4(255))) : uvec4(cb);
-        double za=packDouble2x32(uvec2(word(a,2u),word(a,3u))),zb=packDouble2x32(uvec2(word(b,2u),word(b,3u)));
-        precise double depth=za+(zb-za)*double(t);z=uint(depth);
+        if(needDepth){
+            double za=packDouble2x32(uvec2(word(a,2u),word(a,3u))),zb=packDouble2x32(uvec2(word(b,2u),word(b,3u)));
+            precise double depth=za+(zb-za)*double(t);z=uint(depth);
+        }else z=word(c,88u);
         precise float fogValue=float(word(a,5u))+(float(word(b,5u))-float(word(a,5u)))*t;
         fog=uint(clamp(int(fogValue),0,255));
     }else if(word(c,0u)==6u){
@@ -123,7 +125,7 @@ bool shadePixel(uint c,ivec2 position,uint destinationDepth,out uvec4 color,out 
         precise float w2=1.0-w0-w1;
         if(w0 < -0.0001 || w1 < -0.0001 || w2 < -0.0001)return false;
         vec3 weights=vec3(w0,w1,w2);
-        if(word(c,39u)!=0u)z=word(c,88u);
+        if(word(c,39u)!=0u || !needDepth)z=word(c,88u);
         else{
             double z0=packDouble2x32(uvec2(word(a,2u),word(a,3u)));
             double z1=packDouble2x32(uvec2(word(b,2u),word(b,3u)));
@@ -155,9 +157,6 @@ bool shadePixel(uint c,ivec2 position,uint destinationDepth,out uvec4 color,out 
         }
         if((flags&16u)!=0u)fog=uint(clamp(int(interpolateAttribute(float(word(a,5u)),float(word(b,5u)),float(word(d,5u)),weights)),0,255));
     }
-    // Depth failure prevents every alpha-failure write mode as well. Reject
-    // hidden samples before texture fetches, palette expansion and filtering.
-    uint method=(word(c,9u)>>17u)&3u;
     if((method==2u && z<destinationDepth) || (method==3u && z<=destinationDepth))return false;
     if((flags&1u)!=0u)color=combineTexture(c,color,unpackColor(sampleTexture(c,uv)));
     if((flags&16u)!=0u){uvec3 fogColor=unpackColor(word(c,29u)).xyz;color.xyz=((uvec3(fog)*color.xyz)>>8u)+((uvec3(255u-fog)*fogColor)>>8u);}
@@ -174,8 +173,6 @@ bool alphaPass(uint test,uint alpha){
 ivec3 selectColor(uint selector,ivec3 source,ivec3 destination){return selector==0u ? source : selector==1u ? destination : ivec3(0);}
 void storeTarget(uint address,uint shift,uint count,uint value){
     if(count==16u){
-        // Adjacent pixels can own opposite halves of the same VRAM word.
-        // Atomic updates preserve the neighbouring invocation's halfword.
         uint mask=65535u<<shift;atomicAnd(memory[address],~mask);atomicOr(memory[address],(value<<shift)&mask);
     }else if(count==24u)memory[address]=(memory[address]&4278190080u)|(value&16777215u);
     else memory[address]=value;

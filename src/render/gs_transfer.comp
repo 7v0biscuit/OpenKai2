@@ -1,14 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #version 430 core
-// Host-to-local uploads and local-to-local copies performed in GPU VRAM, so
-// pages the GPU has drawn need no readback first. One invocation moves one
-// pixel; the host only dispatches transfers whose source and destination
-// pages are disjoint, so pixel order is irrelevant.
 layout(local_size_x=64) in;
 layout(std430,binding=0) buffer Vram {uint memory[];};
 layout(std430,binding=1) readonly buffer Job {uint job[];};
 layout(std430,binding=5) readonly buffer AddressTables {uint tables[];};
-// job: mode, count, first, rrw, dpsm, dbp, dbw, dsax, dsay, spsm, sbp, sbw, ssax, ssay, then upload data.
 const uint header=14u;
 uint bitAddress(uint psm,uint base,uint width,ivec2 pos){
     uint d=(psm&63u)*8u;uint pw=tables[d],ph=tables[d+1u];
@@ -25,7 +20,6 @@ uint readPixel(uint psm,uint base,uint width,ivec2 pos){
 void writePixel(uint psm,uint base,uint width,ivec2 pos,uint value){
     uint bits=bitAddress(psm,base,width,pos),count=bitsPerPixel(psm),address=bits>>5u,shift=bits&31u;
     if(count==32u){memory[address]=value;return;}
-    // Neighbouring invocations may own other fields of this word.
     uint mask=((1u<<count)-1u)<<shift;
     atomicAnd(memory[address],~mask);atomicOr(memory[address],(value<<shift)&mask);
 }

@@ -57,7 +57,7 @@ Device::Device(Context context):m(std::make_unique<Impl>(std::move(context))) {
                     if(m->jobs.empty() && m->stopping)break;
                     job=std::move(m->jobs.front());m->jobs.pop_front();m->changed.notify_all();
                 }
-                try{job(*host);}catch(...){std::lock_guard lock(m->mutex);if(!m->failure)m->failure=std::current_exception();}
+                try{RuntimeWorkTimer busy(RuntimeWork::gpuDevice);job(*host);}catch(...){std::lock_guard lock(m->mutex);if(!m->failure)m->failure=std::current_exception();}
             }
             if(!m->context.vulkan)m->api.Finish();
             host.reset();

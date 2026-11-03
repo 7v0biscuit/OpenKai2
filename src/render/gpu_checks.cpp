@@ -538,6 +538,49 @@ int benchmark_gpu_submission(unsigned draws){
         gpu::shutdown_device();return 0;
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';gpu::shutdown_device();return 1;}
 }
+int benchmark_sprite_submission(unsigned frames){
+    try{
+        if(!frames)throw std::runtime_error("Frame count must be positive");
+        std::string error;
+#ifdef _WIN32
+        set_renderer_preference("gpu");initialize_window_gpu();
+#else
+        if(!gpu::initialize_headless(error))throw std::runtime_error(error);
+#endif
+        std::vector<uint8_t> vram(gpu::VramBytes,0x35u);auto gs=std::make_unique<GS>();
+        gs->init(vram.data(),uint32_t(vram.size()));gs->setRasterBackend(std::make_unique<GpuRasterBackend>());
+        gs->writeRegister(0x4cu,56u|(uint64_t(8u)<<16u));gs->writeRegister(0x4eu,168u|(1ull<<32u));
+        gs->writeRegister(0x40u,(511ull<<16u)|(447ull<<48u));gs->writeRegister(0x47u,0x50000u);
+        gs->writeRegister(0x06u,uint64_t(10240u)|(uint64_t(2u)<<14u)|(uint64_t(5u)<<26u)|(uint64_t(5u)<<30u)|(1ull<<34u));
+        gs->writeRegister(0x42u,uint64_t(0u)|(uint64_t(1u)<<2u)|(uint64_t(0u)<<4u)|(uint64_t(1u)<<6u));
+        const char* sizeText=std::getenv("OPENKAI2_SPRITE_SIZE");const unsigned base=sizeText ? unsigned(std::stoul(sizeText)) : 4u;
+        const char* countText=std::getenv("OPENKAI2_SPRITE_COUNT");const unsigned sprites=countText ? unsigned(std::stoul(countText)) : 1500u;
+        std::vector<uint64_t> packet;
+        const uint64_t prim=6u|(1u<<4u)|(1u<<6u)|(1u<<8u);
+        packet.push_back(uint64_t(sprites*2u)|0x8000u|(1ull<<46u)|(prim<<47u)|(3ull<<60u));packet.push_back(0x531u);
+        uint32_t seed=12345u;
+        auto next=[&]{seed=seed*1664525u+1013904223u;return seed>>8u;};
+        for(unsigned i=0;i<sprites;++i){
+            const unsigned size=base+next()%(base+4u),x=next()%std::max(1u,640u-size),y=next()%std::max(1u,448u-size);
+            for(unsigned corner=0;corner<2u;++corner){
+                packet.push_back(uint64_t(255u)|(uint64_t(255u)<<32u));packet.push_back(uint64_t(255u)|(uint64_t(96u)<<32u));
+                packet.push_back(uint64_t(corner*31u*16u)|(uint64_t(corner*31u*16u)<<32u));packet.push_back(0u);
+                const unsigned px=x+corner*size,py=y+corner*size;
+                packet.push_back(uint64_t(px*16u+2048u*16u-256u*16u)|(uint64_t(py*16u+2048u*16u-224u*16u)<<32u));packet.push_back(uint64_t(1000u)<<4u);
+            }
+        }
+        const auto* bytes=reinterpret_cast<const uint8_t*>(packet.data());const auto size=uint32_t(packet.size()*8u);
+        gs->processGIFPacket(bytes,size);
+        const auto before=gpu_render_statistics().gpuDraws;
+        const auto start=std::chrono::steady_clock::now();
+        for(unsigned i=0;i<frames;++i){gs->processGIFPacket(bytes,size);gs->writeRegister(0x61u,0u);}
+        const auto ns=std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now()-start).count();
+        const auto draws=gpu_render_statistics().gpuDraws-before;
+        std::cout<<"sprite frames="<<frames<<" sprites="<<draws<<" ns_per_sprite="<<double(ns)/double(std::max<uint64_t>(draws,1u))
+                 <<" ms_per_frame="<<double(ns)/1e6/frames<<'\n';
+        gs.reset();gpu::shutdown_device();return draws ? 0 : 1;
+    }catch(const std::exception& e){std::cerr<<e.what()<<'\n';gpu::shutdown_device();return 1;}
+}
 int benchmark_gif_submission(unsigned packets){
     try{
         if(!packets)throw std::runtime_error("Packet count must be positive");

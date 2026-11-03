@@ -74,7 +74,7 @@ void FramePresenter::run() {
         }
         if(sample.frames){
             std::ostringstream line;
-            static uint64_t lastFields=0,lastLate=0,lastGuest=0,lastFence=0,lastDma=0,lastWorker=0,lastDraw=0,lastBatch=0;
+            static uint64_t lastFields=0,lastLate=0,lastGuest=0,lastFence=0,lastDma=0,lastWorker=0,lastDraw=0,lastBatch=0,lastGpuWait=0,lastGpuBusy=0;
             const uint64_t worker=runtime_work_total_ns(RuntimeWork::gsWorker);
             const uint64_t draw=runtime_work_total_ns(RuntimeWork::gsDraw);
             const uint64_t batch=runtime_work_total_ns(RuntimeWork::gsBatch);
@@ -83,6 +83,8 @@ void FramePresenter::run() {
             const uint64_t guest=runtime_work_total_ns(RuntimeWork::guest);
             const uint64_t fence=runtime_work_total_ns(RuntimeWork::gsFence);
             const uint64_t dma=runtime_work_total_ns(RuntimeWork::dmaPending);
+            const uint64_t gpuWait=runtime_work_total_ns(RuntimeWork::gpuWait);
+            const uint64_t gpuBusy=runtime_work_total_ns(RuntimeWork::gpuDevice);
             line<<"[performance:sample] elapsed_ms="<<sampleElapsed<<" completed="<<sample.frames
                 <<" measured_fps="<<sample.fps()<<" interval_p95_us_upper="<<sample.p95Us
                 <<" interval_p99_us_upper="<<sample.p99Us<<" max_interval_us="<<sample.maxUs
@@ -94,10 +96,11 @@ void FramePresenter::run() {
                 <<" game_busy_ms="<<(guest-lastGuest)/1000000u
                 <<" gs_fence_ms="<<(fence-lastFence)/1000000u<<" gs_fence_max_us="<<take_runtime_work_max_ns(RuntimeWork::gsFence)/1000u
                 <<" dma_wait_ms="<<(dma-lastDma)/1000000u<<" dma_wait_max_us="<<take_runtime_work_max_ns(RuntimeWork::dmaPending)/1000u
+                <<" gpu_wait_ms="<<(gpuWait-lastGpuWait)/1000000u<<" gpu_busy_ms="<<(gpuBusy-lastGpuBusy)/1000000u
                 <<" gpu_wait_max_us="<<take_runtime_work_max_ns(RuntimeWork::gpuWait)/1000u
                 <<" gs_busy_ms="<<(worker-lastWorker)/1000000u<<" gs_draw_ms="<<(draw-lastDraw)/1000000u
                 <<" gs_batch_ms="<<(batch-lastBatch)/1000000u<<'\n';
-            lastWorker=worker;lastDraw=draw;lastBatch=batch;
+            lastWorker=worker;lastDraw=draw;lastBatch=batch;lastGpuWait=gpuWait;lastGpuBusy=gpuBusy;
             lastFields=fields;lastLate=lateFields;lastGuest=guest;lastFence=fence;lastDma=dma;
             std::cout<<line.str();
         }
