@@ -11,7 +11,7 @@ Turn it on in the launcher's **Speedrun** page (Ctrl+3):
 | Setting | Choices |
 |---|---|
 | Speedrun mode | Off, Any%, NG+ |
-| Permadeath | Being knocked out in a Dragon World fight, or losing one on time, ends the run. Loading Dragon World, changing maps, story scenes, fights the story ends on its own and having less health than the CPU during a fight never count. **GAME OVER** shows, then the game resets to the main menu and the timer resets |
+| Permadeath | Being knocked out in a Dragon World fight, or losing one on time, ends the run. Loading Dragon World, changing maps, story scenes, fights the story ends on its own and having less health than the CPU during a fight never count. **GAME OVER** shows, then the game goes straight back to the main menu without closing, and the timer resets |
 | FPS counter | Frame counter in the top corner, also outside speedrun mode |
 | CPU difficulty | Game setting, Z1, Z2, Z3 ([CPU difficulty](cpu-difficulty.md)). Each Z level is its own category with its own splits, shown on the overlay and in the run log (for example "Any% Z3"). It is locked for the run: F6 is off in speedrun mode. The same setting is on the Settings page |
 
@@ -76,7 +76,6 @@ save; the title shows attempts and finished runs.
 
 Pick a split to change its time (type it like `12:34.56` or `1:02:03.5`), add a
 split at the end, remove one, or reset the best run. Attempt history is kept.
-**All rules…** shows the full timing rules.
 
 ## LiveSplit
 
