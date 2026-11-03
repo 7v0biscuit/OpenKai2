@@ -22,9 +22,18 @@ inline constexpr uint32_t battle_over = 0x3A4D60u;
 inline constexpr uint32_t battle_reason = 0x3A4D64u;
 inline constexpr uint32_t reason_time_out = 4u;
 inline constexpr uint32_t battle_pointer = 0x3A4CB4u;
+inline constexpr uint32_t map_units = 0x69BFC0u;
+inline constexpr uint32_t map_unit_bytes = 36u;
+inline constexpr unsigned map_unit_limit = 48u;
+inline constexpr double battle_memory = 120.0;
 inline constexpr uint32_t fighter_health = 0x9EA4u;
 inline constexpr uint32_t fighter_stride = 0x9F50u;
 inline constexpr double field_rate = 60000.0 / 1001.0;
+
+struct MapUnit {
+    uint8_t character = 0, health = 0;
+    bool player = false;
+};
 
 struct GuestState {
     bool intro = false;
@@ -40,6 +49,7 @@ struct GuestState {
     uint32_t reason = 0;
     bool health_known = false;
     float player_health = 0, opponent_health = 0;
+    std::vector<MapUnit> units;
     std::vector<std::string> tasks;
 };
 GuestState read_guest(const uint8_t *rdram, size_t bytes);
@@ -74,6 +84,8 @@ class Timer {
     std::string last_loss_;
     bool intro_ = false, game_over_ = false, credits_ = false, battle_over_ = false;
     bool decided_ = true, dragon_world_ = false;
+    std::vector<MapUnit> units_;
+    double last_battle_ = -1e9;
 };
 
 std::string format_time(double seconds, bool hundredths = true);

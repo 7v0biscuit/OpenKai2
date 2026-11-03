@@ -16,7 +16,7 @@ void require(bool passed, const std::string &message) {
 }
 
 struct Guest {
-    std::vector<uint8_t> memory = std::vector<uint8_t>(0x400000);
+    std::vector<uint8_t> memory = std::vector<uint8_t>(0x800000);
     void put(uint32_t address, uint32_t value) { std::memcpy(memory.data() + address, &value, 4); }
     void tasks(const std::vector<std::string> &names) {
         uint32_t address = 0x200000;
@@ -36,6 +36,15 @@ struct Guest {
         put(battle_over, over ? 1u : 0u);
         put(battle_result, uint32_t(result));
         put(battle_reason, reason);
+    }
+    void unit(unsigned index, uint8_t character, uint8_t health, bool player) {
+        const size_t at = map_units + index * map_unit_bytes;
+        memory[at] = 0;
+        memory[at + 24] = 0xB8;
+        memory[at + 25] = 0x0B;
+        memory[at + 5] = health;
+        memory[at + 8] = character;
+        memory[at + 10] = player ? 0x12u : 0x22u;
     }
     GuestState read() const { return read_guest(memory.data(), memory.size()); }
 };
@@ -87,7 +96,7 @@ void times_a_run() {
     guest.battle(true, -1);
     {
         const auto lost = timer.update(guest.read(), 21.0, 1060);
-        require(!has(lost, Event::battle_won) && has(lost, Event::battle_lost), "Loss not reported as a loss");
+        require(!has(lost, Event::battle_won) && !has(lost, Event::battle_lost), "Fight result alone ended the run");
     }
     guest.battle(false, 0);
     timer.update(guest.read(), 22.0, 1120);
@@ -117,80 +126,72 @@ void sees_death() {
     require(!has(timer.update(guest.read(), 3.1, 126), Event::died), "Game over reported twice");
 }
 
-void counts_every_loss() {
+void counts_map_health_losses() {
     Guest guest;
     Timer timer;
-    guest.tasks({"[BTL] MAIN"});
-    guest.battle(true, -1);
-    guest.tasks({"DW INTRO MAIN", "[BTL] MAIN"});
-    require(!has(timer.update(guest.read(), 1.0, 0), Event::battle_lost), "Stale fight result ended a new run");
-    guest.battle(false, 0);
+    guest.unit(0, 0x00, 3, true);
+    guest.unit(1, 0x1c, 2, true);
+    guest.unit(2, 0x09, 9, false);
+    guest.tasks({"DW INTRO MAIN"});
+    timer.update(guest.read(), 1.0, 0);
+    guest.tasks({"DWI_SYSTEM", "DW MAP"});
     timer.update(guest.read(), 2.0, 60);
-    guest.health(900, 1500);
-    guest.battle(true, 0, reason_time_out);
-    require(has(timer.update(guest.read(), 3.0, 120), Event::battle_lost) && timer.last_loss() == "time out",
-            "Time out with health left not counted as a loss");
-    guest.battle(false, 0);
-    timer.update(guest.read(), 4.0, 180);
-    guest.health(1500, 900);
-    guest.battle(true, 0, reason_time_out);
-    require(!has(timer.update(guest.read(), 4.5, 210), Event::battle_lost), "Time out won on health counted as a loss");
-    guest.battle(false, 0);
-    timer.update(guest.read(), 4.7, 220);
-    guest.battle(true, 0, 16u);
-    require(!has(timer.update(guest.read(), 5.0, 240), Event::battle_lost), "Story event ending counted as a loss");
-    guest.battle(true, 0, 8u);
-    require(!has(timer.update(guest.read(), 5.5, 260), Event::battle_lost), "Scripted fight ending counted as a loss");
-    guest.battle(false, 0);
-    timer.update(guest.read(), 6.0, 300);
+    guest.tasks({"DWI_SYSTEM", "[BTL] MAIN"});
+    guest.battle(false, 0, uint32_t(-1));
+    timer.update(guest.read(), 3.0, 120);
     guest.battle(true, -1);
-    const auto knocked = timer.update(guest.read(), 7.0, 360);
-    require(has(knocked, Event::battle_lost) && !has(knocked, Event::battle_won) && timer.last_loss() == "knocked out",
-            "Knock out not counted as a loss");
-    require(timer.losses() == 2 && timer.wins().empty(), "Losses miscounted");
-    guest.battle(false, 0);
-    timer.update(guest.read(), 8.0, 420);
-    guest.battle(true, 1);
-    require(has(timer.update(guest.read(), 9.0, 480), Event::battle_won) && timer.losses() == 2,
-            "Win after losses miscounted");
-    guest.tasks({"DW INTRO MAIN"});
-    guest.battle(false, 0);
-    timer.update(guest.read(), 10.0, 540);
-    guest.tasks({"DW SEQ"});
-    timer.update(guest.read(), 11.0, 600);
-    guest.tasks({"DW INTRO MAIN"});
-    timer.update(guest.read(), 12.0, 660);
-    require(timer.losses() == 0 && timer.last_loss().empty(), "Restart kept old losses");
+    require(!has(timer.update(guest.read(), 4.0, 180), Event::battle_lost), "Loss counted before map health dropped");
+    guest.tasks({"DWI_SYSTEM", "DW MAP"});
+    guest.battle(false, -1, uint32_t(-1));
+    guest.unit(2, 0x09, 7, false);
+    require(!has(timer.update(guest.read(), 5.0, 240), Event::battle_lost), "Enemy losing health counted");
+    guest.unit(1, 0x1c, 1, true);
+    require(has(timer.update(guest.read(), 6.0, 300), Event::battle_lost), "Lost map health not counted");
+    require(!has(timer.update(guest.read(), 7.0, 360), Event::battle_lost), "One loss counted twice");
+    require(timer.losses() == 1, "Losses miscounted");
 }
 
-void sees_skipped_endings() {
+void ignores_other_health_changes() {
     Guest guest;
     Timer timer;
+    guest.unit(0, 0x00, 5, true);
     guest.tasks({"DW INTRO MAIN"});
     timer.update(guest.read(), 1.0, 0);
     guest.tasks({"DWI_SYSTEM", "[BTL] MAIN"});
-    guest.battle(false, 0, uint32_t(-1));
+    guest.battle(true, 1);
     timer.update(guest.read(), 2.0, 60);
-    guest.battle(false, -1, uint32_t(-1));
-    require(has(timer.update(guest.read(), 3.0, 120), Event::battle_lost), "Loss with a skipped ending missed");
-    require(!has(timer.update(guest.read(), 4.0, 180), Event::battle_lost), "One loss counted twice");
-    guest.battle(true, -1);
-    require(!has(timer.update(guest.read(), 5.0, 240), Event::battle_lost), "End flag after the result counted again");
-    guest.battle(false, 0, uint32_t(-1));
-    timer.update(guest.read(), 6.0, 300);
-    guest.battle(false, -1, uint32_t(-1));
-    require(has(timer.update(guest.read(), 7.0, 360), Event::battle_lost), "Second loss in a row missed");
+    guest.tasks({"DWI_SYSTEM", "DW MAP"});
+    guest.unit(0, 0x00, 3, true);
+    require(!has(timer.update(guest.read(), 3.0, 120), Event::battle_lost), "New stage health counted after a win");
+    guest.tasks({"DWI_SYSTEM", "[BTL] MAIN"});
+    guest.battle(true, 0, 16u);
+    timer.update(guest.read(), 4.0, 180);
+    guest.tasks({"DWI_SYSTEM", "DW MAP"});
+    guest.unit(0, 0x00, 2, true);
+    require(!has(timer.update(guest.read(), 5.0, 240), Event::battle_lost), "Story fight counted");
+    guest.battle(false, -1);
+    guest.unit(0, 0x00, 1, true);
+    require(!has(timer.update(guest.read(), 400.0, 9000), Event::battle_lost), "Health drop long after a fight counted");
+    guest.unit(0, 0x07, 0, true);
+    guest.tasks({"DWI_SYSTEM", "[BTL] MAIN"});
+    timer.update(guest.read(), 401.0, 9060);
+    guest.tasks({"DWI_SYSTEM", "DW MAP"});
+    require(!has(timer.update(guest.read(), 402.0, 9120), Event::battle_lost), "A different character counted");
+    require(timer.losses() == 0, "Losses miscounted");
 }
 
 void sees_losses_from_a_loaded_game() {
     Guest guest;
     Timer timer;
+    guest.unit(0, 0x00, 4, true);
     guest.tasks({"DWI_SYSTEM", "DW MAP"});
     guest.battle(false, 0, uint32_t(-1));
     timer.update(guest.read(), 1.0, 0);
     guest.tasks({"DWI_SYSTEM", "[BTL] MAIN"});
     timer.update(guest.read(), 2.0, 60);
-    guest.battle(true, -1);
+    guest.battle(false, -1, uint32_t(-1));
+    guest.tasks({"DWI_SYSTEM", "DW MAP"});
+    guest.unit(0, 0x00, 3, true);
     require(has(timer.update(guest.read(), 3.0, 120), Event::battle_lost), "Loss in a loaded Dragon World missed");
     guest.tasks({"MOKUJI"});
     guest.battle(false, 0, uint32_t(-1));
@@ -198,6 +199,7 @@ void sees_losses_from_a_loaded_game() {
     guest.tasks({"[BTL] MAIN"});
     timer.update(guest.read(), 5.0, 240);
     guest.battle(true, -1);
+    guest.unit(0, 0x00, 2, true);
     require(!has(timer.update(guest.read(), 6.0, 300), Event::battle_lost), "Duel loss counted as a Dragon World loss");
 }
 
@@ -318,8 +320,8 @@ int main() {
         reads_tasks();
         times_a_run();
         sees_death();
-        counts_every_loss();
-        sees_skipped_endings();
+        counts_map_health_losses();
+        ignores_other_health_changes();
         sees_losses_from_a_loaded_game();
         formats();
         checks();
