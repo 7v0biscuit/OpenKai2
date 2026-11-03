@@ -61,6 +61,12 @@ GuestState read_guest(const uint8_t *rdram, size_t bytes) {
     state.result = int32_t(word(rdram, bytes, battle_result));
     state.battle_over = word(rdram, bytes, battle_over) == 1u;
     state.reason = word(rdram, bytes, battle_reason);
+    const uint32_t battle = word(rdram, bytes, battle_pointer) & 0x1FFFFFFu;
+    if (battle >= 0x100000u && size_t(battle) + fighter_health + fighter_stride + 4 <= bytes) {
+        std::memcpy(&state.player_health, rdram + battle + fighter_health, 4);
+        std::memcpy(&state.opponent_health, rdram + battle + fighter_health + fighter_stride, 4);
+        state.health_known = std::isfinite(state.player_health) && std::isfinite(state.opponent_health);
+    }
     return state;
 }
 
@@ -89,15 +95,15 @@ std::vector<Event> Timer::update(const GuestState &state, double real, uint64_t 
     }
     if (state.dragon_world || state.intro)
         dragon_world_ = true;
-    else if (state.main_menu)
+    else if (state.main_menu || state.title_menu || state.press_start)
         dragon_world_ = false;
-    const bool timed_out = state.result == 0 && (state.reason == 4u || state.reason == 8u || state.reason == 16u);
+    const bool timed_out = state.result == 0 && state.reason == reason_time_out && state.health_known &&
+                           state.player_health < state.opponent_health;
     const int outcome = state.result == 1 ? 1 : state.result == -1 || timed_out ? -1 : 0;
-    const bool ended = state.battle_over && !battle_over_;
     bool won = false, lost = false;
     if (fresh) {
-        decided_ = outcome != 0 || state.battle_over;
-    } else if (outcome == 0 && !ended) {
+        decided_ = outcome != 0;
+    } else if (outcome == 0) {
         decided_ = false;
     } else if (!decided_) {
         decided_ = true;

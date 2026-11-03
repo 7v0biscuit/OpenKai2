@@ -21,6 +21,9 @@ inline constexpr uint32_t battle_result = 0x3A4D58u;
 inline constexpr uint32_t battle_over = 0x3A4D60u;
 inline constexpr uint32_t battle_reason = 0x3A4D64u;
 inline constexpr uint32_t reason_time_out = 4u;
+inline constexpr uint32_t battle_pointer = 0x3A4CB4u;
+inline constexpr uint32_t fighter_health = 0x9EA4u;
+inline constexpr uint32_t fighter_stride = 0x9F50u;
 inline constexpr double field_rate = 60000.0 / 1001.0;
 
 struct GuestState {
@@ -35,6 +38,8 @@ struct GuestState {
     bool title_menu = false;
     int32_t result = 0;
     uint32_t reason = 0;
+    bool health_known = false;
+    float player_health = 0, opponent_health = 0;
     std::vector<std::string> tasks;
 };
 GuestState read_guest(const uint8_t *rdram, size_t bytes);

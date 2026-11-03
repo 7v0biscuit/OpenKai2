@@ -27,6 +27,11 @@ struct Guest {
             put(address + task_next, i + 1 < names.size() ? 0x80000000u | (address + 0x80) : task_end);
         }
     }
+    void health(float player, float opponent) {
+        put(battle_pointer, 0x80000000u | 0x180000u);
+        std::memcpy(memory.data() + 0x180000 + fighter_health, &player, 4);
+        std::memcpy(memory.data() + 0x180000 + fighter_health + fighter_stride, &opponent, 4);
+    }
     void battle(bool over, int32_t result, uint32_t reason = 6u) {
         put(battle_over, over ? 1u : 0u);
         put(battle_result, uint32_t(result));
@@ -121,25 +126,32 @@ void counts_every_loss() {
     require(!has(timer.update(guest.read(), 1.0, 0), Event::battle_lost), "Stale fight result ended a new run");
     guest.battle(false, 0);
     timer.update(guest.read(), 2.0, 60);
+    guest.health(900, 1500);
     guest.battle(true, 0, reason_time_out);
     require(has(timer.update(guest.read(), 3.0, 120), Event::battle_lost) && timer.last_loss() == "time out",
             "Time out with health left not counted as a loss");
     guest.battle(false, 0);
     timer.update(guest.read(), 4.0, 180);
+    guest.health(1500, 900);
+    guest.battle(true, 0, reason_time_out);
+    require(!has(timer.update(guest.read(), 4.5, 210), Event::battle_lost), "Time out won on health counted as a loss");
+    guest.battle(false, 0);
+    timer.update(guest.read(), 4.7, 220);
     guest.battle(true, 0, 16u);
-    require(has(timer.update(guest.read(), 5.0, 240), Event::battle_lost) && timer.last_loss() == "draw",
-            "Draw not counted as a loss");
+    require(!has(timer.update(guest.read(), 5.0, 240), Event::battle_lost), "Story event ending counted as a loss");
+    guest.battle(true, 0, 8u);
+    require(!has(timer.update(guest.read(), 5.5, 260), Event::battle_lost), "Scripted fight ending counted as a loss");
     guest.battle(false, 0);
     timer.update(guest.read(), 6.0, 300);
     guest.battle(true, -1);
     const auto knocked = timer.update(guest.read(), 7.0, 360);
     require(has(knocked, Event::battle_lost) && !has(knocked, Event::battle_won) && timer.last_loss() == "knocked out",
             "Knock out not counted as a loss");
-    require(timer.losses() == 3 && timer.wins().empty(), "Losses miscounted");
+    require(timer.losses() == 2 && timer.wins().empty(), "Losses miscounted");
     guest.battle(false, 0);
     timer.update(guest.read(), 8.0, 420);
     guest.battle(true, 1);
-    require(has(timer.update(guest.read(), 9.0, 480), Event::battle_won) && timer.losses() == 3,
+    require(has(timer.update(guest.read(), 9.0, 480), Event::battle_won) && timer.losses() == 2,
             "Win after losses miscounted");
     guest.tasks({"DW INTRO MAIN"});
     guest.battle(false, 0);

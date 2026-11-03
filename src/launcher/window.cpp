@@ -1912,7 +1912,7 @@ struct Window {
             L"The timer starts when Dragon World starts and stops on the last hit on Kid Buu.",
             L"Real time is the leaderboard time. PS2 time counts the console's frames, so slowdown is not added.",
             L"Any% starts with default equipment. NG+ allows skills set up before Dragon World.",
-            L"Permadeath: any Dragon World fight not won, by any character, by knock out, time out or draw, ends the run.",
+            L"Permadeath: losing any Dragon World fight, with any character, by knock out or on time, ends the run.",
             L"Each battle won is a split. Best runs and best segments are saved after every attempt.",
             L"Runs are flagged if the disc differs from the US retail disc, the game runs fast, or a memory editor is open.",
             L"Each session writes a checksummed log to logs\\speedruns for speedrun.com moderators."};

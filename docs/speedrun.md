@@ -10,7 +10,7 @@ Turn it on in the launcher's **Speedrun** page (Ctrl+3):
 | Setting | Choices |
 |---|---|
 | Speedrun mode | Off, Any%, NG+ |
-| Permadeath | Any Dragon World fight that is not won ends the run, whoever is fighting and however much health is left: knock outs, time outs and draws all count, even when the game would let you retry for a life, and even in a Dragon World loaded from a save. **GAME OVER** shows, then the game resets to the main menu and the timer resets |
+| Permadeath | Losing any Dragon World fight ends the run, whoever is fighting: a knock out, or a time out with less health than the opponent. It counts even when the game would let you retry for a life, and even in a Dragon World loaded from a save. Story scenes and fights the story ends on its own do not count. **GAME OVER** shows, then the game resets to the main menu and the timer resets |
 | FPS counter | Frame counter in the top corner, also outside speedrun mode |
 
 While speedrun mode is on, mods are not loaded.
@@ -83,7 +83,7 @@ The log is separate from the splits files. It records:
 - whether the game data matches the US retail disc;
 - the category, permadeath and display settings;
 - every run start, battle won (real and PS2 time), fight lost (knocked out,
-  time out or draw), game over, reset and finish.
+  time out), game over, reset and finish.
 
 Each line ends with a checksum chained to the line before it, so edited or
 removed lines show up. It is a checksum, not a signature.
