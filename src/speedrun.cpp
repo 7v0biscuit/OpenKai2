@@ -87,16 +87,33 @@ std::vector<Event> Timer::update(const GuestState &state, double real, uint64_t 
         losses_ = 0;
         last_loss_.clear();
     }
+    if (state.dragon_world || state.intro)
+        dragon_world_ = true;
+    else if (state.main_menu)
+        dragon_world_ = false;
+    const bool timed_out = state.result == 0 && (state.reason == 4u || state.reason == 8u || state.reason == 16u);
+    const int outcome = state.result == 1 ? 1 : state.result == -1 || timed_out ? -1 : 0;
+    const bool ended = state.battle_over && !battle_over_;
+    bool won = false, lost = false;
+    if (fresh) {
+        decided_ = outcome != 0 || state.battle_over;
+    } else if (outcome == 0 && !ended) {
+        decided_ = false;
+    } else if (!decided_) {
+        decided_ = true;
+        won = outcome == 1;
+        lost = !won;
+    }
+    if (phase_ == Phase::running && won) {
+        wins_.push_back({this->real(real), game(fields)});
+        events.push_back(Event::battle_won);
+    }
+    if (lost && dragon_world_) {
+        ++losses_;
+        last_loss_ = loss_name(state);
+        events.push_back(Event::battle_lost);
+    }
     if (phase_ == Phase::running) {
-        const bool ended = state.battle_over && !battle_over_ && !fresh;
-        if (ended && state.result == 1) {
-            wins_.push_back({this->real(real), game(fields)});
-            events.push_back(Event::battle_won);
-        } else if (ended) {
-            ++losses_;
-            last_loss_ = loss_name(state);
-            events.push_back(Event::battle_lost);
-        }
         if (state.game_over && !game_over_)
             events.push_back(Event::died);
         if (state.credits && !credits_) {

@@ -68,6 +68,7 @@ class Timer {
     unsigned losses_ = 0;
     std::string last_loss_;
     bool intro_ = false, game_over_ = false, credits_ = false, battle_over_ = false;
+    bool decided_ = true, dragon_world_ = false;
 };
 
 std::string format_time(double seconds, bool hundredths = true);

@@ -151,6 +151,44 @@ void counts_every_loss() {
     require(timer.losses() == 0 && timer.last_loss().empty(), "Restart kept old losses");
 }
 
+void sees_skipped_endings() {
+    Guest guest;
+    Timer timer;
+    guest.tasks({"DW INTRO MAIN"});
+    timer.update(guest.read(), 1.0, 0);
+    guest.tasks({"DWI_SYSTEM", "[BTL] MAIN"});
+    guest.battle(false, 0, uint32_t(-1));
+    timer.update(guest.read(), 2.0, 60);
+    guest.battle(false, -1, uint32_t(-1));
+    require(has(timer.update(guest.read(), 3.0, 120), Event::battle_lost), "Loss with a skipped ending missed");
+    require(!has(timer.update(guest.read(), 4.0, 180), Event::battle_lost), "One loss counted twice");
+    guest.battle(true, -1);
+    require(!has(timer.update(guest.read(), 5.0, 240), Event::battle_lost), "End flag after the result counted again");
+    guest.battle(false, 0, uint32_t(-1));
+    timer.update(guest.read(), 6.0, 300);
+    guest.battle(false, -1, uint32_t(-1));
+    require(has(timer.update(guest.read(), 7.0, 360), Event::battle_lost), "Second loss in a row missed");
+}
+
+void sees_losses_from_a_loaded_game() {
+    Guest guest;
+    Timer timer;
+    guest.tasks({"DWI_SYSTEM", "DW MAP"});
+    guest.battle(false, 0, uint32_t(-1));
+    timer.update(guest.read(), 1.0, 0);
+    guest.tasks({"DWI_SYSTEM", "[BTL] MAIN"});
+    timer.update(guest.read(), 2.0, 60);
+    guest.battle(true, -1);
+    require(has(timer.update(guest.read(), 3.0, 120), Event::battle_lost), "Loss in a loaded Dragon World missed");
+    guest.tasks({"MOKUJI"});
+    guest.battle(false, 0, uint32_t(-1));
+    timer.update(guest.read(), 4.0, 180);
+    guest.tasks({"[BTL] MAIN"});
+    timer.update(guest.read(), 5.0, 240);
+    guest.battle(true, -1);
+    require(!has(timer.update(guest.read(), 6.0, 300), Event::battle_lost), "Duel loss counted as a Dragon World loss");
+}
+
 void formats() {
     require(format_time(0) == "0:00.00", "Zero time");
     require(format_time(61.239) == "1:01.23", "Minutes");
@@ -269,6 +307,8 @@ int main() {
         times_a_run();
         sees_death();
         counts_every_loss();
+        sees_skipped_endings();
+        sees_losses_from_a_loaded_game();
         formats();
         checks();
         splits();

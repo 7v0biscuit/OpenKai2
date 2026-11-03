@@ -10,7 +10,7 @@ Turn it on in the launcher's **Speedrun** page (Ctrl+3):
 | Setting | Choices |
 |---|---|
 | Speedrun mode | Off, Any%, NG+ |
-| Permadeath | Any Dragon World fight that is not won ends the run, whoever is fighting and however much health is left: knock outs, time outs and draws all count. **GAME OVER** shows, then the game resets to the main menu and the timer resets |
+| Permadeath | Any Dragon World fight that is not won ends the run, whoever is fighting and however much health is left: knock outs, time outs and draws all count, even when the game would let you retry for a life, and even in a Dragon World loaded from a save. **GAME OVER** shows, then the game resets to the main menu and the timer resets |
 | FPS counter | Frame counter in the top corner, also outside speedrun mode |
 
 While speedrun mode is on, mods are not loaded.
