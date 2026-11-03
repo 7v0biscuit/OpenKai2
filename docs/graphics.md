@@ -1,165 +1,55 @@
-# GPU rendering
+# Internal resolution and HD textures
 
-OpenKai2 draws game geometry into emulated VRAM on the GPU with compute
-shaders, through OpenGL 4.3 or Vulkan 1.0. Install a current graphics driver
-before launching. The CPU renderer remains available for compatibility and
-comparison.
+Both settings are on the launcher's **Settings** page and apply the next time
+the game starts. They need the **GPU (OpenGL)** or **Vulkan** renderer; the CPU
+renderer always draws at the PS2's native resolution.
 
-## Select a renderer
+## Internal resolution
 
-Choose the renderer on the launcher **Settings** page. The default is `auto`: use GPU rendering when initialization succeeds, otherwise
-use the CPU. From PowerShell, with the extracted ZIP version:
+| Choice | Picture size |
+|---|---|
+| Native | 640x448, as on a PS2 |
+| 2x | 1280x896 |
+| 3x | 1920x1344 |
+| 4x | 2560x1792 |
 
-```powershell
-.\OpenKai2.exe --renderer=gpu "D:\Games\Budokai 2 USA.iso"
-.\OpenKai2.exe --renderer=vulkan "D:\Games\Budokai 2 USA.iso"
-.\OpenKai2.exe --renderer=cpu "D:\Games\Budokai 2 USA.iso"
-```
+3D scenes, menus and sprites are drawn at the higher resolution, then scaled to
+the window with the chosen upscaler. The game's own memory is still drawn at
+native resolution as well, so effects that read back the picture, videos and
+anything the game copies with the CPU stay at native sharpness. Higher choices
+need more graphics power and graphics memory; 4x uses about 400 MB.
 
-`gpu` uses OpenGL and reports an error if it cannot start. `vulkan` (**Vulkan
-(GPU)** in the launcher) runs the same shaders through Vulkan. It needs a GPU
-with 64-bit shader math, which nearly every desktop GPU has, and falls back to
-OpenGL if Vulkan cannot start. `auto` uses OpenGL. The log line
-`[renderer] selected=vulkan-compute device=...` shows that Vulkan is in use.
-All modes retain software handling for unsupported draw states. For a
-self-contained launcher or installed shortcut, set `OPENKAI2_RENDERER` to `gpu`,
-`vulkan`, `cpu`, or `auto` before launching. This environment setting also works with the
-extracted application. The game ISO is required in every renderer mode.
+`startup.log` reports `[renderer] internal_resolution=2x enabled` at start, and
+every 600 frames a `[renderer:hires]` line counts frames shown at the higher
+resolution (`frames_scaled`) and frames that fell back to native
+(`frames_native`, with the reason).
 
-## Display settings
+## HD textures
 
-The launcher saves resolution, windowed/borderless display mode, VSync, FXAA,
-texture filtering and nearest, bilinear, bicubic, FSR 1, Lanczos or sharp-pixel presentation scaling. The default
-aspect ratio is 4:3; 16:9, stretch and native pixel aspect are also available.
-FXAA and scaling operate on the completed game image. AMD FSR 1 uses the
-original full-precision EASU and RCAS shaders for spatial
-upscaling and sharpening. It runs after optional FXAA and clamps all reads to
-the active image, excluding framebuffer padding and letterboxing. A smaller
-output uses bicubic filtering. FSR processes the completed image, including UI;
-it does not reduce guest CPU work or generate frames.
+Needs an internal resolution of 2x or higher.
 
-**Lanczos** resamples with a 6×6 Lanczos-3 kernel: sharper than bicubic, with
-slight ringing on hard edges. **Sharp pixels** keeps each game pixel square and
-blends only the one output pixel where two meet, so non-integer scales stay
-crisp without the shimmer of nearest scaling. At whole-number scales it matches
-nearest exactly.
+| Choice | What it does |
+|---|---|
+| Off | The game's textures as they are |
+| Upscaled from your disc | Each texture is upscaled while you play (2x, or 4x at 3x and 4x internal resolution). Nothing is downloaded |
+| Texture packs | PNG files in the textures folder replace the game's textures |
+| Texture packs, upscale the rest | Packs where a file exists, upscaling for everything else |
+| Dump textures for pack makers | Saves every texture the game uses once, as a PNG |
 
-FSR 3/4 are not available. Temporal reconstruction requires depth, motion
-vectors, jitter and history management, plus a supported backend. The current
-OpenGL presentation path exposes a completed color image only. Frame generation
-remains a separate future integration.
+**Open texture folder** opens `%LOCALAPPDATA%\OpenKai2\textures`.
 
-The default presentation cap is 60 FPS. Higher caps through 240 FPS and unlimited
-presentation do not change the original guest vertical blank cadence. When a
-host stall misses a field deadline, the pacing anchor is rebased instead of
-running overdue fields in a burst. More window refreshes do not imply more
-completed game frames.
+### Making a texture pack
 
-While the guest is producing the next frame, the window pumps input without
-resubmitting the same image in a busy loop. New completed frames and window
-size changes draw immediately, with periodic repaints for exposed windows.
-An active debug overlay keeps its continuous refresh. This applies to every
-presentation cap, including unlimited, and does not change guest timing.
+1. Choose **Dump textures for pack makers** and play the parts of the game you
+   want to change. Each texture is saved once to `textures\dump`, named by a
+   16-digit hash of its pixels and palette, for example `3f9a0c12d4e5b678.png`.
+2. Copy a file out of `dump`, edit it at any size (2x, 4x or 8x the original
+   keeps texels square), and keep the file name.
+3. Put the file anywhere in the textures folder except `dump`. Subfolders are
+   fine, so a pack can be its own folder.
+4. Choose **Texture packs** or **Texture packs, upscale the rest**.
 
-Filtered output is reused while the completed game frame is unchanged. FXAA,
-bicubic and FSR passes run again after a new completed frame, crop, filter or
-output-size change. Nearest and bilinear presentation without FXAA retain the
-direct path. The guest clock and input polling remain independent of this cache.
-On shutdown, `[display:filters]` reports processed and reused filtered images;
-these counts are separate from completed game frames and window refreshes.
+Packs only contain your own edits. Do not share textures taken from the game.
 
-## Checks and diagnostics
-
-The extracted application's GPU comparisons run without game files:
-
-```powershell
-.\OpenKai2.exe --gpu-self-test
-.\OpenKai2.exe --display-self-test
-```
-
-Results are written to `%LOCALAPPDATA%\OpenKai2\logs\gpu-test.log`. This
-command requires GPU initialization and actual compute dispatch; it fails if
-GPU output differs from the software reference. Normal startup records the
-selected renderer and device. On shutdown, `[renderer:gpu]` reports GPU and
-software draw counts, submitted batches, tile counts, and upload/readback bytes.
-`culled_draws` counts repeated-vertex and axis-flat triangles omitted before
-GPU binning. Display checks compare all FXAA/scaler combinations using actual OpenGL
-output, including orientation, cropping, letterboxing, unchanged-frame reuse
-and cache invalidation after new frames or resizing.
-These are diagnostic counts, not a game FPS measurement.
-
-## Compatibility and performance
-
-The renderer supports direct and indexed textures, point and bilinear sampling,
-32-, 24-, and 16-bit color/depth targets, texture functions, fog, blending,
-alpha/depth tests, and framebuffer masks. Buffer feedback, overlapping color
-and depth targets, scan masking, and other unsupported states use the CPU
-compatibility path. Presentation reads only the color pages required by the enabled display
-circuits, their origins and any candidate presentation sources. Depth and
-unrelated targets remain resident until an explicit CPU consumer needs them.
-A controlled color/depth/offscreen fixture reads 16 KiB for presentation,
-compared with 256 KiB before this change. Game FPS still requires measurement. Texture page footprints are reused while addressing state
-is unchanged. Aligned buffers use direct page ranges, and pixel updates,
-texture uploads, and palette loads read back only their affected pages. Other
-dirty GPU pages remain resident until a consumer needs them.
-
-Triangle depth uses differences from one vertex, retaining exact integer depth
-for flat surfaces. Large common depths no longer inherit rounding errors from
-three separately weighted values. Constant-depth and overlapping-plane checks
-use independent expected depths on both rendering paths.
-
-Packed GIF packets keep temporary STQ.Q separate from the latched RGBAQ.Q
-attached to vertices. Only packed RGBA copies the temporary Q; a new tag resets
-the temporary without changing the vertex value. Direct and REGLIST RGBAQ
-writes retain their explicit Q. Packed XYZ2 and XYZ3 depths retain all 32 bits
-before interpolation. Independent packet checks exercise both packet parsers,
-register ordering, chained tags, reset, and depths beyond float32 precision.
-
-Guest execution and vector instruction processing still consume CPU time.
-
-Complete matches and sustained 60 FPS remain unverified. The automated GPU
-comparisons passed with Mesa on Linux and Windows under Wine. Software OpenGL
-timings do not predict hardware game performance. Host audio remains disabled.
-
-## Implementation reference
-
-PCSX2's [v2.1.27 graphics source](https://github.com/PCSX2/pcsx2/tree/v2.1.27/pcsx2/GS)
-was reviewed for buffer hazards and texture-cache invalidation behavior.
-OpenKai2 implements the compute backend in `src/render/`. VU1 execution uses
-[PCSX2's microVU recompiler](vector-runtime.md). Dependency attribution is
-recorded in [NOTICE](../NOTICE).
-
-Developers can run the required headless comparisons with
-`python tools/native/test-gpu-linux.py --jobs 2` on Linux with Mesa/EGL and the
-native build dependencies installed. The display-filter checks also require
-Xvfb and xauth on Linux. The optional `openkai2_gpu_bench` CMake
-target compares ordered batches with the CPU renderer and checks output hashes.
-Its `--footprints` mode measures CPU page preparation; `--submission` measures
-small textured draw batches, waits for GPU completion, and compares complete
-VRAM with the CPU reference. These synthetic timings are not game FPS.
-
-## Widescreen and image clarity
-
-The 16:9 mode applies a horizontal camera correction for the USA executable.
-It uses the same 3/4 projection factor as the maintained
-[PCSX2 widescreen reference](https://github.com/PCSX2/pcsx2_patches/blob/main/patches/SLUS-20779_1FB1F8E2.pnach)
-by Catarax, applied at the original camera scale load. Other aspect modes keep the original camera.
-The 640×448 movie surface retains its original TV proportions. **Stretch to
-window** remains available as a separate display choice.
-
-The launcher’s **Crisp preset** selects bicubic scaling, original texture
-filtering and no FXAA. It preserves resolution, aspect ratio, frame limit,
-VSync and save/update preferences. Spatial upscaling cannot recover detail
-absent from the original image.
-
-When the GPU renderer cannot draw a primitive (an unsupported framebuffer,
-depth or texture format, or a draw outside VRAM), it draws it on the CPU, and
-the rest of that frame stays on the CPU. Each kind of fallback is logged once as
-`[renderer:fallback] reason=... prim=... frame_psm=... tex_psm=...`, and the
-counts are listed when the game closes. A stage or effect that drops the frame
-rate on the GPU renderer shows up there.
-
-Completed-frame timing is reported separately from window redraw counts. The
-`performance:frames` line records measured presentation rate, frame-interval
-percentile upper bounds, the longest interval and intervals exceeding 25 ms.
-These measurements help distinguish pacing spikes from an average frame rate.
+Textures the game draws into itself (render targets) and textures that use the
+PS2's region-repeat addressing are not replaced.

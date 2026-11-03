@@ -13,6 +13,7 @@ files.
 [Setup and controls](docs/windows.md) ·
 [Online play](docs/online.md) ·
 [Speedrun mode](docs/speedrun.md) ·
+[Graphics](docs/graphics.md) ·
 [Save states](docs/save-states.md) ·
 [Modding](docs/modding.md) ·
 [Report an issue](https://github.com/7v0biscuit/OpenKai2/issues/new/choose)
@@ -24,8 +25,10 @@ files.
 
 - **The game:** intro, menus, versus fights, and Dragon World with its board and
   fights. Music, voices and sound effects play.
-- **Graphics:** GPU rendering (OpenGL 4.3 or Vulkan) with a CPU fallback, resolutions up to
-  4K, 16:9, FXAA, and several upscalers including AMD FSR 1.
+- **Graphics:** GPU rendering (OpenGL 4.3 or Vulkan) with a CPU fallback, internal
+  resolution up to 4x, HD textures (upscaled from your disc or from texture packs),
+  window sizes up to 4K, 16:9, FXAA, and several upscalers including AMD FSR 1.
+  See [Internal resolution and HD textures](docs/graphics.md).
 - **Online play:** versus over the internet from the launcher, with profiles,
   friends, invites, a room browser and room passwords. Both games run in lockstep
   and check that they stay in sync.
@@ -33,7 +36,7 @@ files.
 - **CPU difficulty:** Z1, Z2 and Z3 levels above Very Hard, set in the launcher or
   with F6 in game. See [docs/cpu-difficulty.md](docs/cpu-difficulty.md).
 - **Speedrun mode:** a timer and overlay following the speedrun.com rules, with
-  splits, permadeath and a checksummed log for moderators.
+  splits, Z1 to Z3 categories, permadeath and a checksummed log for moderators.
 - **Mods:** add characters, movesets and stages from other Dragon Ball PS2 games
   without changing your ISO.
 - **Saves:** import, back up and restore memory card saves, with an optional
