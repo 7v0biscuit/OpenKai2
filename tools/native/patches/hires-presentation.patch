@@ -1,0 +1,76 @@
+--- a/include/runtime/gs/gs_types.h
++++ b/include/runtime/gs/gs_types.h
+@@ -297,6 +297,7 @@
+     uint32_t height = 0;
+     uint32_t displayFbp = 0;
+     uint32_t sourceFbp = 0;
++    uint32_t stride = 0;
+     bool usedPreferred = false;
+ 
+     explicit operator bool() const
+--- a/include/runtime/gs/gs_frontend.h
++++ b/include/runtime/gs/gs_frontend.h
+@@ -239,6 +239,7 @@
+     std::vector<uint8_t> m_hostPresentationFrame;
+     uint32_t m_hostPresentationWidth = 0;
+     uint32_t m_hostPresentationHeight = 0;
++    uint32_t m_hostPresentationStride = 0;
+     uint32_t m_hostPresentationDisplayFbp = 0;
+     uint32_t m_hostPresentationSourceFbp = 0;
+     bool m_hostPresentationUsedPreferred = false;
+--- a/runtime/gs/gs_frontend.cpp
++++ b/runtime/gs/gs_frontend.cpp
+@@ -688,12 +688,14 @@
+     const uint32_t sourceFbp = frame.sourceFbp;
+     const uint32_t width = frame.width;
+     const uint32_t height = frame.height;
++    const uint32_t stride = frame.stride ? frame.stride : kHostFrameWidth;
+     const bool usedPreferred = frame.usedPreferred;
+     {
+         std::lock_guard<std::mutex> presentationLock(m_presentationMutex);
+         m_hostPresentationFrame = std::move(frame.pixels);
+         m_hostPresentationWidth = width;
+         m_hostPresentationHeight = height;
++        m_hostPresentationStride = stride;
+         m_hostPresentationDisplayFbp = displayFbp;
+         m_hostPresentationSourceFbp = sourceFbp;
+         m_hostPresentationUsedPreferred = usedPreferred;
+@@ -742,7 +744,7 @@
+     outPixels.resize(packedRowBytes * static_cast<size_t>(outHeight));
+     if (outWidth != 0u && outHeight != 0u)
+     {
+-        const size_t sourceRowBytes = static_cast<size_t>(kHostFrameWidth) * 4u;
++        const size_t sourceRowBytes = static_cast<size_t>(m_hostPresentationStride ? m_hostPresentationStride : kHostFrameWidth) * 4u;
+         for (uint32_t y = 0; y < outHeight; ++y)
+         {
+             const size_t srcOffset = static_cast<size_t>(y) * sourceRowBytes;
+--- a/runtime/ps2_runtime.cpp
++++ b/runtime/ps2_runtime.cpp
+@@ -453,13 +453,23 @@
+     s_lastWidth = width;
+     s_lastHeight = height;
+ 
++    const int textureWidth = int(std::max<uint32_t>(width, FB_WIDTH)), textureHeight = int(std::max<uint32_t>(height, FB_HEIGHT));
++    if (tex.width != textureWidth || tex.height != textureHeight)
++    {
++        Image resized = GenImageColor(textureWidth, textureHeight, BLANK);
++        UnloadTexture(tex);
++        tex = LoadTextureFromImage(resized);
++        UnloadImage(resized);
++    }
++    const uint32_t textureStride = uint32_t(textureWidth);
++    s_uploadBuffer.resize(size_t(textureWidth) * size_t(textureHeight) * 4u);
+     std::fill(s_uploadBuffer.begin(), s_uploadBuffer.end(), 0u);
+     if (!s_scratch.empty() && width != 0u && height != 0u)
+     {
+-        const uint32_t copyWidth = std::min<uint32_t>(width, FB_WIDTH);
+-        const uint32_t copyHeight = std::min<uint32_t>(height, FB_HEIGHT);
++        const uint32_t copyWidth = std::min<uint32_t>(width, textureStride);
++        const uint32_t copyHeight = std::min<uint32_t>(height, uint32_t(textureHeight));
+         const size_t srcRowBytes = static_cast<size_t>(width) * 4u;
+-        const size_t dstRowBytes = static_cast<size_t>(FB_WIDTH) * 4u;
++        const size_t dstRowBytes = static_cast<size_t>(textureStride) * 4u;
+         const size_t copyRowBytes = static_cast<size_t>(copyWidth) * 4u;
+         for (uint32_t y = 0; y < copyHeight; ++y)
+         {
+

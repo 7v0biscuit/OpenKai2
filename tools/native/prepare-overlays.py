@@ -162,7 +162,8 @@ def main():
                       patches / 'save-states.patch', patches / 'pad-source.patch',
                       patches / 'save-state-movies.patch',
                       patches / 'kernel-stub-state.patch',
-                      patches / 'guest-clock.patch', patches / 'iop-batching.patch', patches / 'precise-pacing.patch', patches / 'gs-worker-timing.patch'):
+                      patches / 'guest-clock.patch', patches / 'iop-batching.patch', patches / 'precise-pacing.patch', patches / 'gs-worker-timing.patch',
+                      patches / 'hires-presentation.patch'):
             apply_overlay_patch(temporary, patch)
         for source in temporary.rglob('*'):
             if source.is_file():

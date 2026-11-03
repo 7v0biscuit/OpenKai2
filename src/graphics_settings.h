@@ -6,7 +6,7 @@ namespace openkai2 {
 struct GraphicsSettings {
     unsigned width = 1280, height = 720;
     unsigned textureFilter = 0, upscaler = 1, antialiasing = 0;
-    unsigned aspect = 0;
+    unsigned aspect = 0, internalScale = 1;
     bool borderless = false, vsync = true;
 };
 void set_graphics_settings(const GraphicsSettings &settings);

@@ -2,6 +2,7 @@
 #include "gpu_backend.h"
 #include "gpu_device.h"
 #include "gpu_layout.h"
+#include "graphics_settings.h"
 #include "runtime/gs/gs_cpu_backend.h"
 #include "work_timings.h"
 #include <algorithm>
@@ -120,11 +121,49 @@ struct GpuRasterBackend::Impl {
     std::map<std::array<uint32_t,3>,uint32_t> paletteOffsets;
     std::array<uint32_t,5> target{},sourceKey{};Pages sourcePages;bool sourceValid=false;size_t references=0;
     std::array<uint32_t,12> footprintKey{};int covered[4]{};bool footprintValid=false;
+    struct Shadow{uint32_t base=0,width=0,psm=0;bool used=false,valid=false;uint64_t touched=0;Pages pages;};
+    static constexpr unsigned shadowWidth=1024u,shadowHeight=512u,colorSlots=6u,depthSlots=3u;
+    unsigned scale=1u;bool hires=false,batchDepth=false;uint64_t shadowClock=0;
+    std::array<Shadow,colorSlots> colorShadows{};std::array<Shadow,depthSlots> depthShadows{};
+    size_t slotWords()const{return size_t(shadowWidth*scale)*size_t(shadowHeight*scale);}
+    void invalidateShadows(const Pages& pages){
+        if(!hires || !pages.any())return;
+        for(auto& shadow:colorShadows)if(shadow.used && (shadow.pages&pages).any())shadow.valid=false;
+        for(auto& shadow:depthShadows)if(shadow.used && (shadow.pages&pages).any())shadow.valid=false;
+    }
+    void dropShadows(){for(auto& shadow:colorShadows)shadow=Shadow{};for(auto& shadow:depthShadows)shadow=Shadow{};}
+    template<size_t N> unsigned acquireShadow(std::array<Shadow,N>& shadows,uint32_t base,uint32_t width,uint32_t psm){
+        unsigned chosen=N;
+        for(unsigned i=0;i<N;++i)if(shadows[i].used && shadows[i].base==base && shadows[i].width==width && shadows[i].psm==psm){chosen=i;break;}
+        if(chosen==N){
+            chosen=0;
+            for(unsigned i=0;i<N;++i){if(!shadows[i].used){chosen=i;break;}if(shadows[i].touched<shadows[chosen].touched)chosen=i;}
+            auto& shadow=shadows[chosen];shadow=Shadow{};shadow.used=true;shadow.base=base;shadow.width=width;shadow.psm=psm;
+            shadow.pages=gpu::rectangle_pages(psm,base,width,0u,0u,width*64u,shadowHeight);
+        }
+        shadows[chosen].touched=++shadowClock;return chosen;
+    }
+    std::vector<uint32_t> shadowParams(unsigned color,unsigned depth,bool hasDepth,uint32_t width)const{
+        const uint32_t stride=width*64u*scale;
+        return {scale,uint32_t(color*slotWords()),stride,uint32_t(depth*slotWords()),stride,hasDepth ? 1u : 0u,shadowHeight*scale,0u,
+                0u,4294967295u,width,0u,0u};
+    }
     bool ready(){
         if(disabled || size!=gpu::VramBytes)return false;
         if(resources)return true;
         device=gpu::current_device();if(!device)return false;
-        try{resources=std::make_shared<Resources>();device->invoke([r=resources](gpu::Host& host){r->compute=host.create();r->compute->create(gpu::address_tables());});cpuDirty.set();return true;}
+        try{
+            resources=std::make_shared<Resources>();scale=std::clamp(graphics_settings().internalScale,1u,4u);
+            bool supported=false;
+            device->invoke([r=resources,&supported,words=slotWords(),scaled=scale>1u](gpu::Host& host){
+                r->compute=host.create();r->compute->create(gpu::address_tables());
+                supported=scaled && r->compute->hires_supported();
+                if(supported)r->compute->hires_reserve(words*colorSlots,words*depthSlots);
+            });
+            hires=supported;dropShadows();
+            if(scale>1u)std::cout<<"[renderer] internal_resolution="<<scale<<"x "<<(hires ? "enabled" : "unavailable")<<std::endl;
+            cpuDirty.set();return true;
+        }
         catch(const std::exception& e){resources.reset();disabled=true;if(renderer_preference()=="gpu")throw;std::cerr<<"[renderer] GPU initialization failed: "<<e.what()<<"\n";return false;}
     }
     ~Impl(){
@@ -133,6 +172,7 @@ struct GpuRasterBackend::Impl {
     }
     void upload(){
         if(!cpuDirty.any())return;
+        invalidateShadows(cpuDirty);
         struct Segment{unsigned offset;std::vector<uint8_t> bytes;};std::vector<Segment> segments;
         for(unsigned page=0;page<gpu::PageCount;){
             if(!cpuDirty[page]){++page;continue;}const unsigned first=page;while(page<gpu::PageCount && cpuDirty[page])++page;
@@ -151,9 +191,32 @@ struct GpuRasterBackend::Impl {
         if(palette.empty())palette.push_back(0u);
         const size_t commandWords=commands.size();
         statistics.tiles+=activeTiles.size();++statistics.batches;totalTiles.fetch_add(activeTiles.size(),std::memory_order_relaxed);totalBatches.fetch_add(1u,std::memory_order_relaxed);
-        device->post([r=resources,cmd=std::move(commands),bins=std::move(bins),refs=std::move(refs),colors=std::move(palette)](gpu::Host&){
+        std::vector<uint32_t> hiresParams,seedColor,seedDepth;unsigned groups=0u,seedX=0u,seedY=0u;
+        if(hires){
+            if(target[2]>0u && target[2]*64u<=shadowWidth){
+                const unsigned color=acquireShadow(colorShadows,target[0],target[2],target[4]);
+                const bool useDepth=batchDepth;
+                const unsigned depth=useDepth ? acquireShadow(depthShadows,target[1],target[2],target[3]) : 0u;
+                hiresParams=shadowParams(color,depth,useDepth,target[2]);
+                seedX=(target[2]*64u*scale+7u)/8u;seedY=(shadowHeight*scale+7u)/8u;
+                if(!colorShadows[color].valid){
+                    seedColor=hiresParams;seedColor[5]=0u;seedColor[8]=target[4];seedColor[9]=target[0];colorShadows[color].valid=true;
+                }
+                if(useDepth && !depthShadows[depth].valid){
+                    seedDepth=hiresParams;seedDepth[5]=1u;seedDepth[9]=4294967295u;seedDepth[11]=target[3];seedDepth[12]=target[1];depthShadows[depth].valid=true;
+                }
+                for(unsigned i=0;i<colorSlots;++i)if(i!=color && colorShadows[i].used && (colorShadows[i].pages&batchWrites).any())colorShadows[i].valid=false;
+                for(unsigned i=0;i<depthSlots;++i)if((!useDepth || i!=depth) && depthShadows[i].used && (depthShadows[i].pages&batchWrites).any())depthShadows[i].valid=false;
+                groups=unsigned(bins.size()/4u)*scale*scale;
+            }else invalidateShadows(batchWrites);
+        }
+        device->post([r=resources,cmd=std::move(commands),bins=std::move(bins),refs=std::move(refs),colors=std::move(palette),
+                      hiresParams=std::move(hiresParams),seedColor=std::move(seedColor),seedDepth=std::move(seedDepth),groups,seedX,seedY](gpu::Host&){
+            if(!seedColor.empty())r->compute->hires_seed(seedColor,seedX,seedY);
+            if(!seedDepth.empty())r->compute->hires_seed(seedDepth,seedX,seedY);
             r->compute->raster(cmd,bins,refs,colors);
-        });commands.clear();commands.reserve(commandWords);palette.clear();activeTiles.clear();paletteOffsets.clear();references=0u;batchWrites.reset();batchSources.reset();
+            if(groups)r->compute->hires_raster(hiresParams,groups);
+        });commands.clear();commands.reserve(commandWords);palette.clear();activeTiles.clear();paletteOffsets.clear();references=0u;batchWrites.reset();batchSources.reset();batchDepth=false;
     }
     void materialize(const Pages& requested,WaitReason reason=waitOther){
         footprintValid=false;
@@ -286,9 +349,9 @@ void GpuRasterBackend::Initialize(uint8_t* vram,uint32_t size){
     std::lock_guard lock(m->mutex);
     if(vram==m->vram)m->materialize();
     else if(m->resources){m->submit();m->device->invoke([r=m->resources](gpu::Host&){r->compute->finish();});}
-    m->vram=vram;m->size=size;m->cpu.Initialize(vram,size);m->cpuDirty.set();m->gpuDirty.reset();m->clut.fill(0u);m->cbp.fill(0u);++m->clutGeneration;m->cpuFrame=false;m->loadedPaletteValid=false;
+    m->vram=vram;m->size=size;m->dropShadows();m->cpu.Initialize(vram,size);m->cpuDirty.set();m->gpuDirty.reset();m->clut.fill(0u);m->cbp.fill(0u);++m->clutGeneration;m->cpuFrame=false;m->loadedPaletteValid=false;
 }
-void GpuRasterBackend::Reset(){std::lock_guard lock(m->mutex);m->materialize();m->cpu.Reset();m->clut.fill(0u);m->cbp.fill(0u);++m->clutGeneration;m->cpuFrame=false;m->loadedPaletteValid=false;}
+void GpuRasterBackend::Reset(){std::lock_guard lock(m->mutex);m->materialize();m->dropShadows();m->cpu.Reset();m->clut.fill(0u);m->cbp.fill(0u);++m->clutGeneration;m->cpuFrame=false;m->loadedPaletteValid=false;}
 void GpuRasterBackend::Submit(const GSPrimitiveBatch& batch){
     thread_local unsigned sampled=0;
     struct Sample{bool on;std::chrono::steady_clock::time_point began;
@@ -337,6 +400,7 @@ void GpuRasterBackend::Submit(const GSPrimitiveBatch& batch){
         }
     }else for(unsigned y=command[3]/8u;y<=command[5]/8u;++y)for(unsigned x=command[2]/8u;x<=command[4]/8u;++x)addTile(y*256u+x);
     if(!footprint){m->gpuDirty|=writes;m->batchWrites|=writes;m->batchSources|=sources;}
+    if(command[14]==0u || ((command[9]>>17u)&3u)>=2u)m->batchDepth=true;
     if(index>=4095u || m->references>=(1u<<20u))m->submit();
 }
 void GpuRasterBackend::LoadClut(const GSTex0Reg& t,const GSTexClutReg& tc){
@@ -371,7 +435,7 @@ void GpuRasterBackend::BeginTransfer(const GSTransferCommand& c){
         const auto& b=c.bitbltbuf;const auto& p=c.trxpos;
         m->transferOnGpu({1u,pixels,0u,c.trxreg.rrw,b.dpsm,b.dbp,std::max<unsigned>(b.dbw,1u),p.dsax,p.dsay,b.spsm,b.sbp,std::max<unsigned>(b.sbw,1u),p.ssax,p.ssay});
         auto finished=c;finished.trxreg.rrh=0u;m->cpu.BeginTransfer(finished);
-        m->gpuDirty|=destination;m->cpuDirty&=~destination;if((destination&m->loadedPalettePages).any())m->loadedPaletteValid=false;return;
+        m->gpuDirty|=destination;m->cpuDirty&=~destination;m->invalidateShadows(destination);if((destination&m->loadedPalettePages).any())m->loadedPaletteValid=false;return;
     }
     if((c.direction==1u || c.direction==2u) && m->transferPages(c,source,destination)){
         m->materialize(source|destination,waitTransfer);m->submit();m->cpu.BeginTransfer(c);
@@ -393,7 +457,7 @@ void GpuRasterBackend::UploadImage(const uint8_t* data,uint32_t bytes){
         const unsigned moved=after.copiedPixels-before.copiedPixels,used=unsigned((uint64_t(moved)*bpp+7u)/8u);
         std::vector<uint32_t> job={0u,moved,before.copiedPixels,t.trxreg.rrw,t.bitbltbuf.dpsm,t.bitbltbuf.dbp,std::max<unsigned>(t.bitbltbuf.dbw,1u),t.trxpos.dsax,t.trxpos.dsay,0u,0u,0u,0u,0u};
         job.resize(job.size()+(used+3u)/4u+1u,0u);std::memcpy(job.data()+14u,data,std::min(used,bytes));
-        m->transferOnGpu(std::move(job));
+        m->transferOnGpu(std::move(job));m->invalidateShadows(pages);
         m->cpuDirty|=pages&~m->gpuDirty;if((pages&m->loadedPalettePages).any())m->loadedPaletteValid=false;return;
     }
     if((pages&m->gpuDirty).any())m->materialize(pages,waitUpload);else if((pages&m->batchSources).any())m->submit();

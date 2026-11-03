@@ -7,6 +7,11 @@ layout(std430,binding=2) readonly buffer Tiles {uint tiles[];};
 layout(std430,binding=3) readonly buffer References {uint references[];};
 layout(std430,binding=4) readonly buffer Palettes {uint palettes[];};
 layout(std430,binding=5) readonly buffer AddressTables {uint tables[];};
+#if defined(HIRES) || defined(SEED)
+layout(std430,binding=6) buffer HiresColor {uint hiColor[];};
+layout(std430,binding=7) buffer HiresDepth {uint hiDepth[];};
+layout(std430,binding=8) readonly buffer HiresParams {uint params[];};
+#endif
 uint word(uint c,uint index){return commands[c+index];}
 float number(uint c,uint index){return uintBitsToFloat(word(c,index));}
 uint vertex(uint c,uint index){return c+40u+index*16u;}
@@ -78,7 +83,7 @@ float interpolateAttribute(float a,float b,float c,vec3 weights){
     precise float result=first+c*weights.z;return result;
 }
 float qValue(float q){return abs(q)>1.0e-8 ? q : 1.0;}
-bool shadePixel(uint c,ivec2 position,uint destinationDepth,out uvec4 color,out uint z){
+bool shadePixel(uint c,ivec2 position,vec2 sampleAt,uint destinationDepth,out uvec4 color,out uint z){
     uint flags=word(c,1u);uint a=vertex(c,0u),b=vertex(c,1u),d=vertex(c,2u);
     vec2 uv=vec2(0.0);uint fog=0u;
     uint method=(word(c,9u)>>17u)&3u;
@@ -107,8 +112,8 @@ bool shadePixel(uint c,ivec2 position,uint destinationDepth,out uvec4 color,out 
     }else if(word(c,0u)==6u){
         color=unpackColor(word(b,4u));z=word(c,88u);fog=word(b,5u);
         if((flags&1u)!=0u){
-            precise float tx=(float(position.x)-number(c,34u))/number(c,36u);
-            precise float ty=(float(position.y)-number(c,35u))/number(c,37u);
+            precise float tx=(sampleAt.x-0.5-number(c,34u))/number(c,36u);
+            precise float ty=(sampleAt.y-0.5-number(c,35u))/number(c,37u);
             precise float u=number(c,30u)+(number(c,32u)-number(c,30u))*tx;
             precise float v=number(c,31u)+(number(c,33u)-number(c,31u))*ty;
             if((flags&2u)!=0u)uv=vec2(clamp(ivec2(vec2(u,v)*16.0+vec2(0.5)),ivec2(0),ivec2(65535)))/16.0;
@@ -119,7 +124,7 @@ bool shadePixel(uint c,ivec2 position,uint destinationDepth,out uvec4 color,out 
         precise float denom=(y1-y2)*(x0-x2)+(x2-x1)*(y0-y2);
         if(abs(denom)<0.001)return false;
         float winding=denom<0.0 ? -1.0 : 1.0;precise float inverse=1.0/abs(denom);
-        precise vec2 p=vec2(position)+vec2(0.5);
+        precise vec2 p=sampleAt;
         precise float w0=(((y1-y2)*(p.x-x2)+(x2-x1)*(p.y-y2))*winding)*inverse;
         precise float w1=(((y2-y0)*(p.x-x0)+(x0-x2)*(p.y-y0))*winding)*inverse;
         precise float w2=1.0-w0-w1;
@@ -177,18 +182,54 @@ void storeTarget(uint address,uint shift,uint count,uint value){
     }else if(count==24u)memory[address]=(memory[address]&4278190080u)|(value&16777215u);
     else memory[address]=value;
 }
+#ifdef SEED
 void main(){
+    uint scale=params[0],width=params[2],height=params[6];
+    uint hx=gl_WorkGroupID.x*8u+gl_LocalInvocationID.x,hy=gl_WorkGroupID.y*8u+gl_LocalInvocationID.y;
+    if(hx>=width || hy>=height)return;
+    ivec2 position=ivec2(hx/scale,hy/scale);
+    uint psm=params[8],count=tables[psm*8u+3u];
+    if(params[9]!=4294967295u){
+        uint bits=bitAddress(psm,params[9],params[10],position);
+        uint value=memory[bits>>5u]>>(bits&31u);
+        if(count==16u)value&=65535u;
+        hiColor[params[1]+hy*params[2]+hx]=value;
+    }
+    if(params[5]!=0u){
+        uint depthPsm=params[11],depthCount=tables[depthPsm*8u+3u];
+        uint mask=depthCount==32u ? 4294967295u : (1u<<depthCount)-1u;
+        uint bits=bitAddress(depthPsm,params[12],params[10],position);
+        hiDepth[params[3]+hy*params[4]+hx]=(memory[bits>>5u]>>(bits&31u))&mask;
+    }
+}
+#else
+void main(){
+#ifdef HIRES
+    uint scale=params[0];
+    uint group=gl_WorkGroupID.x,bin=(group/(scale*scale))*4u,sub=group%(scale*scale);
+    ivec2 hp=ivec2(tiles[bin],tiles[bin+1u])*8*int(scale)+ivec2(int(sub%scale),int(sub/scale))*8+ivec2(gl_LocalInvocationID.xy);
+    if(uint(hp.x)>=params[2] || uint(hp.y)>=params[6])return;
+    vec2 sampleAt=(vec2(hp)+vec2(0.5))/float(scale);
+    ivec2 position=ivec2(floor(sampleAt));
+#else
     uint bin=gl_WorkGroupID.x*4u;
     ivec2 position=ivec2(tiles[bin],tiles[bin+1u])*8+ivec2(gl_LocalInvocationID.xy);
+    vec2 sampleAt=vec2(position)+vec2(0.5);
+#endif
     uint first=tiles[bin+2u],end=first+tiles[bin+3u];
     uint initial=references[first]*96u;
     uint framePsm=word(initial,38u),depthPsm=word(initial,13u);
+    uint frameCount=tables[framePsm*8u+3u],depthCount=tables[depthPsm*8u+3u];
+    uint depthMask=depthCount==32u ? 4294967295u : (1u<<depthCount)-1u;
+#ifdef HIRES
+    uint colorIndex=params[1]+uint(hp.y)*params[2]+uint(hp.x),depthIndex=params[3]+uint(hp.y)*params[4]+uint(hp.x);
+    uint frame=hiColor[colorIndex],depth=params[5]!=0u ? hiDepth[depthIndex]&depthMask : 0u;
+#else
     uint frameBits=bitAddress(framePsm,word(initial,6u),word(initial,8u),position);
     uint depthBits=bitAddress(depthPsm,word(initial,7u),word(initial,8u),position);
     uint frameAddress=frameBits>>5u,depthAddress=depthBits>>5u;
-    uint frameCount=tables[framePsm*8u+3u],depthCount=tables[depthPsm*8u+3u];
-    uint depthMask=depthCount==32u ? 4294967295u : (1u<<depthCount)-1u;
     uint frame=memory[frameAddress]>>(frameBits&31u),depth=(memory[depthAddress]>>(depthBits&31u))&depthMask;
+#endif
     if(frameCount==16u)frame&=65535u;
     bool frameDirty=false,depthDirty=false;
     for(uint i=first;i<end;++i){
@@ -197,7 +238,7 @@ void main(){
         uint test=word(c,9u),mask=7u;
         if(((test>>17u)&3u)==0u)continue;
         if((test&16384u)!=0u && framePsm!=1u && ((frame>>(frameCount==16u ? 15u : 31u))&1u)!=((test>>15u)&1u))continue;
-        uvec4 source;uint z;if(!shadePixel(c,position,depth,source,z))continue;
+        uvec4 source;uint z;if(!shadePixel(c,position,sampleAt,depth,source,z))continue;
         if(!alphaPass(test,source.w)){uint failure=(test>>12u)&3u;mask=failure==0u ? 0u : failure==1u ? 3u : failure==2u ? 4u : framePsm==0u ? 1u : 3u;}
         if(mask==0u)continue;
         if((mask&3u)!=0u){
@@ -220,6 +261,12 @@ void main(){
         }
         if(word(c,14u)==0u && (mask&4u)!=0u){depth=z&depthMask;depthDirty=true;}
     }
+#ifdef HIRES
+    if(frameDirty)hiColor[colorIndex]=frame;
+    if(depthDirty && params[5]!=0u)hiDepth[depthIndex]=depth;
+#else
     if(frameDirty)storeTarget(frameAddress,frameBits&31u,frameCount,frame);
     if(depthDirty)storeTarget(depthAddress,depthBits&31u,depthCount,depth);
+#endif
 }
+#endif

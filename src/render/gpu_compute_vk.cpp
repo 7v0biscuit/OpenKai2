@@ -25,6 +25,7 @@ std::unique_ptr<Compute> make_vulkan_compute(std::string &error) {
 bool vulkan_available() noexcept { return false; }
 #else
 namespace {
+constexpr uint32_t bindingCount = 9;
 #define OPENKAI2_VK_INSTANCE(X)                                                                                       \
     X(vkDestroyInstance) X(vkEnumeratePhysicalDevices) X(vkGetPhysicalDeviceProperties)                                \
     X(vkGetPhysicalDeviceFeatures) X(vkGetPhysicalDeviceQueueFamilyProperties) X(vkGetPhysicalDeviceMemoryProperties) \
@@ -96,7 +97,7 @@ struct Shared {
     VkPhysicalDeviceMemoryProperties memory{};
     VkDescriptorSetLayout setLayout = VK_NULL_HANDLE;
     VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
-    VkPipeline raster = VK_NULL_HANDLE, transfer = VK_NULL_HANDLE;
+    VkPipeline raster = VK_NULL_HANDLE, transfer = VK_NULL_HANDLE, hires = VK_NULL_HANDLE, seed = VK_NULL_HANDLE;
     std::string description;
 
     Shared() {
@@ -135,6 +136,10 @@ struct Shared {
         if (device && vkDestroyDevice) {
             if (vkDeviceWaitIdle)
                 vkDeviceWaitIdle(device);
+            if (hires)
+                vkDestroyPipeline(device, hires, nullptr);
+            if (seed)
+                vkDestroyPipeline(device, seed, nullptr);
             if (raster)
                 vkDestroyPipeline(device, raster, nullptr);
             if (transfer)
@@ -228,15 +233,15 @@ struct Shared {
     }
 
     void create_layout() {
-        VkDescriptorSetLayoutBinding bindings[6]{};
-        for (uint32_t i = 0; i < 6; ++i) {
+        VkDescriptorSetLayoutBinding bindings[bindingCount]{};
+        for (uint32_t i = 0; i < bindingCount; ++i) {
             bindings[i].binding = i;
             bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
             bindings[i].descriptorCount = 1;
             bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
         }
         VkDescriptorSetLayoutCreateInfo layout{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-        layout.bindingCount = 6;
+        layout.bindingCount = bindingCount;
         layout.pBindings = bindings;
         check(vkCreateDescriptorSetLayout(device, &layout, nullptr, &setLayout), "descriptor layout creation");
         VkPipelineLayoutCreateInfo pipeline{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
@@ -245,6 +250,8 @@ struct Shared {
         check(vkCreatePipelineLayout(device, &pipeline, nullptr, &pipelineLayout), "pipeline layout creation");
         raster = make_pipeline(openkai2_raster_spirv, sizeof(openkai2_raster_spirv));
         transfer = make_pipeline(openkai2_transfer_spirv, sizeof(openkai2_transfer_spirv));
+        hires = make_pipeline(openkai2_hires_spirv, sizeof(openkai2_hires_spirv));
+        seed = make_pipeline(openkai2_seed_spirv, sizeof(openkai2_seed_spirv));
     }
 };
 
@@ -276,7 +283,7 @@ class VulkanCompute final : public Compute {
                 check(vkAllocateCommandBuffers(device_, &allocate, &frame.command), "command buffer creation");
                 check(vkCreateFence(device_, &fence, nullptr, &frame.fence), "fence creation");
             }
-            VkDescriptorPoolSize size{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 12};
+            VkDescriptorPoolSize size{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, bindingCount * 2u};
             VkDescriptorPoolCreateInfo descriptors{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
             descriptors.maxSets = 2;
             descriptors.poolSizeCount = 1;
@@ -311,6 +318,9 @@ class VulkanCompute final : public Compute {
         for (auto &frame : frames_)
             frame.staging = make_buffer(16u << 20u, true);
         readback_ = make_buffer(4u * 1024u * 1024u, true);
+        hiColor_ = make_buffer(256u, false);
+        hiDepth_ = make_buffer(256u, false);
+        hiParams_ = make_buffer(256u, false);
         write_sets();
         begin();
         vkCmdFillBuffer(command_, vram_.handle, 0, VK_WHOLE_SIZE, 0);
@@ -381,6 +391,58 @@ class VulkanCompute final : public Compute {
 
     void finish() override { flush(); }
 
+    bool hires_supported() const override { return true; }
+
+    void hires_reserve(size_t colorWords, size_t depthWords) override {
+        ensure(hiColor_, VkDeviceSize(colorWords) * 4u);
+        ensure(hiDepth_, VkDeviceSize(depthWords) * 4u);
+    }
+
+    void hires_raster(const std::vector<uint32_t> &params, unsigned groups) override {
+        if (!groups)
+            return;
+        ensure(hiParams_, params.size() * 4u);
+        copy_in(hiParams_, 0, params.data(), params.size() * 4u);
+        barrier();
+        vkCmdBindPipeline(command_, VK_PIPELINE_BIND_POINT_COMPUTE, shared_->hires);
+        vkCmdBindDescriptorSets(command_, VK_PIPELINE_BIND_POINT_COMPUTE, shared_->pipelineLayout, 0, 1, &rasterSet_, 0,
+                                nullptr);
+        vkCmdDispatch(command_, groups, 1, 1);
+        barrier();
+        if (++dispatches_ >= 4u)
+            submit();
+    }
+
+    void hires_seed(const std::vector<uint32_t> &params, unsigned groupsX, unsigned groupsY) override {
+        if (!groupsX || !groupsY)
+            return;
+        ensure(hiParams_, params.size() * 4u);
+        copy_in(hiParams_, 0, params.data(), params.size() * 4u);
+        barrier();
+        vkCmdBindPipeline(command_, VK_PIPELINE_BIND_POINT_COMPUTE, shared_->seed);
+        vkCmdBindDescriptorSets(command_, VK_PIPELINE_BIND_POINT_COMPUTE, shared_->pipelineLayout, 0, 1, &rasterSet_, 0,
+                                nullptr);
+        vkCmdDispatch(command_, groupsX, groupsY, 1);
+        barrier();
+    }
+
+    void hires_read(size_t offsetWords, size_t words, uint32_t *destination) override {
+        if (!words)
+            return;
+        const VkDeviceSize bytes = VkDeviceSize(words) * 4u;
+        if (bytes > readback_.size) {
+            flush();
+            vkDeviceWaitIdle(device_);
+            free_buffer(readback_);
+            readback_ = make_buffer(bytes, true);
+        }
+        begin();
+        const VkBufferCopy copy{VkDeviceSize(offsetWords) * 4u, 0, bytes};
+        vkCmdCopyBuffer(command_, hiColor_.handle, readback_.handle, 1, &copy);
+        flush();
+        std::memcpy(destination, readback_.mapped, size_t(bytes));
+    }
+
     void destroy() override { release(); }
 
   private:
@@ -439,21 +501,23 @@ class VulkanCompute final : public Compute {
     }
 
     void write_sets() {
-        const Buffer *raster[6] = {&vram_, &commands_, &bins_, &references_, &palette_, &tables_};
-        const Buffer *transfer[6] = {&vram_, &job_, &bins_, &references_, &palette_, &tables_};
-        VkDescriptorBufferInfo infos[12]{};
-        VkWriteDescriptorSet writes[12]{};
-        for (uint32_t i = 0; i < 12; ++i) {
-            const Buffer *buffer = i < 6 ? raster[i] : transfer[i - 6];
+        const Buffer *raster[bindingCount] = {&vram_,    &commands_, &bins_,    &references_, &palette_,
+                                              &tables_, &hiColor_,  &hiDepth_, &hiParams_};
+        const Buffer *transfer[bindingCount] = {&vram_,    &job_,     &bins_,    &references_, &palette_,
+                                                &tables_, &hiColor_, &hiDepth_, &hiParams_};
+        VkDescriptorBufferInfo infos[bindingCount * 2u]{};
+        VkWriteDescriptorSet writes[bindingCount * 2u]{};
+        for (uint32_t i = 0; i < bindingCount * 2u; ++i) {
+            const Buffer *buffer = i < bindingCount ? raster[i] : transfer[i - bindingCount];
             infos[i] = VkDescriptorBufferInfo{buffer->handle, 0, VK_WHOLE_SIZE};
             writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            writes[i].dstSet = i < 6 ? rasterSet_ : transferSet_;
-            writes[i].dstBinding = i % 6;
+            writes[i].dstSet = i < bindingCount ? rasterSet_ : transferSet_;
+            writes[i].dstBinding = i % bindingCount;
             writes[i].descriptorCount = 1;
             writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
             writes[i].pBufferInfo = &infos[i];
         }
-        vkUpdateDescriptorSets(device_, 12, writes, 0, nullptr);
+        vkUpdateDescriptorSets(device_, bindingCount * 2u, writes, 0, nullptr);
     }
 
     void wait(Frame &frame) {
@@ -553,7 +617,8 @@ class VulkanCompute final : public Compute {
             recording_ = false;
         }
         vkQueueWaitIdle(queue_);
-        for (auto *buffer : {&vram_, &tables_, &commands_, &bins_, &references_, &palette_, &job_, &readback_})
+        for (auto *buffer : {&vram_, &tables_, &commands_, &bins_, &references_, &palette_, &job_, &readback_,
+                             &hiColor_, &hiDepth_, &hiParams_})
             free_buffer(*buffer);
         for (auto &frame : frames_) {
             free_buffer(frame.staging);
@@ -580,7 +645,7 @@ class VulkanCompute final : public Compute {
     VkCommandBuffer command_ = VK_NULL_HANDLE;
     VkDescriptorPool descriptorPool_ = VK_NULL_HANDLE;
     VkDescriptorSet rasterSet_ = VK_NULL_HANDLE, transferSet_ = VK_NULL_HANDLE;
-    Buffer vram_, tables_, commands_, bins_, references_, palette_, job_, readback_;
+    Buffer vram_, tables_, commands_, bins_, references_, palette_, job_, readback_, hiColor_, hiDepth_, hiParams_;
     bool recording_ = false;
 };
 }
