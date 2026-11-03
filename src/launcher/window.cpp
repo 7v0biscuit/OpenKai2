@@ -107,12 +107,14 @@ enum Id {
     Audio,
     CpuDifficulty,
     InternalScale,
+    HdTextures,
     UpdateChannel = 160,
     AutomaticUpdates,
     CheckUpdates,
     InstallUpdate,
     ReleasePage,
     ResetGraphics = 170,
+    TextureFolder = 171,
     ClearImage = 173,
     DiscordActivity = 174,
     SaveListKind = 175,
@@ -637,7 +639,7 @@ struct Window {
     bool running() const { return child || externalGame; }
     bool dropdownOpen() const {
         for (auto [id, control] : controls)
-            if ((id >= Renderer && id <= InternalScale) || id == UpdateChannel || id == AutomaticUpdates ||
+            if ((id >= Renderer && id <= HdTextures) || id == UpdateChannel || id == AutomaticUpdates ||
                 id == SaveListKind || id == TargetMod || id == SpotMode ||
                 (id >= SpeedrunMode && id <= FpsCounter) || (id >= OverlayCorner && id <= OverlaySplits) || (id >= OverlayText && id <= SpeedrunCpu) || id == OnlineDelay || id == OnlineProfile || id == OnlineListed)
                 if (SendMessageW(control, CB_GETDROPPEDSTATE, 0, 0)) return true;
@@ -867,6 +869,7 @@ struct Window {
                                                           {InstallUpdate, L"Install"},
                                                           {ReleasePage, L"Release notes"},
                                                           {ResetGraphics, L"Defaults"},
+                                                          {TextureFolder, L"Open texture folder"},
                                                           {OpenOverlay, L"Customize overlay…"},
                                                           {CloseOverlay, L"Back to speedrun"},
                                                           {OverlayToggle, L"Show / hide"},
@@ -911,6 +914,8 @@ struct Window {
         combo(Upscaler, {L"Nearest", L"Bilinear", L"Bicubic", L"AMD FSR 1", L"Lanczos", L"Sharp pixels"}, int(settings.upscaler));
         combo(InternalScale, {L"Native (640x448)", L"2x (1280x896)", L"3x (1920x1344)", L"4x (2560x1792)"},
               int(std::clamp(settings.internalScale, 1u, 4u) - 1u));
+        combo(HdTextures, {L"Off", L"Upscaled from your disc", L"Texture packs", L"Texture packs, upscale the rest", L"Dump textures for pack makers"},
+              int(std::min(settings.hdTextures, 4u)));
         combo(Vsync, {L"Off", L"On"}, settings.vsync ? 1 : 0);
         combo(AutoBackup, {L"Off", L"On"}, settings.autoBackups ? 1 : 0);
         combo(SaveListKind,{L"Backups",L"Game saves"},0);
@@ -1240,6 +1245,8 @@ struct Window {
             position(ClearImage, grid.x(2), Grid::field(graphicsTop, 1), half, 34);
             position(ResetGraphics, grid.x(2) + half + 10, Grid::field(graphicsTop, 1), grid.column - half - 10, 34);
             position(CpuDifficulty, grid.x(0), Grid::field(gameTop, 0), grid.column, 34);
+            position(HdTextures, grid.x(1), Grid::field(gameTop, 0), grid.column, 34);
+            position(TextureFolder, grid.x(2), Grid::field(gameTop, 0), grid.column, 34);
             position(UpdateChannel, grid.x(0), Grid::field(updatesTop, 0), grid.column, 34);
             position(AutomaticUpdates, grid.x(1), Grid::field(updatesTop, 0), grid.column, 34);
             position(CheckUpdates, grid.x(2), Grid::field(updatesTop, 0), half, 34);
@@ -1968,6 +1975,8 @@ struct Window {
             L"Z3: the strongest CPU, 30% stronger hits, 20% less damage taken and much faster Ki."};
         section(gameTop, 1, L"Game", cpuNotes[std::min(settings.cpuDifficulty, 3u)], muted);
         label(gameTop, 0, 0, L"CPU DIFFICULTY");
+        label(gameTop, 0, 1, L"HD TEXTURES");
+        label(gameTop, 0, 2, L"TEXTURE PACKS");
 
         std::wstring message = updateStatus;
         if (updating()) {
@@ -4158,6 +4167,7 @@ struct Window {
         next.textureFilter = unsigned(selected(Filtering));
         next.upscaler = unsigned(selected(Upscaler));
         next.internalScale = unsigned(std::max(0, selected(InternalScale))) + 1u;
+        next.hdTextures = unsigned(std::max(0, selected(HdTextures)));
         next.vsync = selected(Vsync) != 0;
         next.cpuDifficulty = unsigned(std::max(0, selected(CpuDifficulty)));
         next.autoBackups = selected(AutoBackup) != 0;
@@ -4250,7 +4260,7 @@ struct Window {
                     L" selected. Ctrl+click or Shift+click selects several; Ctrl+A selects all.";
             refreshEnabled(); return;
         }
-        if (((id >= Renderer && id <= InternalScale) || (id >= SpeedrunMode && id <= FpsCounter) || id == SpeedrunCpu) &&
+        if (((id >= Renderer && id <= HdTextures) || (id >= SpeedrunMode && id <= FpsCounter) || id == SpeedrunCpu) &&
             notification == CBN_SELCHANGE) {
             if (id == SpeedrunCpu)
                 SendMessageW(controls[CpuDifficulty], CB_SETCURSEL, selected(SpeedrunCpu), 0);
@@ -4268,7 +4278,16 @@ struct Window {
                                    (settings.permadeath ? L" with permadeath" : L"") +
                                    L". Mods stay off while it is on; logs go to the logs\\speedruns folder."
                              : L"Speedrun mode is off.";
-            if (id == InternalScale)
+            if (id == HdTextures || (id == InternalScale && settings.hdTextures && settings.internalScale == 1))
+                status = settings.hdTextures == 0 ? std::wstring(L"HD textures are off.")
+                         : settings.internalScale == 1
+                             ? std::wstring(L"HD textures need an internal resolution of 2x or higher and the GPU or Vulkan renderer.")
+                         : settings.hdTextures == 1 ? std::wstring(L"Textures are upscaled from your own disc while you play. Nothing is downloaded.")
+                         : settings.hdTextures == 4 ? std::wstring(L"Each texture the game uses is saved once to textures\\dump as a PNG named by its hash. "
+                                                                   L"Edit a copy at any size and put it in the textures folder.")
+                                                    : std::wstring(L"PNG files named by texture hash in the textures folder replace the game's textures.") +
+                                                          (settings.hdTextures == 3 ? L" Textures without a replacement are upscaled." : L"");
+            else if (id == InternalScale)
                 status = settings.internalScale > 1
                              ? L"Internal resolution " + std::to_wstring(settings.internalScale) +
                                    L"x: 3D scenes render at a higher resolution with the GPU and Vulkan renderers. "
@@ -4370,11 +4389,11 @@ struct Window {
             next.windowMode = defaults.windowMode; next.antialiasing = defaults.antialiasing;
             next.textureFilter = defaults.textureFilter; next.upscaler = defaults.upscaler;
             next.aspect = defaults.aspect; next.vsync = defaults.vsync; next.renderer = defaults.renderer;
-            next.internalScale = defaults.internalScale;
+            next.internalScale = defaults.internalScale; next.hdTextures = defaults.hdTextures;
             write_settings(settings_path(), next);
             settings = std::move(next);
             const std::pair<int, int> choices[] = {{Renderer, 0}, {Fps, 6}, {Resolution, 0},
-                {WindowMode, 0}, {Antialiasing, 0}, {Filtering, 0}, {Upscaler, 1}, {Vsync, 1}, {Aspect, 0}, {InternalScale, 0}};
+                {WindowMode, 0}, {Antialiasing, 0}, {Filtering, 0}, {Upscaler, 1}, {Vsync, 1}, {Aspect, 0}, {InternalScale, 0}, {HdTextures, 0}};
             for (auto [control, value] : choices) SendMessageW(controls[control], CB_SETCURSEL, value, 0);
             status = L"Display and graphics settings restored. Your disc, saves and update choices were kept.";
             error = false;
@@ -4435,6 +4454,13 @@ struct Window {
             refreshMods();
             status = L"Mods reloaded from the mods folder.";
             error = false;
+            return;
+        }
+        if (id == TextureFolder) {
+            const auto folder = textures_directory();
+            std::error_code ignored;
+            std::filesystem::create_directories(folder / "dump", ignored);
+            ShellExecuteW(hwnd, L"open", folder.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
             return;
         }
         if (id == ModFolder) {

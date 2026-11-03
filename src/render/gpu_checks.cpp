@@ -5,6 +5,8 @@
 #include "gpu_device.h"
 #include "gpu_layout.h"
 #include "graphics_settings.h"
+#include "hd_textures.h"
+#include <filesystem>
 #include "runtime_layout.h"
 #include "runtime/gs/gs_cpu_backend.h"
 #include "runtime/gs/gs_frontend.h"
@@ -518,6 +520,49 @@ void checkInternalResolution(){
     }
     std::cout<<"GPU internal resolution checks passed: 2x color, 16-bit, depth-tested and interlaced presentation.\n";
 }
+void checkHdTextures(){
+    const auto saved=graphics_settings();
+    struct Restore{GraphicsSettings value;~Restore(){set_graphics_settings(value);hd::library().configure(hd::off,{},2u);}} restore{saved};
+    const auto folder=std::filesystem::temp_directory_path()/"openkai2-hd-check";
+    std::error_code ignored;std::filesystem::remove_all(folder,ignored);std::filesystem::create_directories(folder,ignored);
+    const auto render=[&](unsigned mode,unsigned passes){
+        auto scaled=saved;scaled.internalScale=2u;scaled.hdTextures=mode;scaled.textureFolder=folder;set_graphics_settings(scaled);
+        Comparison pair(false);
+        for(unsigned y=0;y<32u;++y)for(unsigned x=0;x<32u;++x)
+            pair.write(0u,10240u,2u,x,y,0x80000000u|(((x/8u)*60u)&255u)|((((y/8u)*70u)&255u)<<8u)|(uint32_t(((x/8u+y/8u)*25u)&255u)<<16u));
+        auto sprite=material(0u,true);auto& s=sprite.state;auto& c=s.context;
+        s.prim.abe=s.prim.iip=false;s.prim.fst=true;s.linearFilter=false;s.textureWidth=s.textureHeight=32u;
+        c.tex0.psm=GS_PSM_CT32;c.tex0.tfx=1u;c.tex0.tcc=1u;c.scissor={0u,127u,0u,127u};c.clamp=2u|(2u<<2u)|(uint64_t(4u)<<4u)|(uint64_t(27u)<<14u)|(uint64_t(2u)<<24u)|(uint64_t(29u)<<34u);
+        sprite.vertices[0].x=0;sprite.vertices[0].y=0;sprite.vertices[1].x=64;sprite.vertices[1].y=64;
+        sprite.vertices[0].u=sprite.vertices[0].v=0;sprite.vertices[1].u=sprite.vertices[1].v=32u*16u;
+        PresentationFrame frame;
+        GSPresentationRequest request{};request.pmode=1;
+        request.dispfb1=uint64_t(56)|(uint64_t(8)<<9);request.display1=(uint64_t(127)<<32)|(uint64_t(127)<<44);
+        for(unsigned pass=0;pass<passes;++pass){
+            pair.draw(sprite);pair.gpu->Flush();hd::library().wait_idle();
+            pair.gpu->Sync(GSSyncReason::Presentation);frame=pair.gpu->Present(request);
+        }
+        pair.compare("HD textures keep native VRAM");
+        if(frame.width!=256u)throw std::runtime_error("HD texture fixture did not present at 2x");
+        return frame;
+    };
+    const auto pixel=[](const PresentationFrame& f,unsigned x,unsigned y){uint32_t p;std::memcpy(&p,f.pixels.data()+(size_t(y)*f.width+x)*4u,4u);return p&0xffffffu;};
+    const auto plain=render(hd::off,1u),upscaled=render(hd::upscaled,2u);
+    if(plain.pixels!=upscaled.pixels)throw std::runtime_error("Upscaled blocky texture changed the picture");
+    if(hd::library().counts().upscaled!=1u)throw std::runtime_error("Texture was not upscaled exactly once");
+    render(hd::dump,2u);
+    std::vector<std::filesystem::path> dumped;
+    for(const auto& entry:std::filesystem::directory_iterator(folder/"dump"))dumped.push_back(entry.path());
+    if(dumped.size()!=1u)throw std::runtime_error("Texture dump did not write one PNG");
+    hd::Image image;if(!hd::load_image(dumped[0],image) || image.width!=32u || image.height!=32u)throw std::runtime_error("Dumped texture unreadable");
+    hd::Image pack;pack.width=pack.height=128u;pack.texels.assign(128u*128u,0x80ff00ffu);
+    if(!hd::save_image(folder/"pack"/dumped[0].filename(),pack))throw std::runtime_error("Could not write texture pack fixture");
+    const auto packed=render(hd::packs,2u);
+    if(pixel(packed,40u,40u)!=0xff00ffu || pixel(packed,120u,120u)!=0xff00ffu || pixel(packed,200u,200u)!=pixel(plain,200u,200u))
+        throw std::runtime_error("Texture pack did not replace the texture");
+    std::filesystem::remove_all(folder,ignored);
+    std::cout<<"GPU HD texture checks passed: upscaled, dumped and texture pack replacement at 2x.\n";
+}
 int run_gpu_checks(bool required){
     try{
         gpu::verify_address_tables();checkFootprints();std::cout<<"GPU swizzle address references passed.\n";
@@ -531,7 +576,7 @@ int run_gpu_checks(bool required){
 #endif
         if(!initialized){std::cout<<"GPU checks unavailable: "<<error<<'\n';return required ? 1 : 77;}
         std::cout<<"GPU checks device: "<<gpu::current_device()->description()<<'\n';
-        checkFlatDepth();checkDepthPlanes();checkPaletteReuse();checkPresentationReadbacks();checkEmptyTriangles();checkMaterials();checkIntegerPipeline();checkFormats();checkLines();checkCoherence();checkTransferPages();checkGpuTransfers();checkRebind();checkClears();checkSourceChanges();checkPartialReadbacks();checkGsWorker();checkInternalResolution();
+        checkFlatDepth();checkDepthPlanes();checkPaletteReuse();checkPresentationReadbacks();checkEmptyTriangles();checkMaterials();checkIntegerPipeline();checkFormats();checkLines();checkCoherence();checkTransferPages();checkGpuTransfers();checkRebind();checkClears();checkSourceChanges();checkPartialReadbacks();checkGsWorker();checkInternalResolution();checkHdTextures();
         const auto before=gpu_render_statistics().gpuDraws;verify_vector_runtime_gpu();
         if(gpu_render_statistics().gpuDraws-before!=8u)throw std::runtime_error("VIF/PATH1 integration did not execute eight GPU triangles");
         auto device=gpu::current_device();device->post([](gpu::Host&){throw std::runtime_error("GPU failure propagation fixture");});

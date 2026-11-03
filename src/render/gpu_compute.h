@@ -33,6 +33,9 @@ class Compute {
     virtual void hires_read(size_t offsetWords, size_t words, uint32_t *destination) {
         (void)offsetWords, (void)words, (void)destination;
     }
+    virtual void hires_upload(size_t offsetWords, const uint32_t *source, size_t words) {
+        (void)offsetWords, (void)source, (void)words;
+    }
     virtual void destroy() = 0;
 };
 

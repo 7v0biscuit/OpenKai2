@@ -46,9 +46,10 @@ class OpenGlCompute final : public Compute {
     void create(const std::vector<uint32_t> &tables) override {
         raster_ = compile(gl_, shaderSource);
         transfer_ = compile(gl_, transferShaderSource);
-        Int bindings = 0;
+        Int bindings = 0, blocks = 0;
         gl_.GetIntegerv(0x90dd, &bindings);
-        if (bindings >= 9) {
+        gl_.GetIntegerv(0x90db, &blocks);
+        if (bindings >= 9 && blocks >= 9) {
             const std::string source = shaderSource, marker = "#version 430 core\n";
             const auto at = source.find(marker);
             if (at != std::string::npos) {
@@ -57,12 +58,20 @@ class OpenGlCompute final : public Compute {
                     text.insert(at + marker.size(), std::string("#define ") + name + "\n");
                     return compile(gl_, text.c_str());
                 };
-                hires_ = variant("HIRES");
-                seed_ = variant("SEED");
-                gl_.GenBuffers(int(extra_.size()), extra_.data());
-                for (auto buffer : extra_) {
-                    gl_.BindBuffer(ShaderStorageBuffer, buffer);
-                    gl_.BufferData(ShaderStorageBuffer, 256, nullptr, DynamicDraw);
+                try {
+                    hires_ = variant("HIRES");
+                    seed_ = variant("SEED");
+                } catch (const std::exception &) {
+                    if (hires_)
+                        gl_.DeleteProgram(hires_);
+                    hires_ = seed_ = 0u;
+                }
+                if (hires_) {
+                    gl_.GenBuffers(int(extra_.size()), extra_.data());
+                    for (auto buffer : extra_) {
+                        gl_.BindBuffer(ShaderStorageBuffer, buffer);
+                        gl_.BufferData(ShaderStorageBuffer, 256, nullptr, DynamicDraw);
+                    }
                 }
             }
         }
@@ -167,6 +176,15 @@ class OpenGlCompute final : public Compute {
         gl_.BindBuffer(ShaderStorageBuffer, extra_[0]);
         gl_.GetBufferSubData(ShaderStorageBuffer, Size(offsetWords * 4u), Size(words * 4u), destination);
         gl_.check("GPU hi-res readback");
+    }
+
+    void hires_upload(size_t offsetWords, const uint32_t *source, size_t words) override {
+        if (!hires_ || !words || offsetWords + words > reserved_[0])
+            return;
+        gl_.MemoryBarrier(ShaderStorageBarrier | BufferUpdateBarrier);
+        gl_.BindBuffer(ShaderStorageBuffer, extra_[0]);
+        gl_.BufferSubData(ShaderStorageBuffer, Size(offsetWords * 4u), Size(words * 4u), source);
+        gl_.check("GPU hi-res texture upload");
     }
 
     void destroy() override {

@@ -12,13 +12,16 @@
 #endif
 
 namespace openkai2::launcher {
+std::filesystem::path textures_directory() {
+    return default_cache_directory().parent_path() / "textures";
+}
 std::filesystem::path settings_path() {
     return default_cache_directory().parent_path() / "settings.ini";
 }
 void validate_settings(const Settings &s) {
     if (s.fps > 240 || s.width < 640 || s.width > 7680 || s.height < 448 || s.height > 4320 ||
         s.windowMode > 1 || s.antialiasing > 1 || s.textureFilter > 2 || s.upscaler > 5 ||
-        s.aspect > 3 || s.internalScale < 1 || s.internalScale > 4 || s.volume > 100 || s.cpuDifficulty > 3 || s.windowWidth < 0 || s.windowHeight < 0 ||
+        s.aspect > 3 || s.internalScale < 1 || s.internalScale > 4 || s.hdTextures > 4 || s.volume > 100 || s.cpuDifficulty > 3 || s.windowWidth < 0 || s.windowHeight < 0 ||
         s.windowWidth > 32768 || s.windowHeight > 32768 || s.updateChannel > 1 || s.speedrun > 2 || s.overlayItems > speedrun::overlay_all || s.overlayCorner > 3 ||
         s.overlaySize > 2 || s.overlayBackground > 2 || s.overlaySplits > 3 || s.overlayDecimals > 2 ||
         std::any_of(s.overlayColors.begin(), s.overlayColors.end(), [](unsigned c) { return c >= speedrun::overlay_color_count; }) || (s.renderer != "auto" && s.renderer != "gpu" && s.renderer != "vulkan" && s.renderer != "cpu"))
@@ -77,6 +80,8 @@ Settings read_settings(const std::filesystem::path &file) {
             row >> s.aspect;
         else if (key == "internal_scale")
             row >> s.internalScale;
+        else if (key == "hd_textures")
+            row >> s.hdTextures;
         else if (key == "vsync")
             row >> s.vsync;
         else if (key == "audio")
@@ -172,7 +177,7 @@ void write_settings(const std::filesystem::path &file, const Settings &s) {
     out << "# OpenKai2\nversion 1\niso " << std::quoted(path_utf8(s.iso)) << "\nfps " << s.fps
         << "\nwidth " << s.width << "\nheight " << s.height << "\nwindow_mode " << s.windowMode
         << "\nantialiasing " << s.antialiasing << "\ntexture_filter " << s.textureFilter
-        << "\nupscaler " << s.upscaler << "\naspect " << s.aspect << "\ninternal_scale " << s.internalScale << "\nvsync " << s.vsync
+        << "\nupscaler " << s.upscaler << "\naspect " << s.aspect << "\ninternal_scale " << s.internalScale << "\nhd_textures " << s.hdTextures << "\nvsync " << s.vsync
         << "\naudio " << s.audio << "\nvolume " << s.volume << "\ncpu_difficulty " << s.cpuDifficulty
         << "\nauto_backups " << s.autoBackups << "\nauto_updates " << s.autoUpdates
         << "\nupdate_channel " << s.updateChannel << "\nrenderer " << std::quoted(s.renderer)

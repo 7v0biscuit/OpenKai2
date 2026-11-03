@@ -17,6 +17,7 @@ struct Settings {
     unsigned upscaler = 1;
     unsigned aspect = 0;
     unsigned internalScale = 1;
+    unsigned hdTextures = 0;
     bool vsync = true, autoBackups = true;
     bool audio = true;
     unsigned volume = 100;
@@ -48,6 +49,7 @@ struct Settings {
     bool onlineListed = true;
 };
 std::filesystem::path settings_path();
+std::filesystem::path textures_directory();
 Settings read_settings(const std::filesystem::path &file);
 void write_settings(const std::filesystem::path &file, const Settings &settings);
 void validate_settings(const Settings &settings);

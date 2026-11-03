@@ -443,6 +443,18 @@ class VulkanCompute final : public Compute {
         std::memcpy(destination, readback_.mapped, size_t(bytes));
     }
 
+    void hires_upload(size_t offsetWords, const uint32_t *source, size_t words) override {
+        const VkDeviceSize offset = VkDeviceSize(offsetWords) * 4u, bytes = VkDeviceSize(words) * 4u;
+        if (!words || offset + bytes > hiColor_.size)
+            return;
+        for (VkDeviceSize done = 0; done < bytes;) {
+            const VkDeviceSize part = std::min<VkDeviceSize>(bytes - done, 8u << 20u);
+            copy_in(hiColor_, offset + done, reinterpret_cast<const uint8_t *>(source) + done, size_t(part));
+            done += part;
+        }
+        barrier();
+    }
+
     void destroy() override { release(); }
 
   private:

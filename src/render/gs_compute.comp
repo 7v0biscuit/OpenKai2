@@ -54,7 +54,31 @@ uint samplePoint(uint c,ivec2 position){
     if(psm==2u || psm==10u || psm==50u || psm==58u)p=convert16(p);
     return applyAlpha(c,psm,p);
 }
+#ifdef HIRES
+uint hdPoint(uint c,ivec2 p){
+    int w=int(word(c,90u)),h=int(word(c,91u));uint modes=word(c,21u);
+    uint high=word(c,22u);
+    int sx=w/int(word(c,19u)),sy=h/int(word(c,20u));
+    uint vlow=((modes>>24u)|(high<<8u))&1023u,vhigh=(high>>2u)&1023u;
+    p.x=(modes&3u)==0u ? ((p.x%w)+w)%w : (modes&3u)==1u ? clamp(p.x,0,w-1) : clamp(p.x,int((modes>>4u)&1023u)*sx,int((modes>>14u)&1023u)*sx+sx-1);
+    p.y=((modes>>2u)&3u)==0u ? ((p.y%h)+h)%h : ((modes>>2u)&3u)==1u ? clamp(p.y,0,h-1) : clamp(p.y,int(vlow)*sy,int(vhigh)*sy+sy-1);
+    return hiColor[params[13]+word(c,89u)-1u+uint(p.y)*uint(w)+uint(p.x)];
+}
+uint sampleHd(uint c,vec2 uv){
+    vec2 scaled=uv*vec2(float(word(c,90u))/float(word(c,19u)),float(word(c,91u))/float(word(c,20u)));
+    if((word(c,1u)&32u)==0u)return hdPoint(c,ivec2(floor(scaled)));
+    vec2 position=scaled-vec2(0.5);
+    ivec2 low=ivec2(floor(position));vec2 f=position-vec2(low);
+    vec4 a=vec4(unpackColor(hdPoint(c,low))),b=vec4(unpackColor(hdPoint(c,low+ivec2(1,0))));
+    vec4 d=vec4(unpackColor(hdPoint(c,low+ivec2(0,1)))),e=vec4(unpackColor(hdPoint(c,low+ivec2(1,1))));
+    vec4 color=mix(mix(a,b,f.x),mix(d,e,f.x),f.y);
+    return packColor(min(uvec4(color+vec4(0.5)),uvec4(255u)));
+}
+#endif
 uint sampleTexture(uint c,vec2 uv){
+#ifdef HIRES
+    if(word(c,89u)!=0u)return sampleHd(c,uv);
+#endif
     if((word(c,1u)&32u)==0u)return samplePoint(c,ivec2(uv));
     precise vec2 position=uv-vec2(0.5);
     ivec2 low=ivec2(floor(position));precise vec2 f=position-vec2(low);

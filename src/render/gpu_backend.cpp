@@ -3,6 +3,7 @@
 #include "gpu_device.h"
 #include "gpu_layout.h"
 #include "graphics_settings.h"
+#include "hd_textures.h"
 #include "runtime/gs/gs_cpu_backend.h"
 #include "work_timings.h"
 #include <algorithm>
@@ -17,6 +18,7 @@
 #include <limits>
 #include <future>
 #include <map>
+#include <unordered_map>
 #include <mutex>
 #include <stdexcept>
 #include <utility>
@@ -121,15 +123,62 @@ struct GpuRasterBackend::Impl {
     std::map<std::array<uint32_t,3>,uint32_t> paletteOffsets;
     std::array<uint32_t,5> target{},sourceKey{};Pages sourcePages;bool sourceValid=false;size_t references=0;
     std::array<uint32_t,12> footprintKey{};int covered[4]{};bool footprintValid=false;
-    struct Shadow{uint32_t base=0,width=0,psm=0;bool used=false,valid=false;uint64_t touched=0;Pages pages;};
+    struct Shadow{uint32_t base=0,width=0,psm=0;bool used=false,valid=false;uint64_t touched=0;Pages pages,stale;};
     static constexpr unsigned shadowWidth=1024u,shadowHeight=512u,colorSlots=6u,depthSlots=3u;
     unsigned scale=1u;bool hires=false,batchDepth=false;uint64_t shadowClock=0;
     std::array<Shadow,colorSlots> colorShadows{};std::array<Shadow,depthSlots> depthShadows{};
     size_t slotWords()const{return size_t(shadowWidth*scale)*size_t(shadowHeight*scale);}
+    static constexpr size_t hdWords=24u<<20u,hdLargest=4u<<20u;
+    struct HdSlot{uint32_t offset=0,width=0,height=0;};
+    bool hdOn=false,hdFull=false;size_t hdHead=0;uint64_t hiresFrames=0,nativeFrames=0;std::array<uint64_t,5> hdSkips{};std::array<uint64_t,6> nativeWhy{};std::unordered_map<uint64_t,HdSlot> hdSlots;
+    std::map<std::array<uint64_t,4>,uint64_t> hdHashes;std::array<uint32_t,gpu::PageCount> pageVersion{};
+    size_t hdBase()const{return colorSlots*slotWords();}
+    uint64_t hdContent(const GSDrawState& state,const uint32_t* cmd){
+        const auto& t=state.context.tex0;const unsigned w=state.textureWidth,h=state.textureHeight;
+        const auto pages=rectanglePages(t.psm,t.tbp0,std::max<unsigned>(t.tbw,1u),0u,0u,w,h);
+        if((pages&gpuDirty).any())return 0u;
+        uint64_t stamp=1469598103934665603ull;
+        for(unsigned p=0;p<gpu::PageCount;++p)if(pages[p]){stamp^=(uint64_t(p)<<32u)|pageVersion[p];stamp*=1099511628211ull;}
+        uint64_t colors=0u;
+        if(indexed(t.psm)){const uint32_t first=cmd[28];for(unsigned i=0;i<(fourBit(t.psm) ? 16u : 256u);++i){colors^=palette[first+i];colors*=1099511628211ull;}}
+        const std::array<uint64_t,4> key={uint64_t(t.psm)|(uint64_t(t.tbp0)<<8u)|(uint64_t(t.tbw)<<24u)|(uint64_t(w)<<32u)|(uint64_t(h)<<48u),stamp,colors,
+            uint64_t(state.texa.ta0)|(uint64_t(state.texa.ta1)<<8u)|(uint64_t(state.texa.aem)<<16u)};
+        if(const auto found=hdHashes.find(key);found!=hdHashes.end())return found->second;
+        hd::Image image;image.width=w;image.height=h;image.texels.resize(size_t(w)*h);
+        const uint32_t first=cmd[28];const bool sixteen=t.psm==2u || t.psm==10u;
+        for(unsigned y=0;y<h;++y)for(unsigned x=0;x<w;++x){
+            const uint32_t raw=cpu.ReadVram(t.psm,t.tbp0,std::max<unsigned>(t.tbw,1u),x,y);
+            image.texels[size_t(y)*w+x]=indexed(t.psm) ? palette[first+(raw&255u)] : textureAlpha(state.texa,t.psm,sixteen ? color16(raw) : t.psm==1u ? raw&0xffffffu : raw);
+        }
+        const uint64_t hash=hd::texture_hash(image.texels.data(),w,h);
+        if(hdHashes.size()>16384u)hdHashes.clear();
+        hdHashes.emplace(key,hash);
+        if(!hd::library().known(hash))hd::library().submit(hash,std::move(image));
+        return hash;
+    }
+    void applyHd(const GSDrawState& state,uint32_t* cmd){
+        const auto& c=state.context;const unsigned w=state.textureWidth,h=state.textureHeight;
+        if((c.clamp&3u)==3u || ((c.clamp>>2u)&3u)==3u){++hdSkips[0];return;}
+        if(w<8u || h<8u || w>1024u || h>1024u){++hdSkips[1];return;}
+        const uint64_t hash=hdContent(state,cmd);if(!hash){++hdSkips[2];return;}
+        if(!hd::library().replacing())return;
+        auto slot=hdSlots.find(hash);
+        if(slot==hdSlots.end()){
+            const auto image=hd::library().find(hash);
+            if(!image){++hdSkips[3];return;}
+            const size_t words=size_t(image->width)*image->height;
+            if(!words || words>hdLargest)return;
+            if(hdHead+words>hdWords){hdFull=true;return;}
+            slot=hdSlots.emplace(hash,HdSlot{uint32_t(hdHead),image->width,image->height}).first;
+            device->post([r=resources,image,offset=hdBase()+hdHead](gpu::Host&){r->compute->hires_upload(offset,image->texels.data(),image->texels.size());});
+            hdHead+=(words+63u)&~size_t(63u);
+        }
+        ++hdSkips[4];cmd[89]=slot->second.offset+1u;cmd[90]=slot->second.width;cmd[91]=slot->second.height;
+    }
     void invalidateShadows(const Pages& pages){
         if(!hires || !pages.any())return;
-        for(auto& shadow:colorShadows)if(shadow.used && (shadow.pages&pages).any())shadow.valid=false;
-        for(auto& shadow:depthShadows)if(shadow.used && (shadow.pages&pages).any())shadow.valid=false;
+        for(auto& shadow:colorShadows)if(shadow.used)shadow.stale|=shadow.pages&pages;
+        for(auto& shadow:depthShadows)if(shadow.used)shadow.stale|=shadow.pages&pages;
     }
     void dropShadows(){for(auto& shadow:colorShadows)shadow=Shadow{};for(auto& shadow:depthShadows)shadow=Shadow{};}
     template<size_t N> unsigned acquireShadow(std::array<Shadow,N>& shadows,uint32_t base,uint32_t width,uint32_t psm){
@@ -146,7 +195,7 @@ struct GpuRasterBackend::Impl {
     std::vector<uint32_t> shadowParams(unsigned color,unsigned depth,bool hasDepth,uint32_t width)const{
         const uint32_t stride=width*64u*scale;
         return {scale,uint32_t(color*slotWords()),stride,uint32_t(depth*slotWords()),stride,hasDepth ? 1u : 0u,shadowHeight*scale,0u,
-                0u,4294967295u,width,0u,0u};
+                0u,4294967295u,width,0u,0u,uint32_t(hdBase())};
     }
     bool ready(){
         if(disabled || size!=gpu::VramBytes)return false;
@@ -154,14 +203,16 @@ struct GpuRasterBackend::Impl {
         device=gpu::current_device();if(!device)return false;
         try{
             resources=std::make_shared<Resources>();scale=std::clamp(graphics_settings().internalScale,1u,4u);
-            bool supported=false;
-            device->invoke([r=resources,&supported,words=slotWords(),scaled=scale>1u](gpu::Host& host){
+            bool supported=false;const unsigned hdMode=scale>1u ? graphics_settings().hdTextures : 0u;
+            device->invoke([r=resources,&supported,words=slotWords(),scaled=scale>1u,extra=hdMode ? hdWords : 0u](gpu::Host& host){
                 r->compute=host.create();r->compute->create(gpu::address_tables());
                 supported=scaled && r->compute->hires_supported();
-                if(supported)r->compute->hires_reserve(words*colorSlots,words*depthSlots);
+                if(supported)r->compute->hires_reserve(words*colorSlots+extra,words*depthSlots);
             });
             hires=supported;dropShadows();
-            if(scale>1u)std::cout<<"[renderer] internal_resolution="<<scale<<"x "<<(hires ? "enabled" : "unavailable")<<std::endl;
+            hdOn=hires && hdMode!=0u;
+            if(hdOn)hd::library().configure(hdMode,graphics_settings().textureFolder,scale>=3u ? 4u : 2u);
+            if(scale>1u)std::cout<<"[renderer] internal_resolution="<<scale<<"x "<<(hires ? "enabled" : "unavailable")<<" hd_textures="<<(hdOn ? hdMode : 0u)<<std::endl;
             cpuDirty.set();return true;
         }
         catch(const std::exception& e){resources.reset();disabled=true;if(renderer_preference()=="gpu")throw;std::cerr<<"[renderer] GPU initialization failed: "<<e.what()<<"\n";return false;}
@@ -173,6 +224,7 @@ struct GpuRasterBackend::Impl {
     void upload(){
         if(!cpuDirty.any())return;
         invalidateShadows(cpuDirty);
+        for(unsigned p=0;p<gpu::PageCount;++p)if(cpuDirty[p])++pageVersion[p];
         struct Segment{unsigned offset;std::vector<uint8_t> bytes;};std::vector<Segment> segments;
         for(unsigned page=0;page<gpu::PageCount;){
             if(!cpuDirty[page]){++page;continue;}const unsigned first=page;while(page<gpu::PageCount && cpuDirty[page])++page;
@@ -199,14 +251,15 @@ struct GpuRasterBackend::Impl {
                 const unsigned depth=useDepth ? acquireShadow(depthShadows,target[1],target[2],target[3]) : 0u;
                 hiresParams=shadowParams(color,depth,useDepth,target[2]);
                 seedX=(target[2]*64u*scale+7u)/8u;seedY=(shadowHeight*scale+7u)/8u;
-                if(!colorShadows[color].valid){
-                    seedColor=hiresParams;seedColor[5]=0u;seedColor[8]=target[4];seedColor[9]=target[0];colorShadows[color].valid=true;
+                auto& colorShadow=colorShadows[color];
+                if(!colorShadow.valid || (colorShadow.stale&batchWrites).any()){
+                    seedColor=hiresParams;seedColor[5]=0u;seedColor[8]=target[4];seedColor[9]=target[0];colorShadow.valid=true;colorShadow.stale.reset();
                 }
-                if(useDepth && !depthShadows[depth].valid){
-                    seedDepth=hiresParams;seedDepth[5]=1u;seedDepth[9]=4294967295u;seedDepth[11]=target[3];seedDepth[12]=target[1];depthShadows[depth].valid=true;
+                if(useDepth && (!depthShadows[depth].valid || depthShadows[depth].stale.any())){
+                    seedDepth=hiresParams;seedDepth[5]=1u;seedDepth[9]=4294967295u;seedDepth[11]=target[3];seedDepth[12]=target[1];depthShadows[depth].valid=true;depthShadows[depth].stale.reset();
                 }
-                for(unsigned i=0;i<colorSlots;++i)if(i!=color && colorShadows[i].used && (colorShadows[i].pages&batchWrites).any())colorShadows[i].valid=false;
-                for(unsigned i=0;i<depthSlots;++i)if((!useDepth || i!=depth) && depthShadows[i].used && (depthShadows[i].pages&batchWrites).any())depthShadows[i].valid=false;
+                for(unsigned i=0;i<colorSlots;++i)if(i!=color && colorShadows[i].used)colorShadows[i].stale|=colorShadows[i].pages&batchWrites;
+                for(unsigned i=0;i<depthSlots;++i)if((!useDepth || i!=depth) && depthShadows[i].used)depthShadows[i].stale|=depthShadows[i].pages&batchWrites;
                 groups=unsigned(bins.size()/4u)*scale*scale;
             }else invalidateShadows(batchWrites);
         }
@@ -217,6 +270,7 @@ struct GpuRasterBackend::Impl {
             r->compute->raster(cmd,bins,refs,colors);
             if(groups)r->compute->hires_raster(hiresParams,groups);
         });commands.clear();commands.reserve(commandWords);palette.clear();activeTiles.clear();paletteOffsets.clear();references=0u;batchWrites.reset();batchSources.reset();batchDepth=false;
+        if(hdFull){hdSlots.clear();hdHead=0u;hdFull=false;}
     }
     void materialize(const Pages& requested,WaitReason reason=waitOther){
         footprintValid=false;
@@ -383,6 +437,7 @@ void GpuRasterBackend::Submit(const GSPrimitiveBatch& batch){
     m->upload();
     const size_t base=m->commands.size()-gpu::CommandWords;
     if((m->commands[base+1u]&1u) && indexed(batch.state.context.tex0.psm))m->commands[base+28u]=m->paletteFor(batch.state);
+    if(m->hdOn && (m->commands[base+1u]&1u))m->applyHd(batch.state,m->commands.data()+base);
     const uint32_t* command=m->commands.data()+base;
     const auto index=uint32_t(base/gpu::CommandWords);
     const auto addTile=[&](unsigned tile){auto& list=m->tileCommands[tile];if(list.empty())m->activeTiles.push_back(tile);list.push_back(index);++m->references;};
@@ -488,20 +543,27 @@ PresentationFrame GpuRasterBackend::Present(const GSPresentationRequest& request
         m->submit();
         if(m->hires){
             const unsigned enabled=unsigned(request.pmode&3u),mode=unsigned(request.smode2&3u);
-            if((enabled==1u || enabled==2u) && mode!=1u){
+            if(!(enabled==1u || enabled==2u) || mode==1u)++m->nativeWhy[0];
+            else{
                 const uint64_t buffer=enabled==1u ? request.dispfb1 : request.dispfb2,display=enabled==1u ? request.display1 : request.display2;
                 const unsigned fbp=unsigned(buffer&511u),fbw=unsigned((buffer>>9u)&63u),psm=unsigned((buffer>>15u)&31u);
                 const unsigned dbx=unsigned((buffer>>32u)&2047u),dby=unsigned((buffer>>43u)&2047u);
                 const unsigned magh=unsigned((display>>23u)&15u),dw=unsigned((display>>32u)&4095u),dh=unsigned((display>>44u)&2047u);
                 const unsigned width=(dw+1u)/(magh+1u),height=dh+1u,half=mode==3u,rows=half ? (height+1u)/2u : height;
+                unsigned why=1u;
                 for(unsigned i=0;i<Impl::colorSlots && fbw;++i){
                     const auto& shadow=m->colorShadows[i];
-                    if(!shadow.used || !shadow.valid || shadow.base!=fbp*32u || shadow.width!=fbw || shadow.psm!=psm)continue;
-                    if((shadow.pages&m->cpuDirty).any() || dbx+width>fbw*64u || dby+rows>Impl::shadowHeight || width<16u || rows<16u)break;
+                    if(!shadow.used || shadow.base!=fbp*32u || shadow.width!=fbw || shadow.psm!=psm)continue;
+                    if(dbx+width>fbw*64u || dby+rows>Impl::shadowHeight || width<16u || rows<16u){why=4u;break;}
+                    const auto shown=rectanglePages(psm,fbp*32u,fbw,dbx,dby,width,rows);
+                    if(!shadow.valid || (shadow.stale&shown).any()){why=2u;break;}
+                    if((shown&m->cpuDirty).any()){why=3u;break;}
+                    why=0u;
                     plan.ok=true;plan.half=half;plan.slot=i;plan.width=width;plan.height=height;plan.rows=rows;plan.x=dbx;plan.fbp=fbp;plan.psm=psm;
                     plan.scale=m->scale;plan.stride=fbw*64u*m->scale;plan.offset=i*m->slotWords()+size_t(dby)*m->scale*plan.stride;
                     hiresWords->resize(size_t(rows)*m->scale*plan.stride);break;
                 }
+                if(why)++m->nativeWhy[why];
             }
         }
         if(!dirty.any()){
@@ -525,7 +587,16 @@ PresentationFrame GpuRasterBackend::Present(const GSPresentationRequest& request
     }
     {RuntimeWorkTimer wait(RuntimeWork::gpuWait);WaitTimer timed{waitPresent};readback.get();}
     if(!ready){presenter.Initialize(snapshot.data(),uint32_t(snapshot.size()));frame=presenter.Present(request);}
-    if(!plan.ok || !frame || frame.width!=plan.width || frame.height!=plan.height || frame.usedPreferred || frame.sourceFbp!=plan.fbp)return frame;
+    const bool scaledFrame=plan.ok && frame && frame.width==plan.width && frame.height==plan.height && !frame.usedPreferred && frame.sourceFbp==plan.fbp;
+    if(m->hires && frame){
+        std::lock_guard lock(m->mutex);++(scaledFrame ? m->hiresFrames : m->nativeFrames);
+        if(plan.ok && !scaledFrame)++m->nativeWhy[5];
+        if((m->hiresFrames+m->nativeFrames)%600u==0u){
+            const auto counts=hd::library().counts();
+            std::cout<<"[renderer:hires] frames_scaled="<<m->hiresFrames<<" frames_native="<<m->nativeFrames<<" hd_upscaled="<<counts.upscaled<<" hd_packed="<<counts.packed<<" hd_dumped="<<counts.dumped<<" hd_resident="<<m->hdSlots.size()<<" hd_draws="<<m->hdSkips[4]<<" hd_skip_region="<<m->hdSkips[0]<<" hd_skip_size="<<m->hdSkips[1]<<" hd_skip_target="<<m->hdSkips[2]<<" hd_pending="<<m->hdSkips[3]<<" native_display="<<m->nativeWhy[0]<<" native_no_shadow="<<m->nativeWhy[1]<<" native_stale="<<m->nativeWhy[2]<<" native_cpu="<<m->nativeWhy[3]<<" native_bounds="<<m->nativeWhy[4]<<" native_source="<<m->nativeWhy[5]<<std::endl;
+        }
+    }
+    if(!scaledFrame)return frame;
     const unsigned s=plan.scale,outWidth=plan.width*s,outHeight=plan.height*s,sourceRows=plan.rows*s;
     PresentationFrame scaled;scaled.width=outWidth;scaled.height=outHeight;scaled.stride=outWidth;
     scaled.displayFbp=frame.displayFbp;scaled.sourceFbp=frame.sourceFbp;scaled.usedPreferred=false;
