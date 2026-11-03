@@ -184,7 +184,7 @@ int main(int argc, char* argv[]) {
         openkai2::GraphicsSettings display;
         display.width=preferences.width;display.height=preferences.height;
         display.textureFilter=preferences.textureFilter;display.upscaler=preferences.upscaler;
-        display.antialiasing=preferences.antialiasing;display.aspect=preferences.aspect;
+        display.antialiasing=preferences.antialiasing;display.aspect=preferences.aspect;display.internalScale=preferences.internalScale;
         display.borderless=preferences.windowMode!=0;display.vsync=preferences.vsync;
         openkai2::set_graphics_settings(display);
         openkai2::set_renderer_preference(renderer);
@@ -201,7 +201,7 @@ int main(int argc, char* argv[]) {
                   << " mode=" << (display.borderless ? "borderless" : "windowed")
                   << " vsync=" << display.vsync << " aspect=" << display.aspect
                   << " antialiasing=" << display.antialiasing << " texture_filter=" << display.textureFilter
-                  << " upscaler=" << display.upscaler << std::endl;
+                  << " upscaler=" << display.upscaler << " internal_scale=" << display.internalScale << std::endl;
         openkai2::verify_runtime_layout(sizeof(VU1Interpreter),sizeof(PS2Runtime));
         std::cout << "[launcher] Startup log: " << log.path.string() << std::endl;
 

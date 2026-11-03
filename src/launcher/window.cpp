@@ -106,6 +106,7 @@ enum Id {
     Aspect,
     Audio,
     CpuDifficulty,
+    InternalScale,
     UpdateChannel = 160,
     AutomaticUpdates,
     CheckUpdates,
@@ -636,7 +637,7 @@ struct Window {
     bool running() const { return child || externalGame; }
     bool dropdownOpen() const {
         for (auto [id, control] : controls)
-            if ((id >= Renderer && id <= CpuDifficulty) || id == UpdateChannel || id == AutomaticUpdates ||
+            if ((id >= Renderer && id <= InternalScale) || id == UpdateChannel || id == AutomaticUpdates ||
                 id == SaveListKind || id == TargetMod || id == SpotMode ||
                 (id >= SpeedrunMode && id <= FpsCounter) || (id >= OverlayCorner && id <= OverlaySplits) || (id >= OverlayText && id <= SpeedrunCpu) || id == OnlineDelay || id == OnlineProfile || id == OnlineListed)
                 if (SendMessageW(control, CB_GETDROPPEDSTATE, 0, 0)) return true;
@@ -865,12 +866,12 @@ struct Window {
                                                           {CheckUpdates, L"Check now"},
                                                           {InstallUpdate, L"Install"},
                                                           {ReleasePage, L"Release notes"},
-                                                          {ResetGraphics, L"Restore defaults"},
+                                                          {ResetGraphics, L"Defaults"},
                                                           {OpenOverlay, L"Customize overlay…"},
                                                           {CloseOverlay, L"Back to speedrun"},
                                                           {OverlayToggle, L"Show / hide"},
                                                           {OverlayDefaults, L"Restore defaults"},
-                                                          {ClearImage, L"Crisp preset"},
+                                                          {ClearImage, L"Crisp"},
                                                           {ChooseIso, L"Choose ISO…"},
                                                           {VerifyIso, L"Verify"},
                                                           {Play, L"Play"},
@@ -908,6 +909,8 @@ struct Window {
         combo(Filtering, {L"Game default", L"Nearest (sharp)", L"Bilinear (3D surfaces)"},
               int(settings.textureFilter));
         combo(Upscaler, {L"Nearest", L"Bilinear", L"Bicubic", L"AMD FSR 1", L"Lanczos", L"Sharp pixels"}, int(settings.upscaler));
+        combo(InternalScale, {L"Native (640x448)", L"2x (1280x896)", L"3x (1920x1344)", L"4x (2560x1792)"},
+              int(std::clamp(settings.internalScale, 1u, 4u) - 1u));
         combo(Vsync, {L"Off", L"On"}, settings.vsync ? 1 : 0);
         combo(AutoBackup, {L"Off", L"On"}, settings.autoBackups ? 1 : 0);
         combo(SaveListKind,{L"Backups",L"Game saves"},0);
@@ -1233,8 +1236,9 @@ struct Window {
             position(Antialiasing, grid.x(1), Grid::field(graphicsTop, 0), grid.column, 34);
             position(Filtering, grid.x(2), Grid::field(graphicsTop, 0), grid.column, 34);
             position(Upscaler, grid.x(0), Grid::field(graphicsTop, 1), grid.column, 34);
-            position(ClearImage, grid.x(1), Grid::field(graphicsTop, 1), grid.column, 34);
-            position(ResetGraphics, grid.x(2), Grid::field(graphicsTop, 1), grid.column, 34);
+            position(InternalScale, grid.x(1), Grid::field(graphicsTop, 1), grid.column, 34);
+            position(ClearImage, grid.x(2), Grid::field(graphicsTop, 1), half, 34);
+            position(ResetGraphics, grid.x(2) + half + 10, Grid::field(graphicsTop, 1), grid.column - half - 10, 34);
             position(CpuDifficulty, grid.x(0), Grid::field(gameTop, 0), grid.column, 34);
             position(UpdateChannel, grid.x(0), Grid::field(updatesTop, 0), grid.column, 34);
             position(AutomaticUpdates, grid.x(1), Grid::field(updatesTop, 0), grid.column, 34);
@@ -1954,7 +1958,8 @@ struct Window {
         label(graphicsTop, 0, 1, L"ANTI-ALIASING");
         label(graphicsTop, 0, 2, L"TEXTURE FILTERING");
         label(graphicsTop, 1, 0, L"UPSCALING");
-        label(graphicsTop, 1, 1, L"PRESETS");
+        label(graphicsTop, 1, 1, L"INTERNAL RESOLUTION");
+        label(graphicsTop, 1, 2, L"PRESETS");
 
         const wchar_t *const cpuNotes[] = {
             L"The CPU plays at the Game Difficulty and COM Level set in the game's Options.",
@@ -4152,6 +4157,7 @@ struct Window {
         next.antialiasing = unsigned(selected(Antialiasing));
         next.textureFilter = unsigned(selected(Filtering));
         next.upscaler = unsigned(selected(Upscaler));
+        next.internalScale = unsigned(std::max(0, selected(InternalScale))) + 1u;
         next.vsync = selected(Vsync) != 0;
         next.cpuDifficulty = unsigned(std::max(0, selected(CpuDifficulty)));
         next.autoBackups = selected(AutoBackup) != 0;
@@ -4244,7 +4250,7 @@ struct Window {
                     L" selected. Ctrl+click or Shift+click selects several; Ctrl+A selects all.";
             refreshEnabled(); return;
         }
-        if (((id >= Renderer && id <= CpuDifficulty) || (id >= SpeedrunMode && id <= FpsCounter) || id == SpeedrunCpu) &&
+        if (((id >= Renderer && id <= InternalScale) || (id >= SpeedrunMode && id <= FpsCounter) || id == SpeedrunCpu) &&
             notification == CBN_SELCHANGE) {
             if (id == SpeedrunCpu)
                 SendMessageW(controls[CpuDifficulty], CB_SETCURSEL, selected(SpeedrunCpu), 0);
@@ -4262,6 +4268,12 @@ struct Window {
                                    (settings.permadeath ? L" with permadeath" : L"") +
                                    L". Mods stay off while it is on; logs go to the logs\\speedruns folder."
                              : L"Speedrun mode is off.";
+            if (id == InternalScale)
+                status = settings.internalScale > 1
+                             ? L"Internal resolution " + std::to_wstring(settings.internalScale) +
+                                   L"x: 3D scenes render at a higher resolution with the GPU and Vulkan renderers. "
+                                   L"It needs more graphics power and applies the next time the game starts."
+                             : std::wstring(L"Internal resolution: native, as on a PS2.");
             refreshEnabled();
             return;
         }
@@ -4358,10 +4370,11 @@ struct Window {
             next.windowMode = defaults.windowMode; next.antialiasing = defaults.antialiasing;
             next.textureFilter = defaults.textureFilter; next.upscaler = defaults.upscaler;
             next.aspect = defaults.aspect; next.vsync = defaults.vsync; next.renderer = defaults.renderer;
+            next.internalScale = defaults.internalScale;
             write_settings(settings_path(), next);
             settings = std::move(next);
             const std::pair<int, int> choices[] = {{Renderer, 0}, {Fps, 6}, {Resolution, 0},
-                {WindowMode, 0}, {Antialiasing, 0}, {Filtering, 0}, {Upscaler, 1}, {Vsync, 1}, {Aspect, 0}};
+                {WindowMode, 0}, {Antialiasing, 0}, {Filtering, 0}, {Upscaler, 1}, {Vsync, 1}, {Aspect, 0}, {InternalScale, 0}};
             for (auto [control, value] : choices) SendMessageW(controls[control], CB_SETCURSEL, value, 0);
             status = L"Display and graphics settings restored. Your disc, saves and update choices were kept.";
             error = false;

@@ -467,29 +467,86 @@ void GpuRasterBackend::Flush(){std::lock_guard lock(m->mutex);m->submit();}
 void GpuRasterBackend::TextureFlush(){std::lock_guard lock(m->mutex);m->submit();m->cpu.TextureFlush();}
 void GpuRasterBackend::Sync(GSSyncReason reason){std::lock_guard lock(m->mutex);if(reason==GSSyncReason::Presentation)m->submit();else if(reason==GSSyncReason::DebugReadback || reason==GSSyncReason::LocalToHost || reason==GSSyncReason::Reset)m->materialize();
     else m->submit();m->cpu.Sync(reason);}
+namespace {
+struct HiresPlan{bool ok=false,half=false;unsigned slot=0,width=0,height=0,rows=0,x=0,stride=0,fbp=0,psm=0,scale=1;size_t offset=0;};
+uint32_t hiresPixel(uint32_t value,unsigned psm){
+    if(psm==2u || psm==10u){
+        const auto channel=[&](unsigned shift){const uint32_t c=(value>>shift)&31u;return (c<<3u)|(c>>2u);};
+        return channel(0u)|(channel(5u)<<8u)|(channel(10u)<<16u)|0xff000000u;
+    }
+    return (value&0xffffffu)|0xff000000u;
+}
+}
 PresentationFrame GpuRasterBackend::Present(const GSPresentationRequest& request){
     thread_local std::vector<uint8_t> snapshot;thread_local GSCpuBackend presenter;
-    std::future<void> readback;
+    std::future<void> readback;PresentationFrame frame;bool ready=false;HiresPlan plan;
+    auto hiresWords=std::make_shared<std::vector<uint32_t>>();
     {
         std::lock_guard lock(m->mutex);
         const Pages pages=presentationPages(request),dirty=m->gpuDirty&pages;m->cpuFrame=false;
-        if(!m->resources || !dirty.any())return m->cpu.Present(request);
-        if(snapshot.size()!=m->size || pages.all())snapshot.assign(m->vram,m->vram+m->size);
-        else for(unsigned p=0;p<gpu::PageCount;){if(!pages[p]){++p;continue;}const unsigned start=p;while(p<gpu::PageCount && pages[p])++p;
-            const size_t offset=size_t(start)*gpu::PageBytes,end=std::min<size_t>(size_t(p)*gpu::PageBytes,m->size);
-            if(offset<end)std::memcpy(snapshot.data()+offset,m->vram+offset,end-offset);}
+        if(!m->resources || (!dirty.any() && !m->hires))return m->cpu.Present(request);
         m->submit();
-        m->statistics.readbacks+=dirty.count()*gpu::PageBytes;totalReadbacks.fetch_add(dirty.count()*gpu::PageBytes,std::memory_order_relaxed);
+        if(m->hires){
+            const unsigned enabled=unsigned(request.pmode&3u),mode=unsigned(request.smode2&3u);
+            if((enabled==1u || enabled==2u) && mode!=1u){
+                const uint64_t buffer=enabled==1u ? request.dispfb1 : request.dispfb2,display=enabled==1u ? request.display1 : request.display2;
+                const unsigned fbp=unsigned(buffer&511u),fbw=unsigned((buffer>>9u)&63u),psm=unsigned((buffer>>15u)&31u);
+                const unsigned dbx=unsigned((buffer>>32u)&2047u),dby=unsigned((buffer>>43u)&2047u);
+                const unsigned magh=unsigned((display>>23u)&15u),dw=unsigned((display>>32u)&4095u),dh=unsigned((display>>44u)&2047u);
+                const unsigned width=(dw+1u)/(magh+1u),height=dh+1u,half=mode==3u,rows=half ? (height+1u)/2u : height;
+                for(unsigned i=0;i<Impl::colorSlots && fbw;++i){
+                    const auto& shadow=m->colorShadows[i];
+                    if(!shadow.used || !shadow.valid || shadow.base!=fbp*32u || shadow.width!=fbw || shadow.psm!=psm)continue;
+                    if((shadow.pages&m->cpuDirty).any() || dbx+width>fbw*64u || dby+rows>Impl::shadowHeight || width<16u || rows<16u)break;
+                    plan.ok=true;plan.half=half;plan.slot=i;plan.width=width;plan.height=height;plan.rows=rows;plan.x=dbx;plan.fbp=fbp;plan.psm=psm;
+                    plan.scale=m->scale;plan.stride=fbw*64u*m->scale;plan.offset=i*m->slotWords()+size_t(dby)*m->scale*plan.stride;
+                    hiresWords->resize(size_t(rows)*m->scale*plan.stride);break;
+                }
+            }
+        }
+        if(!dirty.any()){
+            if(!plan.ok)return m->cpu.Present(request);
+            frame=m->cpu.Present(request);ready=true;
+        }else{
+            if(snapshot.size()!=m->size || pages.all())snapshot.assign(m->vram,m->vram+m->size);
+            else for(unsigned p=0;p<gpu::PageCount;){if(!pages[p]){++p;continue;}const unsigned start=p;while(p<gpu::PageCount && pages[p])++p;
+                const size_t offset=size_t(start)*gpu::PageBytes,end=std::min<size_t>(size_t(p)*gpu::PageBytes,m->size);
+                if(offset<end)std::memcpy(snapshot.data()+offset,m->vram+offset,end-offset);}
+            m->statistics.readbacks+=dirty.count()*gpu::PageBytes;totalReadbacks.fetch_add(dirty.count()*gpu::PageBytes,std::memory_order_relaxed);
+        }
         auto done=std::make_shared<std::promise<void>>();readback=done->get_future();
-        m->device->post([r=m->resources,ranges=pageRanges(dirty),ram=snapshot.data(),done](gpu::Host&){
+        m->device->post([r=m->resources,ranges=pageRanges(dirty),ram=snapshot.data(),done,hiresWords,offset=plan.offset](gpu::Host&){
             try{
-                r->compute->read(ranges,ram);done->set_value();
+                if(!ranges.empty())r->compute->read(ranges,ram);
+                if(!hiresWords->empty())r->compute->hires_read(offset,hiresWords->size(),hiresWords->data());
+                done->set_value();
             }catch(...){done->set_exception(std::current_exception());throw;}
         });
     }
     {RuntimeWorkTimer wait(RuntimeWork::gpuWait);WaitTimer timed{waitPresent};readback.get();}
-    presenter.Initialize(snapshot.data(),uint32_t(snapshot.size()));
-    return presenter.Present(request);
+    if(!ready){presenter.Initialize(snapshot.data(),uint32_t(snapshot.size()));frame=presenter.Present(request);}
+    if(!plan.ok || !frame || frame.width!=plan.width || frame.height!=plan.height || frame.usedPreferred || frame.sourceFbp!=plan.fbp)return frame;
+    const unsigned s=plan.scale,outWidth=plan.width*s,outHeight=plan.height*s,sourceRows=plan.rows*s;
+    PresentationFrame scaled;scaled.width=outWidth;scaled.height=outHeight;scaled.stride=outWidth;
+    scaled.displayFbp=frame.displayFbp;scaled.sourceFbp=frame.sourceFbp;scaled.usedPreferred=false;
+    scaled.pixels.resize(size_t(outWidth)*outHeight*4u);
+    const auto& words=*hiresWords;
+    for(unsigned y=0;y<outHeight;++y){
+        uint8_t* out=scaled.pixels.data()+size_t(y)*outWidth*4u;
+        if(plan.half){
+            const unsigned a=std::min(y/2u,sourceRows-1u),b=std::min(a+(y&1u),sourceRows-1u);
+            const uint32_t* rowA=words.data()+size_t(a)*plan.stride+plan.x*s;const uint32_t* rowB=words.data()+size_t(b)*plan.stride+plan.x*s;
+            for(unsigned x=0;x<outWidth;++x){
+                const uint32_t p=hiresPixel(rowA[x],plan.psm),q=hiresPixel(rowB[x],plan.psm);
+                for(unsigned c=0;c<3u;++c)out[x*4u+c]=uint8_t((((p>>(c*8u))&255u)+((q>>(c*8u))&255u)+1u)/2u);
+                out[x*4u+3u]=255u;
+            }
+        }else{
+            const uint32_t* row=words.data()+size_t(std::min(y,sourceRows-1u))*plan.stride+plan.x*s;
+            for(unsigned x=0;x<outWidth;++x){const uint32_t p=hiresPixel(row[x],plan.psm);std::memcpy(out+x*4u,&p,4u);}
+        }
+    }
+    return scaled;
 }
 bool GpuRasterBackend::ClearFramebuffer(const GSContext& c,uint32_t rgba){
     std::lock_guard lock(m->mutex);

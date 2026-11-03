@@ -16,6 +16,7 @@ struct Settings {
     unsigned textureFilter = 0;
     unsigned upscaler = 1;
     unsigned aspect = 0;
+    unsigned internalScale = 1;
     bool vsync = true, autoBackups = true;
     bool audio = true;
     unsigned volume = 100;

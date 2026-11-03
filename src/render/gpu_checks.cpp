@@ -4,6 +4,7 @@
 #include "gpu_backend.h"
 #include "gpu_device.h"
 #include "gpu_layout.h"
+#include "graphics_settings.h"
 #include "runtime_layout.h"
 #include "runtime/gs/gs_cpu_backend.h"
 #include "runtime/gs/gs_frontend.h"
@@ -475,6 +476,48 @@ void checkGsWorker(){
     worker->setRasterBackend(std::make_unique<GSCpuBackend>());
     if(direct!=threaded)throw std::runtime_error("GS queued uploads and draws changed video-memory bytes");
 }
+void checkInternalResolution(){
+    const auto saved=graphics_settings();auto scaled=saved;scaled.internalScale=2u;set_graphics_settings(scaled);
+    struct Restore{GraphicsSettings value;~Restore(){set_graphics_settings(value);}} restore{saved};
+    for(unsigned variant=0;variant<4u;++variant){
+        Comparison pair(false);auto tri=material(0u,false);auto& s=tri.state;auto& c=s.context;
+        s.prim.tme=s.prim.abe=s.prim.iip=false;c.scissor={0u,127u,0u,127u};
+        if(variant&1u)c.frame.psm=GS_PSM_CT16;
+        for(auto& v:tri.vertices){v.r=200;v.g=90;v.b=30;v.a=128;v.z=5000u;}
+        tri.vertices[0].x=3.25f;tri.vertices[0].y=2.5f;tri.vertices[1].x=120.75f;tri.vertices[1].y=30.5f;tri.vertices[2].x=20.5f;tri.vertices[2].y=118.25f;
+        if(variant&2u){c.zbuf.zmask=false;c.test=0x50000u;}
+        pair.draw(tri);
+        if(variant&2u){
+            auto behind=tri;for(auto& v:behind.vertices){v.r=10;v.g=220;v.b=240;v.z=100u;}
+            behind.vertices[0].x=60.25f;behind.vertices[0].y=10.5f;behind.vertices[1].x=126.5f;behind.vertices[1].y=120.25f;behind.vertices[2].x=8.75f;behind.vertices[2].y=100.5f;
+            pair.draw(behind);
+        }
+        GSPresentationRequest request{};request.pmode=1;
+        request.dispfb1=uint64_t(56)|(uint64_t(8)<<9)|(uint64_t(c.frame.psm)<<15);
+        request.display1=(uint64_t(127)<<32)|(uint64_t(127)<<44);
+        if(variant==3u)request.smode2=3;
+        pair.gpu->Sync(GSSyncReason::Presentation);
+        const auto hi=pair.gpu->Present(request),native=pair.cpu->Present(request);
+        if(!native || hi.width!=native.width*2u || hi.height!=native.height*2u || hi.stride!=hi.width)
+            throw std::runtime_error("Internal resolution did not present a 2x frame: "+std::to_string(variant));
+        const unsigned stride=native.stride ? native.stride : 640u;
+        const auto at=[&](const PresentationFrame& f,unsigned rowStride,unsigned x,unsigned y){uint32_t p;std::memcpy(&p,f.pixels.data()+(size_t(y)*rowStride+x)*4u,4u);return p&0xffffffu;};
+        unsigned interior=0u,refined=0u;
+        for(unsigned y=1u;y+1u<native.height;++y)for(unsigned x=1u;x+1u<native.width;++x){
+            const uint32_t centre=at(native,stride,x,y);bool uniform=true;
+            for(int dy=-1;dy<=1;++dy)for(int dx=-1;dx<=1;++dx)uniform=uniform && at(native,stride,x+dx,y+dy)==centre;
+            for(unsigned sy=0;sy<2u;++sy)for(unsigned sx=0;sx<2u;++sx){
+                const uint32_t value=at(hi,hi.width,x*2u+sx,y*2u+sy);
+                if(uniform && value!=centre)throw std::runtime_error("Internal resolution changed a solid area at "+std::to_string(x)+","+std::to_string(y)+" variant "+std::to_string(variant)+" native "+std::to_string(centre)+" scaled "+std::to_string(value));
+                if(!uniform && value!=centre)++refined;
+            }
+            interior+=uniform;
+        }
+        if(interior<4000u || refined<64u)throw std::runtime_error("Internal resolution did not refine edges: "+std::to_string(interior)+" solid, "+std::to_string(refined)+" refined");
+        pair.compare("Internal resolution keeps native VRAM");
+    }
+    std::cout<<"GPU internal resolution checks passed: 2x color, 16-bit, depth-tested and interlaced presentation.\n";
+}
 int run_gpu_checks(bool required){
     try{
         gpu::verify_address_tables();checkFootprints();std::cout<<"GPU swizzle address references passed.\n";
@@ -488,7 +531,7 @@ int run_gpu_checks(bool required){
 #endif
         if(!initialized){std::cout<<"GPU checks unavailable: "<<error<<'\n';return required ? 1 : 77;}
         std::cout<<"GPU checks device: "<<gpu::current_device()->description()<<'\n';
-        checkFlatDepth();checkDepthPlanes();checkPaletteReuse();checkPresentationReadbacks();checkEmptyTriangles();checkMaterials();checkIntegerPipeline();checkFormats();checkLines();checkCoherence();checkTransferPages();checkGpuTransfers();checkRebind();checkClears();checkSourceChanges();checkPartialReadbacks();checkGsWorker();
+        checkFlatDepth();checkDepthPlanes();checkPaletteReuse();checkPresentationReadbacks();checkEmptyTriangles();checkMaterials();checkIntegerPipeline();checkFormats();checkLines();checkCoherence();checkTransferPages();checkGpuTransfers();checkRebind();checkClears();checkSourceChanges();checkPartialReadbacks();checkGsWorker();checkInternalResolution();
         const auto before=gpu_render_statistics().gpuDraws;verify_vector_runtime_gpu();
         if(gpu_render_statistics().gpuDraws-before!=8u)throw std::runtime_error("VIF/PATH1 integration did not execute eight GPU triangles");
         auto device=gpu::current_device();device->post([](gpu::Host&){throw std::runtime_error("GPU failure propagation fixture");});
