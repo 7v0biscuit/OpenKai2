@@ -42,7 +42,7 @@ class Tracker {
 
 void tick(uint8_t *memory, size_t bytes, unsigned level, Tracker &tracker);
 
-void install(uint8_t *memory, size_t bytes, unsigned level, bool allowed = true);
+void install(uint8_t *memory, size_t bytes, unsigned level, bool allowed = true, bool locked = false);
 bool cycle(unsigned &level);
 void on_frame();
 

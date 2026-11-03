@@ -124,6 +124,11 @@ int main() {
             vulkan.renderer = "vulkan";
             write_settings(root / "vulkan.ini", vulkan);
             require(read_settings(root / "vulkan.ini").renderer == "vulkan", "Vulkan renderer setting was not kept");
+            vulkan.overlayColors = {10, 7, 9, 5};
+            vulkan.overlayDecimals = 1;
+            write_settings(root / "vulkan.ini", vulkan);
+            const auto styled = read_settings(root / "vulkan.ini");
+            require(styled.overlayColors == vulkan.overlayColors && styled.overlayDecimals == 1, "Overlay style was not kept");
             vulkan.cpuDifficulty = 3;
             write_settings(root / "vulkan.ini", vulkan);
             require(read_settings(root / "vulkan.ini").cpuDifficulty == 3, "CPU difficulty was not kept");

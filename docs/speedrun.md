@@ -3,7 +3,8 @@
 Speedrun mode times Dragon World runs under the
 [speedrun.com rules for Budokai 2](https://www.speedrun.com/dbzb2) and keeps a
 log that moderators can check. The game itself runs unchanged: same frame rate,
-same disc read times as a PS2. Only the picture is upscaled.
+same disc read times as a PS2. Only the picture is upscaled, and only the CPU
+changes when a Z difficulty is chosen.
 
 Turn it on in the launcher's **Speedrun** page (Ctrl+3):
 
@@ -12,6 +13,7 @@ Turn it on in the launcher's **Speedrun** page (Ctrl+3):
 | Speedrun mode | Off, Any%, NG+ |
 | Permadeath | Losing a Dragon World fight that costs a character health on the map ends the run, whoever is fighting. Loading Dragon World, changing maps, story scenes and fights the story ends on its own never count. **GAME OVER** shows, then the game resets to the main menu and the timer resets |
 | FPS counter | Frame counter in the top corner, also outside speedrun mode |
+| CPU difficulty | Game setting, Z1, Z2, Z3 ([CPU difficulty](cpu-difficulty.md)). Each Z level is its own category with its own splits, shown on the overlay and in the run log (for example "Any% Z3"). It is locked for the run: F6 is off in speedrun mode. The same setting is on the Settings page |
 
 While speedrun mode is on, mods are not loaded.
 
@@ -31,7 +33,9 @@ Any% starts with default equipment. NG+ allows skills set up before Dragon World
 
 **Customize overlay…** on the Speedrun page opens the overlay page. Pick the
 items to show, the corner, the size, the background and how many splits are
-listed. The preview updates as you change them.
+listed, the colors of the text, of times ahead and behind and of best segments,
+and whether times show hundredths, tenths or whole seconds. The preview updates
+as you change them when the window is tall enough to show it.
 
 Each battle won is a split, and the final split is Kid Buu. The overlay
 compares the run with your best run and shows:
@@ -63,6 +67,11 @@ without permadeath:
 - your best run's split times
 - your best segment for each split
 - a line for every attempt
+
+The **Splits** panel on the Speedrun page lists the best run of the category,
+difficulty and permadeath setting that are selected. Pick a split to change its
+time (type it like `12:34.56` or `1:02:03.5`), add a split, remove one, or reset
+the best run. Attempt history is kept.
 
 ## LiveSplit
 

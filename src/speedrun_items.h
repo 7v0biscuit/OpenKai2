@@ -45,4 +45,18 @@ inline constexpr unsigned overlay_defaults =
 inline constexpr unsigned overlay_required = overlay_bit(show_status);
 inline constexpr unsigned overlay_split_rows[] = {3, 5, 8, 12};
 
+struct OverlayColor {
+    const wchar_t *name;
+    unsigned char r, g, b;
+};
+inline constexpr OverlayColor overlay_colors[] = {
+    {L"White", 245, 245, 240}, {L"Grey", 190, 192, 196},  {L"Green", 105, 210, 120}, {L"Red", 232, 102, 88},
+    {L"Gold", 250, 196, 70},   {L"Orange", 255, 150, 40}, {L"Blue", 90, 160, 255},   {L"Cyan", 80, 220, 230},
+    {L"Purple", 180, 120, 255}, {L"Pink", 255, 120, 200}, {L"Yellow", 250, 235, 90},
+};
+inline constexpr unsigned overlay_color_count = sizeof(overlay_colors) / sizeof(overlay_colors[0]);
+enum OverlayColorRole : unsigned { color_text, color_ahead, color_behind, color_gold, overlay_color_roles };
+inline constexpr unsigned overlay_color_defaults[overlay_color_roles] = {0, 2, 3, 4};
+inline constexpr const wchar_t *overlay_decimal_names[] = {L"Whole seconds", L"Tenths", L"Hundredths"};
+
 }

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #pragma once
+#include <array>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -30,6 +31,8 @@ struct Settings {
     bool fpsCounter = false;
     unsigned overlayItems = speedrun::overlay_defaults;
     unsigned overlayCorner = 0, overlaySize = 1, overlayBackground = 1, overlaySplits = 1;
+    std::array<unsigned, speedrun::overlay_color_roles> overlayColors{0, 2, 3, 4};
+    unsigned overlayDecimals = 2;
     std::string onlineName = "Player";
     std::string onlineAddress;
     unsigned onlinePort = 7350, onlineDelay = 0;

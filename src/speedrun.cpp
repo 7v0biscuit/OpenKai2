@@ -5,6 +5,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <sstream>
 #include <stdexcept>
@@ -28,6 +29,20 @@ const char *category_name(Category category) {
     case Category::new_game_plus: return "NG+";
     default: return "Off";
     }
+}
+
+std::string category_label(Category category, unsigned cpu) {
+    static const char *const levels[] = {"", " Z1", " Z2", " Z3"};
+    return std::string(category_name(category)) + levels[cpu < 4u ? cpu : 0u];
+}
+
+std::string splits_name(Category category, bool permadeath, unsigned cpu) {
+    std::string name = category == Category::new_game_plus ? "ngplus" : "any";
+    if (permadeath)
+        name += "-permadeath";
+    if (cpu >= 1u && cpu <= 3u)
+        name += "-z" + std::to_string(cpu);
+    return name + ".txt";
 }
 
 GuestState read_guest(const uint8_t *rdram, size_t bytes) {
@@ -161,6 +176,49 @@ double Timer::game(uint64_t fields) const {
     if (phase_ == Phase::finished)
         return final_.game;
     return fields > start_fields_ ? double(fields - start_fields_) / field_rate : 0.0;
+}
+
+bool parse_time(const std::string &text, double &seconds) {
+    std::vector<double> parts;
+    std::string current;
+    for (char c : text + ':') {
+        if (c == ' ')
+            continue;
+        if (c == ':') {
+            if (current.empty())
+                return false;
+            char *end = nullptr;
+            const double value = std::strtod(current.c_str(), &end);
+            if (*end || value < 0)
+                return false;
+            parts.push_back(value);
+            current.clear();
+        } else if (std::isdigit(static_cast<unsigned char>(c)) || c == '.') {
+            current += c;
+        } else {
+            return false;
+        }
+    }
+    if (parts.empty() || parts.size() > 3)
+        return false;
+    for (size_t i = 0; i + 1 < parts.size(); ++i)
+        if (parts[i] != std::floor(parts[i]) || (i > 0 && parts[i] >= 60))
+            return false;
+    if (parts.size() > 1 && parts.back() >= 60)
+        return false;
+    seconds = 0;
+    for (double part : parts)
+        seconds = seconds * 60 + part;
+    return seconds > 0;
+}
+
+std::string format_time(double seconds, unsigned decimals) {
+    if (decimals >= 2u)
+        return format_time(seconds, true);
+    if (decimals == 0u)
+        return format_time(seconds, false);
+    const std::string full = format_time(seconds, true);
+    return full.substr(0, full.size() - 1u);
 }
 
 std::string format_time(double seconds, bool hundredths) {
@@ -327,6 +385,44 @@ bool SplitBook::record(const Attempt &attempt) {
     }
     history_.push_back(line);
     return personal_best;
+}
+
+bool SplitBook::set_split(size_t index, double time) {
+    if (index >= best_.size() || !(time > 0))
+        return false;
+    best_[index] = time;
+    std::sort(best_.begin(), best_.end());
+    return true;
+}
+
+void SplitBook::add_split(double time) {
+    if (!(time > 0))
+        return;
+    best_.push_back(time);
+    std::sort(best_.begin(), best_.end());
+    if (golds_.size() < best_.size())
+        golds_.resize(best_.size(), 0.0);
+    double previous = 0;
+    for (size_t i = 0; i < best_.size(); ++i) {
+        const double segment = best_[i] - previous;
+        previous = best_[i];
+        if (golds_[i] <= 0 || segment < golds_[i])
+            golds_[i] = segment;
+    }
+}
+
+bool SplitBook::remove_split(size_t index) {
+    if (index >= best_.size())
+        return false;
+    best_.erase(best_.begin() + std::ptrdiff_t(index));
+    if (index < golds_.size())
+        golds_.erase(golds_.begin() + std::ptrdiff_t(index));
+    return true;
+}
+
+void SplitBook::clear_best() {
+    best_.clear();
+    golds_.clear();
 }
 
 bool SplitBook::delta(size_t index, double time, double &difference) const {

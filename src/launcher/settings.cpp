@@ -2,6 +2,7 @@
 #include "launcher/settings.h"
 #include "disc_image.h"
 #include "launcher/paths.h"
+#include <algorithm>
 #include <fstream>
 #include <iomanip>
 #include <sstream>
@@ -19,7 +20,8 @@ void validate_settings(const Settings &s) {
         s.windowMode > 1 || s.antialiasing > 1 || s.textureFilter > 2 || s.upscaler > 5 ||
         s.aspect > 3 || s.volume > 100 || s.cpuDifficulty > 3 || s.windowWidth < 0 || s.windowHeight < 0 ||
         s.windowWidth > 32768 || s.windowHeight > 32768 || s.updateChannel > 1 || s.speedrun > 2 || s.overlayItems > speedrun::overlay_all || s.overlayCorner > 3 ||
-        s.overlaySize > 2 || s.overlayBackground > 2 || s.overlaySplits > 3 || (s.renderer != "auto" && s.renderer != "gpu" && s.renderer != "vulkan" && s.renderer != "cpu"))
+        s.overlaySize > 2 || s.overlayBackground > 2 || s.overlaySplits > 3 || s.overlayDecimals > 2 ||
+        std::any_of(s.overlayColors.begin(), s.overlayColors.end(), [](unsigned c) { return c >= speedrun::overlay_color_count; }) || (s.renderer != "auto" && s.renderer != "gpu" && s.renderer != "vulkan" && s.renderer != "cpu"))
         throw std::runtime_error("Invalid graphics settings");
     if (s.onlinePort < 1 || s.onlinePort > 65535 || s.onlineDelay > 8 || s.onlineVisibility > 2 || s.onlineKeys.size() > 32 || s.onlineName.size() > 64 ||
         s.onlineAddress.size() > 255 || s.onlineRoom.size() > 64 || s.onlinePassword.size() > 64 ||
@@ -102,6 +104,11 @@ Settings read_settings(const std::filesystem::path &file) {
             row >> s.overlayItems >> s.overlayCorner >> s.overlaySize >> s.overlayBackground >> s.overlaySplits;
             s.overlayItems |= speedrun::overlay_required;
         }
+        else if (key == "overlay_style") {
+            for (auto &color : s.overlayColors)
+                row >> color;
+            row >> s.overlayDecimals;
+        }
         else if (key == "online")
             row >> std::quoted(s.onlineName) >> std::quoted(s.onlineAddress) >> s.onlinePort >> s.onlineDelay;
         else if (key == "online_room")
@@ -171,7 +178,9 @@ void write_settings(const std::filesystem::path &file, const Settings &s) {
         << "\nlauncher_window " << s.windowLeft << ' ' << s.windowTop << ' ' << s.windowWidth << ' '
         << s.windowHeight << ' ' << s.windowMaximized << "\nspeedrun " << s.speedrun << ' ' << s.permadeath
         << "\nfps_counter " << s.fpsCounter << "\noverlay " << s.overlayItems << ' ' << s.overlayCorner << ' '
-        << s.overlaySize << ' ' << s.overlayBackground << ' ' << s.overlaySplits << "\nonline "
+        << s.overlaySize << ' ' << s.overlayBackground << ' ' << s.overlaySplits << "\noverlay_style "
+        << s.overlayColors[0] << ' ' << s.overlayColors[1] << ' ' << s.overlayColors[2] << ' ' << s.overlayColors[3] << ' '
+        << s.overlayDecimals << "\nonline "
         << std::quoted(s.onlineName) << ' ' << std::quoted(s.onlineAddress) << ' ' << s.onlinePort << ' '
         << s.onlineDelay << "\nonline_room " << std::quoted(s.onlineRoom) << ' ' << std::quoted(s.onlinePassword) << ' '
         << s.onlineListed << ' ' << std::quoted(s.onlineLobby) << "\nonline_profiles";

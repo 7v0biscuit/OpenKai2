@@ -11,6 +11,8 @@ namespace openkai2::speedrun {
 
 enum class Category : unsigned { off = 0, any = 1, new_game_plus = 2 };
 const char *category_name(Category category);
+std::string category_label(Category category, unsigned cpu);
+std::string splits_name(Category category, bool permadeath, unsigned cpu);
 
 inline constexpr uint32_t task_first = 0x3B5358u;
 inline constexpr uint32_t task_end = 0x3B53B0u;
@@ -89,6 +91,8 @@ class Timer {
 };
 
 std::string format_time(double seconds, bool hundredths = true);
+std::string format_time(double seconds, unsigned decimals);
+bool parse_time(const std::string &text, double &seconds);
 
 class SpeedCheck {
   public:
@@ -150,6 +154,10 @@ class SplitBook {
     unsigned attempts() const { return attempts_; }
     unsigned completed() const { return completed_; }
     const std::vector<std::string> &history() const { return history_; }
+    bool set_split(size_t index, double time);
+    void add_split(double time);
+    bool remove_split(size_t index);
+    void clear_best();
 
   private:
     unsigned attempts_ = 0, completed_ = 0;

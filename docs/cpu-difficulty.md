@@ -27,5 +27,7 @@ How it works:
   health, and the game's own hit finishes the fight. A knocked-out CPU is never
   revived.
 
-Z levels are off in speedrun mode and in online play, so runs and online
-matches play the same for everyone.
+Z levels are off in online play, so online matches play the same for everyone.
+In speedrun mode they are allowed and each one is its own category; see
+[Speedrun mode](speedrun.md). The level is locked for a run, so F6 does nothing
+there.

@@ -42,7 +42,7 @@ struct Installed {
     uint8_t *memory = nullptr;
     size_t bytes = 0;
     unsigned level = 0;
-    bool allowed = false;
+    bool allowed = false, locked = false;
     Tracker tracker;
 };
 Installed &installed() {
@@ -143,10 +143,11 @@ void tick(uint8_t *memory, size_t bytes, unsigned level, Tracker &tracker) {
     }
 }
 
-void install(uint8_t *memory, size_t bytes, unsigned level, bool allowed) {
+void install(uint8_t *memory, size_t bytes, unsigned level, bool allowed, bool locked) {
     auto &state = installed();
     std::lock_guard lock(state.mutex);
     state.allowed = allowed;
+    state.locked = locked;
     state.memory = allowed ? memory : nullptr;
     state.bytes = bytes;
     state.level = allowed && level < level_count ? level : 0;
@@ -156,7 +157,7 @@ void install(uint8_t *memory, size_t bytes, unsigned level, bool allowed) {
 bool cycle(unsigned &level) {
     auto &state = installed();
     std::lock_guard lock(state.mutex);
-    if (!state.allowed || !state.memory)
+    if (!state.allowed || !state.memory || state.locked)
         return false;
     state.level = (state.level + 1) % level_count;
     state.tracker.reset();

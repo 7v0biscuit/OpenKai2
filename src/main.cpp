@@ -239,9 +239,14 @@ int main(int argc, char* argv[]) {
             overlay.size=preferences.overlaySize;
             overlay.background=preferences.overlayBackground;
             overlay.split_rows=run::overlay_split_rows[std::min(preferences.overlaySplits,3u)];
+            overlay.cpu=online.enabled ? 0u : std::min(preferences.cpuDifficulty,3u);
+            overlay.decimals=std::min(preferences.overlayDecimals,2u);
+            for (unsigned role=0;role<run::overlay_color_roles;++role) {
+                const auto& c=run::overlay_colors[std::min(preferences.overlayColors[role],run::overlay_color_count-1u)];
+                overlay.colors[role]={c.r,c.g,c.b};
+            }
             overlay.logs=log.path.parent_path()/"speedruns";
-            overlay.splits=log.path.parent_path().parent_path()/"splits"/
-                (std::string(category==run::Category::any ? "any" : "ngplus")+(overlay.permadeath ? "-permadeath" : "")+".txt");
+            overlay.splits=log.path.parent_path().parent_path()/"splits"/run::splits_name(category,overlay.permadeath,overlay.cpu);
             if (speedrun) {
                 std::vector<run::DiscFileHash> hashes;
                 for (const auto& file : disc.files) hashes.push_back({file.path.generic_string(),file.sha256});
@@ -253,7 +258,8 @@ int main(int argc, char* argv[]) {
                     "iso sha256 "+disc.image_sha256,
                     std::string("game executable sha256 ")+openkai2::retail_elf_sha256+" (US retail)",
                     std::string("game data ")+(overlay.problems.empty() ? "matches the US retail disc" : "differs from the US retail disc"),
-                    std::string("category ")+run::category_name(category)+(overlay.permadeath ? " permadeath" : ""),
+                    "category "+run::category_label(category,overlay.cpu)+(overlay.permadeath ? " permadeath" : ""),
+                    std::string("cpu difficulty ")+openkai2::cpu::level_name(overlay.cpu),
                     "timing: starts when Dragon World starts, ends on the last hit of Kid Buu",
                     "renderer "+openkai2::renderer_preference()+" fps_limit "+std::to_string(openkai2::window_fps_limit())+
                         " size "+std::to_string(display.width)+"x"+std::to_string(display.height)+" mods off"};
@@ -299,10 +305,10 @@ int main(int argc, char* argv[]) {
         if (!alternates.empty())
             std::cout << "[mods] select: R2 switches characters on shared spots" << std::endl;
         openkai2::mods::install_alternates(runtime.memory().getRDRAM(),PS2_RAM_SIZE,std::move(alternates));
-        const unsigned cpuLevel=speedrun || online.enabled ? 0u : std::min(preferences.cpuDifficulty,3u);
-        openkai2::cpu::install(runtime.memory().getRDRAM(),PS2_RAM_SIZE,cpuLevel,!speedrun && !online.enabled);
-        if (cpuLevel) std::cout << "[cpu] difficulty " << openkai2::cpu::level_name(cpuLevel) << std::endl;
-        else if (preferences.cpuDifficulty) std::cout << "[cpu] difficulty Z levels are off in speedrun mode and online" << std::endl;
+        const unsigned cpuLevel=online.enabled ? 0u : std::min(preferences.cpuDifficulty,3u);
+        openkai2::cpu::install(runtime.memory().getRDRAM(),PS2_RAM_SIZE,cpuLevel,!online.enabled,speedrun);
+        if (cpuLevel) std::cout << "[cpu] difficulty " << openkai2::cpu::level_name(cpuLevel) << (speedrun ? " (locked for the run)" : "") << std::endl;
+        else if (preferences.cpuDifficulty) std::cout << "[cpu] difficulty Z levels are off online" << std::endl;
         presence.update("Playing Budokai 2",online.enabled ? "Online" : "In game");
         std::unique_ptr<openkai2::netplay::Session> session;
         if (online.enabled)

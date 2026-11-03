@@ -203,6 +203,7 @@ struct Overlay {
                 personal_best = false;
                 died_at = -1;
                 note("run " + std::to_string(runs) + " started (" + category_name(options.category) +
+                     (options.cpu ? ", CPU Z" + std::to_string(options.cpu) : std::string()) +
                      (options.permadeath ? ", permadeath" : "") + ")");
                 if (livesplit) {
                     livesplit->send("reset");
@@ -399,9 +400,12 @@ struct Overlay {
             return;
         const float scale_choice[] = {0.85f, 1.0f, 1.25f};
         const float s = std::max(0.75f, float(GetScreenHeight()) / 1080.0f) * scale_choice[std::min(options.size, 2u)];
-        const Color white{245, 245, 240, 235}, dim{245, 245, 240, 110}, grey{190, 192, 196, 190},
-            faint{190, 192, 196, 120}, ahead{105, 210, 120, 240}, behind{232, 102, 88, 240},
-            gold{250, 196, 70, 245};
+        const auto pick = [&](unsigned role, unsigned char alpha) {
+            const auto &c = options.colors[role];
+            return Color{c[0], c[1], c[2], alpha};
+        };
+        const Color white = pick(0, 235), dim = pick(0, 110), grey = pick(0, 190), faint = pick(0, 120),
+                    ahead = pick(1, 240), behind = pick(2, 240), gold = pick(3, 245);
         const unsigned corner = std::min(options.corner, 3u);
         if (options.fps_counter && !hidden) {
             const std::string value = std::to_string(host_fps) + " FPS";
@@ -429,13 +433,14 @@ struct Overlay {
         const auto shows = [&](OverlayItem item) { return (visible & overlay_bit(item)) != 0; };
         const auto phase = timer.phase();
         const auto view = make_view(timer, book, now, shows(show_splits) ? options.split_rows : 0);
-        const auto short_time = [](double value) {
+        const auto short_time = [&](double value) {
             char text[32];
             if (value < 60) {
-                std::snprintf(text, sizeof text, "%.2f", std::floor(std::max(0.0, value) * 100) / 100);
+                const double scale = std::pow(10.0, double(options.decimals));
+                std::snprintf(text, sizeof text, "%.*f", int(options.decimals), std::floor(std::max(0.0, value) * scale) / scale);
                 return std::string(text);
             }
-            return format_time(value);
+            return format_time(value, options.decimals);
         };
         const auto tone = [&](double difference, bool best_segment) {
             return best_segment ? gold : difference < 0 ? ahead : behind;
@@ -444,7 +449,7 @@ struct Overlay {
         std::vector<Row> rows;
         if (shows(show_status)) {
             Row row;
-            row.left = std::string(category_name(options.category)) + (options.permadeath ? "   Permadeath" : "");
+            row.left = category_label(options.category, options.cpu) + (options.permadeath ? "   Permadeath" : "");
             if (!options.permadeath && timer.losses())
                 row.left += "   Lost " + std::to_string(timer.losses());
             row.left_color = grey;
@@ -464,7 +469,7 @@ struct Overlay {
                     row.middle = format_delta(split.delta);
                     row.middle_color = split.done ? tone(split.delta, split.gold) : behind;
                 }
-                row.right = split.has_time ? format_time(split.time) : "-";
+                row.right = split.has_time ? format_time(split.time, options.decimals) : "-";
                 row.right_color = split.done ? white : faint;
                 row.highlight = split.current;
                 row.size = 14;
@@ -474,7 +479,7 @@ struct Overlay {
         if (shows(show_timer)) {
             Row row;
             row.timer = true;
-            row.right = format_time(view.timer);
+            row.right = format_time(view.timer, options.decimals);
             row.right_color = phase == Phase::waiting ? dim
                               : phase == Phase::finished && personal_best ? gold
                               : view.pace < 0 ? ahead
@@ -504,16 +509,16 @@ struct Overlay {
         if (shows(show_time_save))
             info("Possible time save", view.has_time_save ? short_time(view.time_save) : "-", view.has_time_save ? white : faint);
         if (shows(show_best_possible))
-            info("Best possible time", view.has_best_possible ? format_time(view.best_possible) : "-",
+            info("Best possible time", view.has_best_possible ? format_time(view.best_possible, options.decimals) : "-",
                  view.has_best_possible ? white : faint);
         if (shows(show_sum_of_best))
-            info("Sum of best", view.has_sum_of_best ? format_time(view.sum_of_best) : "-",
+            info("Sum of best", view.has_sum_of_best ? format_time(view.sum_of_best, options.decimals) : "-",
                  view.has_sum_of_best ? white : faint);
         if (shows(show_personal_best))
-            info("Personal best", book.has_best() ? format_time(book.best_time()) : "-",
+            info("Personal best", book.has_best() ? format_time(book.best_time(), options.decimals) : "-",
                  book.has_best() ? white : faint);
         if (shows(show_ps2_time))
-            info("PS2 time", format_time(timer.game(last_fields)), white);
+            info("PS2 time", format_time(timer.game(last_fields), options.decimals), white);
         if (shows(show_attempts))
             info("Attempts", std::to_string(view.attempt) + "  (" + std::to_string(view.finished) + " finished)", white);
         if (rows.empty())

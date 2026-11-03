@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #pragma once
 #include "speedrun.h"
+#include <array>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -15,6 +16,8 @@ struct OverlayOptions {
     bool fps_counter = false;
     bool skip_to_menu = false;
     unsigned items = 0, corner = 0, size = 1, background = 1, split_rows = 5;
+    unsigned cpu = 0, decimals = 2;
+    std::array<std::array<unsigned char, 3>, 4> colors{{{245, 245, 240}, {105, 210, 120}, {232, 102, 88}, {250, 196, 70}}};
     std::filesystem::path logs;
     std::filesystem::path splits;
     std::vector<std::string> header;

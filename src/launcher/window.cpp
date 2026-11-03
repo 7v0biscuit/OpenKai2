@@ -8,6 +8,7 @@
 #include "launcher/settings.h"
 #include "launcher/update.h"
 #include "launcher/version.h"
+#include "speedrun.h"
 #include "dev_identity.h"
 #include "netplay.h"
 #include "room.h"
@@ -69,7 +70,8 @@ constexpr COLORREF heroFrom = RGB(64, 24, 8), heroTo = RGB(15, 17, 31);
 constexpr int sidebarWidth = 220, contentLeft = 252, margin = 32;
 constexpr int heroTop = 124, heroBottom = 316, discTop = 332, discBottom = 420;
 constexpr int tilesTop = 436, tilesBottom = 516, keysTop = 540;
-constexpr int displayTop = 112, graphicsTop = 278, gameTop = 444, updatesTop = 554, speedrunTop = 112, speedrunRulesTop = 228;
+constexpr int displayTop = 112, graphicsTop = 278, gameTop = 444, updatesTop = 554, speedrunTop = 112, splitsTop = 284,
+              speedrunRulesTop = 526;
 constexpr int onlineProfileTop = 112, onlineHostTop = 228, onlineListsTop = 400;
 constexpr UINT onlineChanged = WM_APP + 30, onlineNotice = WM_APP + 31;
 
@@ -154,6 +156,12 @@ enum Id {
     OverlayBackground,
     OverlaySplits,
     OverlayDefaults,
+    OverlayText,
+    OverlayAhead,
+    OverlayBehind,
+    OverlayGold,
+    OverlayDecimals,
+    SpeedrunCpu,
     OnlineName = 240,
     OnlineDelay,
     OnlinePort,
@@ -176,7 +184,13 @@ enum Id {
     AddFriend,
     NoticeAccept,
     NoticeDecline,
-    FriendList
+    FriendList,
+    SplitList,
+    SplitTime,
+    SplitSet,
+    SplitAdd,
+    SplitRemove,
+    SplitReset
 };
 constexpr int friendsTop = 462;
 constexpr int pageCount = 6, onlinePage = 1, speedrunPage = 2, modsPage = 3, savesPage = 4, settingsPage = 5, importPage = 6,
@@ -624,7 +638,7 @@ struct Window {
         for (auto [id, control] : controls)
             if ((id >= Renderer && id <= CpuDifficulty) || id == UpdateChannel || id == AutomaticUpdates ||
                 id == SaveListKind || id == TargetMod || id == SpotMode ||
-                (id >= SpeedrunMode && id <= FpsCounter) || (id >= OverlayCorner && id <= OverlaySplits) || id == OnlineDelay || id == OnlineProfile || id == OnlineListed)
+                (id >= SpeedrunMode && id <= FpsCounter) || (id >= OverlayCorner && id <= OverlaySplits) || (id >= OverlayText && id <= SpeedrunCpu) || id == OnlineDelay || id == OnlineProfile || id == OnlineListed)
                 if (SendMessageW(control, CB_GETDROPPEDSTATE, 0, 0)) return true;
         return false;
     }
@@ -759,6 +773,7 @@ struct Window {
         SetPropW(controls[id], L"OpenKai2.EditProcedure", reinterpret_cast<HANDLE>(old));
         SetPropW(controls[id], L"OpenKai2.EditHint", reinterpret_cast<HANDLE>(const_cast<wchar_t *>(hint)));
     }
+    speedrun::SplitBook splitBook;
     std::wstring textOf(int id) const {
         const int n = GetWindowTextLengthW(controls.at(id));
         std::wstring value(size_t(n) + 1, 0);
@@ -912,6 +927,25 @@ struct Window {
         combo(OverlaySize, {L"Small", L"Medium", L"Large"}, int(settings.overlaySize));
         combo(OverlayBackground, {L"None", L"Light", L"Dark"}, int(settings.overlayBackground));
         combo(OverlaySplits, {L"3 splits", L"5 splits", L"8 splits", L"12 splits"}, int(settings.overlaySplits));
+        {
+            std::vector<std::wstring> colors;
+            for (const auto &color : speedrun::overlay_colors)
+                colors.push_back(color.name);
+            const int roles[] = {OverlayText, OverlayAhead, OverlayBehind, OverlayGold};
+            for (unsigned role = 0; role < speedrun::overlay_color_roles; ++role)
+                combo(roles[role], colors, int(std::min(settings.overlayColors[role], speedrun::overlay_color_count - 1u)));
+        }
+        combo(OverlayDecimals, {speedrun::overlay_decimal_names[0], speedrun::overlay_decimal_names[1],
+                                speedrun::overlay_decimal_names[2]},
+              int(std::min(settings.overlayDecimals, 2u)));
+        combo(SpeedrunCpu, {L"Game setting", L"Z1", L"Z2", L"Z3"}, int(std::min(settings.cpuDifficulty, 3u)));
+        list(SplitList, L"Saved splits", 30, false);
+        edit(SplitTime, L"Time, like 12:34.56");
+        button(SplitSet, L"Set time");
+        button(SplitAdd, L"Add split");
+        button(SplitRemove, L"Remove");
+        button(SplitReset, L"Reset best");
+        refreshSplits();
         combo(Aspect, {L"4:3 (original)", L"16:9 (widescreen)", L"Stretch to window", L"Native pixels"},
               int(settings.aspect));
         combo(Audio, {L"Off", L"100% volume", L"75% volume", L"50% volume", L"25% volume"},
@@ -1102,7 +1136,16 @@ struct Window {
             position(SpeedrunMode, grid.x(0), Grid::field(speedrunTop, 0), grid.column, 34);
             position(Permadeath, grid.x(1), Grid::field(speedrunTop, 0), grid.column, 34);
             position(FpsCounter, grid.x(2), Grid::field(speedrunTop, 0), grid.column, 34);
+            position(SpeedrunCpu, grid.x(0), Grid::field(speedrunTop, 1), grid.column, 34);
             position(OpenOverlay, right - 20 - 170, speedrunTop + 10, 170, 28);
+            const int listWidth = (content - 40) * 58 / 100, side = contentLeft + 20 + listWidth + 16;
+            const int sideWidth = right - 20 - side, half = (sideWidth - 10) / 2;
+            position(SplitList, contentLeft + 20, splitsTop + 44, listWidth, speedrunRulesTop - 12 - 14 - splitsTop - 44);
+            position(SplitTime, side, splitsTop + 66, sideWidth, 22);
+            position(SplitSet, side, splitsTop + 100, half, 34);
+            position(SplitAdd, side + half + 10, splitsTop + 100, sideWidth - half - 10, 34);
+            position(SplitRemove, side, splitsTop + 144, half, 34);
+            position(SplitReset, side + half + 10, splitsTop + 144, sideWidth - half - 10, 34);
         } else if (page == onlinePage) {
             const Grid grid(content);
             const int half = (grid.column - 10) / 2, bottom = h - 64;
@@ -1143,6 +1186,11 @@ struct Window {
             position(OverlaySize, side + column + 12, 246, column, 34);
             position(OverlayBackground, side, 314, column, 34);
             position(OverlaySplits, side + column + 12, 314, column, 34);
+            position(OverlayText, side, 382, column, 34);
+            position(OverlayAhead, side + column + 12, 382, column, 34);
+            position(OverlayBehind, side, 450, column, 34);
+            position(OverlayGold, side + column + 12, 450, column, 34);
+            position(OverlayDecimals, side, 518, column, 34);
         } else if (page == importPage) {
             const int listsBottom = h - 210, targetTop = listsBottom + 12;
             int x = contentLeft + 20;
@@ -1466,6 +1514,28 @@ struct Window {
         }
         editFrame(dc, ModName);
     }
+    std::filesystem::path splitsFile() const {
+        return settings_path().parent_path() / "splits" /
+               speedrun::splits_name(speedrun::Category(std::min(settings.speedrun, 2u)), settings.permadeath,
+                                     std::min(settings.cpuDifficulty, 3u));
+    }
+    void refreshSplits() {
+        const auto list = controls[SplitList];
+        const auto chosen = SendMessageW(list, LB_GETCURSEL, 0, 0);
+        SendMessageW(list, LB_RESETCONTENT, 0, 0);
+        splitBook = settings.speedrun ? speedrun::SplitBook::load(splitsFile()) : speedrun::SplitBook{};
+        const auto &best = splitBook.best();
+        const auto &golds = splitBook.golds();
+        for (size_t i = 0; i < best.size(); ++i) {
+            std::wstring row = (i + 1 == best.size() ? std::wstring(L"Kid Buu") : L"Battle " + std::to_wstring(i + 1)) +
+                               L" \u00b7 " + wide(speedrun::format_time(best[i]));
+            if (i < golds.size() && golds[i] > 0)
+                row += L" \u00b7 best segment " + wide(speedrun::format_time(golds[i]));
+            SendMessageW(list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(row.c_str()));
+        }
+        if (chosen >= 0 && size_t(chosen) < best.size())
+            SendMessageW(list, LB_SETCURSEL, chosen, 0);
+    }
     void refreshOverlayItems() {
         const auto list = controls[OverlayItems];
         const auto chosen = SendMessageW(list, LB_GETCURSEL, 0, 0);
@@ -1485,6 +1555,10 @@ struct Window {
         next.overlaySize = unsigned(selected(OverlaySize));
         next.overlayBackground = unsigned(selected(OverlayBackground));
         next.overlaySplits = unsigned(selected(OverlaySplits));
+        const int roles[] = {OverlayText, OverlayAhead, OverlayBehind, OverlayGold};
+        for (unsigned role = 0; role < speedrun::overlay_color_roles; ++role)
+            next.overlayColors[role] = unsigned(std::max(0, selected(roles[role])));
+        next.overlayDecimals = unsigned(std::max(0, selected(OverlayDecimals)));
         write_settings(settings_path(), next);
         settings = std::move(next);
         status = message;
@@ -1505,11 +1579,19 @@ struct Window {
         caps(dc, L"SIZE", side + column + 12, 228, 200);
         caps(dc, L"BACKGROUND", side, 296, 200);
         caps(dc, L"SPLIT LIST", side + column + 12, 296, 200);
-        caps(dc, L"PREVIEW", side, 366, 200);
+        caps(dc, L"TEXT COLOR", side, 364, 200);
+        caps(dc, L"AHEAD COLOR", side + column + 12, 364, 200);
+        caps(dc, L"BEHIND COLOR", side, 432, 200);
+        caps(dc, L"BEST SEGMENT COLOR", side + column + 12, 432, 200);
+        caps(dc, L"TIMES SHOWN TO", side, 500, 200);
+        const int previewTop = 576;
+        if (panelBottom - 20 - previewTop < 80)
+            return;
+        caps(dc, L"PREVIEW", side, previewTop - 20, 200);
 
         const int previewWidth = right - 20 - side;
-        const int previewHeight = std::max(80, std::min(previewWidth * 9 / 16, panelBottom - 20 - 386));
-        const RECT screen{p(side), p(386), p(side + previewWidth), p(386 + previewHeight)};
+        const int previewHeight = std::max(80, std::min(previewWidth * 9 / 16, panelBottom - 20 - previewTop));
+        const RECT screen{p(side), p(previewTop), p(side + previewWidth), p(previewTop + previewHeight)};
         const int span = std::max(1L, screen.bottom - screen.top);
         for (int y = screen.top; y < screen.bottom; ++y)
             fill(dc, {screen.left, y, screen.right, y + 1},
@@ -1896,7 +1978,7 @@ struct Window {
     void paintSpeedrun(HDC dc, int h, int content) {
         const int right = contentLeft + content;
         const Grid grid(content);
-        panelBox(dc, contentLeft, speedrunTop, right, speedrunTop + 104);
+        panelBox(dc, contentLeft, speedrunTop, right, speedrunTop + 160);
         text(dc, L"Run", contentLeft + 20, speedrunTop + 12, 200, 22, fonts.strong);
         text(dc, settings.speedrun ? L"Mods are off while a category is chosen. F7 hides the overlay; F8 resets."
                                    : L"Choose a category to time runs.",
@@ -1905,6 +1987,25 @@ struct Window {
         caps(dc, L"CATEGORY", grid.x(0), Grid::label(speedrunTop, 0), grid.column);
         caps(dc, L"PERMADEATH", grid.x(1), Grid::label(speedrunTop, 0), grid.column);
         caps(dc, L"FPS COUNTER", grid.x(2), Grid::label(speedrunTop, 0), grid.column);
+        caps(dc, L"CPU DIFFICULTY", grid.x(0), Grid::label(speedrunTop, 1), grid.column);
+        text(dc, L"Z1, Z2 and Z3 runs are timed as their own categories, with their own splits.", grid.x(1),
+             Grid::field(speedrunTop, 1) + 8, grid.column * 2 + 16, 18, fonts.caption, muted,
+             DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        panelBox(dc, contentLeft, splitsTop, right, speedrunRulesTop - 12);
+        const std::wstring splitTitle =
+            settings.speedrun ? L"Splits \u00b7 " +
+                                    wide(speedrun::category_label(speedrun::Category(std::min(settings.speedrun, 2u)),
+                                                                  std::min(settings.cpuDifficulty, 3u))) +
+                                    (settings.permadeath ? L" permadeath" : L"")
+                              : std::wstring(L"Splits");
+        text(dc, splitTitle, contentLeft + 20, splitsTop + 12, content - 40, 22, fonts.strong);
+        const int listWidth = (content - 40) * 58 / 100, side = contentLeft + 20 + listWidth + 16;
+        caps(dc, L"TIME", side, splitsTop + 48, right - 20 - side);
+        if (splitBook.best().empty())
+            text(dc, settings.speedrun ? L"No best run saved yet. Finish a run, or add split times here."
+                                       : L"Choose a category to see and edit its splits.",
+                 contentLeft + 28, splitsTop + 52, listWidth - 16, 18, fonts.caption, muted,
+                 DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
         const int bottom = std::max(speedrunRulesTop + 120, h - 64 + 6);
         panelBox(dc, contentLeft, speedrunRulesTop, right, bottom);
         text(dc, L"How runs are timed", contentLeft + 20, speedrunRulesTop + 12, content - 40, 22, fonts.strong);
@@ -1913,6 +2014,7 @@ struct Window {
             L"Real time is the leaderboard time. PS2 time counts the console's frames, so slowdown is not added.",
             L"Any% starts with default equipment. NG+ allows skills set up before Dragon World.",
             L"Permadeath: losing a Dragon World fight that costs a character map health ends the run.",
+            L"Z1, Z2 and Z3 make the CPU stronger and are locked for the whole run; F6 is off in speedrun mode.",
             L"Each battle won is a split. Best runs and best segments are saved after every attempt.",
             L"Runs are flagged if the disc differs from the US retail disc, the game runs fast, or a memory editor is open.",
             L"Each session writes a checksummed log to logs\\speedruns for speedrun.com moderators."};
@@ -4142,9 +4244,18 @@ struct Window {
                     L" selected. Ctrl+click or Shift+click selects several; Ctrl+A selects all.";
             refreshEnabled(); return;
         }
-        if (((id >= Renderer && id <= CpuDifficulty) || (id >= SpeedrunMode && id <= FpsCounter)) &&
+        if (((id >= Renderer && id <= CpuDifficulty) || (id >= SpeedrunMode && id <= FpsCounter) || id == SpeedrunCpu) &&
             notification == CBN_SELCHANGE) {
+            if (id == SpeedrunCpu)
+                SendMessageW(controls[CpuDifficulty], CB_SETCURSEL, selected(SpeedrunCpu), 0);
             saveOptions();
+            SendMessageW(controls[SpeedrunCpu], CB_SETCURSEL, std::min(settings.cpuDifficulty, 3u), 0);
+            if (id == SpeedrunMode || id == Permadeath || id == SpeedrunCpu || id == CpuDifficulty)
+                refreshSplits();
+            if (id == SpeedrunCpu)
+                status = settings.cpuDifficulty ? L"CPU difficulty Z" + std::to_wstring(settings.cpuDifficulty) +
+                                                      L". Runs at this difficulty are timed as their own category."
+                                                : std::wstring(L"CPU difficulty follows the game's own setting.");
             if (id == SpeedrunMode || id == Permadeath)
                 status = settings.speedrun
                              ? std::wstring(L"Speedrun mode: ") + (settings.speedrun == 1 ? L"Any%" : L"NG+") +
@@ -4349,8 +4460,61 @@ struct Window {
             saveOverlay(std::wstring(speedrun::overlay_item_text[row].name) + (on ? L" is shown." : L" is hidden."));
             return;
         }
-        if (id >= OverlayCorner && id <= OverlaySplits && notification == CBN_SELCHANGE) {
+        if (((id >= OverlayCorner && id <= OverlaySplits) || (id >= OverlayText && id <= OverlayDecimals)) &&
+            notification == CBN_SELCHANGE) {
             saveOverlay(L"Overlay layout saved.");
+            return;
+        }
+        if (id == SplitList && notification == LBN_SELCHANGE) {
+            const auto row = SendMessageW(controls[SplitList], LB_GETCURSEL, 0, 0);
+            if (row >= 0 && size_t(row) < splitBook.best().size())
+                SetWindowTextW(controls[SplitTime], wide(speedrun::format_time(splitBook.best()[size_t(row)])).c_str());
+            return;
+        }
+        if ((id == SplitSet || id == SplitAdd || id == SplitRemove || id == SplitReset) && notification == BN_CLICKED) {
+            if (!settings.speedrun) {
+                status = L"Choose a speedrun category first; each category keeps its own splits.";
+                error = true;
+                InvalidateRect(hwnd, nullptr, FALSE);
+                return;
+            }
+            const auto row = SendMessageW(controls[SplitList], LB_GETCURSEL, 0, 0);
+            double time = 0;
+            const bool typed = speedrun::parse_time(utf8(trimmed(textOf(SplitTime))), time);
+            std::wstring message;
+            bool changed = false;
+            if (id == SplitReset) {
+                if (MessageBoxW(hwnd, L"Clear the best run and best segments for this category? Attempt history is kept.",
+                                L"Reset best", MB_YESNO | MB_ICONQUESTION) == IDYES) {
+                    splitBook.clear_best();
+                    changed = true;
+                    message = L"Best run cleared for this category.";
+                }
+            } else if (id == SplitRemove) {
+                changed = row >= 0 && splitBook.remove_split(size_t(row));
+                message = changed ? L"Split removed." : L"Pick a split to remove.";
+            } else if (!typed) {
+                message = L"Type a time like 12:34.56 or 1:02:03.";
+            } else if (id == SplitSet) {
+                changed = row >= 0 && splitBook.set_split(size_t(row), time);
+                message = changed ? L"Split time changed." : L"Pick a split to change.";
+            } else {
+                splitBook.add_split(time);
+                changed = true;
+                message = L"Split added.";
+            }
+            if (changed) {
+                try {
+                    splitBook.save(splitsFile());
+                } catch (const std::exception &failure) {
+                    message = wide(failure.what());
+                    changed = false;
+                }
+            }
+            status = message;
+            error = !changed;
+            refreshSplits();
+            InvalidateRect(hwnd, nullptr, FALSE);
             return;
         }
         if (id == OverlayDefaults && notification == BN_CLICKED) {
@@ -4359,7 +4523,12 @@ struct Window {
             for (auto [control, value] : {std::pair<int, unsigned>{OverlayCorner, defaults.overlayCorner},
                                           {OverlaySize, defaults.overlaySize},
                                           {OverlayBackground, defaults.overlayBackground},
-                                          {OverlaySplits, defaults.overlaySplits}})
+                                          {OverlaySplits, defaults.overlaySplits},
+                                          {OverlayText, defaults.overlayColors[0]},
+                                          {OverlayAhead, defaults.overlayColors[1]},
+                                          {OverlayBehind, defaults.overlayColors[2]},
+                                          {OverlayGold, defaults.overlayColors[3]},
+                                          {OverlayDecimals, defaults.overlayDecimals}})
                 SendMessageW(controls[control], CB_SETCURSEL, value, 0);
             refreshOverlayItems();
             saveOverlay(L"Overlay restored to its defaults.");

@@ -203,6 +203,30 @@ void sees_losses_from_a_loaded_game() {
     require(!has(timer.update(guest.read(), 6.0, 300), Event::battle_lost), "Duel loss counted as a Dragon World loss");
 }
 
+void edits_splits() {
+    double t = 0;
+    require(parse_time("1:02.50", t) && std::abs(t - 62.5) < 1e-9, "m:ss.cc not parsed");
+    require(parse_time("1:00:05", t) && t == 3605, "h:mm:ss not parsed");
+    require(parse_time("95.25", t) && t == 95.25, "Seconds not parsed");
+    require(!parse_time("1:75", t) && !parse_time("abc", t) && !parse_time("", t) && !parse_time("1::2", t),
+            "Bad times accepted");
+    require(format_time(61.239, 1u) == "1:01.2" && format_time(61.239, 0u) == "1:01" && format_time(61.239, 2u) == "1:01.23",
+            "Precision formatting wrong");
+    require(splits_name(Category::any, true, 3) == "any-permadeath-z3.txt" && splits_name(Category::new_game_plus, false, 0) == "ngplus.txt",
+            "Splits file names wrong");
+    require(category_label(Category::any, 2) == "Any% Z2" && category_label(Category::new_game_plus, 0) == "NG+",
+            "Category labels wrong");
+    SplitBook book;
+    book.record({"day", true, 100, {30, 60, 100}});
+    require(book.set_split(1, 55) && book.best()[1] == 55, "Split not changed");
+    book.add_split(80);
+    require(book.best().size() == 4 && book.best()[2] == 80 && book.golds().size() == 4, "Split not added");
+    require(book.remove_split(0) && book.best().size() == 3 && book.best()[0] == 55, "Split not removed");
+    require(!book.set_split(9, 1) && !book.remove_split(9), "Out of range edit accepted");
+    book.clear_best();
+    require(!book.has_best() && book.golds().empty(), "Best run not cleared");
+}
+
 void formats() {
     require(format_time(0) == "0:00.00", "Zero time");
     require(format_time(61.239) == "1:01.23", "Minutes");
@@ -324,6 +348,7 @@ int main() {
         ignores_other_health_changes();
         sees_losses_from_a_loaded_game();
         formats();
+        edits_splits();
         checks();
         splits();
         views();
