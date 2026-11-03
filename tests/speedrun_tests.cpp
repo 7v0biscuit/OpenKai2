@@ -31,6 +31,9 @@ struct Guest {
         put(battle_pointer, 0x80000000u | 0x180000u);
         std::memcpy(memory.data() + 0x180000 + fighter_health, &player, 4);
         std::memcpy(memory.data() + 0x180000 + fighter_health + fighter_stride, &opponent, 4);
+        const float max = 3000;
+        std::memcpy(memory.data() + 0x180000 + fighter_health + 4, &max, 4);
+        std::memcpy(memory.data() + 0x180000 + fighter_health + fighter_stride + 4, &max, 4);
     }
     void battle(bool over, int32_t result, uint32_t reason = 6u) {
         put(battle_over, over ? 1u : 0u);
@@ -99,7 +102,9 @@ void times_a_run() {
         require(!has(lost, Event::battle_won) && !has(lost, Event::battle_lost), "Fight result alone ended the run");
     }
     guest.battle(false, 0);
+    guest.health(3000, 3000);
     timer.update(guest.read(), 22.0, 1120);
+    guest.health(1200, 0);
     guest.battle(true, 1);
     require(has(timer.update(guest.read(), 30.0, 1500), Event::battle_won), "Win not counted");
     require(!has(timer.update(guest.read(), 31.0, 1560), Event::battle_won), "One win counted twice");
@@ -203,6 +208,50 @@ void sees_losses_from_a_loaded_game() {
     require(!has(timer.update(guest.read(), 6.0, 300), Event::battle_lost), "Duel loss counted as a Dragon World loss");
 }
 
+void knockouts_decide_dragon_world_fights() {
+    Guest guest;
+    Timer timer;
+    guest.unit(0, 0x00, 3, true);
+    guest.tasks({"DW INTRO MAIN"});
+    timer.update(guest.read(), 1.0, 0);
+    guest.tasks({"DWI_SYSTEM", "[BTL] INIT"});
+    guest.battle(false, 0, uint32_t(-1));
+    guest.health(0, 0);
+    std::memset(guest.memory.data() + 0x180000 + fighter_health, 0, fighter_stride + 16);
+    require(timer.update(guest.read(), 2.0, 60).empty(), "Loading fight decided");
+    guest.health(3000, 3000);
+    timer.update(guest.read(), 3.0, 120);
+    guest.health(900, 2500);
+    require(timer.update(guest.read(), 4.0, 180).empty(), "Lower health mid fight decided");
+    guest.health(0, 2500);
+    guest.battle(true, 1);
+    const auto ko = timer.update(guest.read(), 5.0, 240);
+    require(has(ko, Event::battle_lost) && !has(ko, Event::battle_won), "Knockout loss read as a win");
+    guest.tasks({"DWI_SYSTEM", "DW MAP"});
+    guest.unit(0, 0x00, 2, true);
+    require(timer.update(guest.read(), 6.0, 300).empty() && timer.losses() == 1, "One loss counted twice");
+    guest.tasks({"DWI_SYSTEM", "[BTL] MAIN"});
+    guest.battle(false, 0, uint32_t(-1));
+    guest.health(3000, 3000);
+    timer.update(guest.read(), 7.0, 360);
+    guest.health(1500, 2000);
+    guest.battle(true, 1, 16u);
+    require(timer.update(guest.read(), 8.0, 420).empty(), "Scripted story ending decided");
+    guest.tasks({"DWI_SYSTEM", "[BTL] MAIN"});
+    guest.battle(false, 0, uint32_t(-1));
+    guest.health(3000, 3000);
+    timer.update(guest.read(), 9.0, 480);
+    guest.health(1000, 2000);
+    guest.battle(true, 1, timeout_reason);
+    require(has(timer.update(guest.read(), 10.0, 540), Event::battle_lost), "Timeout loss missed");
+    guest.battle(false, 0, uint32_t(-1));
+    guest.health(3000, 3000);
+    timer.update(guest.read(), 11.0, 600);
+    guest.health(2000, 0);
+    guest.battle(true, -1);
+    require(has(timer.update(guest.read(), 12.0, 660), Event::battle_won), "Knockout win missed");
+}
+
 void edits_splits() {
     double t = 0;
     require(parse_time("1:02.50", t) && std::abs(t - 62.5) < 1e-9, "m:ss.cc not parsed");
@@ -304,6 +353,9 @@ void views() {
     require(view.pace == 1 && view.rows[0].has_delta && view.rows[0].delta == 5, "Live loss not shown");
     require(view.best_possible == 105, "Best possible time did not grow with a slow segment");
     guest.tasks({"[BTL] MAIN"});
+    guest.health(3000, 3000);
+    timer.update(guest.read(), 37, 0);
+    guest.health(1000, 0);
     guest.battle(true, 1);
     timer.update(guest.read(), 38, 0);
     view = make_view(timer, book, 40, 5);
@@ -347,6 +399,7 @@ int main() {
         counts_map_health_losses();
         ignores_other_health_changes();
         sees_losses_from_a_loaded_game();
+        knockouts_decide_dragon_world_fights();
         formats();
         edits_splits();
         checks();

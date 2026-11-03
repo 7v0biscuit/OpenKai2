@@ -22,6 +22,7 @@ inline constexpr uint32_t task_limit = 1024u;
 inline constexpr uint32_t battle_result = 0x3A4D58u;
 inline constexpr uint32_t battle_over = 0x3A4D60u;
 inline constexpr uint32_t battle_reason = 0x3A4D64u;
+inline constexpr uint32_t timeout_reason = 4u;
 inline constexpr uint32_t reason_time_out = 4u;
 inline constexpr uint32_t battle_pointer = 0x3A4CB4u;
 inline constexpr uint32_t map_units = 0x69BFC0u;
@@ -50,7 +51,7 @@ struct GuestState {
     int32_t result = 0;
     uint32_t reason = 0;
     bool health_known = false;
-    float player_health = 0, opponent_health = 0;
+    float player_health = 0, opponent_health = 0, player_max = 0, opponent_max = 0;
     std::vector<MapUnit> units;
     std::vector<std::string> tasks;
 };
@@ -88,6 +89,9 @@ class Timer {
     bool decided_ = true, dragon_world_ = false;
     std::vector<MapUnit> units_;
     double last_battle_ = -1e9;
+    bool fight_live_ = false, fight_lost_ = false;
+    float fight_player_ = 0, fight_opponent_ = 0;
+    uint32_t fight_reason_ = 0;
 };
 
 std::string format_time(double seconds, bool hundredths = true);

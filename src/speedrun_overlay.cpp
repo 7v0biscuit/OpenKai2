@@ -258,7 +258,7 @@ struct Overlay {
                 save(false, timer.real(now), timer.wins());
             reset = true;
         }
-        if (died_at >= 0 && now - died_at > 2.5 && !reset) {
+        if (died_at >= 0 && now - died_at > 4.0 && !reset) {
             note("permadeath: run over, back to the main menu");
             to_menu = true;
             reset = true;

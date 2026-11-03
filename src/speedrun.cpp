@@ -89,13 +89,18 @@ GuestState read_guest(const uint8_t *rdram, size_t bytes) {
     const uint32_t battle = word(rdram, bytes, battle_pointer) & 0x1FFFFFFu;
     if (battle >= 0x100000u && size_t(battle) + fighter_health + fighter_stride + 4 <= bytes) {
         std::memcpy(&state.player_health, rdram + battle + fighter_health, 4);
+        std::memcpy(&state.player_max, rdram + battle + fighter_health + 4, 4);
         std::memcpy(&state.opponent_health, rdram + battle + fighter_health + fighter_stride, 4);
-        state.health_known = std::isfinite(state.player_health) && std::isfinite(state.opponent_health);
+        std::memcpy(&state.opponent_max, rdram + battle + fighter_health + fighter_stride + 4, 4);
+        const auto valid = [](float health, float max) {
+            return std::isfinite(health) && std::isfinite(max) && max > 0 && max <= 100000 && health <= max;
+        };
+        state.health_known = valid(state.player_health, state.player_max) && valid(state.opponent_health, state.opponent_max);
     }
     return state;
 }
 
-std::string loss_name(const GuestState &) { return "lost a fight and map health"; }
+std::string loss_name(const GuestState &) { return "knocked out in Dragon World"; }
 
 void Timer::reset() { *this = Timer{}; }
 
@@ -118,6 +123,25 @@ std::vector<Event> Timer::update(const GuestState &state, double real, uint64_t 
         dragon_world_ = false;
     if (state.battle)
         last_battle_ = real;
+    if (state.battle && !state.battle_over && !fight_live_) {
+        fight_live_ = state.health_known;
+        fight_lost_ = false;
+    }
+    if (fight_live_ && state.battle && state.health_known) {
+        fight_player_ = state.player_health;
+        fight_opponent_ = state.opponent_health;
+        fight_reason_ = state.reason;
+    }
+    int fight = 0;
+    if (fight_live_ && (state.battle_over || !state.battle)) {
+        fight_live_ = false;
+        if (fight_player_ <= 0)
+            fight = -1;
+        else if (fight_opponent_ <= 0)
+            fight = 1;
+        else if (fight_reason_ == timeout_reason)
+            fight = fight_player_ < fight_opponent_ ? -1 : fight_player_ > fight_opponent_ ? 1 : 0;
+    }
     const int outcome = state.result == 1 ? 1 : state.result == -1 ? -1 : 0;
     bool won = false, lost = false;
     if (fresh) {
@@ -126,15 +150,25 @@ std::vector<Event> Timer::update(const GuestState &state, double real, uint64_t 
         decided_ = false;
     } else if (!decided_) {
         decided_ = true;
-        won = outcome == 1;
+        won = outcome == 1 && !dragon_world_;
+    }
+    if (dragon_world_ && !fresh) {
+        if (fight == 1)
+            won = true;
+        if (fight == -1) {
+            lost = true;
+            fight_lost_ = true;
+        }
     }
     const bool after_battle = real - last_battle_ <= battle_memory && state.result == -1;
     for (size_t i = 0; i < state.units.size() && i < units_.size(); ++i) {
         const auto &now = state.units[i], &before = units_[i];
         if (now.character == before.character && now.player && before.player && now.health < before.health &&
-            after_battle && !fresh)
+            after_battle && !fresh && !fight_lost_)
             lost = true;
     }
+    if (lost)
+        fight_lost_ = true;
     if (!state.units.empty() || !dragon_world_)
         units_ = state.units;
     if (phase_ == Phase::running && won) {
