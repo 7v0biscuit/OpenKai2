@@ -16,8 +16,9 @@ class StretchedPlayback {
     static constexpr unsigned window = 1024u, hop = 512u, search = 256u;
     static constexpr unsigned target = 6144u, prefill = target + window + search * 2u;
     static constexpr double slowest = 0.25, fastest = 1.1;
-    static constexpr double startBelow = 0.6, startAbove = 2.0, reserve = 0.45;
-    static constexpr unsigned averaged = 48u, settledCalls = 96u, crossfade = 384u;
+    static constexpr double startBelow = 0.6, reserve = 0.45;
+    static constexpr unsigned averaged = 48u, settledCalls = 48u, crossfade = 384u;
+    static constexpr double drift = 0.012, deadband = 0.4, shortfall = 0.25, starving = 0.2, overfull = 4.0, slowSource = 0.985, recovered = 0.99;
 
     StretchedPlayback() {
         stretch_.setSampleRate(48000);
@@ -103,11 +104,32 @@ class StretchedPlayback {
             if (count < wanted)
                 underrun(rest.subspan(size_t(count) * 2u));
         } else {
-            const size_t count = std::min(wanted, available());
-            mix(rest, input_.data() + read_ * 2u, count);
-            read_ += count;
+            const double excess = average_ > 1.0 + deadband   ? average_ - 1.0 - deadband
+                                  : average_ < 1.0 - shortfall ? average_ - 1.0 + shortfall
+                                                               : 0.0;
+            const double step = std::clamp(1.0 + 0.08 * excess, 1.0 - drift, 1.0 + drift);
+            const size_t frames = input_.size() / 2u;
+            size_t count = 0;
+            while (count < wanted) {
+                const size_t at = read_ + size_t(phase_);
+                if (at + 1u >= frames)
+                    break;
+                const float t = float(phase_ - std::floor(phase_));
+                const float *a = input_.data() + at * 2u;
+                const float frame[2] = {a[0] + (a[2] - a[0]) * t, a[1] + (a[3] - a[1]) * t};
+                mix(rest.subspan(count * 2u), frame, 1u);
+                ++count;
+                phase_ += step;
+            }
+            const size_t consumed = size_t(phase_);
+            read_ += consumed;
+            phase_ -= double(consumed);
             if (count < wanted)
                 underrun(rest.subspan(count * 2u));
+            else if (average_ > overfull) {
+                read_ += available() > target ? available() - target : 0u;
+                phase_ = 0.0;
+            }
         }
         if (read_ > 8192u || read_ == input_.size() / 2u) {
             input_.erase(input_.begin(), input_.begin() + read_ * 2u);
@@ -135,10 +157,10 @@ class StretchedPlayback {
             average += fills_[i];
         average /= double(count);
         recent_ = fillAt_ == 1u ? fill : recent_ + (fill - recent_) * 0.2;
+        average_ = average;
         if (!stretched_) {
-            const bool falling = recent_ < startBelow && average < 0.9;
-            const bool rising = count >= averaged / 4u && average > startAbove;
-            if (!falling && !rising)
+            const bool falling = fill < starving || (recent_ < startBelow && average < 0.75 && rate_ < slowSource);
+            if (!falling)
                 return;
             stretched_ = true;
             settled_ = 0;
@@ -148,7 +170,7 @@ class StretchedPlayback {
         const bool low = fill < reserve;
         const double wanted = wantedSpeed(low ? fill : recent_);
         speed_ = low ? std::min(speed_, wanted) : speed_ + (wanted - speed_) * 0.2;
-        if (std::abs(rate_ - 1.0) < 0.03 && std::abs(average - 1.0) < 0.2 && std::abs(speed_ - 1.0) < 0.03)
+        if (rate_ > recovered && average > startBelow && std::abs(speed_ - 1.0) < 0.06)
             ++settled_;
         else
             settled_ = 0;
@@ -174,6 +196,7 @@ class StretchedPlayback {
         input_.erase(input_.begin(), input_.begin() + read_ * 2u);
         read_ = 0;
         input_.insert(input_.begin(), resume.begin() + blend * 2u, resume.end());
+        phase_ = 0.0;
         stretch_.clear();
         stretch_.setTempo(1.0);
         fed_.clear();
@@ -206,9 +229,9 @@ class StretchedPlayback {
             shortRate_ = double(intervalInput_) / intervalOutput_;
             intervalInput_ = intervalOutput_ = 0;
         }
-        if (longOutput_ >= 16384u) {
+        if (longOutput_ >= 32768u) {
             const double measured = double(longInput_) / longOutput_;
-            rate_ += (measured - rate_) * 0.25;
+            rate_ += (measured - rate_) * 0.5;
             longInput_ = longOutput_ = 0;
         }
     }
@@ -242,6 +265,8 @@ class StretchedPlayback {
         tail_.clear();
         fed_.clear();
         read_ = 0;
+        phase_ = 0.0;
+        average_ = 1.0;
         playing_ = stretched_ = false;
         speed_ = rate_ = shortRate_ = 1.0;
         startupInput_ = startupOutput_ = 0;
@@ -268,7 +293,7 @@ class StretchedPlayback {
     uint64_t boundary_ = 0;
     std::array<double, averaged> fills_{};
     size_t fillAt_ = 0;
-    double recent_ = 1.0, resumeRate_ = 1.0;
+    double recent_ = 1.0, resumeRate_ = 1.0, phase_ = 0.0, average_ = 1.0;
     unsigned settled_ = 0;
     std::array<float, 2> last_{};
     unsigned fadeLeft_ = 0, fadeIn_ = 0;
