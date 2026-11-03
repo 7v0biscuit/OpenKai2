@@ -193,7 +193,8 @@ enum Id {
     SplitSet,
     SplitAdd,
     SplitRemove,
-    SplitReset
+    SplitReset,
+    SpeedrunRules
 };
 constexpr int friendsTop = 462;
 constexpr int pageCount = 6, onlinePage = 1, speedrunPage = 2, modsPage = 3, savesPage = 4, settingsPage = 5, importPage = 6,
@@ -953,6 +954,7 @@ struct Window {
         button(SplitAdd, L"Add split");
         button(SplitRemove, L"Remove");
         button(SplitReset, L"Reset best");
+        button(SpeedrunRules, L"All rules\u2026");
         refreshSplits();
         combo(Aspect, {L"4:3 (original)", L"16:9 (widescreen)", L"Stretch to window", L"Native pixels"},
               int(settings.aspect));
@@ -1148,12 +1150,13 @@ struct Window {
             position(OpenOverlay, right - 20 - 170, speedrunTop + 10, 170, 28);
             const int listWidth = (content - 40) * 58 / 100, side = contentLeft + 20 + listWidth + 16;
             const int sideWidth = right - 20 - side, half = (sideWidth - 10) / 2;
-            position(SplitList, contentLeft + 20, splitsTop + 44, listWidth, speedrunRulesTop - 12 - 14 - splitsTop - 44);
-            position(SplitTime, side, splitsTop + 66, sideWidth, 22);
-            position(SplitSet, side, splitsTop + 100, half, 34);
-            position(SplitAdd, side + half + 10, splitsTop + 100, sideWidth - half - 10, 34);
-            position(SplitRemove, side, splitsTop + 144, half, 34);
-            position(SplitReset, side + half + 10, splitsTop + 144, sideWidth - half - 10, 34);
+            position(SplitList, contentLeft + 20, splitsTop + 66, listWidth, speedrunRulesTop - 12 - 40 - splitsTop - 66);
+            position(SplitTime, side, splitsTop + 92, sideWidth, 22);
+            position(SplitSet, side, splitsTop + 124, half, 34);
+            position(SplitAdd, side + half + 10, splitsTop + 124, sideWidth - half - 10, 34);
+            position(SplitRemove, side, splitsTop + 166, half, 34);
+            position(SplitReset, side + half + 10, splitsTop + 166, sideWidth - half - 10, 34);
+            position(SpeedrunRules, right - 20 - 120, speedrunRulesTop + 10, 120, 28);
         } else if (page == onlinePage) {
             const Grid grid(content);
             const int half = (grid.column - 10) / 2, bottom = h - 64;
@@ -1530,6 +1533,11 @@ struct Window {
                speedrun::splits_name(speedrun::Category(std::min(settings.speedrun, 2u)), settings.permadeath,
                                      std::min(settings.cpuDifficulty, 3u));
     }
+    std::wstring splitName(size_t i) const {
+        return i + 1 == splitBook.best().size() ? std::wstring(L"Kid Buu") : L"Battle " + std::to_wstring(i + 1);
+    }
+    static constexpr int splitColumns[3] = {44, 70, 96};
+    std::vector<bool> splitGold;
     void refreshSplits() {
         const auto list = controls[SplitList];
         const auto chosen = SendMessageW(list, LB_GETCURSEL, 0, 0);
@@ -1537,11 +1545,14 @@ struct Window {
         splitBook = settings.speedrun ? speedrun::SplitBook::load(splitsFile()) : speedrun::SplitBook{};
         const auto &best = splitBook.best();
         const auto &golds = splitBook.golds();
+        splitGold.assign(best.size(), false);
         for (size_t i = 0; i < best.size(); ++i) {
-            std::wstring row = (i + 1 == best.size() ? std::wstring(L"Kid Buu") : L"Battle " + std::to_wstring(i + 1)) +
-                               L" \u00b7 " + wide(speedrun::format_time(best[i]));
-            if (i < golds.size() && golds[i] > 0)
-                row += L" \u00b7 best segment " + wide(speedrun::format_time(golds[i]));
+            const double segment = best[i] - (i ? best[i - 1] : 0.0);
+            const bool hasGold = i < golds.size() && golds[i] > 0;
+            splitGold[i] = hasGold && segment <= golds[i] + 0.005;
+            const std::wstring row = splitName(i) + L" \u00b7 " + wide(speedrun::format_time(best[i])) + L" \u00b7 " +
+                                     wide(speedrun::format_time(segment)) + L" \u00b7 " +
+                                     (hasGold ? wide(speedrun::format_time(golds[i])) : std::wstring(L"\u2013"));
             SendMessageW(list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(row.c_str()));
         }
         if (chosen >= 0 && size_t(chosen) < best.size())
@@ -2014,12 +2025,46 @@ struct Window {
                               : std::wstring(L"Splits");
         text(dc, splitTitle, contentLeft + 20, splitsTop + 12, content - 40, 22, fonts.strong);
         const int listWidth = (content - 40) * 58 / 100, side = contentLeft + 20 + listWidth + 16;
-        caps(dc, L"TIME", side, splitsTop + 48, right - 20 - side);
-        if (splitBook.best().empty())
+        if (settings.speedrun && splitBook.attempts())
+            text(dc, std::to_wstring(splitBook.attempts()) + (splitBook.attempts() == 1 ? L" attempt" : L" attempts") +
+                         L" \u00b7 " + std::to_wstring(splitBook.completed()) + L" finished",
+                 contentLeft + 20 + measure(dc, splitTitle, fonts.strong) + 14, splitsTop + 15, 300, 18, fonts.caption, muted,
+                 DT_LEFT | DT_SINGLELINE | DT_NOPREFIX);
+        caps(dc, L"SPLIT", contentLeft + 34, splitsTop + 46, 120);
+        const wchar_t *headings[] = {L"TIME", L"SEGMENT", L"BEST SEGMENT"};
+        for (int i = 0; i < 3; ++i) {
+            const int edge = contentLeft + 20 + listWidth * splitColumns[i] / 100 - 8;
+            caps(dc, headings[i], edge - 140, splitsTop + 46, 140, muted, DT_RIGHT);
+        }
+        const auto chosenSplit = SendMessageW(controls[SplitList], LB_GETCURSEL, 0, 0);
+        caps(dc, chosenSplit >= 0 && size_t(chosenSplit) < splitBook.best().size()
+                     ? L"SELECTED \u00b7 " + splitName(size_t(chosenSplit))
+                     : std::wstring(L"SELECTED \u00b7 NONE"),
+             side, splitsTop + 70, right - 20 - side);
+        text(dc, L"Pick a split, type a time, then press Set time.",
+             side, splitsTop + 210, right - 20 - side, 18, fonts.caption, muted, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        const int summaryTop = speedrunRulesTop - 12 - 34;
+        if (splitBook.best().empty()) {
             text(dc, settings.speedrun ? L"No best run saved yet. Finish a run, or add split times here."
                                        : L"Choose a category to see and edit its splits.",
-                 contentLeft + 28, splitsTop + 52, listWidth - 16, 18, fonts.caption, muted,
+                 contentLeft + 28, splitsTop + 74, listWidth - 16, 18, fonts.caption, muted,
                  DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        } else {
+            const auto &golds = splitBook.golds();
+            double sum = 0;
+            bool complete = golds.size() >= splitBook.best().size();
+            for (size_t i = 0; i < splitBook.best().size() && complete; ++i) {
+                if (golds[i] <= 0)
+                    complete = false;
+                sum += golds[i];
+            }
+            std::wstring summary = L"Best run " + wide(speedrun::format_time(splitBook.best_time()));
+            if (complete)
+                summary += L"   \u00b7   Sum of best " + wide(speedrun::format_time(sum)) + L"   \u00b7   Possible save " +
+                           wide(speedrun::format_time(std::max(0.0, splitBook.best_time() - sum)));
+            text(dc, summary, contentLeft + 20, summaryTop + 8, listWidth, 18, fonts.caption, ink,
+                 DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        }
         const int bottom = std::max(speedrunRulesTop + 120, h - 64 + 6);
         panelBox(dc, contentLeft, speedrunRulesTop, right, bottom);
         text(dc, L"How runs are timed", contentLeft + 20, speedrunRulesTop + 12, content - 40, 22, fonts.strong);
@@ -2027,7 +2072,7 @@ struct Window {
             L"The timer starts when Dragon World starts and stops on the last hit on Kid Buu.",
             L"Real time is the leaderboard time. PS2 time counts the console's frames, so slowdown is not added.",
             L"Any% starts with default equipment. NG+ allows skills set up before Dragon World.",
-            L"Permadeath: losing a Dragon World fight that costs a character map health ends the run.",
+            L"Permadeath: being knocked out in a Dragon World fight, or losing one on time, ends the run.",
             L"Z1, Z2 and Z3 make the CPU stronger and are locked for the whole run; F6 is off in speedrun mode.",
             L"Each battle won is a split. Best runs and best segments are saved after every attempt.",
             L"Runs are flagged if the disc differs from the US retail disc, the game runs fast, or a memory editor is open.",
@@ -2290,6 +2335,20 @@ struct Window {
             if (end == std::wstring::npos)
                 break;
             start = end + 1;
+        }
+        if (item.hwndItem == controls[SplitList] && parts.size() == 4u) {
+            const int width = r.right - r.left + p(24);
+            SetTextColor(dc, enabled ? ink : muted);
+            DrawTextW(dc, parts[0].c_str(), int(parts[0].size()), &r, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
+            const bool golden = item.itemID < splitGold.size() && splitGold[item.itemID];
+            for (size_t i = 1; i < 4u; ++i) {
+                RECT cell = r;
+                cell.right = r.left - p(14) + width * splitColumns[i - 1] / 100 - p(8);
+                SetTextColor(dc, !enabled ? muted : i == 1 ? ink : i == 2 && golden ? gold : muted);
+                DrawTextW(dc, parts[i].c_str(), int(parts[i].size()), &cell, DT_SINGLELINE | DT_VCENTER | DT_RIGHT | DT_NOPREFIX);
+            }
+            SelectObject(dc, old);
+            return;
         }
         if (parts.size() > 1 && (parts[0] == L"On" || parts[0] == L"Off")) {
             const bool on = parts[0] == L"On";
@@ -4504,10 +4563,24 @@ struct Window {
             saveOverlay(L"Overlay layout saved.");
             return;
         }
+        if (id == SpeedrunRules && notification == BN_CLICKED) {
+            MessageBoxW(hwnd,
+                        L"\u2022 The timer starts when Dragon World starts and stops on the last hit on Kid Buu.\n\n"
+                        L"\u2022 Real time is the leaderboard time. PS2 time counts the console's frames, so slowdown is not added.\n\n"
+                        L"\u2022 Any% starts with default equipment. NG+ allows skills set up before Dragon World.\n\n"
+                        L"\u2022 Permadeath: being knocked out in a Dragon World fight, or losing one on time, ends the run.\n\n"
+                        L"\u2022 Z1, Z2 and Z3 make the CPU stronger and are locked for the whole run; F6 is off in speedrun mode.\n\n"
+                        L"\u2022 Each battle won is a split. Best runs and best segments are saved after every attempt.\n\n"
+                        L"\u2022 Runs are flagged if the disc differs from the US retail disc, the game runs fast, or a memory editor is open.\n\n"
+                        L"\u2022 Each session writes a checksummed log to logs\\speedruns for speedrun.com moderators.",
+                        L"How runs are timed", MB_OK | MB_ICONINFORMATION);
+            return;
+        }
         if (id == SplitList && notification == LBN_SELCHANGE) {
             const auto row = SendMessageW(controls[SplitList], LB_GETCURSEL, 0, 0);
             if (row >= 0 && size_t(row) < splitBook.best().size())
                 SetWindowTextW(controls[SplitTime], wide(speedrun::format_time(splitBook.best()[size_t(row)])).c_str());
+            InvalidateRect(hwnd, nullptr, FALSE);
             return;
         }
         if ((id == SplitSet || id == SplitAdd || id == SplitRemove || id == SplitReset) && notification == BN_CLICKED) {
