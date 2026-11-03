@@ -82,6 +82,8 @@ Settings read_settings(const std::filesystem::path &file) {
             row >> s.internalScale;
         else if (key == "hd_textures")
             row >> s.hdTextures;
+        else if (key == "music")
+            row >> s.music;
         else if (key == "vsync")
             row >> s.vsync;
         else if (key == "audio")
@@ -177,7 +179,7 @@ void write_settings(const std::filesystem::path &file, const Settings &s) {
     out << "# OpenKai2\nversion 1\niso " << std::quoted(path_utf8(s.iso)) << "\nfps " << s.fps
         << "\nwidth " << s.width << "\nheight " << s.height << "\nwindow_mode " << s.windowMode
         << "\nantialiasing " << s.antialiasing << "\ntexture_filter " << s.textureFilter
-        << "\nupscaler " << s.upscaler << "\naspect " << s.aspect << "\ninternal_scale " << s.internalScale << "\nhd_textures " << s.hdTextures << "\nvsync " << s.vsync
+        << "\nupscaler " << s.upscaler << "\naspect " << s.aspect << "\ninternal_scale " << s.internalScale << "\nhd_textures " << s.hdTextures << "\nmusic " << s.music << "\nvsync " << s.vsync
         << "\naudio " << s.audio << "\nvolume " << s.volume << "\ncpu_difficulty " << s.cpuDifficulty
         << "\nauto_backups " << s.autoBackups << "\nauto_updates " << s.autoUpdates
         << "\nupdate_channel " << s.updateChannel << "\nrenderer " << std::quoted(s.renderer)

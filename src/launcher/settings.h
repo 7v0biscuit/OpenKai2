@@ -18,6 +18,7 @@ struct Settings {
     unsigned aspect = 0;
     unsigned internalScale = 1;
     unsigned hdTextures = 0;
+    bool music = true;
     bool vsync = true, autoBackups = true;
     bool audio = true;
     unsigned volume = 100;

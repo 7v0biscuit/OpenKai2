@@ -58,6 +58,57 @@ AfsArchive archive_at(const std::string &bytes, uint64_t start, uint64_t size) {
     };
     return parse_afs(read, size);
 }
+void music_can_be_silenced(const fs::path &root) {
+    auto image = fixture();
+    records(image, 20, {record(std::string(1, '\0'), 20, sector, 2), record(std::string(1, '\1'), 18, sector, 2),
+                        record("ADX_US.AFS;1", 24, 0x1000 + 400), record("DATA.BIN;1", 23, 6)});
+    const size_t base = 24 * sector;
+    std::memcpy(image.data() + base, "AFS\0", 4);
+    put32(image, base + 4, 2);
+    const uint32_t offsets[2] = {0x800, 0x1000}, sizes[2] = {32 + 21 * 18, 32 + 21 * 18};
+    for (unsigned i = 0; i < 2; ++i) {
+        put32(image, base + 8 + i * 8, offsets[i]);
+        put32(image, base + 12 + i * 8, sizes[i]);
+        uint8_t *adx = image.data() + base + offsets[i];
+        adx[0] = 0x80;
+        adx[2] = 0;
+        adx[3] = 28;
+        adx[4] = 3;
+        adx[5] = 18;
+        adx[6] = 4;
+        adx[7] = i == 0 ? 2 : 1;
+        for (unsigned f = 0; f < 21; ++f) {
+            uint8_t *frame = adx + 32 + f * 18;
+            frame[0] = f == 20 ? 0x80 : 0x01;
+            frame[1] = f == 20 ? 0x01 : 0x23;
+            std::memset(frame + 2, 0x77, 16);
+        }
+    }
+    const auto path = root / "music.iso";
+    write(path, image);
+    auto &overlay = DiscOverlay::global();
+    overlay.configure(path, {}, true);
+    require(overlay.active_for(path) && overlay.muted_tracks() == 1, "Music archive was not found");
+    for (const size_t chunk : {size_t(sector), size_t(7), size_t(1)}) {
+        std::string bytes(size_t(overlay.size()), '\0');
+        for (size_t at = 0; at < bytes.size(); at += chunk)
+            require(overlay.read(at, bytes.data() + at, std::min(chunk, bytes.size() - at)), "Music read failed");
+        const auto *stereo = reinterpret_cast<const uint8_t *>(bytes.data()) + base + offsets[0];
+        const auto *mono = reinterpret_cast<const uint8_t *>(bytes.data()) + base + offsets[1];
+        require(std::memcmp(stereo, image.data() + base + offsets[0], 32) == 0, "Music header changed");
+        for (unsigned f = 0; f < 21; ++f) {
+            const uint8_t *frame = stereo + 32 + f * 18;
+            if (f == 20)
+                require(frame[0] == 0x80 && frame[1] == 0x01, "Music end marker was removed");
+            else
+                require(frame[0] == 0 && frame[1] == 0 && frame[2] == 0x77 && frame[17] == 0x77,
+                        "Music frame was not silenced with chunk " + std::to_string(chunk));
+        }
+        require(std::memcmp(mono, image.data() + base + offsets[1], sizes[1]) == 0, "A voice clip was changed");
+    }
+    overlay.configure(path, {}, false);
+    require(!overlay.active_for(path), "Disc stayed changed with music on");
+}
 }
 
 int main() {
@@ -67,6 +118,7 @@ int main() {
         fs::create_directories(root);
         {
 
+        music_can_be_silenced(root);
         const auto image = root / "game.iso";
         write(image, disc());
         const auto mods = root / "mods";

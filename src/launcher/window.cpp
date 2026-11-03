@@ -108,6 +108,7 @@ enum Id {
     CpuDifficulty,
     InternalScale,
     HdTextures,
+    Music,
     UpdateChannel = 160,
     AutomaticUpdates,
     CheckUpdates,
@@ -193,8 +194,7 @@ enum Id {
     SplitSet,
     SplitAdd,
     SplitRemove,
-    SplitReset,
-    SpeedrunRules
+    SplitReset
 };
 constexpr int friendsTop = 462;
 constexpr int pageCount = 6, onlinePage = 1, speedrunPage = 2, modsPage = 3, savesPage = 4, settingsPage = 5, importPage = 6,
@@ -640,7 +640,7 @@ struct Window {
     bool running() const { return child || externalGame; }
     bool dropdownOpen() const {
         for (auto [id, control] : controls)
-            if ((id >= Renderer && id <= HdTextures) || id == UpdateChannel || id == AutomaticUpdates ||
+            if ((id >= Renderer && id <= Music) || id == UpdateChannel || id == AutomaticUpdates ||
                 id == SaveListKind || id == TargetMod || id == SpotMode ||
                 (id >= SpeedrunMode && id <= FpsCounter) || (id >= OverlayCorner && id <= OverlaySplits) || (id >= OverlayText && id <= SpeedrunCpu) || id == OnlineDelay || id == OnlineProfile || id == OnlineListed)
                 if (SendMessageW(control, CB_GETDROPPEDSTATE, 0, 0)) return true;
@@ -917,6 +917,7 @@ struct Window {
               int(std::clamp(settings.internalScale, 1u, 4u) - 1u));
         combo(HdTextures, {L"Off", L"Upscaled from your disc", L"Texture packs", L"Texture packs, upscale the rest", L"Dump textures for pack makers"},
               int(std::min(settings.hdTextures, 4u)));
+        combo(Music, {L"On", L"Off (voices and sound effects stay on)"}, settings.music ? 0 : 1);
         combo(Vsync, {L"Off", L"On"}, settings.vsync ? 1 : 0);
         combo(AutoBackup, {L"Off", L"On"}, settings.autoBackups ? 1 : 0);
         combo(SaveListKind,{L"Backups",L"Game saves"},0);
@@ -954,7 +955,6 @@ struct Window {
         button(SplitAdd, L"Add split");
         button(SplitRemove, L"Remove");
         button(SplitReset, L"Reset best");
-        button(SpeedrunRules, L"All rules\u2026");
         refreshSplits();
         combo(Aspect, {L"4:3 (original)", L"16:9 (widescreen)", L"Stretch to window", L"Native pixels"},
               int(settings.aspect));
@@ -1156,7 +1156,6 @@ struct Window {
             position(SplitAdd, side + half + 10, splitsTop + 124, sideWidth - half - 10, 34);
             position(SplitRemove, side, splitsTop + 166, half, 34);
             position(SplitReset, side + half + 10, splitsTop + 166, sideWidth - half - 10, 34);
-            position(SpeedrunRules, right - 20 - 120, speedrunRulesTop + 10, 120, 28);
         } else if (page == onlinePage) {
             const Grid grid(content);
             const int half = (grid.column - 10) / 2, bottom = h - 64;
@@ -1249,7 +1248,8 @@ struct Window {
             position(ResetGraphics, grid.x(2) + half + 10, Grid::field(graphicsTop, 1), grid.column - half - 10, 34);
             position(CpuDifficulty, grid.x(0), Grid::field(gameTop, 0), grid.column, 34);
             position(HdTextures, grid.x(1), Grid::field(gameTop, 0), grid.column, 34);
-            position(TextureFolder, grid.x(2), Grid::field(gameTop, 0), grid.column, 34);
+            position(Music, grid.x(2), Grid::field(gameTop, 0), grid.column, 34);
+            position(TextureFolder, right - 20 - 170, gameTop + 10, 170, 28);
             position(UpdateChannel, grid.x(0), Grid::field(updatesTop, 0), grid.column, 34);
             position(AutomaticUpdates, grid.x(1), Grid::field(updatesTop, 0), grid.column, 34);
             position(CheckUpdates, grid.x(2), Grid::field(updatesTop, 0), half, 34);
@@ -1987,7 +1987,7 @@ struct Window {
         section(gameTop, 1, L"Game", cpuNotes[std::min(settings.cpuDifficulty, 3u)], muted);
         label(gameTop, 0, 0, L"CPU DIFFICULTY");
         label(gameTop, 0, 1, L"HD TEXTURES");
-        label(gameTop, 0, 2, L"TEXTURE PACKS");
+        label(gameTop, 0, 2, L"MUSIC");
 
         std::wstring message = updateStatus;
         if (updating()) {
@@ -2037,13 +2037,13 @@ struct Window {
             caps(dc, headings[i], edge - 140, splitsTop + 46, 140, muted, DT_RIGHT);
         }
         const auto chosenSplit = SendMessageW(controls[SplitList], LB_GETCURSEL, 0, 0);
-        caps(dc, chosenSplit >= 0 && size_t(chosenSplit) < splitBook.best().size()
-                     ? L"SELECTED \u00b7 " + splitName(size_t(chosenSplit))
-                     : std::wstring(L"SELECTED \u00b7 NONE"),
-             side, splitsTop + 70, right - 20 - side);
-        text(dc, L"Pick a split, type a time, then press Set time.",
-             side, splitsTop + 210, right - 20 - side, 18, fonts.caption, muted, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
-        const int summaryTop = speedrunRulesTop - 12 - 34;
+        caps(dc, L"SELECTED SPLIT", side, splitsTop + 70, right - 20 - side);
+        const bool picked = chosenSplit >= 0 && size_t(chosenSplit) < splitBook.best().size();
+        text(dc, picked ? splitName(size_t(chosenSplit)) : std::wstring(L"None"), side, splitsTop + 69, right - 20 - side, 18,
+             fonts.caption, picked ? ink : muted, DT_RIGHT | DT_SINGLELINE | DT_NOPREFIX);
+        const int summaryTop = speedrunRulesTop - 12 - 40;
+        text(dc, L"Pick a split, type a time, then press Set time.", side, splitsTop + 208, right - 20 - side, 18,
+             fonts.caption, muted, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
         if (splitBook.best().empty()) {
             text(dc, settings.speedrun ? L"No best run saved yet. Finish a run, or add split times here."
                                        : L"Choose a category to see and edit its splits.",
@@ -2058,12 +2058,18 @@ struct Window {
                     complete = false;
                 sum += golds[i];
             }
-            std::wstring summary = L"Best run " + wide(speedrun::format_time(splitBook.best_time()));
-            if (complete)
-                summary += L"   \u00b7   Sum of best " + wide(speedrun::format_time(sum)) + L"   \u00b7   Possible save " +
-                           wide(speedrun::format_time(std::max(0.0, splitBook.best_time() - sum)));
-            text(dc, summary, contentLeft + 20, summaryTop + 8, listWidth, 18, fonts.caption, ink,
-                 DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+            std::vector<std::pair<std::wstring, std::wstring>> totals = {{L"BEST RUN", wide(speedrun::format_time(splitBook.best_time()))}};
+            if (complete) {
+                totals.push_back({L"SUM OF BEST", wide(speedrun::format_time(sum))});
+                totals.push_back({L"POSSIBLE SAVE", wide(speedrun::format_time(std::max(0.0, splitBook.best_time() - sum)))});
+            }
+            int x = contentLeft + 30;
+            for (const auto &[name, value] : totals) {
+                const int labelWidth = measure(dc, name, fonts.label) + int(name.size()) + 8;
+                caps(dc, name, x, summaryTop + 13, labelWidth);
+                text(dc, value, x + labelWidth, summaryTop + 12, 90, 18, fonts.caption, ink, DT_LEFT | DT_SINGLELINE | DT_NOPREFIX);
+                x += labelWidth + measure(dc, value, fonts.caption) + 18;
+            }
         }
         const int bottom = std::max(speedrunRulesTop + 120, h - 64 + 6);
         panelBox(dc, contentLeft, speedrunRulesTop, right, bottom);
@@ -4227,6 +4233,7 @@ struct Window {
         next.upscaler = unsigned(selected(Upscaler));
         next.internalScale = unsigned(std::max(0, selected(InternalScale))) + 1u;
         next.hdTextures = unsigned(std::max(0, selected(HdTextures)));
+        next.music = selected(Music) != 1;
         next.vsync = selected(Vsync) != 0;
         next.cpuDifficulty = unsigned(std::max(0, selected(CpuDifficulty)));
         next.autoBackups = selected(AutoBackup) != 0;
@@ -4319,7 +4326,7 @@ struct Window {
                     L" selected. Ctrl+click or Shift+click selects several; Ctrl+A selects all.";
             refreshEnabled(); return;
         }
-        if (((id >= Renderer && id <= HdTextures) || (id >= SpeedrunMode && id <= FpsCounter) || id == SpeedrunCpu) &&
+        if (((id >= Renderer && id <= Music) || (id >= SpeedrunMode && id <= FpsCounter) || id == SpeedrunCpu) &&
             notification == CBN_SELCHANGE) {
             if (id == SpeedrunCpu)
                 SendMessageW(controls[CpuDifficulty], CB_SETCURSEL, selected(SpeedrunCpu), 0);
@@ -4337,7 +4344,10 @@ struct Window {
                                    (settings.permadeath ? L" with permadeath" : L"") +
                                    L". Mods stay off while it is on; logs go to the logs\\speedruns folder."
                              : L"Speedrun mode is off.";
-            if (id == HdTextures || (id == InternalScale && settings.hdTextures && settings.internalScale == 1))
+            if (id == Music)
+                status = settings.music ? std::wstring(L"Music is on.")
+                                        : std::wstring(L"Music is off. Voices, sound effects and videos still play. Applies the next time the game starts.");
+            else if (id == HdTextures || (id == InternalScale && settings.hdTextures && settings.internalScale == 1))
                 status = settings.hdTextures == 0 ? std::wstring(L"HD textures are off.")
                          : settings.internalScale == 1
                              ? std::wstring(L"HD textures need an internal resolution of 2x or higher and the GPU or Vulkan renderer.")
@@ -4561,19 +4571,6 @@ struct Window {
         if (((id >= OverlayCorner && id <= OverlaySplits) || (id >= OverlayText && id <= OverlayDecimals)) &&
             notification == CBN_SELCHANGE) {
             saveOverlay(L"Overlay layout saved.");
-            return;
-        }
-        if (id == SpeedrunRules && notification == BN_CLICKED) {
-            MessageBoxW(hwnd,
-                        L"\u2022 The timer starts when Dragon World starts and stops on the last hit on Kid Buu.\n\n"
-                        L"\u2022 Real time is the leaderboard time. PS2 time counts the console's frames, so slowdown is not added.\n\n"
-                        L"\u2022 Any% starts with default equipment. NG+ allows skills set up before Dragon World.\n\n"
-                        L"\u2022 Permadeath: being knocked out in a Dragon World fight, or losing one on time, ends the run.\n\n"
-                        L"\u2022 Z1, Z2 and Z3 make the CPU stronger and are locked for the whole run; F6 is off in speedrun mode.\n\n"
-                        L"\u2022 Each battle won is a split. Best runs and best segments are saved after every attempt.\n\n"
-                        L"\u2022 Runs are flagged if the disc differs from the US retail disc, the game runs fast, or a memory editor is open.\n\n"
-                        L"\u2022 Each session writes a checksummed log to logs\\speedruns for speedrun.com moderators.",
-                        L"How runs are timed", MB_OK | MB_ICONINFORMATION);
             return;
         }
         if (id == SplitList && notification == LBN_SELCHANGE) {

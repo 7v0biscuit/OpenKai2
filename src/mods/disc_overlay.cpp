@@ -100,6 +100,7 @@ void DiscOverlay::clear() {
     files_.clear();
     checked_.clear();
     checked_matches_ = false;
+    muted_.clear();
     file_streams_.clear();
     if (image_stream_.is_open())
         image_stream_.close();
@@ -206,6 +207,13 @@ bool DiscOverlay::read_piece(const Piece &piece, uint64_t offset, uint8_t *desti
 
 bool DiscOverlay::read(uint64_t offset, void *destination, size_t bytes) const {
     std::lock_guard lock(mutex_);
+    if (!read_locked(offset, destination, bytes))
+        return false;
+    silence(offset, static_cast<uint8_t *>(destination), bytes);
+    return true;
+}
+
+bool DiscOverlay::read_locked(uint64_t offset, void *destination, size_t bytes) const {
     if (!active_ || offset > size_ || bytes > size_ - offset)
         return false;
     auto *out = static_cast<uint8_t *>(destination);
@@ -234,13 +242,13 @@ bool DiscOverlay::read(uint64_t offset, void *destination, size_t bytes) const {
     return true;
 }
 
-DiscOverlay::Summary DiscOverlay::configure(const fs::path &image, const std::vector<fs::path> &mods) {
+DiscOverlay::Summary DiscOverlay::configure(const fs::path &image, const std::vector<fs::path> &mods, bool mute_music) {
     clear();
     Summary summary;
-    if (mods.empty())
+    if (mods.empty() && !mute_music)
         return summary;
     const IsoIndex index(image);
-    std::lock_guard lock(mutex_);
+    std::unique_lock lock(mutex_);
     image_ = fs::absolute(image);
     image_size_ = size_ = align(fs::file_size(image_));
     std::map<std::string, const IsoEntry *> byKey;
@@ -439,8 +447,94 @@ DiscOverlay::Summary DiscOverlay::configure(const fs::path &image, const std::ve
     }
     if (size_ > image_size_)
         patch(16u * sector_bytes + 80u, both32(uint32_t(size_ / sector_bytes)));
-    active_ = !segments_.empty() || !entries_.empty();
+    active_ = mute_music || !segments_.empty() || !entries_.empty();
+    lock.unlock();
+    if (mute_music) {
+        try {
+            find_music();
+        } catch (const std::exception &error) {
+            summary.notes.push_back(std::string("music could not be muted: ") + error.what());
+        }
+    }
     return summary;
+}
+
+size_t DiscOverlay::muted_tracks() const {
+    std::lock_guard lock(mutex_);
+    return muted_.size();
+}
+
+void DiscOverlay::find_music() {
+    const auto key = IsoIndex::key("USR/ADX_US.AFS");
+    if (!key)
+        return;
+    const IsoEntry *entry = find(image_, *key);
+    std::optional<IsoIndex> index;
+    if (!entry) {
+        index.emplace(image_);
+        entry = index->find("USR/ADX_US.AFS");
+    }
+    if (!entry)
+        throw std::runtime_error("the music archive is not on the disc");
+    const uint64_t base = uint64_t(entry->sector) * sector_bytes;
+    uint8_t head[8];
+    if (!read(base, head, 8) || std::memcmp(head, "AFS", 3) != 0)
+        throw std::runtime_error("the music archive is not readable");
+    uint32_t count = 0;
+    std::memcpy(&count, head + 4, 4);
+    if (count > 65536u)
+        throw std::runtime_error("the music archive is damaged");
+    std::vector<uint8_t> table(size_t(count) * 8u);
+    if (!read(base + 8, table.data(), table.size()))
+        throw std::runtime_error("the music archive table is not readable");
+    std::vector<Muted> found;
+    for (uint32_t i = 0; i < count; ++i) {
+        uint32_t offset = 0, length = 0;
+        std::memcpy(&offset, table.data() + i * 8u, 4);
+        std::memcpy(&length, table.data() + i * 8u + 4u, 4);
+        uint8_t header[16];
+        if (length < 64u || !read(base + offset, header, sizeof(header)))
+            continue;
+        if (header[0] != 0x80 || header[1] != 0x00 || header[4] != 3 || header[5] != 18 || header[7] != 2)
+            continue;
+        const uint64_t data = base + offset + ((uint64_t(header[2]) << 8) | header[3]) + 4u;
+        const uint64_t end = base + offset + length;
+        if (data >= end)
+            continue;
+        found.push_back({data, end, (end - data) / 18u});
+    }
+    std::sort(found.begin(), found.end(), [](const Muted &a, const Muted &b) { return a.start < b.start; });
+    std::lock_guard lock(mutex_);
+    muted_ = std::move(found);
+}
+
+void DiscOverlay::silence(uint64_t offset, uint8_t *destination, size_t bytes) const {
+    if (muted_.empty())
+        return;
+    const uint64_t end = offset + bytes;
+    auto it = std::upper_bound(muted_.begin(), muted_.end(), offset, [](uint64_t value, const Muted &range) { return value < range.start; });
+    if (it != muted_.begin())
+        --it;
+    for (; it != muted_.end() && it->start < end; ++it) {
+        if (it->end <= offset)
+            continue;
+        const uint64_t from = std::max(offset, it->start), to = std::min(end, it->start + it->frames * 18u);
+        if (from >= to)
+            continue;
+        uint64_t frame = it->start + (from - it->start) / 18u * 18u;
+        for (; frame < to; frame += 18u) {
+            const bool high = frame >= offset && frame < end;
+            uint8_t first = high ? destination[frame - offset] : 0;
+            if (!high && !read_locked(frame, &first, 1))
+                continue;
+            if (first & 0x80u)
+                continue;
+            if (high)
+                destination[frame - offset] = 0;
+            if (frame + 1u >= offset && frame + 1u < end)
+                destination[frame + 1u - offset] = 0;
+        }
+    }
 }
 
 }

@@ -91,6 +91,51 @@ void load_slot(unsigned slot) {
     });
 }
 
+struct MenuState {
+    std::mutex mutex;
+    std::vector<uint8_t> data;
+    bool saving = false;
+};
+MenuState &menu_state() {
+    static MenuState value;
+    return value;
+}
+
+void capture_menu() {
+    auto &menu = menu_state();
+    {
+        std::lock_guard lock(menu.mutex);
+        if (menu.saving || !menu.data.empty())
+            return;
+        menu.saving = true;
+    }
+    openkai2::request_machine_save([](openkai2::MachineStateResult result) {
+        auto &menu = menu_state();
+        std::lock_guard lock(menu.mutex);
+        menu.saving = false;
+        if (result.ok)
+            menu.data = std::move(result.data);
+        if (result.ok)
+            std::cout << "[speedrun] main menu saved for permadeath resets" << std::endl;
+    });
+}
+
+bool return_to_menu() {
+    auto &menu = menu_state();
+    std::vector<uint8_t> data;
+    {
+        std::lock_guard lock(menu.mutex);
+        if (menu.data.empty())
+            return false;
+        data = menu.data;
+    }
+    openkai2::request_machine_load(std::move(data), [](openkai2::MachineStateResult result) {
+        if (!result.ok)
+            std::cout << "[speedrun] could not return to the main menu: " << result.message << std::endl;
+    });
+    return true;
+}
+
 double seconds() {
     return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
@@ -146,7 +191,7 @@ struct Overlay {
     uint64_t counted_frame = 0;
     Font font{}, label_font{};
     bool hidden = false;
-    bool skipping = false;
+    bool skipping = false, state_main_menu = false;
     double skip_started = 0, last_press = 0;
     uint64_t last_fields = 0;
     bool own_font = false, own_label = false;
@@ -186,6 +231,7 @@ struct Overlay {
 
     void update(PS2Runtime &runtime, double now, uint64_t fields) {
         const auto state = read_guest(runtime.memory().getRDRAM(), PS2_RAM_SIZE);
+        state_main_menu = state.main_menu;
         if (skipping)
             skip_to_menu(state, now);
         for (const auto &name : state.tasks)
@@ -258,10 +304,18 @@ struct Overlay {
                 save(false, timer.real(now), timer.wins());
             reset = true;
         }
-        if (died_at >= 0 && now - died_at > 4.0 && !reset) {
+        if (options.permadeath && state_main_menu && !openkai2::machine_state_pending())
+            capture_menu();
+        if (died_at >= 0 && now - died_at > 4.0 && !reset && !openkai2::machine_state_pending()) {
             note("permadeath: run over, back to the main menu");
-            to_menu = true;
-            reset = true;
+            if (return_to_menu()) {
+                died_at = -1;
+                timer.reset();
+                recorded = true;
+            } else {
+                to_menu = true;
+                reset = true;
+            }
         }
         if (reset)
             runtime.requestStop();

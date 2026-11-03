@@ -22,7 +22,8 @@ public:
 
     static DiscOverlay &global();
 
-    Summary configure(const std::filesystem::path &image, const std::vector<std::filesystem::path> &mods);
+    Summary configure(const std::filesystem::path &image, const std::vector<std::filesystem::path> &mods, bool mute_music = false);
+    size_t muted_tracks() const;
     void clear();
 
     bool active_for(const std::filesystem::path &image) const;
@@ -60,6 +61,13 @@ private:
     mutable std::filesystem::path checked_;
     mutable bool checked_matches_ = false;
     bool active_ = false;
+    struct Muted {
+        uint64_t start = 0, end = 0, frames = 0;
+    };
+    std::vector<Muted> muted_;
+    void find_music();
+    bool read_locked(uint64_t offset, void *destination, size_t bytes) const;
+    void silence(uint64_t offset, uint8_t *destination, size_t bytes) const;
 };
 
 }

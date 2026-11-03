@@ -38,21 +38,29 @@
  #include "runtime/ee_scheduler.h"
  
  #if !defined(PS2X_HAS_FFMPEG)
-@@ -2102,6 +2103,67 @@
+@@ -2102,6 +2103,75 @@
          setReturnU32(ctx, setDynamicRet);
      }
  
 +    bool mpegPlaybackActive()
 +    {
 +        std::lock_guard<std::mutex> lock(g_mpeg_stub_mutex);
++        static std::unordered_map<uint32_t, std::pair<uint32_t, std::chrono::steady_clock::time_point>> progress;
++        const auto now = std::chrono::steady_clock::now();
++        bool active = false;
 +        for (const auto &[mpegAddr, playback] : g_mpeg_stub_state.playbackByMpeg)
 +        {
-+            if (!playback.decodedFrames.empty())
-+                return true;
-+            if (playback.sawInput && !playback.streamEnded && !playback.sawSequenceEnd && !playback.decoderFailed)
-+                return true;
++            const bool playing = !playback.decodedFrames.empty() ||
++                                 (playback.sawInput && !playback.streamEnded && !playback.sawSequenceEnd && !playback.decoderFailed);
++            if (!playing)
++                continue;
++            auto &seen = progress[mpegAddr];
++            if (seen.first != playback.picturesServed || seen.second.time_since_epoch().count() == 0)
++                seen = {playback.picturesServed, now};
++            if (now - seen.second < std::chrono::seconds(1))
++                active = true;
 +        }
-+        return false;
++        return active;
 +    }
 +
 +    void serializeMpegState(StateArchive &archive)
