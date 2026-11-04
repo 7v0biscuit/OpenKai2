@@ -112,7 +112,7 @@ class TranslationEntries(unittest.TestCase):
     def test_tables_have_complete_unique_coverage(self):
         self.assertEqual(len(ENTRIES.DISPATCH_TABLES), 7)
         self.assertTrue(all(len(row) == 14 for _, row in ENTRIES.DISPATCH_TABLES))
-        self.assertEqual(len(set(ENTRIES.ENTRY_POINTS)), 1160)
+        self.assertEqual(len(set(ENTRIES.ENTRY_POINTS)), 1165)
         self.assertEqual(len(ENTRIES.ZERO_RETURN_ENTRIES), 39)
         self.assertTrue(set(ENTRIES.ZERO_RETURN_ENTRIES) <= set(ENTRIES.ENTRY_POINTS))
         self.assertNotIn(0x00387110, ENTRIES.ENTRY_POINTS)
@@ -127,7 +127,7 @@ class TranslationEntries(unittest.TestCase):
             path = Path(temporary) / 'entries.h'
             ENTRIES.emit_check_header(path)
             content, changed = path.read_text(), path.stat().st_mtime_ns
-            self.assertIn('std::array<uint32_t, 1160> entries', content)
+            self.assertIn('std::array<uint32_t, 1165> entries', content)
             self.assertIn('std::array<uint32_t, 39> zero_return_entries', content)
             for address in ENTRIES.ENTRY_POINTS:
                 self.assertIn(f'0x{address:08x}u,', content)
@@ -294,8 +294,13 @@ class TranslationEntries(unittest.TestCase):
                     ENTRIES.verify_elf_metadata(data)
 
     def test_object_callback_installations(self):
-        self.assertEqual(len(ENTRIES.OBJECT_CALLBACK_ENTRIES), 79)
+        self.assertEqual(len(ENTRIES.OBJECT_CALLBACK_ENTRIES), 84)
         self.assertIn(0x225930, ENTRIES.OBJECT_CALLBACK_ENTRIES)
+        for address in (0x22fee0, 0x291b00, 0x291b80, 0x292400, 0x2a6a30):
+            self.assertIn(address, ENTRIES.OBJECT_CALLBACK_ENTRIES)
+            with self.subTest(address=address), self.assertRaisesRegex(ValueError, 'missing guest entry'):
+                self.verify_fixture('g_ps2RecompiledFunctionTable[1] = owner; // 0x167188',
+                                    '// Address: 0x167188 - 0x1671a0', omitted=(address,))
         self.assertNotIn(0x33c440, ENTRIES.OBJECT_CALLBACK_ENTRIES)
         self.assertNotIn(0x33c500, ENTRIES.OBJECT_CALLBACK_ENTRIES)
         self.assertTrue(set(ENTRIES.OBJECT_CALLBACK_ENTRIES) <= set(ENTRIES.ENTRY_POINTS))

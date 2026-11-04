@@ -98,6 +98,13 @@ completion callback is checked with direct/cached/uncached addresses, dependency
 results, caller frames and stack guards. Full story progression still requires
 retail validation.
 
+Additional indirect callbacks used by scene changes, Dragon World fades,
+board overlays and the ending now have explicit translation entries. Their
+installation instructions and method bodies are checked against the supported
+executable. Compiled checks exercise the scene wait, both fades and the ending's
+wait/Start paths with cached and uncached object pointers. These bounded checks
+do not establish that every Dragon World stage can be completed.
+
 Display checks exercise all six FXAA/scaler combinations on a real OpenGL
 context, including content bounds, image orientation, letterboxing and native
 edge smoothing. Save checks cover Unicode settings, argument quoting, lossless

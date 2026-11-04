@@ -7,7 +7,119 @@
 #include <stdexcept>
 #include <vector>
 namespace openkai2 {
+namespace {
+void verify_transition_methods(PS2Runtime &runtime, uint8_t *ram) {
+    const auto require = [](bool ok, const char *why) {
+        if (!ok)
+            throw std::runtime_error(why);
+    };
+    constexpr uint32_t object = 0x650000, returned = 0x29f00, sp = 0x1fffde0, gp = 0x3ac4f0;
+    auto &memory = runtime.memory();
+    struct SavedWords {
+        PS2Runtime &runtime;
+        std::vector<std::pair<uint32_t, uint32_t>> words;
+        ~SavedWords() {
+            for (auto [at, value] : words)
+                runtime.memory().write32(at, value);
+        }
+    } saved{runtime, {}};
+    for (uint32_t at : {gp - 0x7e80u, 0x69ccf0u, 0x69ccf4u, 0x69ccf8u, 0x69ccfcu,
+                        0x69cd10u, 0x693f38u, 0x3b4bacu, gp - 0x7084u, gp - 0x7078u})
+        saved.words.emplace_back(at, memory.read32(at));
+    const auto put_float = [&](uint32_t at, float value) {
+        uint32_t bits;
+        std::memcpy(&bits, &value, 4);
+        memory.write32(at, bits);
+    };
+    const auto get_float = [&](uint32_t at) {
+        auto bits = memory.read32(at);
+        float value;
+        std::memcpy(&value, &bits, 4);
+        return value;
+    };
+    const auto call = [&](uint32_t entry, uint32_t alias) {
+        R5900Context context{};
+        context.pc = entry;
+        context.r[4] = _mm_cvtsi64_si128(int64_t(int32_t(object | alias)));
+        context.r[28] = _mm_cvtsi32_si128(gp);
+        context.r[29] = _mm_cvtsi32_si128(sp);
+        context.r[31] = _mm_cvtsi32_si128(returned);
+        context.r[16] = _mm_set_epi32(1, 2, 3, 4);
+        const auto preserved = context.r[16];
+        for (unsigned step = 0; step < 32 && context.pc != returned; ++step) {
+            auto function = runtime.lookupFunction(context.pc);
+            require(function != nullptr, "Dragon World transition method is untranslated");
+            try {
+                function(ram, &context, &runtime);
+            } catch (const EeDispatcherTransfer &) {
+            }
+        }
+        require(context.pc == returned && getRegU32(&context, 29) == sp &&
+                    getRegU32(&context, 31) == returned && getRegU32(&context, 28) == gp &&
+                    std::memcmp(&context.r[16], &preserved, 16) == 0,
+                "Dragon World transition lost its caller frame");
+    };
+    for (uint32_t alias : {0u, 0x80000000u, 0xa0000000u}) {
+        for (uint32_t mode : {0xffffffffu, 0u, 4u, 6u}) {
+            memory.write32(object + 0x1c, 0x22fee0);
+            memory.write32(gp - 0x7e80, mode);
+            call(0x22fee0, alias);
+            require(memory.read32(object + 0x1c) == (mode == 0xffffffffu ? 0x22fee0u : 0x22fe70u),
+                    "Dragon World scene wait changed the transition callback");
+        }
+        for (float initial : {0.3f, 1.0f}) {
+            std::memset(ram + object, 0xa5, 128);
+            memory.write32(object + 0x1c, 0x291b00);
+            put_float(0x69ccf0, initial);
+            for (unsigned frame = 0; frame < 24; ++frame) {
+                if (memory.read32(object + 0x1c) != 0x291b00)
+                    break;
+                call(0x291b00, alias);
+                const float now = get_float(0x69ccf0);
+                require(now >= 0.25f && now <= initial &&
+                            memory.read32(0x69ccf0) == memory.read32(0x69ccf4) &&
+                            memory.read32(0x69ccf0) == memory.read32(0x69ccf8),
+                        "Dragon World dimming changed its clamp or color lanes");
+            }
+            require(memory.read32(object + 0x1c) == 0x291990 &&
+                        memory.read8(object + 0x34) == 0 && get_float(0x69ccf0) == 0.25f,
+                    "Dragon World dimming did not finish");
+            memory.write32(object + 0x1c, 0x291b80);
+            put_float(0x69ccfc, initial);
+            for (unsigned frame = 0; frame < 24; ++frame) {
+                if (memory.read32(object + 0x1c) != 0x291b80)
+                    break;
+                call(0x291b80, alias);
+                require(get_float(0x69ccfc) >= 0 && get_float(0x69ccfc) <= initial,
+                        "Dragon World fade escaped its bounds");
+            }
+            require(memory.read32(object + 0x1c) == 0 && memory.read32(0x69cd10) == 0 &&
+                        get_float(0x69ccfc) == 0,
+                    "Dragon World fade did not release its callback");
+        }
+        for (uint32_t start : {0u, 8u})
+            for (uint32_t ready : {0u, 1u}) {
+                std::memset(ram + object, 0xa5, 128);
+                memory.write32(object + 0x1c, 0x2a6a30);
+                memory.write32(0x693f38, 0);
+                memory.write16(0x3b4bae, uint16_t(start));
+                memory.write32(gp - 0x7084, ready);
+                memory.write32(gp - 0x7078, 0x1234);
+                call(0x2a6a30, alias);
+                const bool finish = start || ready;
+                require(memory.read32(object + 0x1c) == (finish ? 0x2a68e0u : 0x2a6a30u) &&
+                            memory.read32(object + 0x50) == (finish ? 0u : 0xa5a5a5a5u) &&
+                            memory.read32(gp - 0x7078) == (start ? 0u : 0x1234u),
+                        "Dragon World ending changed its wait or Start handling");
+                if (finish)
+                    require(get_float(object + 0x30) == 45.0f,
+                            "Dragon World ending did not start its exit timer");
+            }
+    }
+}
+}
 void verify_story_callbacks(PS2Runtime &runtime, uint8_t *ram) {
+    verify_transition_methods(runtime, ram);
     const auto require = [](bool ok, const char *why) {
         if (!ok)
             throw std::runtime_error(why);
