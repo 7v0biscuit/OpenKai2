@@ -310,6 +310,33 @@ void checkGpuTransfers(){
     }
     std::cout<<"GPU VRAM transfer checks passed: "<<cases<<" uploads and copies across 11 formats without readbacks.\n";
 }
+void checkLargeTransfers(){
+    for (unsigned height : {2047u, 2048u}) {
+        Comparison pair;
+        auto primitive = material(0u, false);
+        primitive.state.prim.tme = false;
+        pair.draw(primitive);
+        pair.textureFlush();
+        GSTransferCommand transfer{};
+        transfer.direction = 0u;
+        transfer.bitbltbuf.dbw = 32u;
+        transfer.bitbltbuf.dpsm = GS_PSM_T8;
+        transfer.trxreg.rrw = 2048u;
+        transfer.trxreg.rrh = height;
+        std::vector<uint8_t> image(2048u * height);
+        for (size_t i = 0; i < image.size(); ++i)
+            image[i] = uint8_t(i * 37u + (i >> 11u));
+        const auto before = pair.gpu->stats();
+        pair.cpu->BeginTransfer(transfer);
+        pair.gpu->BeginTransfer(transfer);
+        pair.cpu->UploadImage(image.data(), uint32_t(image.size()));
+        pair.gpu->UploadImage(image.data(), uint32_t(image.size()));
+        if (pair.gpu->stats().gpuTransfers != before.gpuTransfers + 1u)
+            throw std::runtime_error("Large transfer did not exercise GPU image upload");
+        pair.compare("Large GPU upload height=" + std::to_string(height));
+    }
+    std::cout << "GPU large-transfer checks passed: complete VRAM below and above 65535 workgroups.\n";
+}
 void checkLines(){
     constexpr unsigned frames[]={0u,1u,2u,10u};
     for(unsigned mode=0;mode<64u;++mode){
@@ -576,7 +603,7 @@ int run_gpu_checks(bool required){
 #endif
         if(!initialized){std::cout<<"GPU checks unavailable: "<<error<<'\n';return required ? 1 : 77;}
         std::cout<<"GPU checks device: "<<gpu::current_device()->description()<<'\n';
-        checkFlatDepth();checkDepthPlanes();checkPaletteReuse();checkPresentationReadbacks();checkEmptyTriangles();checkMaterials();checkIntegerPipeline();checkFormats();checkLines();checkCoherence();checkTransferPages();checkGpuTransfers();checkRebind();checkClears();checkSourceChanges();checkPartialReadbacks();checkGsWorker();checkInternalResolution();checkHdTextures();
+        checkFlatDepth();checkDepthPlanes();checkPaletteReuse();checkPresentationReadbacks();checkEmptyTriangles();checkMaterials();checkIntegerPipeline();checkFormats();checkLines();checkCoherence();checkTransferPages();checkGpuTransfers();checkLargeTransfers();checkRebind();checkClears();checkSourceChanges();checkPartialReadbacks();checkGsWorker();checkInternalResolution();checkHdTextures();
         const auto before=gpu_render_statistics().gpuDraws;verify_vector_runtime_gpu();
         if(gpu_render_statistics().gpuDraws-before!=8u)throw std::runtime_error("VIF/PATH1 integration did not execute eight GPU triangles");
         auto device=gpu::current_device();device->post([](gpu::Host&){throw std::runtime_error("GPU failure propagation fixture");});

@@ -30,7 +30,8 @@ uint uploadValue(uint index,uint count){
     return count==32u ? value : value&((1u<<count)-1u);
 }
 void main(){
-    uint index=gl_GlobalInvocationID.x;if(index>=job[1])return;
+    uint index=gl_GlobalInvocationID.x+gl_GlobalInvocationID.y*gl_NumWorkGroups.x*gl_WorkGroupSize.x;
+    if(index>=job[1])return;
     uint pixel=job[2]+index,rrw=job[3];
     ivec2 offset=ivec2(pixel%rrw,pixel/rrw);
     uint dpsm=job[4];

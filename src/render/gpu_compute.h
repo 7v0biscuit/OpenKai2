@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <limits>
 #include <string>
 #include <utility>
 #include <vector>
@@ -25,6 +26,7 @@ class Compute {
     virtual void read(const std::vector<Range> &ranges, uint8_t *destination) = 0;
     virtual void finish() = 0;
     virtual bool hires_supported() const { return false; }
+    virtual size_t storage_word_limit() const { return std::numeric_limits<size_t>::max() / 4u; }
     virtual void hires_reserve(size_t colorWords, size_t depthWords) { (void)colorWords, (void)depthWords; }
     virtual void hires_raster(const std::vector<uint32_t> &params, unsigned groups) { (void)params, (void)groups; }
     virtual void hires_seed(const std::vector<uint32_t> &params, unsigned groupsX, unsigned groupsY) {

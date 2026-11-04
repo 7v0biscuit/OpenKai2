@@ -44,6 +44,9 @@ class OpenGlCompute final : public Compute {
     const std::string &description() const override { return description_; }
 
     void create(const std::vector<uint32_t> &tables) override {
+        Int storageBytes = 0;
+        gl_.GetIntegerv(0x90de, &storageBytes);
+        storageWords_ = size_t(std::max(storageBytes, 0)) / 4u;
         raster_ = compile(gl_, shaderSource);
         transfer_ = compile(gl_, transferShaderSource);
         Int bindings = 0, blocks = 0;
@@ -107,13 +110,17 @@ class OpenGlCompute final : public Compute {
     }
 
     void transfer(const std::vector<uint32_t> &job, unsigned pixels) override {
+        if (!pixels)
+            return;
         gl_.BindBuffer(ShaderStorageBuffer, job_);
         gl_.BufferData(ShaderStorageBuffer, Size(job.size() * 4u), job.data(), DynamicDraw);
         gl_.BindBufferBase(ShaderStorageBuffer, 0, buffers_[0]);
         gl_.BindBufferBase(ShaderStorageBuffer, 1, job_);
         gl_.BindBufferBase(ShaderStorageBuffer, 5, buffers_[5]);
         gl_.UseProgram(transfer_);
-        gl_.DispatchCompute((pixels + 63u) / 64u, 1u, 1u);
+        const unsigned groups = pixels / 64u + unsigned(pixels % 64u != 0u);
+        const unsigned rows = (groups + 65534u) / 65535u;
+        gl_.DispatchCompute((groups + rows - 1u) / rows, rows, 1u);
         gl_.MemoryBarrier(ShaderStorageBarrier | BufferUpdateBarrier);
         gl_.check("GPU VRAM transfer");
     }
@@ -129,6 +136,7 @@ class OpenGlCompute final : public Compute {
     void finish() override { gl_.Finish(); }
 
     bool hires_supported() const override { return hires_ != 0u; }
+    size_t storage_word_limit() const override { return storageWords_; }
 
     void hires_reserve(size_t colorWords, size_t depthWords) override {
         if (!hires_)
@@ -221,6 +229,7 @@ class OpenGlCompute final : public Compute {
     UInt hires_ = 0u, seed_ = 0u;
     size_t reserved_[2] = {0u, 0u};
     std::string description_;
+    size_t storageWords_ = 0;
     std::array<UInt, 6> buffers_{};
     UInt raster_ = 0u, transfer_ = 0u, job_ = 0u;
 };

@@ -129,6 +129,7 @@ struct GpuRasterBackend::Impl {
     std::array<Shadow,colorSlots> colorShadows{};std::array<Shadow,depthSlots> depthShadows{};
     size_t slotWords()const{return size_t(shadowWidth*scale)*size_t(shadowHeight*scale);}
     static constexpr size_t hdWords=24u<<20u,hdLargest=4u<<20u;
+    size_t hdCapacity=0;
     struct HdSlot{uint32_t offset=0,width=0,height=0;};
     bool hdOn=false,hdFull=false;size_t hdHead=0;uint64_t hiresFrames=0,nativeFrames=0;std::array<uint64_t,5> hdSkips{};std::array<uint64_t,6> nativeWhy{};std::unordered_map<uint64_t,HdSlot> hdSlots;
     std::map<std::array<uint64_t,4>,uint64_t> hdHashes;std::array<uint32_t,gpu::PageCount> pageVersion{};
@@ -168,7 +169,7 @@ struct GpuRasterBackend::Impl {
             if(!image){++hdSkips[3];return;}
             const size_t words=size_t(image->width)*image->height;
             if(!words || words>hdLargest)return;
-            if(hdHead+words>hdWords){hdFull=true;return;}
+            if(hdHead+words>hdCapacity){hdFull=true;return;}
             slot=hdSlots.emplace(hash,HdSlot{uint32_t(hdHead),image->width,image->height}).first;
             device->post([r=resources,image,offset=hdBase()+hdHead](gpu::Host&){r->compute->hires_upload(offset,image->texels.data(),image->texels.size());});
             hdHead+=(words+63u)&~size_t(63u);
@@ -203,14 +204,19 @@ struct GpuRasterBackend::Impl {
         device=gpu::current_device();if(!device)return false;
         try{
             resources=std::make_shared<Resources>();scale=std::clamp(graphics_settings().internalScale,1u,4u);
-            bool supported=false;const unsigned hdMode=scale>1u ? graphics_settings().hdTextures : 0u;
-            device->invoke([r=resources,&supported,words=slotWords(),scaled=scale>1u,extra=hdMode ? hdWords : 0u](gpu::Host& host){
+            bool supported=false;size_t capacity=0;const unsigned hdMode=scale>1u ? graphics_settings().hdTextures : 0u;
+            device->invoke([r=resources,&supported,&capacity,words=slotWords(),scaled=scale>1u,extra=hdMode ? hdWords : 0u](gpu::Host& host){
                 r->compute=host.create();r->compute->create(gpu::address_tables());
                 supported=scaled && r->compute->hires_supported();
-                if(supported)r->compute->hires_reserve(words*colorSlots+extra,words*depthSlots);
+                const size_t limit=r->compute->storage_word_limit();
+                supported=supported && words*colorSlots<=limit && words*depthSlots<=limit;
+                if(supported){
+                    capacity=std::min(extra,limit-words*colorSlots);
+                    r->compute->hires_reserve(words*colorSlots+capacity,words*depthSlots);
+                }
             });
-            hires=supported;dropShadows();
-            hdOn=hires && hdMode!=0u;
+            hires=supported;hdCapacity=capacity;dropShadows();
+            hdOn=hires && hdMode!=0u && hdCapacity!=0u;
             if(hdOn)hd::library().configure(hdMode,graphics_settings().textureFolder,scale>=3u ? 4u : 2u);
             if(scale>1u)std::cout<<"[renderer] internal_resolution="<<scale<<"x "<<(hires ? "enabled" : "unavailable")<<" hd_textures="<<(hdOn ? hdMode : 0u)<<std::endl;
             cpuDirty.set();return true;

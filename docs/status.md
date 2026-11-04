@@ -105,6 +105,14 @@ executable. Compiled checks exercise the scene wait, both fades and the ending's
 wait/Start paths with cached and uncached object pointers. These bounded checks
 do not establish that every Dragon World stage can be completed.
 
+Large image uploads now use two-dimensional compute dispatches in OpenGL and
+Vulkan. A 2048-by-2048 indexed upload previously requested 65536 workgroups along
+X, exceeding the guaranteed 65535 limit. The OpenGL reference comparison lost
+VRAM data at that boundary, and Vulkan validation reported an invalid dispatch.
+Checks compare all VRAM below and above the boundary. HD-texture cache allocation
+also respects each device's storage-buffer limit; resolutions that cannot fit
+their render targets use native rendering instead of invalid buffer bindings.
+
 Display checks exercise all six FXAA/scaler combinations on a real OpenGL
 context, including content bounds, image orientation, letterboxing and native
 edge smoothing. Save checks cover Unicode settings, argument quoting, lossless

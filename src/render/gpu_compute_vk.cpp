@@ -99,6 +99,7 @@ struct Shared {
     VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
     VkPipeline raster = VK_NULL_HANDLE, transfer = VK_NULL_HANDLE, hires = VK_NULL_HANDLE, seed = VK_NULL_HANDLE;
     std::string description;
+    size_t storageWords = 0;
 
     Shared() {
         try {
@@ -185,6 +186,7 @@ struct Shared {
                     physical = candidate;
                     family = i;
                     description = std::string(properties.deviceName) + " (Vulkan)";
+                    storageWords = properties.limits.maxStorageBufferRange / 4u;
                 }
                 break;
             }
@@ -367,7 +369,9 @@ class VulkanCompute final : public Compute {
         vkCmdBindPipeline(command_, VK_PIPELINE_BIND_POINT_COMPUTE, shared_->transfer);
         vkCmdBindDescriptorSets(command_, VK_PIPELINE_BIND_POINT_COMPUTE, shared_->pipelineLayout, 0, 1, &transferSet_, 0,
                                 nullptr);
-        vkCmdDispatch(command_, (pixels + 63u) / 64u, 1, 1);
+        const unsigned groups = pixels / 64u + unsigned(pixels % 64u != 0u);
+        const unsigned rows = (groups + 65534u) / 65535u;
+        vkCmdDispatch(command_, (groups + rows - 1u) / rows, rows, 1);
         barrier();
         if (++dispatches_ >= 4u)
             submit();
@@ -392,6 +396,7 @@ class VulkanCompute final : public Compute {
     void finish() override { flush(); }
 
     bool hires_supported() const override { return true; }
+    size_t storage_word_limit() const override { return shared_->storageWords; }
 
     void hires_reserve(size_t colorWords, size_t depthWords) override {
         ensure(hiColor_, VkDeviceSize(colorWords) * 4u);
