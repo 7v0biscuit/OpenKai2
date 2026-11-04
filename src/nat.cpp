@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "nat.h"
 #include "net_socket.h"
+#include <algorithm>
 #include <cctype>
 #include <chrono>
 #include <cstring>
 #include <random>
 
 #ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <winsock2.h>
 #include <ws2tcpip.h>
 using Handle = SOCKET;
