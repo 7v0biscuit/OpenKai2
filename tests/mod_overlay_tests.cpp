@@ -157,6 +157,7 @@ int main() {
                 "The rebuilt archive lost or changed entries");
         require(slice(bytes, 23 * sector, 13) == "hello world!!", "The replaced file was not read back");
 
+        const auto expectedAfs = *afs;
         const auto written = root / "modded.iso";
         {
             std::ofstream out(written, std::ios::binary);
@@ -166,7 +167,7 @@ int main() {
         openkai2::IsoIndex modded(written);
         const auto *movedAfs = modded.find("USR/DATA.AFS");
         const auto *movedData = modded.find("USR/DATA.BIN");
-        require(movedAfs && movedAfs->sector == afs->sector && movedAfs->size == afs->size && movedData &&
+        require(movedAfs && movedAfs->sector == expectedAfs.sector && movedAfs->size == expectedAfs.size && movedData &&
                     movedData->size == 13,
                 "The patched directory records do not match the overlay");
 
@@ -203,6 +204,7 @@ int main() {
         list = scan_mods(mods);
         std::ifstream order(mods / "load-order.txt");
         const std::string orderText((std::istreambuf_iterator<char>(order)), std::istreambuf_iterator<char>());
+        order.close();
         require(!fs::exists(created) && list.size() == 3 && orderText.find("Goku_SSJ4") == std::string::npos,
                 "A deleted mod was left on disk or in the load order");
         bool refused = false;
