@@ -98,15 +98,15 @@ void verify_transition_methods(PS2Runtime &runtime, uint8_t *ram) {
                     "Dragon World fade did not release its callback");
         }
         for (uint32_t start : {0u, 8u})
-            for (uint32_t ready : {0u, 1u}) {
+            for (uint32_t busy : {0u, 1u}) {
                 std::memset(ram + object, 0xa5, 128);
                 memory.write32(object + 0x1c, 0x2a6a30);
                 memory.write32(0x693f38, 0);
                 memory.write16(0x3b4bae, uint16_t(start));
-                memory.write32(gp - 0x7084, ready);
+                memory.write32(gp - 0x7084, busy);
                 memory.write32(gp - 0x7078, 0x1234);
                 call(0x2a6a30, alias);
-                const bool finish = start || ready;
+                const bool finish = start || !busy;
                 require(memory.read32(object + 0x1c) == (finish ? 0x2a68e0u : 0x2a6a30u) &&
                             memory.read32(object + 0x50) == (finish ? 0u : 0xa5a5a5a5u) &&
                             memory.read32(gp - 0x7078) == (start ? 0u : 0x1234u),
