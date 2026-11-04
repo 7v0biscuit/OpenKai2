@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+import subprocess
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location('release_names', ROOT / 'tools/releases/sync_notes.py')
@@ -12,6 +14,14 @@ SPEC.loader.exec_module(NAMES)
 
 
 class ReleaseNames(unittest.TestCase):
+    def test_release_description_update_retries_server_errors(self):
+        results = [subprocess.CompletedProcess([], 1, '', 'HTTP 500: Internal Server Error'),
+                   subprocess.CompletedProcess([], 0, 'updated\n', '')]
+        with patch.object(NAMES.subprocess, 'run', side_effect=results) as run, \
+                patch.object(NAMES.time, 'sleep'):
+            self.assertEqual(NAMES.gh('release', 'edit', 'v0.1.81'), 'updated')
+            self.assertEqual(run.call_count, 2)
+
     def setUp(self):
         self.calls = []
         self.commit = 'a' * 40

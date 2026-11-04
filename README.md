@@ -42,22 +42,24 @@ files.
 - **Mods:** add characters, movesets and stages from other Dragon Ball PS2 games
   without changing your ISO.
 - **Saves:** import, back up and restore memory card saves, with an optional
-  unlock-all.
+  unlock-all. Select individual saves or backups in the launcher to restore or delete.
 - **Launcher:** automatic updates, Discord activity, and the settings above.
 
 ## Known issues
 
 - **Dragon World dialogue:** the speech text and the ally Yes/No text do not
   appear. The boxes open and the story continues.
-- **Frame pacing:** the frame rate averages close to 60, but some frames take
-  longer, which shows as judder in busy fights.
+- **Dragon World progression:** full story completion remains unverified.
+- **Frame pacing:** busy fights can still stutter. Performance depends on the
+  scene and graphics settings.
 - **Imported Budokai 3 characters** can look black or blue.
 - **Imported Budokai 3 stages** load without their particle effects.
 
 ## Getting started
 
-1. Download **OpenKai2-Setup.exe** (installer) or **OpenKai2.exe** (portable) from
-   the [latest release](https://github.com/7v0biscuit/OpenKai2/releases).
+1. Choose a download from the [current release](https://github.com/7v0biscuit/OpenKai2/releases):
+   **OpenKai2-Setup.exe** to install, **OpenKai2.exe** for the portable app, or
+   **OpenKai2-windows-x64.zip** to extract manually.
 2. Open it, choose your **Budokai 2 USA ISO**, and press **Play**.
 
 The ISO's files are checked before every launch. Logs are in

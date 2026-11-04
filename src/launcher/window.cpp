@@ -70,8 +70,7 @@ constexpr COLORREF heroFrom = RGB(64, 24, 8), heroTo = RGB(15, 17, 31);
 constexpr int sidebarWidth = 220, contentLeft = 252, margin = 32;
 constexpr int heroTop = 124, heroBottom = 316, discTop = 332, discBottom = 420;
 constexpr int tilesTop = 436, tilesBottom = 516, keysTop = 540;
-constexpr int displayTop = 112, graphicsTop = 278, gameTop = 444, updatesTop = 554, speedrunTop = 112, splitsTop = 284,
-              speedrunRulesTop = 526;
+constexpr int speedrunTop = 112, splitsTop = 284, speedrunRulesTop = 526;
 constexpr int onlineProfileTop = 112, onlineHostTop = 228, onlineListsTop = 400;
 constexpr UINT onlineChanged = WM_APP + 30, onlineNotice = WM_APP + 31;
 
@@ -510,6 +509,24 @@ struct Grid {
     static int label(int top, int row) { return top + 44 + row * 56; }
     static int field(int top, int row) { return label(top, row) + 18; }
 };
+struct SettingsGrid : Grid {
+    int header, rowHeight, gap, controlHeight, fieldGap;
+    int displayTop = 112, graphicsTop, gameTop, updatesTop;
+    SettingsGrid(int width, int height) : Grid(width) {
+        const bool compact = height < 722;
+        header = compact ? (height < 660 ? 36 : 40) : 44;
+        rowHeight = compact ? 48 : 56;
+        gap = compact && height >= 660 ? 10 : 6;
+        controlHeight = compact ? 30 : 34;
+        fieldGap = compact ? 16 : 18;
+        graphicsTop = bottom(displayTop, 2) + gap;
+        gameTop = bottom(graphicsTop, 2) + gap;
+        updatesTop = bottom(gameTop, 1) + gap;
+    }
+    int bottom(int top, int rows) const { return top + header + rows * rowHeight + 4; }
+    int label(int top, int row) const { return top + header + row * rowHeight; }
+    int field(int top, int row) const { return label(top, row) + fieldGap; }
+};
 LRESULT CALLBACK combo_procedure(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK button_procedure(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK edit_procedure(HWND, UINT, WPARAM, LPARAM);
@@ -879,7 +896,7 @@ struct Window {
                                                           {ChooseIso, L"Choose ISO…"},
                                                           {VerifyIso, L"Verify"},
                                                           {Play, L"Play"},
-                                                          {ImportFolder, L"Import folder"},
+                                                          {ImportFolder, L"Import folder…"},
                                                           {ImportFile, L"Import file…"},
                                                           {Backup, L"Back up now"},
                                                           {UnlockAll,L"Unlock all"},
@@ -913,7 +930,7 @@ struct Window {
         combo(Filtering, {L"Game default", L"Nearest (sharp)", L"Bilinear (3D surfaces)"},
               int(settings.textureFilter));
         combo(Upscaler, {L"Nearest", L"Bilinear", L"Bicubic", L"AMD FSR 1", L"Lanczos", L"Sharp pixels"}, int(settings.upscaler));
-        combo(InternalScale, {L"Native (640x448)", L"2x (1280x896)", L"3x (1920x1344)", L"4x (2560x1792)"},
+        combo(InternalScale, {L"Native (1x)", L"2x native", L"3x native", L"4x native"},
               int(std::clamp(settings.internalScale, 1u, 4u) - 1u));
         combo(HdTextures, {L"Off", L"Upscaled from your disc", L"Texture packs", L"Texture packs, upscale the rest", L"Dump textures for pack makers"},
               int(std::min(settings.hdTextures, 4u)));
@@ -1038,7 +1055,7 @@ struct Window {
         EnableWindow(controls[SaveListKind], !busy());
         EnableWindow(controls[SelectSaves], !busy() && !emptySaveList());
         const auto rowCount = SendMessageW(controls[BackupList], LB_GETCOUNT, 0, 0);
-        SetWindowTextW(controls[SelectSaves], rowCount > 0 && selections == size_t(rowCount) ? L"Clear all" : L"Select all");
+        SetWindowTextW(controls[SelectSaves], rowCount > 0 && selections == size_t(rowCount) ? L"Deselect all" : L"Select all");
         EnableWindow(controls[BackupList], !busy() && !child);
         const bool modding = !busy() && !running();
         const auto chosenMod = SendMessageW(controls[ModList], LB_GETCURSEL, 0, 0);
@@ -1231,30 +1248,32 @@ struct Window {
                 }
             }
         } else {
-            const Grid grid(content);
+            const SettingsGrid grid(content, h);
+            const int displayTop = grid.displayTop, graphicsTop = grid.graphicsTop,
+                      gameTop = grid.gameTop, updatesTop = grid.updatesTop;
             const int half = (grid.column - 10) / 2;
-            position(WindowMode, grid.x(0), Grid::field(displayTop, 0), grid.column, 34);
-            position(Resolution, grid.x(1), Grid::field(displayTop, 0), grid.column, 34);
-            position(Aspect, grid.x(2), Grid::field(displayTop, 0), grid.column, 34);
-            position(Fps, grid.x(0), Grid::field(displayTop, 1), grid.column, 34);
-            position(Vsync, grid.x(1), Grid::field(displayTop, 1), grid.column, 34);
-            position(Audio, grid.x(2), Grid::field(displayTop, 1), grid.column, 34);
-            position(Renderer, grid.x(0), Grid::field(graphicsTop, 0), grid.column, 34);
-            position(Antialiasing, grid.x(1), Grid::field(graphicsTop, 0), grid.column, 34);
-            position(Filtering, grid.x(2), Grid::field(graphicsTop, 0), grid.column, 34);
-            position(Upscaler, grid.x(0), Grid::field(graphicsTop, 1), grid.column, 34);
-            position(InternalScale, grid.x(1), Grid::field(graphicsTop, 1), grid.column, 34);
-            position(ClearImage, grid.x(2), Grid::field(graphicsTop, 1), half, 34);
-            position(ResetGraphics, grid.x(2) + half + 10, Grid::field(graphicsTop, 1), grid.column - half - 10, 34);
-            position(CpuDifficulty, grid.x(0), Grid::field(gameTop, 0), grid.column, 34);
-            position(HdTextures, grid.x(1), Grid::field(gameTop, 0), grid.column, 34);
-            position(Music, grid.x(2), Grid::field(gameTop, 0), grid.column, 34);
+            position(WindowMode, grid.x(0), grid.field(displayTop, 0), grid.column, grid.controlHeight);
+            position(Resolution, grid.x(1), grid.field(displayTop, 0), grid.column, grid.controlHeight);
+            position(Aspect, grid.x(2), grid.field(displayTop, 0), grid.column, grid.controlHeight);
+            position(Fps, grid.x(0), grid.field(displayTop, 1), grid.column, grid.controlHeight);
+            position(Vsync, grid.x(1), grid.field(displayTop, 1), grid.column, grid.controlHeight);
+            position(Audio, grid.x(2), grid.field(displayTop, 1), grid.column, grid.controlHeight);
+            position(Renderer, grid.x(0), grid.field(graphicsTop, 0), grid.column, grid.controlHeight);
+            position(Antialiasing, grid.x(1), grid.field(graphicsTop, 0), grid.column, grid.controlHeight);
+            position(Filtering, grid.x(2), grid.field(graphicsTop, 0), grid.column, grid.controlHeight);
+            position(Upscaler, grid.x(0), grid.field(graphicsTop, 1), grid.column, grid.controlHeight);
+            position(InternalScale, grid.x(1), grid.field(graphicsTop, 1), grid.column, grid.controlHeight);
+            position(ClearImage, grid.x(2), grid.field(graphicsTop, 1), half, grid.controlHeight);
+            position(ResetGraphics, grid.x(2) + half + 10, grid.field(graphicsTop, 1), grid.column - half - 10, grid.controlHeight);
+            position(CpuDifficulty, grid.x(0), grid.field(gameTop, 0), grid.column, grid.controlHeight);
+            position(HdTextures, grid.x(1), grid.field(gameTop, 0), grid.column, grid.controlHeight);
+            position(Music, grid.x(2), grid.field(gameTop, 0), grid.column, grid.controlHeight);
             position(TextureFolder, right - 20 - 170, gameTop + 10, 170, 28);
-            position(UpdateChannel, grid.x(0), Grid::field(updatesTop, 0), grid.column, 34);
-            position(AutomaticUpdates, grid.x(1), Grid::field(updatesTop, 0), grid.column, 34);
-            position(CheckUpdates, grid.x(2), Grid::field(updatesTop, 0), half, 34);
-            position(InstallUpdate, grid.x(2) + half + 10, Grid::field(updatesTop, 0),
-                     grid.column - half - 10, 34);
+            position(UpdateChannel, grid.x(0), grid.field(updatesTop, 0), grid.column, grid.controlHeight);
+            position(AutomaticUpdates, grid.x(1), grid.field(updatesTop, 0), grid.column, grid.controlHeight);
+            position(CheckUpdates, grid.x(2), grid.field(updatesTop, 0), half, grid.controlHeight);
+            position(InstallUpdate, grid.x(2) + half + 10, grid.field(updatesTop, 0),
+                     grid.column - half - 10, grid.controlHeight);
             position(ReleasePage, right - 20 - 116, updatesTop + 10, 116, 28);
 
         }
@@ -1453,7 +1472,7 @@ struct Window {
         caps(dc, L"KEYBOARD", contentLeft, keysTop + 6, 90);
         int x = contentLeft + 84;
         for (auto [key, action] : std::vector<std::pair<std::wstring, std::wstring>>{
-                 {L"WASD", L"Move"}, {L"X", L"Confirm"}, {L"C", L"Back"}, {L"Enter", L"Start"}})
+                 {L"WASD", L"Move"}, {L"X", L"Confirm"}, {L"V", L"Back"}, {L"Enter", L"Start"}})
             if (x < right - 60)
                 x = keycap(dc, x, keysTop, key, action);
     }
@@ -1950,19 +1969,24 @@ struct Window {
     }
     void paintSettings(HDC dc, int content) {
         const int right = contentLeft + content;
-        const Grid grid(content);
+        RECT client{};
+        GetClientRect(hwnd, &client);
+        const SettingsGrid grid(content, unscale(client.bottom));
+        const int displayTop = grid.displayTop, graphicsTop = grid.graphicsTop,
+                  gameTop = grid.gameTop, updatesTop = grid.updatesTop;
         auto section = [&](int top, int rows, const wchar_t *title, const std::wstring &note, COLORREF tone) {
-            panelBox(dc, contentLeft, top, right, top + 44 + rows * 56 + 4);
+            panelBox(dc, contentLeft, top, right, grid.bottom(top, rows));
             text(dc, title, contentLeft + 20, top + 12, 200, 22, fonts.strong);
-            text(dc, note, contentLeft + 120, top + 14, content - 140 - (top == updatesTop ? 130 : 0), 18,
+            const int actions = top == updatesTop ? 130 : top == gameTop ? 190 : 0;
+            text(dc, note, contentLeft + 120, top + 14, content - 140 - actions, 18,
                  fonts.caption, tone, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
         };
         auto label = [&](int top, int row, int column, const wchar_t *value) {
-            caps(dc, value, grid.x(column), Grid::label(top, row), grid.column);
+            caps(dc, value, grid.x(column), grid.label(top, row), grid.column);
         };
         section(displayTop, 2, L"Display",
                 settings.windowMode ? L"Borderless uses your desktop resolution. The game draws up to 60 frames a second."
-                                    : L"The game draws up to 60 frames a second; a higher cap only lowers latency.",
+                                    : L"Game timing stays at 60 FPS. A higher presentation cap lowers input latency.",
                 muted);
         label(displayTop, 0, 0, L"WINDOW MODE");
         label(displayTop, 0, 1, L"RESOLUTION");

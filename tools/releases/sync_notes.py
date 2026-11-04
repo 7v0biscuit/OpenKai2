@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import re
 import subprocess
+import time
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -15,10 +16,13 @@ def version_tag(tag):
 
 
 def gh(*arguments):
-    result = subprocess.run(['gh', *arguments], text=True, capture_output=True)
-    if result.returncode:
-        raise RuntimeError('gh ' + ' '.join(arguments) + ': ' + result.stderr.strip())
-    return result.stdout.strip()
+    for attempt in range(4):
+        result = subprocess.run(['gh', *arguments], text=True, capture_output=True)
+        if not result.returncode:
+            return result.stdout.strip()
+        if attempt == 3 or not re.search(r'HTTP (?:429|500|502|503|504)\b', result.stderr):
+            raise RuntimeError('gh ' + ' '.join(arguments) + ': ' + result.stderr.strip())
+        time.sleep(2 ** attempt)
 
 
 def assets_of(release):

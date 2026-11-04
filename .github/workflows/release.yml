@@ -127,32 +127,7 @@ jobs:
           gh release upload "$TAG" OpenKai2.exe OpenKai2-windows-x64.zip OpenKai2-Setup.exe SHA256SUMS.txt --clobber
           gh release edit "$TAG" --draft=false --prerelease --latest=false
       - name: Retain the current development release
-        shell: python
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: |
-          import json, re, subprocess
-          from pathlib import Path
-          version = json.loads(Path('packaging/windows/release-input.json').read_text())['version']
-          tag = 'v' + version
-          current_version = tuple(map(int, version.split('.')))
-          releases = json.loads(subprocess.check_output([
-              'gh', 'release', 'list', '--limit', '100', '--json',
-              'tagName,isPrerelease,isDraft,publishedAt']))
-          current = next(release for release in releases if release['tagName'] == tag)
-          assert current['publishedAt'] and not current['isDraft']
-          for release in releases:
-              match = re.fullmatch(r'v(\d+)\.(\d+)\.(\d+)(?:-[A-Za-z0-9.-]+)?', release['tagName'])
-              if (release['tagName'] != tag and release['isPrerelease']
-                      and not release['isDraft'] and release['publishedAt']
-                      and match and tuple(map(int, match.groups())) < current_version
-                      and release['publishedAt'] < current['publishedAt']):
-                  subprocess.run(['gh', 'release', 'delete', release['tagName'],
-                                  '--yes', '--cleanup-tag'], check=True)
-          keep = {'main', 'release-input/' + tag}
-          branches = json.loads(subprocess.check_output([
-              'gh', 'api', '--paginate', 'repos/{owner}/{repo}/branches', '--jq', '[.[].name]']))
-          for branch in branches:
-              if branch not in keep:
-                  subprocess.run(['gh', 'api', '-X', 'DELETE', 'repos/{owner}/{repo}/git/refs/heads/' + branch], check=True)
+        run: python tools/releases/retain_current.py

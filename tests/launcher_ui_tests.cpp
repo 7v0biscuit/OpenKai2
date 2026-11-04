@@ -244,12 +244,20 @@ int main() {
                         "Reset graphics changed save/update preferences");
                 require(reset.discordPresence,"Reset graphics changed the Discord preference");
                 require(reset.audio && reset.volume==50,"Reset graphics changed the audio preference");
-                SetWindowPos(w,nullptr,0,0,1000,680,SWP_NOZORDER|SWP_NOACTIVATE);
-                for(int id : {140,141,142,143,144,145,146,147,149,150,160,161,162,163,164,170,173}) {
-                    RECT bounds{},client{};GetWindowRect(GetDlgItem(w,id),&bounds);GetClientRect(w,&client);
-                    MapWindowPoints(nullptr,w,reinterpret_cast<POINT*>(&bounds),2);
-                    require(bounds.left>=0 && bounds.top>=0 && bounds.right<=client.right &&
-                            bounds.bottom<=client.bottom,"A settings control is clipped at the minimum window size");
+                const auto dpiForWindow = reinterpret_cast<UINT(WINAPI *)(HWND)>(
+                    GetProcAddress(GetModuleHandleW(L"user32.dll"), "GetDpiForWindow"));
+                const int dpi = dpiForWindow ? int(dpiForWindow(w)) : 96;
+                for (int height : {680, 720, 800}) {
+                    SetWindowPos(w,nullptr,0,0,MulDiv(1000,dpi,96),MulDiv(height,dpi,96),
+                                 SWP_NOZORDER|SWP_NOACTIVATE);
+                    for(int id : {140,141,142,143,144,145,146,147,149,150,151,152,153,154,
+                                  160,161,162,163,164,170,171,173}) {
+                        RECT bounds{},client{};GetWindowRect(GetDlgItem(w,id),&bounds);GetClientRect(w,&client);
+                        MapWindowPoints(nullptr,w,reinterpret_cast<POINT*>(&bounds),2);
+                        require(bounds.left>=0 && bounds.top>=0 && bounds.right<=client.right &&
+                                bounds.bottom<=client.bottom-MulDiv(46,dpi,96),
+                                "A settings control overlaps the status footer or leaves the window");
+                    }
                 }
                 for(auto route : {std::pair<WORD,int>{'5',120},{'1',110},{'6',160},{'4',185},{'5',148},{'6',140},{'3',177},{'2',245}}) {
                     SetForegroundWindow(w);

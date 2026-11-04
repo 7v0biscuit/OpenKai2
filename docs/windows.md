@@ -94,8 +94,8 @@ restore immediate reads.
 
 ## Controls and saving
 
-Use arrows or WASD to move, **X or Space for Cross/confirm**, C for Circle/cancel,
-and Enter for Start. A compatible gamepad uses its lower face button for Cross.
+Use arrows or WASD to move, **X or Space for Cross/confirm**, **V for Triangle/back**,
+C for Circle, and Enter for Start. A compatible gamepad uses its lower face button for Cross.
 Enter does not replace Cross in confirmation dialogs. Short taps are retained
 until the game polls input, including when game frames are slow. Keyboard input
 remains available when a controller is connected.
