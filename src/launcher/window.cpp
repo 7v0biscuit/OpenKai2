@@ -193,7 +193,8 @@ enum Id {
     SplitSet,
     SplitAdd,
     SplitRemove,
-    SplitReset
+    SplitReset,
+    TimingRules = 290
 };
 constexpr int friendsTop = 462;
 constexpr int pageCount = 6, onlinePage = 1, speedrunPage = 2, modsPage = 3, savesPage = 4, settingsPage = 5, importPage = 6,
@@ -973,6 +974,18 @@ struct Window {
         button(SplitRemove, L"Remove");
         button(SplitReset, L"Reset best");
         refreshSplits();
+        controls[TimingRules] = CreateWindowExW(0, L"EDIT",
+            L"• The timer starts when Dragon World starts and stops on the last hit on Kid Buu.\r\n\r\n"
+            L"• Real time is the leaderboard time. PS2 time counts the console's frames, so slowdown is not added.\r\n\r\n"
+            L"• Any% starts with default equipment. NG+ allows skills set up before Dragon World.\r\n\r\n"
+            L"• Permadeath: being knocked out in a Dragon World fight, or losing one on time, ends the run.\r\n\r\n"
+            L"• Z1, Z2 and Z3 make the CPU stronger and are locked for the whole run; F6 is off in speedrun mode.\r\n\r\n"
+            L"• Each battle won is a split. Best runs and best segments are saved after every attempt.\r\n\r\n"
+            L"• Runs are flagged if the disc differs from the US retail disc, the game runs fast, or a memory editor is open.\r\n\r\n"
+            L"• Each session writes a checksummed log to logs\\speedruns for speedrun.com moderators.",
+            WS_CHILD | WS_TABSTOP | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY,
+            0, 0, 0, 0, hwnd, reinterpret_cast<HMENU>(intptr_t(TimingRules)), nullptr, nullptr);
+        SendMessageW(controls[TimingRules], EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN, 0);
         combo(Aspect, {L"4:3 (original)", L"16:9 (widescreen)", L"Stretch to window", L"Native pixels"},
               int(settings.aspect));
         combo(Audio, {L"Off", L"100% volume", L"75% volume", L"50% volume", L"25% volume"},
@@ -1019,6 +1032,7 @@ struct Window {
             SendMessageW(controls[id], EM_SETLIMITTEXT, WPARAM(limit), 0);
         for (auto [id, c] : controls)
             SendMessageW(c, WM_SETFONT, reinterpret_cast<WPARAM>(fonts.body), TRUE);
+        SendMessageW(controls[TimingRules], WM_SETFONT, reinterpret_cast<WPARAM>(fonts.caption), TRUE);
         SetTimer(hwnd, 1, 75, nullptr);
         layout();
     }
@@ -1160,6 +1174,9 @@ struct Window {
             position(ModCreate, right - 20 - 120, panelBottom - 52, 120, 36);
         } else if (page == speedrunPage) {
             const Grid grid(content);
+            const bool compact = h < 700;
+            const int rulesTop = compact ? 496 : speedrunRulesTop;
+            const int buttonHeight = compact ? 30 : 34;
             position(SpeedrunMode, grid.x(0), Grid::field(speedrunTop, 0), grid.column, 34);
             position(Permadeath, grid.x(1), Grid::field(speedrunTop, 0), grid.column, 34);
             position(FpsCounter, grid.x(2), Grid::field(speedrunTop, 0), grid.column, 34);
@@ -1167,12 +1184,15 @@ struct Window {
             position(OpenOverlay, right - 20 - 170, speedrunTop + 10, 170, 28);
             const int listWidth = (content - 40) * 58 / 100, side = contentLeft + 20 + listWidth + 16;
             const int sideWidth = right - 20 - side, half = (sideWidth - 10) / 2;
-            position(SplitList, contentLeft + 20, splitsTop + 66, listWidth, speedrunRulesTop - 12 - 40 - splitsTop - 66);
-            position(SplitTime, side, splitsTop + 92, sideWidth, 22);
-            position(SplitSet, side, splitsTop + 124, half, 34);
-            position(SplitAdd, side + half + 10, splitsTop + 124, sideWidth - half - 10, 34);
-            position(SplitRemove, side, splitsTop + 166, half, 34);
-            position(SplitReset, side + half + 10, splitsTop + 166, sideWidth - half - 10, 34);
+            position(SplitList, contentLeft + 20, splitsTop + 66, listWidth, rulesTop - 12 - 40 - splitsTop - 66);
+            if (splitBook.best().empty()) conceal(SplitList);
+            position(SplitTime, side, splitsTop + (compact ? 78 : 92), sideWidth, 22);
+            position(SplitSet, side, splitsTop + (compact ? 108 : 124), half, buttonHeight);
+            position(SplitAdd, side + half + 10, splitsTop + (compact ? 108 : 124), sideWidth - half - 10, buttonHeight);
+            position(SplitRemove, side, splitsTop + (compact ? 146 : 166), half, buttonHeight);
+            position(SplitReset, side + half + 10, splitsTop + (compact ? 146 : 166), sideWidth - half - 10, buttonHeight);
+            position(TimingRules, contentLeft + 20, rulesTop + 42, content - 40,
+                     std::max(28, h - 58 - rulesTop - 54));
         } else if (page == onlinePage) {
             const Grid grid(content);
             const int half = (grid.column - 10) / 2, bottom = h - 64;
@@ -1555,7 +1575,8 @@ struct Window {
     std::wstring splitName(size_t i) const {
         return i + 1 == splitBook.best().size() ? std::wstring(L"Kid Buu") : L"Battle " + std::to_wstring(i + 1);
     }
-    static constexpr int splitColumns[3] = {44, 70, 96};
+    static constexpr int splitNameColumn = 26;
+    static constexpr int splitColumns[3] = {50, 74, 98};
     std::vector<bool> splitGold;
     void refreshSplits() {
         const auto list = controls[SplitList];
@@ -1576,6 +1597,7 @@ struct Window {
         }
         if (chosen >= 0 && size_t(chosen) < best.size())
             SendMessageW(list, LB_SETCURSEL, chosen, 0);
+        ShowWindow(list, page == speedrunPage && !best.empty() ? SW_SHOWNA : SW_HIDE);
     }
     void refreshOverlayItems() {
         const auto list = controls[OverlayItems];
@@ -2027,95 +2049,94 @@ struct Window {
     void paintSpeedrun(HDC dc, int h, int content) {
         const int right = contentLeft + content;
         const Grid grid(content);
+        const bool compact = h < 700;
+        const int rulesTop = compact ? 496 : speedrunRulesTop;
+        const int splitBottom = rulesTop - 12;
         panelBox(dc, contentLeft, speedrunTop, right, speedrunTop + 160);
         text(dc, L"Run", contentLeft + 20, speedrunTop + 12, 200, 22, fonts.strong);
         text(dc, settings.speedrun ? L"Mods are off while a category is chosen. F7 hides the overlay; F8 resets."
                                    : L"Choose a category to time runs.",
-             contentLeft + 120, speedrunTop + 14, content - 140 - 184, 18, fonts.caption, muted,
-             DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+             contentLeft + 120, speedrunTop + 14, content - 324, 28, fonts.caption, muted,
+             DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
         caps(dc, L"CATEGORY", grid.x(0), Grid::label(speedrunTop, 0), grid.column);
         caps(dc, L"PERMADEATH", grid.x(1), Grid::label(speedrunTop, 0), grid.column);
         caps(dc, L"FPS COUNTER", grid.x(2), Grid::label(speedrunTop, 0), grid.column);
         caps(dc, L"CPU DIFFICULTY", grid.x(0), Grid::label(speedrunTop, 1), grid.column);
         text(dc, L"Z1, Z2 and Z3 runs are timed as their own categories, with their own splits.", grid.x(1),
-             Grid::field(speedrunTop, 1) + 8, grid.column * 2 + 16, 18, fonts.caption, muted,
+             Grid::field(speedrunTop, 1) + 8, grid.column * 2 + 16, 28, fonts.caption, muted,
+             DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
+        panelBox(dc, contentLeft, splitsTop, right, splitBottom);
+        const std::wstring splitTitle = settings.speedrun ? L"Splits · " +
+            wide(speedrun::category_label(speedrun::Category(std::min(settings.speedrun, 2u)),
+                                          std::min(settings.cpuDifficulty, 3u))) +
+            (settings.permadeath ? L" permadeath" : L"") : std::wstring(L"Splits");
+        const std::wstring attempts = settings.speedrun && splitBook.attempts() ?
+            std::to_wstring(splitBook.attempts()) + (splitBook.attempts() == 1 ? L" attempt" : L" attempts") +
+            L" · " + std::to_wstring(splitBook.completed()) + L" finished" : std::wstring();
+        const int attemptsWidth = attempts.empty() ? 0 : std::min(content / 2 - 20, measure(dc, attempts, fonts.caption));
+        text(dc, splitTitle, contentLeft + 20, splitsTop + 12,
+             content - 40 - attemptsWidth - (attempts.empty() ? 0 : 16), 22, fonts.strong, ink,
              DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
-        panelBox(dc, contentLeft, splitsTop, right, speedrunRulesTop - 12);
-        const std::wstring splitTitle =
-            settings.speedrun ? L"Splits \u00b7 " +
-                                    wide(speedrun::category_label(speedrun::Category(std::min(settings.speedrun, 2u)),
-                                                                  std::min(settings.cpuDifficulty, 3u))) +
-                                    (settings.permadeath ? L" permadeath" : L"")
-                              : std::wstring(L"Splits");
-        text(dc, splitTitle, contentLeft + 20, splitsTop + 12, content - 40, 22, fonts.strong);
+        text(dc, attempts, right - 20 - attemptsWidth, splitsTop + 15, attemptsWidth, 18, fonts.caption, muted,
+             DT_RIGHT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
         const int listWidth = (content - 40) * 58 / 100, side = contentLeft + 20 + listWidth + 16;
-        if (settings.speedrun && splitBook.attempts())
-            text(dc, std::to_wstring(splitBook.attempts()) + (splitBook.attempts() == 1 ? L" attempt" : L" attempts") +
-                         L" \u00b7 " + std::to_wstring(splitBook.completed()) + L" finished",
-                 contentLeft + 20 + measure(dc, splitTitle, fonts.strong) + 14, splitsTop + 15, 300, 18, fonts.caption, muted,
-                 DT_LEFT | DT_SINGLELINE | DT_NOPREFIX);
-        caps(dc, L"SPLIT", contentLeft + 34, splitsTop + 46, 120);
+        RECT listClient{};
+        GetClientRect(controls[SplitList], &listClient);
+        const int columnsWidth = listClient.right > 0 ? unscale(listClient.right) : listWidth;
+        caps(dc, L"SPLIT", contentLeft + 34, splitsTop + 46, columnsWidth * splitNameColumn / 100 - 22);
         const wchar_t *headings[] = {L"TIME", L"SEGMENT", L"BEST SEGMENT"};
         for (int i = 0; i < 3; ++i) {
-            const int edge = contentLeft + 20 + listWidth * splitColumns[i] / 100 - 8;
-            caps(dc, headings[i], edge - 140, splitsTop + 46, 140, muted, DT_RIGHT);
+            const int begin = contentLeft + 20 + columnsWidth * (i ? splitColumns[i - 1] : splitNameColumn) / 100 + 8;
+            const int edge = contentLeft + 20 + columnsWidth * splitColumns[i] / 100 - 8;
+            const int headingWidth = measure(dc, headings[i], fonts.label) + int(std::wcslen(headings[i]));
+            if (headingWidth <= edge - begin)
+                caps(dc, headings[i], begin, splitsTop + 46, edge - begin, muted, DT_RIGHT);
+            else {
+                const int spacing = SetTextCharacterExtra(dc, p(1));
+                text(dc, headings[i], begin, splitsTop + 38, edge - begin, 28, fonts.label, muted,
+                     DT_RIGHT | DT_WORDBREAK | DT_NOPREFIX);
+                SetTextCharacterExtra(dc, spacing);
+            }
         }
         const auto chosenSplit = SendMessageW(controls[SplitList], LB_GETCURSEL, 0, 0);
-        caps(dc, L"SELECTED SPLIT", side, splitsTop + 70, right - 20 - side);
         const bool picked = chosenSplit >= 0 && size_t(chosenSplit) < splitBook.best().size();
-        text(dc, picked ? splitName(size_t(chosenSplit)) : std::wstring(L"None"), side, splitsTop + 69, right - 20 - side, 18,
-             fonts.caption, picked ? ink : muted, DT_RIGHT | DT_SINGLELINE | DT_NOPREFIX);
-        const int summaryTop = speedrunRulesTop - 12 - 40;
-        text(dc, L"Pick a split, type a time, then press Set time.", side, splitsTop + 208, right - 20 - side, 18,
+        const int sideWidth = right - 20 - side, selectedTop = splitsTop + (compact ? 54 : 70);
+        const int labelWidth = std::min(130, sideWidth / 2);
+        caps(dc, L"SELECTED SPLIT", side, selectedTop, labelWidth);
+        text(dc, picked ? splitName(size_t(chosenSplit)) : std::wstring(L"None"), side + labelWidth + 8,
+             selectedTop, sideWidth - labelWidth - 8, 18, fonts.caption, picked ? ink : muted,
+             DT_RIGHT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        text(dc, L"Pick a split, type a time, then press Set time.", side, splitsTop + (compact ? 182 : 208), sideWidth, 18,
              fonts.caption, muted, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
         if (splitBook.best().empty()) {
             text(dc, settings.speedrun ? L"No best run saved yet. Finish a run, or add split times here."
                                        : L"Choose a category to see and edit its splits.",
-                 contentLeft + 28, splitsTop + 74, listWidth - 16, 18, fonts.caption, muted,
-                 DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+                 contentLeft + 28, splitsTop + 78, listWidth - 24, splitBottom - 40 - splitsTop - 86,
+                 fonts.caption, muted, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
         } else {
             const auto &golds = splitBook.golds();
             double sum = 0;
             bool complete = golds.size() >= splitBook.best().size();
             for (size_t i = 0; i < splitBook.best().size() && complete; ++i) {
-                if (golds[i] <= 0)
-                    complete = false;
+                if (golds[i] <= 0) complete = false;
                 sum += golds[i];
             }
-            std::vector<std::pair<std::wstring, std::wstring>> totals = {{L"BEST RUN", wide(speedrun::format_time(splitBook.best_time()))}};
+            std::vector<std::pair<std::wstring, std::wstring>> totals = {
+                {L"BEST RUN", wide(speedrun::format_time(splitBook.best_time()))}};
             if (complete) {
                 totals.push_back({L"SUM OF BEST", wide(speedrun::format_time(sum))});
                 totals.push_back({L"POSSIBLE SAVE", wide(speedrun::format_time(std::max(0.0, splitBook.best_time() - sum)))});
             }
-            int x = contentLeft + 30;
-            for (const auto &[name, value] : totals) {
-                const int labelWidth = measure(dc, name, fonts.label) + int(name.size()) + 8;
-                caps(dc, name, x, summaryTop + 13, labelWidth);
-                text(dc, value, x + labelWidth, summaryTop + 12, 90, 18, fonts.caption, ink, DT_LEFT | DT_SINGLELINE | DT_NOPREFIX);
-                x += labelWidth + measure(dc, value, fonts.caption) + 18;
+            const int cell = (listWidth - 20) / int(totals.size());
+            for (size_t i = 0; i < totals.size(); ++i) {
+                const int x = contentLeft + 30 + int(i) * cell;
+                caps(dc, totals[i].first, x, splitBottom - 38, cell - 8, muted, DT_LEFT | DT_END_ELLIPSIS);
+                text(dc, totals[i].second, x, splitBottom - 21, cell - 8, 18, fonts.caption, ink,
+                     DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
             }
         }
-        const int bottom = std::max(speedrunRulesTop + 120, h - 64 + 6);
-        panelBox(dc, contentLeft, speedrunRulesTop, right, bottom);
-        text(dc, L"How runs are timed", contentLeft + 20, speedrunRulesTop + 12, content - 40, 22, fonts.strong);
-        const wchar_t *rules[] = {
-            L"The timer starts when Dragon World starts and stops on the last hit on Kid Buu.",
-            L"Real time is the leaderboard time. PS2 time counts the console's frames, so slowdown is not added.",
-            L"Any% starts with default equipment. NG+ allows skills set up before Dragon World.",
-            L"Permadeath: being knocked out in a Dragon World fight, or losing one on time, ends the run.",
-            L"Z1, Z2 and Z3 make the CPU stronger and are locked for the whole run; F6 is off in speedrun mode.",
-            L"Each battle won is a split. Best runs and best segments are saved after every attempt.",
-            L"Runs are flagged if the disc differs from the US retail disc, the game runs fast, or a memory editor is open.",
-            L"Each session writes a checksummed log to logs\\speedruns for speedrun.com moderators."};
-        int y = speedrunRulesTop + 46;
-        for (const auto *rule : rules) {
-            if (y + 18 > bottom - 10)
-                break;
-            ellipse(dc, p(contentLeft + 24), p(y + 9), p(2), orange);
-            text(dc, rule, contentLeft + 36, y, content - 56, 18, fonts.caption, muted,
-                 DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
-            y += 28;
-        }
+        panelBox(dc, contentLeft, rulesTop, right, h - 58);
+        text(dc, L"How runs are timed", contentLeft + 20, rulesTop + 12, content - 40, 22, fonts.strong);
     }
     void paint() {
         PAINTSTRUCT ps{};
@@ -2369,13 +2390,18 @@ struct Window {
         if (item.hwndItem == controls[SplitList] && parts.size() == 4u) {
             const int width = r.right - r.left + p(24);
             SetTextColor(dc, enabled ? ink : muted);
-            DrawTextW(dc, parts[0].c_str(), int(parts[0].size()), &r, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
+            RECT nameCell = r;
+            nameCell.right = r.left - p(14) + width * splitNameColumn / 100 - p(8);
+            DrawTextW(dc, parts[0].c_str(), int(parts[0].size()), &nameCell,
+                      DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
             const bool golden = item.itemID < splitGold.size() && splitGold[item.itemID];
             for (size_t i = 1; i < 4u; ++i) {
                 RECT cell = r;
+                cell.left = r.left - p(14) + width * (i == 1 ? splitNameColumn : splitColumns[i - 2]) / 100 + p(8);
                 cell.right = r.left - p(14) + width * splitColumns[i - 1] / 100 - p(8);
                 SetTextColor(dc, !enabled ? muted : i == 1 ? ink : i == 2 && golden ? gold : muted);
-                DrawTextW(dc, parts[i].c_str(), int(parts[i].size()), &cell, DT_SINGLELINE | DT_VCENTER | DT_RIGHT | DT_NOPREFIX);
+                DrawTextW(dc, parts[i].c_str(), int(parts[i].size()), &cell,
+                          DT_SINGLELINE | DT_VCENTER | DT_RIGHT | DT_END_ELLIPSIS | DT_NOPREFIX);
             }
             SelectObject(dc, old);
             return;
@@ -4356,8 +4382,9 @@ struct Window {
                 SendMessageW(controls[CpuDifficulty], CB_SETCURSEL, selected(SpeedrunCpu), 0);
             saveOptions();
             SendMessageW(controls[SpeedrunCpu], CB_SETCURSEL, std::min(settings.cpuDifficulty, 3u), 0);
-            if (id == SpeedrunMode || id == Permadeath || id == SpeedrunCpu || id == CpuDifficulty)
+            if (id == SpeedrunMode || id == Permadeath || id == SpeedrunCpu || id == CpuDifficulty) {
                 refreshSplits();
+            }
             if (id == SpeedrunCpu)
                 status = settings.cpuDifficulty ? L"CPU difficulty Z" + std::to_wstring(settings.cpuDifficulty) +
                                                       L". Runs at this difficulty are timed as their own category."
@@ -5063,6 +5090,7 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
             self->fonts.make(self->dpi, self->letteringFace);
             for (auto [id, c] : self->controls)
                 SendMessageW(c, WM_SETFONT, reinterpret_cast<WPARAM>(self->fonts.body), TRUE);
+            SendMessageW(self->controls[TimingRules], WM_SETFONT, reinterpret_cast<WPARAM>(self->fonts.caption), TRUE);
             auto *r = reinterpret_cast<RECT *>(lp);
             SetWindowPos(hwnd, nullptr, r->left, r->top, r->right - r->left, r->bottom - r->top,
                          SWP_NOZORDER | SWP_NOACTIVATE);
@@ -5075,7 +5103,8 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
             RECT bounds{};
             GetWindowRect(target, &bounds);
             MapWindowPoints(nullptr, hwnd, reinterpret_cast<POINT *>(&bounds), 2);
-            const COLORREF color = bounds.left < self->p(sidebarWidth) ? sidebar
+            const COLORREF color = GetDlgCtrlID(target) == TimingRules ? panel
+                                   : bounds.left < self->p(sidebarWidth) ? sidebar
                                    : message == WM_CTLCOLORSTATIC ? field : panel;
             SetDCBrushColor(reinterpret_cast<HDC>(wp), color);
             SetTextColor(reinterpret_cast<HDC>(wp), message == WM_CTLCOLORSTATIC ? muted : ink);

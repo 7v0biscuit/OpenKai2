@@ -259,6 +259,41 @@ int main() {
                                 "A settings control overlaps the status footer or leaves the window");
                     }
                 }
+                click(w,103);
+                auto rules = GetDlgItem(w,290);
+                require(rules && IsWindowVisible(rules), "Speedrun timing rules are missing");
+                require((GetWindowLongPtrW(rules,GWL_STYLE)&ES_READONLY)!=0,
+                        "Speedrun timing rules can be edited");
+                wchar_t rulesText[4096]{};
+                GetWindowTextW(rules,rulesText,4096);
+                require(std::wstring(rulesText).find(L"logs\\speedruns")!=std::wstring::npos &&
+                            std::wstring(rulesText).find(L"moderators")!=std::wstring::npos,
+                        "The end of the timing rules was discarded");
+                require(!IsWindowVisible(GetDlgItem(w,263)),"The split list covers its empty-state message");
+                for(int height : {680,720,800}) {
+                    SetWindowPos(w,nullptr,0,0,MulDiv(1000,dpi,96),MulDiv(height,dpi,96),
+                                 SWP_NOZORDER|SWP_NOACTIVATE);
+                    for(int id : {177,178,179,236,222,264,265,266,267,268,290}) {
+                        RECT bounds{},client{};GetWindowRect(GetDlgItem(w,id),&bounds);GetClientRect(w,&client);
+                        MapWindowPoints(nullptr,w,reinterpret_cast<POINT*>(&bounds),2);
+                        require(IsWindowVisible(GetDlgItem(w,id)) && bounds.left>=0 && bounds.top>=0 &&
+                                    bounds.right<=client.right && bounds.bottom<=client.bottom-MulDiv(46,dpi,96),
+                                "A speedrun control overlaps the footer or leaves the window");
+                    }
+                    SendMessageW(rules,EM_LINESCROLL,0,10000);
+                    require(SendMessageW(rules,EM_GETFIRSTVISIBLELINE,0,0)>0,
+                            "The remaining timing rules cannot be scrolled into view");
+                    SendMessageW(rules,EM_LINESCROLL,0,-10000);
+                }
+                keyboard_choice(GetDlgItem(w,177),1);
+                SetWindowTextW(GetDlgItem(w,264),L"1:00:00.123");
+                click(w,266);
+                require(SendMessageW(GetDlgItem(w,263),LB_GETCOUNT,0,0)==1 &&
+                            IsWindowVisible(GetDlgItem(w,263)),"An added split stays hidden");
+                SendMessageW(GetDlgItem(w,263),LB_SETCURSEL,0,0);
+                click(w,267);
+                require(!IsWindowVisible(GetDlgItem(w,263)),"The empty split list was not hidden after removal");
+                keyboard_choice(GetDlgItem(w,177),0);
                 for(auto route : {std::pair<WORD,int>{'5',120},{'1',110},{'6',160},{'4',185},{'5',148},{'6',140},{'3',177},{'2',245}}) {
                     SetForegroundWindow(w);
                     INPUT keys[4]{};
