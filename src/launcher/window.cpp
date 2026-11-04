@@ -2117,15 +2117,16 @@ struct Window {
         for (int i = 0; i < 3; ++i) {
             const int begin = contentLeft + 20 + columnsWidth * (i ? splitColumns[i - 1] : splitNameColumn) / 100 + 8;
             const int edge = contentLeft + 20 + columnsWidth * splitColumns[i] / 100 - 8;
-            const int headingWidth = measure(dc, headings[i], fonts.label) + int(std::wcslen(headings[i]));
+            // DrawText's right alignment can clip the last glyph when character
+            // spacing is enabled. Measure and draw these column labels without
+            // tracking, leaving a little room for glyph overhang at the edge.
+            const int headingWidth = measure(dc, headings[i], fonts.label) + 2;
             if (headingWidth <= edge - begin)
-                caps(dc, headings[i], begin, splitsTop + 46, edge - begin, muted, DT_RIGHT);
-            else {
-                const int spacing = SetTextCharacterExtra(dc, p(1));
+                text(dc, headings[i], begin, splitsTop + 46, edge - begin, 16, fonts.label, muted,
+                     DT_RIGHT | DT_SINGLELINE | DT_NOPREFIX);
+            else
                 text(dc, headings[i], begin, splitsTop + 38, edge - begin, 28, fonts.label, muted,
                      DT_RIGHT | DT_WORDBREAK | DT_NOPREFIX);
-                SetTextCharacterExtra(dc, spacing);
-            }
         }
         const auto chosenSplit = SendMessageW(controls[SplitList], LB_GETCURSEL, 0, 0);
         const bool picked = chosenSplit >= 0 && size_t(chosenSplit) < splitBook.best().size();
