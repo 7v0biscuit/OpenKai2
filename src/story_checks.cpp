@@ -24,7 +24,8 @@ void verify_transition_methods(PS2Runtime &runtime, uint8_t *ram) {
         }
     } saved{runtime, {}};
     for (uint32_t at : {gp - 0x7e80u, 0x69ccf0u, 0x69ccf4u, 0x69ccf8u, 0x69ccfcu,
-                        0x69cd10u, 0x693f38u, 0x3b4bacu, gp - 0x7084u, gp - 0x7078u})
+                        0x69cd10u, 0x69cea4u, 0x69ceacu, 0x69ceb0u, 0x693f38u,
+                        0x3b4bacu, gp - 0x7084u, gp - 0x7078u})
         saved.words.emplace_back(at, memory.read32(at));
     const auto put_float = [&](uint32_t at, float value) {
         uint32_t bits;
@@ -60,6 +61,32 @@ void verify_transition_methods(PS2Runtime &runtime, uint8_t *ram) {
                 "Dragon World transition lost its caller frame");
     };
     for (uint32_t alias : {0u, 0x80000000u, 0xa0000000u}) {
+        // The board-overlay callback must return through its original update
+        // method after both branches, rather than stop the guest dispatcher.
+        for (uint32_t frame : {0u, 1u, 0xffffffffu})
+            for (uint32_t mask : {0u, 1u, 2u}) {
+                constexpr uint32_t overlay = 0x660000;
+                std::memset(ram + object, 0, 128);
+                std::memset(ram + overlay, 0, 128);
+                memory.write32(object + 0x1c, 0x292400);
+                memory.write32(object + 0x5c, overlay | alias);
+                memory.write32(object + 0x60, mask);
+                put_float(object + 0x44, 1.0f);
+                put_float(object + 0x50, 1.0f);
+                put_float(overlay + 0x30, 17.0f);
+                put_float(overlay + 0x34, 23.0f);
+                memory.write32(0x69cea4, frame);
+                put_float(0x69ceac, 0.5f);
+                put_float(0x69ceb0, 0.25f);
+                call(0x292400, alias);
+                const bool visible = ((frame + 1u) & mask) != 0;
+                require(get_float(overlay + 0x5c) == (visible ? 0.5f : 0.0f) &&
+                            get_float(overlay + 0x60) == (visible ? 0.25f : 0.0f) &&
+                            get_float(overlay + 0x30) == (visible ? 226.0f : 17.0f) &&
+                            get_float(overlay + 0x34) == (visible ? 187.0f : 23.0f) &&
+                            memory.read32(object + 0x1c) == 0x292400,
+                        "Dragon World board overlay changed its mask or coordinates");
+            }
         for (uint32_t mode : {0xffffffffu, 0u, 4u, 6u}) {
             memory.write32(object + 0x1c, 0x22fee0);
             memory.write32(gp - 0x7e80, mode);
