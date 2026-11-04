@@ -224,7 +224,7 @@ int main(int argc, char* argv[]) {
             namespace run=openkai2::speedrun;
             run::OverlayOptions overlay;
             overlay.category=category;
-            overlay.permadeath=speedrun && preferences.permadeath;
+            overlay.permadeath=speedrun && !run::tournament(category) && preferences.permadeath;
             overlay.fps_counter=preferences.fpsCounter;
             if (const char* menu=std::getenv("OPENKAI2_MAIN_MENU"); menu && *menu=='1') {
                 overlay.skip_to_menu=true;
@@ -240,7 +240,7 @@ int main(int argc, char* argv[]) {
             overlay.background=preferences.overlayBackground;
             overlay.split_rows=run::overlay_split_rows[std::min(preferences.overlaySplits,3u)];
             overlay.cpu=online.enabled ? 0u : std::min(preferences.cpuDifficulty,3u);
-            overlay.decimals=std::min(preferences.overlayDecimals,2u);
+            overlay.decimals=run::tournament(category) ? 3u : std::min(preferences.overlayDecimals,3u);
             for (unsigned role=0;role<run::overlay_color_roles;++role) {
                 const auto& c=run::overlay_colors[std::min(preferences.overlayColors[role],run::overlay_color_count-1u)];
                 overlay.colors[role]={c.r,c.g,c.b};

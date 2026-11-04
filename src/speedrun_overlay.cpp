@@ -207,7 +207,7 @@ struct Overlay {
         note("integrity: " + reason);
     }
     std::string times(double now, uint64_t fields) const {
-        return "real " + format_time(timer.real(now)) + "  ps2 " + format_time(timer.game(fields));
+        return "real " + format_time(timer.real(now), options.decimals) + "  ps2 " + format_time(timer.game(fields), options.decimals);
     }
     void save(bool finished, double real, const std::vector<Split> &wins) {
         if (recorded)
@@ -226,7 +226,7 @@ struct Overlay {
             std::cout << "[speedrun] " << error.what() << std::endl;
         }
         if (personal_best)
-            note("personal best " + format_time(real));
+            note("personal best " + format_time(real, options.decimals));
     }
 
     void update(PS2Runtime &runtime, double now, uint64_t fields) {
@@ -239,7 +239,17 @@ struct Overlay {
                 std::cout << "[speedrun:task] " << name << std::endl;
         const auto previous_wins = timer.wins();
         const double previous_real = timer.real(now);
-        for (const auto event : timer.update(state, now, fields)) {
+        auto events = timer.update(state, now, fields);
+        if (tournament(options.category)) {
+            // F9 is otherwise reserved for loading states, which is disabled in runs.
+            // Only one timing action is accepted per host frame.
+            const auto event = IsKeyPressed(KEY_F9) ? timer.start(now, fields)
+                             : IsKeyPressed(KEY_F11) ? timer.finish(now, fields)
+                             : IsKeyPressed(KEY_F10) ? timer.split(now, fields) : Event::none;
+            if (event != Event::none)
+                events.push_back(event);
+        }
+        for (const auto event : events) {
             switch (event) {
             case Event::started:
             case Event::restarted:
@@ -260,16 +270,16 @@ struct Overlay {
                 break;
             case Event::battle_won:
                 note("battle " + std::to_string(timer.wins().size()) + " won  real " +
-                     format_time(timer.wins().back().real) + "  ps2 " + format_time(timer.wins().back().game));
+                     format_time(timer.wins().back().real, options.decimals) + "  ps2 " + format_time(timer.wins().back().game, options.decimals));
                 break;
             case Event::finished: {
                 const auto result = timer.result();
-                note("run " + std::to_string(runs) + " finished  real " + format_time(result.real) + "  ps2 " +
-                     format_time(result.game) + "  battles " + std::to_string(timer.wins().size()) +
-                     (flags.empty() ? "  verified" : "  flagged"));
+                note("run " + std::to_string(runs) + " finished  real " + format_time(result.real, options.decimals) + "  ps2 " +
+                     format_time(result.game, options.decimals) + "  battles " + std::to_string(timer.wins().size()) +
+                     (flags.empty() ? (tournament(options.category) ? "  manual timing" : "  verified") : "  flagged"));
                 save(true, result.real, timer.wins());
                 if (livesplit) {
-                    livesplit->send("setgametime " + format_time(result.game));
+                    livesplit->send("setgametime " + format_time(result.game, options.decimals));
                     livesplit->send("split");
                 }
                 break;
@@ -296,7 +306,7 @@ struct Overlay {
                 flag(reason);
         if (timer.phase() == Phase::running && livesplit && now - game_time_sent >= 0.25) {
             game_time_sent = now;
-            livesplit->send("setgametime " + format_time(timer.game(fields)));
+            livesplit->send("setgametime " + format_time(timer.game(fields), options.decimals));
         }
         if (IsKeyPressed(KEY_F8) && !reset) {
             note("reset by player at " + times(now, fields));
@@ -507,7 +517,7 @@ struct Overlay {
             if (!options.permadeath && timer.losses())
                 row.left += "   Lost " + std::to_string(timer.losses());
             row.left_color = grey;
-            row.right = died_at >= 0 ? "Run over" : flags.empty() ? "Verified" : "Flagged";
+            row.right = died_at >= 0 ? "Run over" : flags.empty() ? (tournament(options.category) ? "Manual timing" : "Verified") : "Flagged";
             row.right_color = died_at >= 0 || !flags.empty() ? behind : ahead;
             row.size = 12;
             rows.push_back(row);
@@ -541,7 +551,7 @@ struct Overlay {
                                               : white;
             row.size = 40;
             if (phase == Phase::waiting) {
-                row.left = "Start Dragon World";
+                row.left = tournament(options.category) ? "F9 start / F11 finish" : "Start Dragon World";
                 row.left_color = faint;
             }
             rows.push_back(row);
@@ -734,6 +744,11 @@ void install_overlay(PS2Runtime &runtime, OverlayOptions options) {
     overlay->speedrun = options.category != Category::off;
     overlay->skipping = options.skip_to_menu;
     overlay->options = std::move(options);
+    overlay->timer = Timer{overlay->options.category};
+    if (tournament(overlay->options.category)) {
+        overlay->options.permadeath = false;
+        overlay->options.decimals = 3;
+    }
     if (overlay->speedrun) {
         overlay->book = SplitBook::load(overlay->options.splits);
         overlay->log.open(overlay->options.logs / ("run-" + file_stamp() + ".log"), "OpenKai2 speedrun log");
@@ -741,6 +756,8 @@ void install_overlay(PS2Runtime &runtime, OverlayOptions options) {
             overlay->log.write(line);
         for (const auto &problem : overlay->options.problems)
             overlay->flag(problem);
+        if (tournament(overlay->options.category))
+            overlay->note("manual tournament timing: F9 start/restart, F10 round split, F11 finish; category rules require video review");
         overlay->watchdog = std::make_unique<Watchdog>();
         overlay->livesplit = std::make_unique<LiveSplit>();
         std::cout << "[speedrun] log=" << overlay->log.path().string()

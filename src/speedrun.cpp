@@ -27,7 +27,38 @@ const char *category_name(Category category) {
     switch (category) {
     case Category::any: return "Any%";
     case Category::new_game_plus: return "NG+";
+    case Category::tournament_novice: return "Tournament (Novice)";
+    case Category::tournament_adept: return "Tournament (Adept)";
+    case Category::tournament_advanced: return "Tournament (Advanced)";
+    case Category::all_dragonballs: return "All Dragonballs";
+    case Category::hercule_only: return "Hercule Only";
+    case Category::new_game_plus_very_hard: return "NG+ (Very Hard)";
     default: return "Off";
+    }
+}
+
+bool tournament(Category category) {
+    return category >= Category::tournament_novice && category <= Category::tournament_advanced;
+}
+
+const char *category_rules(Category category) {
+    switch (category) {
+    case Category::tournament_novice:
+    case Category::tournament_adept:
+    case Category::tournament_advanced:
+        return "Choose the matching World Tournament difficulty. Start when confirming Normal or Custom for your character. "
+               "Finish on the first frame of the final opponent's ring-out animation, Time-Out! or K.O. Milliseconds are required for top-three times.";
+    case Category::all_dragonballs:
+        return "Start on Dragon World or Restart Dragon World. Collect all seven Dragon Balls before the final hit defeats Kid Buu in Stage 9. Pre-equipped capsules are allowed.";
+    case Category::hercule_only:
+        return "Start on Dragon World or Restart Dragon World. Finish on the final hit against Kid Buu in Stage 9. Only Hercule may win battles; all other characters must have zero wins. Show the results screen in your recording.";
+    case Category::new_game_plus_very_hard:
+        return "Set the game's difficulty to Very Hard before starting. Start on Dragon World or Restart Dragon World and finish on the final hit against Kid Buu in Stage 9. Pre-equipped capsules are allowed. Z difficulty modifiers are separate variants.";
+    case Category::new_game_plus:
+        return "Use an existing save. Start on Dragon World or Restart Dragon World and finish on the final hit against Kid Buu in Stage 9. Pre-equipped capsules are allowed.";
+    case Category::any:
+        return "Use a new game file. Start on Dragon World and finish on the final hit against Kid Buu in Stage 9. Restart Dragon World is not allowed.";
+    default: return "Choose a category to view its timing rules.";
     }
 }
 
@@ -37,7 +68,10 @@ std::string category_label(Category category, unsigned cpu) {
 }
 
 std::string splits_name(Category category, bool permadeath, unsigned cpu) {
-    std::string name = category == Category::new_game_plus ? "ngplus" : "any";
+    static constexpr const char *names[] = {"off", "any", "ngplus", "tournament-novice", "tournament-adept",
+        "tournament-advanced", "all-dragonballs", "hercule-only", "ngplus-very-hard"};
+    const auto index = unsigned(category);
+    std::string name = names[index < category_count ? index : 0];
     if (permadeath)
         name += "-permadeath";
     if (cpu >= 1u && cpu <= 3u)
@@ -102,11 +136,42 @@ GuestState read_guest(const uint8_t *rdram, size_t bytes) {
 
 std::string loss_name(const GuestState &) { return "knocked out in Dragon World"; }
 
-void Timer::reset() { *this = Timer{}; }
+void Timer::reset() { *this = Timer{category_}; }
+
+Event Timer::start(double real, uint64_t fields) {
+    const auto event = phase_ == Phase::waiting ? Event::started : Event::restarted;
+    reset();
+    phase_ = Phase::running;
+    start_real_ = real;
+    start_fields_ = fields;
+    return event;
+}
+
+Event Timer::finish(double real, uint64_t fields) {
+    if (phase_ != Phase::running || this->real(real) <= 0)
+        return Event::none;
+    final_ = {this->real(real), game(fields)};
+    if (wins_.empty() || wins_.back().real < final_.real)
+        wins_.push_back(final_);
+    phase_ = Phase::finished;
+    return Event::finished;
+}
+
+Event Timer::split(double real, uint64_t fields) {
+    if (phase_ != Phase::running)
+        return Event::none;
+    const Split value{this->real(real), game(fields)};
+    if (value.real <= 0 || (!wins_.empty() && wins_.back().real >= value.real))
+        return Event::none;
+    wins_.push_back(value);
+    return Event::battle_won;
+}
 
 std::vector<Event> Timer::update(const GuestState &state, double real, uint64_t fields) {
     std::vector<Event> events;
-    const bool fresh = state.intro && !intro_;
+    if (tournament(category_))
+        return events;
+    const bool fresh = !tournament(category_) && state.intro && !intro_;
     if (fresh) {
         events.push_back(phase_ == Phase::waiting ? Event::started : Event::restarted);
         phase_ = Phase::running;
@@ -183,7 +248,7 @@ std::vector<Event> Timer::update(const GuestState &state, double real, uint64_t 
     if (phase_ == Phase::running) {
         if (state.game_over && !game_over_)
             events.push_back(Event::died);
-        if (state.credits && !credits_) {
+        if (!tournament(category_) && state.credits && !credits_) {
             final_ = wins_.empty() ? Split{this->real(real), game(fields)} : wins_.back();
             phase_ = Phase::finished;
             events.push_back(Event::finished);
@@ -247,20 +312,14 @@ bool parse_time(const std::string &text, double &seconds) {
 }
 
 std::string format_time(double seconds, unsigned decimals) {
-    if (decimals >= 2u)
-        return format_time(seconds, true);
-    if (decimals == 0u)
-        return format_time(seconds, false);
-    const std::string full = format_time(seconds, true);
-    return full.substr(0, full.size() - 1u);
-}
-
-std::string format_time(double seconds, bool hundredths) {
-    if (!(seconds > 0))
+    decimals = std::min(decimals, 3u);
+    if (!std::isfinite(seconds) || seconds < 0 || seconds > 1e12)
         seconds = 0;
-    const auto centis = uint64_t(std::floor(seconds * 100.0));
-    const auto whole = centis / 100, hours = whole / 3600, minutes = whole / 60 % 60, secs = whole % 60;
-    char text[48];
+    static constexpr uint64_t scales[] = {1, 10, 100, 1000};
+    const auto scale = scales[decimals];
+    const auto ticks = uint64_t(std::floor(seconds * double(scale)));
+    const auto whole = ticks / scale, hours = whole / 3600, minutes = whole / 60 % 60, secs = whole % 60;
+    char text[64];
     if (hours)
         std::snprintf(text, sizeof text, "%llu:%02llu:%02llu", static_cast<unsigned long long>(hours),
                       static_cast<unsigned long long>(minutes), static_cast<unsigned long long>(secs));
@@ -268,11 +327,15 @@ std::string format_time(double seconds, bool hundredths) {
         std::snprintf(text, sizeof text, "%llu:%02llu", static_cast<unsigned long long>(minutes),
                       static_cast<unsigned long long>(secs));
     std::string result = text;
-    if (hundredths) {
-        std::snprintf(text, sizeof text, ".%02llu", static_cast<unsigned long long>(centis % 100));
+    if (decimals) {
+        std::snprintf(text, sizeof text, ".%0*llu", int(decimals), static_cast<unsigned long long>(ticks % scale));
         result += text;
     }
     return result;
+}
+
+std::string format_time(double seconds, bool hundredths) {
+    return format_time(seconds, hundredths ? 2u : 0u);
 }
 
 bool SpeedCheck::sample(double real, uint64_t fields) {
@@ -531,7 +594,8 @@ RunView make_view(const Timer &timer, const SplitBook &book, double now, size_t 
     for (size_t i = first; i < count && view.rows.size() < rows; ++i) {
         SplitRow row;
         const bool final_split = !best.empty() && i + 1 == best.size();
-        row.name = final_split ? "Kid Buu" : "Battle " + std::to_string(i + 1);
+        row.name = tournament(timer.category()) ? (final_split ? "Final" : "Round " + std::to_string(i + 1))
+                                              : (final_split ? "Kid Buu" : "Battle " + std::to_string(i + 1));
         row.done = i < done;
         row.current = running && i == done;
         if (row.done) {

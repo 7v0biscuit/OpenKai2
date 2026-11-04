@@ -9,8 +9,16 @@
 
 namespace openkai2::speedrun {
 
-enum class Category : unsigned { off = 0, any = 1, new_game_plus = 2 };
+// Persisted IDs: append categories without changing existing preferences or records.
+enum class Category : unsigned {
+    off = 0, any = 1, new_game_plus = 2,
+    tournament_novice = 3, tournament_adept = 4, tournament_advanced = 5,
+    all_dragonballs = 6, hercule_only = 7, new_game_plus_very_hard = 8
+};
+inline constexpr unsigned category_count = 9;
+bool tournament(Category category);
 const char *category_name(Category category);
+const char *category_rules(Category category);
 std::string category_label(Category category, unsigned cpu);
 std::string splits_name(Category category, bool permadeath, unsigned cpu);
 
@@ -67,6 +75,13 @@ enum class Event { none, started, restarted, battle_won, battle_lost, finished, 
 
 class Timer {
   public:
+    explicit Timer(Category category = Category::any) : category_(category) {}
+    Category category() const { return category_; }
+    // Tournament timing uses explicit controls until its exact menu/finish frames
+    // have been validated. Round results alone do not identify the final round.
+    Event start(double real, uint64_t fields);
+    Event split(double real, uint64_t fields);
+    Event finish(double real, uint64_t fields);
     std::vector<Event> update(const GuestState &state, double real, uint64_t fields);
     Phase phase() const { return phase_; }
     double real(double now) const;
@@ -78,6 +93,7 @@ class Timer {
     void reset();
 
   private:
+    Category category_;
     Phase phase_ = Phase::waiting;
     double start_real_ = 0;
     uint64_t start_fields_ = 0;

@@ -2,6 +2,7 @@
 #include "graphics_settings.h"
 #include "launcher/saves.h"
 #include "launcher/settings.h"
+#include "speedrun.h"
 #include "launcher/update.h"
 #include "disc_image.h"
 #include "simulation_pacing.h"
@@ -154,7 +155,15 @@ int main() {
         s.volume = 101;
         rejects([&] { write_settings(root / "settings.ini", s); });
         s.volume = 75;
-        s.speedrun = 3;
+        for (unsigned category = 0; category < openkai2::speedrun::category_count; ++category) {
+            s.speedrun = category;
+            s.overlayDecimals = 3;
+            write_settings(root / "categories.ini", s);
+            const auto restored = read_settings(root / "categories.ini");
+            require(restored.speedrun == category && restored.overlayDecimals == 3,
+                    "A speedrun category or millisecond precision was lost on restart");
+        }
+        s.speedrun = openkai2::speedrun::category_count;
         rejects([&] { write_settings(root / "settings.ini", s); });
         s.speedrun = 2;
         s.overlayCorner = 4;

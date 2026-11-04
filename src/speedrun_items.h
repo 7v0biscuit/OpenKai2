@@ -23,7 +23,7 @@ struct OverlayItemText {
     const wchar_t *about;
 };
 inline constexpr OverlayItemText overlay_item_text[overlay_item_count] = {
-    {L"Run timer", L"Real time since Dragon World started"},
+    {L"Run timer", L"Real time since the run started"},
     {L"Splits", L"Each battle won, with the difference to your best run"},
     {L"Segment timer", L"Time spent since the last battle"},
     {L"Previous segment", L"Last segment against the same segment of your best run"},
@@ -57,6 +57,6 @@ inline constexpr OverlayColor overlay_colors[] = {
 inline constexpr unsigned overlay_color_count = sizeof(overlay_colors) / sizeof(overlay_colors[0]);
 enum OverlayColorRole : unsigned { color_text, color_ahead, color_behind, color_gold, overlay_color_roles };
 inline constexpr unsigned overlay_color_defaults[overlay_color_roles] = {0, 2, 3, 4};
-inline constexpr const wchar_t *overlay_decimal_names[] = {L"Whole seconds", L"Tenths", L"Hundredths"};
+inline constexpr const wchar_t *overlay_decimal_names[] = {L"Whole seconds", L"Tenths", L"Hundredths", L"Milliseconds"};
 
 }

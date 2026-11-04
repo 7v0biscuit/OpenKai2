@@ -293,6 +293,27 @@ int main() {
                 SendMessageW(GetDlgItem(w,263),LB_SETCURSEL,0,0);
                 click(w,267);
                 require(!IsWindowVisible(GetDlgItem(w,263)),"The empty split list was not hidden after removal");
+                require(SendMessageW(GetDlgItem(w,177),CB_GETCOUNT,0,0)==9,
+                        "Published speedrun categories are missing");
+                keyboard_choice(GetDlgItem(w,177),3);
+                GetWindowTextW(rules,rulesText,4096);
+                require(std::wstring(rulesText).find(L"F9")!=std::wstring::npos &&
+                            std::wstring(rulesText).find(L"manual")!=std::wstring::npos &&
+                            !IsWindowEnabled(GetDlgItem(w,178)),
+                        "Tournament timing controls or permadeath state are incorrect");
+                SetWindowTextW(GetDlgItem(w,264),L"0:20.123");click(w,266);
+                require(SendMessageW(GetDlgItem(w,263),LB_GETCOUNT,0,0)==1,"Tournament split was not saved");
+                keyboard_choice(GetDlgItem(w,177),4);
+                require(SendMessageW(GetDlgItem(w,263),LB_GETCOUNT,0,0)==0,"Tournament difficulties share splits");
+                keyboard_choice(GetDlgItem(w,177),3);
+                require(SendMessageW(GetDlgItem(w,263),LB_GETCOUNT,0,0)==1,"Tournament split was lost");
+                SendMessageW(GetDlgItem(w,263),LB_SETCURSEL,0,0);click(w,267);
+                for(int category : {6,7,8}) {
+                    keyboard_choice(GetDlgItem(w,177),category);
+                    require(IsWindowEnabled(GetDlgItem(w,178)),"Dragon World permadeath remained disabled");
+                    require(read_settings(settings_path()).speedrun==unsigned(category),
+                            "New category preference was not persisted");
+                }
                 keyboard_choice(GetDlgItem(w,177),0);
                 for(auto route : {std::pair<WORD,int>{'5',120},{'1',110},{'6',160},{'4',185},{'5',148},{'6',140},{'3',177},{'2',245}}) {
                     SetForegroundWindow(w);

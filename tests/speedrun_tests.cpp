@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "speedrun.h"
+#include <algorithm>
 #include <cstring>
 #include <fstream>
 #include <iostream>
@@ -252,6 +253,47 @@ void knockouts_decide_dragon_world_fights() {
     require(has(timer.update(guest.read(), 12.0, 660), Event::battle_won), "Knockout win missed");
 }
 
+void categories() {
+    std::vector<std::string> files;
+    for (unsigned i = 1; i < category_count; ++i) {
+        const auto category = Category(i);
+        require(std::string(category_name(category)) != "Off", "A category has no label");
+        require(std::strlen(category_rules(category)) > 30, "A category has no rules");
+        const auto file = splits_name(category, false, 0);
+        require(std::find(files.begin(), files.end(), file) == files.end(), "Categories share records");
+        files.push_back(file);
+        Timer timer(category);
+        GuestState intro; intro.intro = true; intro.dragon_world = true;
+        const auto events = timer.update(intro, 10, 100);
+        if (tournament(category)) {
+            require(events.empty() && timer.phase() == Phase::waiting, "Dragon World started a tournament timer");
+            require(timer.finish(10,100) == Event::none && timer.split(10,100) == Event::none,
+                    "A waiting tournament could record a result");
+            require(timer.start(20,200) == Event::started, "Tournament did not start");
+            require(timer.split(30.125,800) == Event::battle_won, "Tournament round split missing");
+            require(timer.split(30.125,800) == Event::none, "Duplicate round split accepted");
+            GuestState credits; credits.credits = true;
+            timer.update(credits,31,850);
+            require(timer.phase() == Phase::running, "Story credits completed a tournament");
+            require(timer.finish(40.375,1400) == Event::finished && timer.phase() == Phase::finished &&
+                        timer.result().real == 20.375 && timer.wins().size() == 2,
+                    "Tournament finish or final split is wrong");
+            require(timer.finish(50,2000) == Event::none && timer.real(50) == 20.375,
+                    "Finished tournament kept changing");
+            require(timer.start(60,3000) == Event::restarted && timer.wins().empty(),
+                    "Tournament restart kept previous splits");
+            timer.reset();
+            require(timer.category() == category && timer.phase() == Phase::waiting, "Reset lost the category");
+        } else {
+            require(has(events, Event::started), "Dragon World category did not start");
+            GuestState credits; credits.credits = true;
+            require(has(timer.update(credits,100,6000), Event::finished), "Dragon World category did not finish");
+        }
+    }
+    require(format_time(61.239,3u) == "1:01.239" && format_time(3599.999,3u) == "59:59.999" &&
+                format_time(3600.125,3u) == "1:00:00.125", "Millisecond formatting is wrong");
+}
+
 void edits_splits() {
     double t = 0;
     require(parse_time("1:02.50", t) && std::abs(t - 62.5) < 1e-9, "m:ss.cc not parsed");
@@ -401,6 +443,7 @@ int main() {
         sees_losses_from_a_loaded_game();
         knockouts_decide_dragon_world_fights();
         formats();
+        categories();
         edits_splits();
         checks();
         splits();

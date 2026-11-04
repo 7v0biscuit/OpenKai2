@@ -939,8 +939,14 @@ struct Window {
         combo(Vsync, {L"Off", L"On"}, settings.vsync ? 1 : 0);
         combo(AutoBackup, {L"Off", L"On"}, settings.autoBackups ? 1 : 0);
         combo(SaveListKind,{L"Backups",L"Game saves"},0);
-        combo(SpeedrunMode, {L"Off", L"Any%", L"NG+"}, int(settings.speedrun));
-        combo(Permadeath, {L"Off", L"On"}, settings.permadeath ? 1 : 0);
+        {
+            std::vector<std::wstring> categories;
+            for (unsigned i = 0; i < speedrun::category_count; ++i)
+                categories.push_back(wide(speedrun::category_name(speedrun::Category(i))));
+            combo(SpeedrunMode, categories, int(settings.speedrun));
+            SendMessageW(controls[SpeedrunMode], CB_SETDROPPEDWIDTH, p(270), 0);
+        }
+        combo(Permadeath, {L"Off", L"On"}, settings.permadeath && !speedrun::tournament(speedrun::Category(settings.speedrun)) ? 1 : 0);
         combo(FpsCounter, {L"Off", L"On"}, settings.fpsCounter ? 1 : 0);
         {
             std::vector<std::wstring> delays{L"Auto (from ping)"};
@@ -964,8 +970,8 @@ struct Window {
                 combo(roles[role], colors, int(std::min(settings.overlayColors[role], speedrun::overlay_color_count - 1u)));
         }
         combo(OverlayDecimals, {speedrun::overlay_decimal_names[0], speedrun::overlay_decimal_names[1],
-                                speedrun::overlay_decimal_names[2]},
-              int(std::min(settings.overlayDecimals, 2u)));
+                                speedrun::overlay_decimal_names[2], speedrun::overlay_decimal_names[3]},
+              int(std::min(settings.overlayDecimals, 3u)));
         combo(SpeedrunCpu, {L"Game setting", L"Z1", L"Z2", L"Z3"}, int(std::min(settings.cpuDifficulty, 3u)));
         list(SplitList, L"Saved splits", 30, false);
         edit(SplitTime, L"Time, like 12:34.56");
@@ -974,7 +980,7 @@ struct Window {
         button(SplitRemove, L"Remove");
         button(SplitReset, L"Reset best");
         refreshSplits();
-        controls[TimingRules] = CreateWindowExW(0, L"EDIT",
+        timingRulesBase =
             L"• The timer starts when Dragon World starts and stops on the last hit on Kid Buu.\r\n\r\n"
             L"• Real time is the leaderboard time. PS2 time counts the console's frames, so slowdown is not added.\r\n\r\n"
             L"• Any% starts with default equipment. NG+ allows skills set up before Dragon World.\r\n\r\n"
@@ -982,10 +988,12 @@ struct Window {
             L"• Z1, Z2 and Z3 make the CPU stronger and are locked for the whole run; F6 is off in speedrun mode.\r\n\r\n"
             L"• Each battle won is a split. Best runs and best segments are saved after every attempt.\r\n\r\n"
             L"• Runs are flagged if the disc differs from the US retail disc, the game runs fast, or a memory editor is open.\r\n\r\n"
-            L"• Each session writes a checksummed log to logs\\speedruns for speedrun.com moderators.",
+            L"• Each session writes a checksummed log to logs\\speedruns for speedrun.com moderators.";
+        controls[TimingRules] = CreateWindowExW(0, L"EDIT", L"",
             WS_CHILD | WS_TABSTOP | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY,
             0, 0, 0, 0, hwnd, reinterpret_cast<HMENU>(intptr_t(TimingRules)), nullptr, nullptr);
         SendMessageW(controls[TimingRules], EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN, 0);
+        refreshTimingRules();
         combo(Aspect, {L"4:3 (original)", L"16:9 (widescreen)", L"Stretch to window", L"Native pixels"},
               int(settings.aspect));
         combo(Audio, {L"Off", L"100% volume", L"75% volume", L"50% volume", L"25% volume"},
@@ -1100,7 +1108,7 @@ struct Window {
                              !stageProblem(size_t(SendMessageW(controls[SourceFiles], LB_GETCURSEL, 0, 0))));
         EnableWindow(controls[ImportSelected], modding && picked);
         EnableWindow(controls[Resolution], settings.windowMode == 0);
-        EnableWindow(controls[Permadeath], settings.speedrun != 0);
+        EnableWindow(controls[Permadeath], settings.speedrun != 0 && !speedrun::tournament(speedrun::Category(settings.speedrun)));
         for (int id : {UpdateChannel, AutomaticUpdates, CheckUpdates, InstallUpdate})
             EnableWindow(controls[id], !updating() &&
                          (id != InstallUpdate || (!busy() && !running() &&
@@ -1369,7 +1377,7 @@ struct Window {
         const wchar_t *subtitles[] = {
             L"",
             L"Play versus with friends and other players over the internet.",
-            L"Timed Dragon World runs under the speedrun.com rules, with splits and a log for moderators.",
+            L"Dragon World and World Tournament timing, with separate splits and run logs.",
             L"Characters, movesets and stages layered over your disc. Your ISO is never changed.",
             L"Import, back up and restore your memory card.",
             L"Saved automatically. Game settings apply at the next launch.",
@@ -1567,12 +1575,33 @@ struct Window {
         }
         editFrame(dc, ModName);
     }
+    std::wstring timingRulesBase;
+    void refreshTimingRules() {
+        if (!controls.count(TimingRules))
+            return;
+        const auto category = speedrun::Category(settings.speedrun);
+        const auto intro = wide(speedrun::category_rules(category));
+        const auto details = speedrun::tournament(category)
+            ? std::wstring(L"F9 starts or restarts the run; F10 records a round split; F11 finishes. Tournament timing is manual. Permadeath is not used. Times show milliseconds.\r\n\r\n"
+                           L"Use F10 for intermediate rounds only. Use F11 at the final finish frame. F8 resets without completing the attempt. Category goals and timing require review of your recording.\r\n\r\n"
+                           L"Mods and save states are disabled. Each category and Z difficulty keeps separate records. Each session writes a checksummed log to logs") + wchar_t(92) + L"speedruns for moderators."
+            : timingRulesBase + L"\r\n\r\nCategory objectives, equipment and difficulty must be checked against your recording.";
+        SetWindowTextW(controls[TimingRules], (intro + L"\r\n\r\n" + details).c_str());
+        SendMessageW(controls[TimingRules], EM_SETSEL, 0, 0);
+        SendMessageW(controls[TimingRules], EM_SCROLLCARET, 0, 0);
+    }
     std::filesystem::path splitsFile() const {
         return settings_path().parent_path() / "splits" /
-               speedrun::splits_name(speedrun::Category(std::min(settings.speedrun, 2u)), settings.permadeath,
+               speedrun::splits_name(speedrun::Category(std::min(settings.speedrun, speedrun::category_count - 1)),
+                                     settings.permadeath && !speedrun::tournament(speedrun::Category(settings.speedrun)),
                                      std::min(settings.cpuDifficulty, 3u));
     }
+    std::string splitTime(double seconds) const {
+        return speedrun::format_time(seconds, speedrun::tournament(speedrun::Category(settings.speedrun)) ? 3u : 2u);
+    }
     std::wstring splitName(size_t i) const {
+        if (speedrun::tournament(speedrun::Category(settings.speedrun)))
+            return i + 1 == splitBook.best().size() ? std::wstring(L"Final") : L"Round " + std::to_wstring(i + 1);
         return i + 1 == splitBook.best().size() ? std::wstring(L"Kid Buu") : L"Battle " + std::to_wstring(i + 1);
     }
     static constexpr int splitNameColumn = 26;
@@ -1590,9 +1619,9 @@ struct Window {
             const double segment = best[i] - (i ? best[i - 1] : 0.0);
             const bool hasGold = i < golds.size() && golds[i] > 0;
             splitGold[i] = hasGold && segment <= golds[i] + 0.005;
-            const std::wstring row = splitName(i) + L" \u00b7 " + wide(speedrun::format_time(best[i])) + L" \u00b7 " +
-                                     wide(speedrun::format_time(segment)) + L" \u00b7 " +
-                                     (hasGold ? wide(speedrun::format_time(golds[i])) : std::wstring(L"\u2013"));
+            const std::wstring row = splitName(i) + L" \u00b7 " + wide(splitTime(best[i])) + L" \u00b7 " +
+                                     wide(splitTime(segment)) + L" \u00b7 " +
+                                     (hasGold ? wide(splitTime(golds[i])) : std::wstring(L"\u2013"));
             SendMessageW(list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(row.c_str()));
         }
         if (chosen >= 0 && size_t(chosen) < best.size())
@@ -1662,7 +1691,7 @@ struct Window {
         const unsigned items = settings.overlayItems;
         std::vector<std::pair<std::wstring, std::wstring>> rows;
         if (items & speedrun::overlay_bit(speedrun::show_status))
-            rows.push_back({settings.speedrun == 2 ? L"NG+" : L"Any%", L"Verified"});
+            rows.push_back({wide(speedrun::category_name(speedrun::Category(settings.speedrun))), speedrun::tournament(speedrun::Category(settings.speedrun)) ? L"Manual timing" : L"Verified"});
         if (items & speedrun::overlay_bit(speedrun::show_splits)) {
             const unsigned shown = speedrun::overlay_split_rows[std::min(settings.overlaySplits, 3u)];
             for (unsigned i = 0; i < std::min(shown, 4u); ++i)
@@ -2054,7 +2083,7 @@ struct Window {
         const int splitBottom = rulesTop - 12;
         panelBox(dc, contentLeft, speedrunTop, right, speedrunTop + 160);
         text(dc, L"Run", contentLeft + 20, speedrunTop + 12, 200, 22, fonts.strong);
-        text(dc, settings.speedrun ? L"Mods are off while a category is chosen. F7 hides the overlay; F8 resets."
+        text(dc, settings.speedrun ? (speedrun::tournament(speedrun::Category(settings.speedrun)) ? L"F9 starts; F10 splits; F11 finishes. F8 resets." : L"Mods are off while a category is chosen. F7 hides the overlay; F8 resets.")
                                    : L"Choose a category to time runs.",
              contentLeft + 120, speedrunTop + 14, content - 324, 28, fonts.caption, muted,
              DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
@@ -2067,9 +2096,9 @@ struct Window {
              DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
         panelBox(dc, contentLeft, splitsTop, right, splitBottom);
         const std::wstring splitTitle = settings.speedrun ? L"Splits · " +
-            wide(speedrun::category_label(speedrun::Category(std::min(settings.speedrun, 2u)),
+            wide(speedrun::category_label(speedrun::Category(std::min(settings.speedrun, speedrun::category_count - 1)),
                                           std::min(settings.cpuDifficulty, 3u))) +
-            (settings.permadeath ? L" permadeath" : L"") : std::wstring(L"Splits");
+            (settings.permadeath && !speedrun::tournament(speedrun::Category(settings.speedrun)) ? L" permadeath" : L"") : std::wstring(L"Splits");
         const std::wstring attempts = settings.speedrun && splitBook.attempts() ?
             std::to_wstring(splitBook.attempts()) + (splitBook.attempts() == 1 ? L" attempt" : L" attempts") +
             L" · " + std::to_wstring(splitBook.completed()) + L" finished" : std::wstring();
@@ -2122,10 +2151,10 @@ struct Window {
                 sum += golds[i];
             }
             std::vector<std::pair<std::wstring, std::wstring>> totals = {
-                {L"BEST RUN", wide(speedrun::format_time(splitBook.best_time()))}};
+                {L"BEST RUN", wide(splitTime(splitBook.best_time()))}};
             if (complete) {
-                totals.push_back({L"SUM OF BEST", wide(speedrun::format_time(sum))});
-                totals.push_back({L"POSSIBLE SAVE", wide(speedrun::format_time(std::max(0.0, splitBook.best_time() - sum)))});
+                totals.push_back({L"SUM OF BEST", wide(splitTime(sum))});
+                totals.push_back({L"POSSIBLE SAVE", wide(splitTime(std::max(0.0, splitBook.best_time() - sum)))});
             }
             const int cell = (listWidth - 20) / int(totals.size());
             for (size_t i = 0; i < totals.size(); ++i) {
@@ -4289,7 +4318,9 @@ struct Window {
         next.autoBackups = selected(AutoBackup) != 0;
         next.discordPresence = true;
         next.speedrun = unsigned(selected(SpeedrunMode));
-        next.permadeath = selected(Permadeath) != 0;
+        next.permadeath = !speedrun::tournament(speedrun::Category(next.speedrun)) && selected(Permadeath) != 0;
+        if (speedrun::tournament(speedrun::Category(next.speedrun)))
+            SendMessageW(controls[Permadeath], CB_SETCURSEL, 0, 0);
         next.fpsCounter = selected(FpsCounter) != 0;
         next.aspect = unsigned(selected(Aspect));
         if (const int choice = selected(Audio); choice > 0) {
@@ -4384,6 +4415,7 @@ struct Window {
             SendMessageW(controls[SpeedrunCpu], CB_SETCURSEL, std::min(settings.cpuDifficulty, 3u), 0);
             if (id == SpeedrunMode || id == Permadeath || id == SpeedrunCpu || id == CpuDifficulty) {
                 refreshSplits();
+                refreshTimingRules();
             }
             if (id == SpeedrunCpu)
                 status = settings.cpuDifficulty ? L"CPU difficulty Z" + std::to_wstring(settings.cpuDifficulty) +
@@ -4391,8 +4423,8 @@ struct Window {
                                                 : std::wstring(L"CPU difficulty follows the game's own setting.");
             if (id == SpeedrunMode || id == Permadeath)
                 status = settings.speedrun
-                             ? std::wstring(L"Speedrun mode: ") + (settings.speedrun == 1 ? L"Any%" : L"NG+") +
-                                   (settings.permadeath ? L" with permadeath" : L"") +
+                             ? std::wstring(L"Speedrun mode: ") + wide(speedrun::category_name(speedrun::Category(settings.speedrun))) +
+                                   (settings.permadeath && !speedrun::tournament(speedrun::Category(settings.speedrun)) ? L" with permadeath" : L"") +
                                    L". Mods stay off while it is on; logs go to the logs\\speedruns folder."
                              : L"Speedrun mode is off.";
             if (id == Music)
@@ -4627,7 +4659,7 @@ struct Window {
         if (id == SplitList && notification == LBN_SELCHANGE) {
             const auto row = SendMessageW(controls[SplitList], LB_GETCURSEL, 0, 0);
             if (row >= 0 && size_t(row) < splitBook.best().size())
-                SetWindowTextW(controls[SplitTime], wide(speedrun::format_time(splitBook.best()[size_t(row)])).c_str());
+                SetWindowTextW(controls[SplitTime], wide(splitTime(splitBook.best()[size_t(row)])).c_str());
             InvalidateRect(hwnd, nullptr, FALSE);
             return;
         }

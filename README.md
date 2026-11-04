@@ -37,8 +37,9 @@ files.
   sound effects keep playing.
 - **CPU difficulty:** Z1, Z2 and Z3 levels above Very Hard, set in the launcher or
   with F6 in game. See [docs/cpu-difficulty.md](docs/cpu-difficulty.md).
-- **Speedrun mode:** a timer and overlay following the speedrun.com rules, with
-  splits, Z1 to Z3 categories, permadeath and a checksummed log for moderators.
+- **Speedrun mode:** Dragon World and World Tournament category profiles, automatic
+  story timing, manual Tournament timing, splits, Z1 to Z3 variants, permadeath
+  and checksummed session logs.
 - **Mods:** add characters, movesets and stages from other Dragon Ball PS2 games
   without changing your ISO.
 - **Saves:** import, back up and restore memory card saves, with an optional
