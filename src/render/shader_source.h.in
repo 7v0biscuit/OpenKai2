@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #pragma once
 namespace openkai2::gpu {
-inline constexpr char shaderSource[]=R"OKGPU(@openkai2_gpu_shader@)OKGPU";
-inline constexpr char transferShaderSource[]=R"OKGPU(@openkai2_gpu_transfer_shader@)OKGPU";
+inline constexpr char shaderSource[]=
+@openkai2_gpu_shader_parts@;
+inline constexpr char transferShaderSource[]=
+@openkai2_gpu_transfer_shader_parts@;
 }
