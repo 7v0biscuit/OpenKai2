@@ -9,6 +9,9 @@ The original Budokai 2 USA ISO is required at every game launch. Automated
 checks cover bounded runtime behavior and Windows packaging; full retail
 compatibility requires separate validation.
 
+See the [Dragon World validation record](dragon-world-validation.md) for the
+current in-game checks and the remaining completion checklist.
+
 ## EE float conversion
 
 `CVT.W.S` now truncates toward zero and saturates by sign at 2^31, matching the
