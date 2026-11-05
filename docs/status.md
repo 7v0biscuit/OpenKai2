@@ -1,8 +1,10 @@
 # Development status
 
 The game runs from the intro through menus, versus fights and Dragon World.
-Known problems: Dragon World speech and Yes/No text are missing, and frame
-pacing judders in busy fights. The notes below describe individual fixes; most
+Known problems include the Dragon World Goal transition, missing speech and
+Yes/No text, animation distortion, uneven frame pacing, and poor music quality
+or music stopping after fights. See [Known issues](known-issues.md) for current
+status and workarounds. The notes below describe individual fixes; most
 are checked by unit tests, and in-game results are stated where known.
 
 The original Budokai 2 USA ISO is required at every game launch. Automated
@@ -752,6 +754,12 @@ sample, for 512 snapshots. Existing coverage, feedback, depth, and serial/parall
 renderer references remain enabled.
 
 ## Audio
+
+In-game music quality and scene-transition playback remain unresolved. Music
+can sound thin or distorted and may stop after a fight or on return to
+character selection. Occasional sound-effect glitches are also reported.
+The mixer checks below cover individual operations; they do not establish
+correct music playback throughout a session.
 
 PCSX2's SPU2 core (v2.1.27) runs as a passive mirror of the emulated IOP's
 SPU2. Every register write and transfer towards the SPU2 is replayed into it,

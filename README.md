@@ -14,6 +14,7 @@ files.
 [Online play](docs/online.md) ·
 [Speedrun mode](docs/speedrun.md) ·
 [Graphics](docs/graphics.md) ·
+[Known issues](docs/known-issues.md) ·
 [Save states](docs/save-states.md) ·
 [Modding](docs/modding.md) ·
 [Report an issue](https://github.com/7v0biscuit/OpenKai2/issues/new/choose)
@@ -49,12 +50,20 @@ files.
 ## Known issues
 
 - **Dragon World dialogue:** the speech text and the ally Yes/No text do not
-  appear. The boxes open and the story continues.
-- **Dragon World progression:** full story completion remains unverified.
-- **Frame pacing:** busy fights can still stutter. Performance depends on the
-  scene and graphics settings.
+  appear, making some prompts difficult to use.
+- **Dragon World progression:** reaching the Goal after defeating Raditz and
+  Nappa has been reported not to advance the stage. The Goal transition is
+  under investigation; full story completion remains unverified.
+- **Music:** background music can sound thin or distorted and may cut out
+  after a fight or when returning to character selection.
+- **Animation:** distorted limbs, flailing hair and accessories remain reported.
+- **Performance:** character selection, stage selection and fights can run
+  slowly or stutter. Consistent 60 FPS remains unverified.
 - **Imported Budokai 3 characters** can look black or blue.
 - **Imported Budokai 3 stages** load without their particle effects.
+
+See the [known-issues record](docs/known-issues.md) for current status,
+workarounds and issues awaiting retesting.
 
 ## Getting started
 
