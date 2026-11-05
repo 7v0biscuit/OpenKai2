@@ -14,7 +14,6 @@ files.
 [Online play](docs/online.md) ·
 [Speedrun mode](docs/speedrun.md) ·
 [Graphics](docs/graphics.md) ·
-[Known issues](docs/known-issues.md) ·
 [Save states](docs/save-states.md) ·
 [Modding](docs/modding.md) ·
 [Report an issue](https://github.com/7v0biscuit/OpenKai2/issues/new/choose)
