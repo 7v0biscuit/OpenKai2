@@ -9,7 +9,6 @@ playtesting.
 
 | Issue | Current status |
 | --- | --- |
-| Dragon World does not advance after reaching the Goal following the Raditz and Nappa fights | Reported on v0.1.83. Boss victories return to the board, but the Goal, save and next-stage transition still need validation and fixes. |
 | Missing Dragon World dialogue and ally Yes/No labels | Reproduced. Boxes and portraits appear while text is missing, making prompts difficult to use. |
 | Frame-rate drops and uneven frame pacing on the snow stage | The current performance issue is limited to this stage. |
 | Imported Budokai 3 characters render black or blue | Unresolved. |
