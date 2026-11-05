@@ -1,8 +1,8 @@
 # Known issues
 
 OpenKai2 is in active development. The intro, menus and fights run, but full
-Dragon World completion, animation correctness and consistent 60 FPS are not
-yet verified. A successful component test does not establish that a gameplay
+Dragon World completion and consistent 60 FPS are not yet verified.
+A successful component test does not establish that a gameplay
 problem is fixed.
 
 ## Gameplay and graphics
@@ -11,7 +11,6 @@ problem is fixed.
 | --- | --- |
 | Dragon World does not advance after reaching the Goal following the Raditz and Nappa fights | Reported on v0.1.83. Boss victories return to the board, but the Goal, save and next-stage transition still need validation and fixes. |
 | Missing Dragon World dialogue and ally Yes/No labels | Reproduced. Boxes and portraits appear while text is missing, making prompts difficult to use. |
-| Distorted limbs, moving hair and accessories | Still reported. Earlier vector and animation corrections do not establish correct poses throughout the game. |
 | Slow character selection, stage selection and fights; uneven frame pacing | Still reported. Sustained 60 FPS is not established. A higher FPS cap does not guarantee a higher game frame rate. |
 | Crashes around melee clashes or special attacks | Earlier reports require retesting on the current release. These paths are not yet considered fully validated. |
 | Imported Budokai 3 characters render black or blue | Unresolved. |
@@ -19,6 +18,9 @@ problem is fixed.
 
 The [Dragon World validation record](dragon-world-validation.md) separates
 completed checks from the remaining stage-completion work.
+
+Previously reported distortion of character limbs, hair and accessories is
+resolved and is no longer an active issue.
 
 ## Audio
 

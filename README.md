@@ -56,7 +56,6 @@ files.
   under investigation; full story completion remains unverified.
 - **Music:** background music can sound thin or distorted and may cut out
   after a fight or when returning to character selection.
-- **Animation:** distorted limbs, flailing hair and accessories remain reported.
 - **Performance:** character selection, stage selection and fights can run
   slowly or stutter. Consistent 60 FPS remains unverified.
 - **Imported Budokai 3 characters** can look black or blue.

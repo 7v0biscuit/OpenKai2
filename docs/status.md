@@ -2,7 +2,7 @@
 
 The game runs from the intro through menus, versus fights and Dragon World.
 Known problems include the Dragon World Goal transition, missing speech and
-Yes/No text, animation distortion, uneven frame pacing, and poor music quality
+Yes/No text, uneven frame pacing, and poor music quality
 or music stopping after fights. See [Known issues](known-issues.md) for current
 status and workarounds. The notes below describe individual fixes; most
 are checked by unit tests, and in-game results are stated where known.
@@ -44,9 +44,7 @@ remaining lanes of each VU1 vector with whatever an earlier upload left
 there. The console writes X Y X Y for V2 and takes V3's W from the next
 element of the stream, and V4-5 colours widen each field to eight bits;
 PCSX2 documents games that depend on all three. Both the contiguous and the
-masked unpack paths now match, checked lane by lane. Stale lanes in skinned
-vertex data are a candidate cause of the distorted limbs and hair seen in
-fights; this is not yet confirmed in game.
+masked unpack paths now match, checked lane by lane.
 
 ## VU0 macro conversions and divides
 
@@ -57,8 +55,7 @@ overflowing coordinate landed at zero instead of the far edge. `VDIV` by zero
 returned 0 rather than the signed VU maximum, and `VRSQRT` ignored its
 numerator. `patch-vector-macros.py` routes the 45 translated sites through VU
 helpers after recompilation. Unit checks cover saturation, signed zero
-divisors, denormal operands and the `RSQRT` numerator; whether this accounts
-for the distorted limbs and hair seen in fights is not yet confirmed in game.
+divisors, denormal operands and the `RSQRT` numerator.
 
 ## Animation scripts and rendering
 
@@ -140,8 +137,9 @@ registers, stored data, and graphics packets with PCSX2's interpreter and
 microVU. Independent tests cover flags, matrix products, branches, continuations,
 scalar waits, D/T halts, cycle wraparound, code updates, and callback errors.
 The original interpreter snapshots remain in the legacy reference checks.
-The native backend reached character selection, where hair distortion remained
-visible. Stable game frame rates and complete matches remain unverified.
+The native backend reaches character selection. Previously reported animation
+distortion is resolved and is no longer an active issue. Stable game frame
+rates and full Dragon World completion remain unverified.
 
 See [Vector execution](vector-runtime.md) for architecture and diagnostics.
 
