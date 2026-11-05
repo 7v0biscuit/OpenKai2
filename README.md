@@ -31,7 +31,7 @@ files.
   See [Internal resolution and HD textures](docs/graphics.md).
 - **Online play:** versus over the internet from the launcher, with profiles,
   friends, invites, a room browser and room passwords. Both games run in lockstep
-  and check that they stay in sync.
+  and check that they stay in sync. [Experimental]
 - **Save states:** F5 saves and F9 loads the whole console.
 - **Audio:** volume, and an option to turn off only the music while voices and
   sound effects keep playing.
