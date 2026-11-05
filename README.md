@@ -56,8 +56,8 @@ files.
   under investigation; full story completion remains unverified.
 - **Music:** background music can sound thin or distorted and may cut out
   after a fight or when returning to character selection.
-- **Performance:** character selection, stage selection and fights can run
-  slowly or stutter. Consistent 60 FPS remains unverified.
+- **Snow stage:** frame-rate drops and uneven frame pacing remain an issue.
+  Most gameplay outside this stage runs at roughly 60 FPS.
 - **Imported Budokai 3 characters** can look black or blue.
 - **Imported Budokai 3 stages** load without their particle effects.
 

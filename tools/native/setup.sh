@@ -51,14 +51,14 @@ Dir::State::lists "@WORK_DIR@/sysdeps/apt/lists";
 Dir::State::extended_states "@WORK_DIR@/sysdeps/apt/extended_states";
 Dir::Cache::archives "@WORK_DIR@/sysdeps/apt/archives";
 Dir::Log "@WORK_DIR@/sysdeps/apt/log";
-APT::Sandbox::User "agent";
+APT::Sandbox::User "@APT_USER@";
 Acquire::Retries "1";
 APT::Update::Error-Mode "any";
 Debug::NoLocking "true";
 ''',
 }
 for name, content in files.items():
-    content = content.replace('@WORK_DIR@', os.environ['OPENKAI2_WORK_DIR']).replace('APT::Sandbox::User \"agent\"', 'APT::Sandbox::User \"' + getpass.getuser() + '\"')
+    content = content.replace('@WORK_DIR@', os.environ['OPENKAI2_WORK_DIR']).replace('@APT_USER@', getpass.getuser())
     path = base / name
     if path.exists() and path.read_text() != content:
         raise SystemExit('Preserved differing local APT configuration: ' + str(path))

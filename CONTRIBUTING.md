@@ -1,7 +1,7 @@
 # Contributing
 
-OpenKai2 is working toward complete Windows gameplay. Current work includes
-battle loading, frame times, audio fidelity, and runtime accuracy. Check
+OpenKai2 is working toward complete Windows gameplay. Current work focuses on
+Dragon World progression, music playback and snow-stage performance. Check
 [development status](docs/status.md) before starting runtime work.
 
 ## Development workflow
