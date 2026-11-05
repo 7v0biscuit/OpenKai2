@@ -25,6 +25,11 @@ void FramePresenter::request(uint64_t tick) {
     }
     ready_.notify_one();
 }
+bool FramePresenter::wait_for_frame(uint64_t previous, std::chrono::steady_clock::duration timeout) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    frameReady_.wait_for(lock,timeout,[&]{return stopping_ || completed()!=previous;});
+    return completed()!=previous;
+}
 void FramePresenter::rethrow_if_failed() {
     std::exception_ptr error;
     { std::lock_guard<std::mutex> lock(mutex_);error=failure_; }
@@ -32,7 +37,8 @@ void FramePresenter::rethrow_if_failed() {
 }
 void FramePresenter::stop() {
     {std::lock_guard<std::mutex> lock(mutex_);stopping_=true;}
-    ready_.notify_one();
+    ready_.notify_all();
+    frameReady_.notify_all();
     if (worker_.joinable()) worker_.join();
 }
 void FramePresenter::report_timing(std::ostream& output) const {
@@ -59,6 +65,7 @@ void FramePresenter::run() {
         catch (...) {
             std::lock_guard<std::mutex> lock(mutex_);
             failure_=std::current_exception();stopping_=true;
+            frameReady_.notify_all();
             return;
         }
         const auto finished=std::chrono::steady_clock::now();
@@ -106,7 +113,11 @@ void FramePresenter::run() {
         }
         processed=generation;
         rendered_.fetch_add(1u,std::memory_order_relaxed);
-        completed_.store(processed,std::memory_order_release);
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            completed_.store(processed,std::memory_order_release);
+        }
+        frameReady_.notify_all();
         latestFrame.fetch_add(1u,std::memory_order_acq_rel);
     }
 }

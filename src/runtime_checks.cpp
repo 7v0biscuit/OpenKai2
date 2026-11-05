@@ -481,7 +481,7 @@ int run_runtime_checks() {
     verify_impact_effects(runtime,memory);
     verify_pause_menu(runtime,memory);
     verify_story_callbacks(runtime,memory);
-    std::cout << "Runtime story callback regression passed: callback bank, completion, board overlay, scene wait, dimming, fade, ending input, aliases and caller frames.\n";
+    std::cout << "Runtime story callback regression passed: Goal routing, story flags, callback bank, completion, board overlay, scene wait, dimming, fade, ending input, aliases and caller frames.\n";
     std::cout << "Runtime pause menu regression passed: 12 registered callbacks, 513 original open, timer and input-dispatch cases with aliases, priority, null slots and stack guards.\n";
     verify_select_screen(runtime,memory);
     std::cout << "Runtime select screen regression passed: cell builder on the original and a 33-cell wheel, locks, count, cursor place, wheel angles, bounds and portraits.\n";

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #pragma once
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <exception>
@@ -18,6 +19,7 @@ public:
     FramePresenter(const FramePresenter&)=delete;
     FramePresenter& operator=(const FramePresenter&)=delete;
     void request(uint64_t tick);
+    bool wait_for_frame(uint64_t previous, std::chrono::steady_clock::duration timeout);
     uint64_t completed() const { return completed_.load(std::memory_order_acquire); }
     uint64_t rendered() const { return rendered_.load(std::memory_order_relaxed); }
     uint64_t work_us() const { return workUs_.load(std::memory_order_relaxed); }
@@ -32,6 +34,7 @@ private:
     FramePacing samplePacing_;
     uint64_t beganUs_=0,lastSampleUs_=0;
     std::condition_variable ready_;
+    std::condition_variable frameReady_;
     bool stopping_=false,haveTick_=false;
     uint64_t tick_=0,requested_=0;
     std::exception_ptr failure_;

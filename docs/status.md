@@ -4,11 +4,10 @@ OpenKai2 boots the USA game ISO and runs the intro, menus, versus fights and
 Dragon World. Current playtesting reaches roughly 60 FPS through most of the
 game. The snow stage still has frame-rate drops and uneven pacing.
 
-The main gameplay blocker is Dragon World progression: reaching the Goal after
-defeating Raditz and Nappa can fail to advance the stage. Boss victories,
-rewards and board movement work in the tested route; the Goal, save and
-next-stage sequence are under investigation. Full story completion is not yet
-verified.
+Dragon World is playable in current playtesting. The stage 1 Goal transition
+has passed through entry into stage 2, ally selection and return to board
+control. Full story completion has not been independently verified through
+all nine stages and the ending.
 
 See [Known issues](known-issues.md) for the current problem list and temporary
 workarounds, and [Dragon World validation](dragon-world-validation.md) for the
@@ -17,12 +16,12 @@ distortion is resolved.
 
 ## Current priorities
 
-1. Fix the Dragon World Goal transition and test progression through all nine
-   stages, including saving, loading and the ending.
-2. Restore missing dialogue and confirmation text.
-3. Improve music quality and prevent tracks stopping after fights or scene
+1. Improve snow-stage rendering throughput and overall frame pacing.
+2. Improve music quality and prevent tracks stopping after fights or scene
    changes.
-4. Profile and improve rendering on the snow stage.
+3. Restore missing dialogue and confirmation text.
+4. Extend Dragon World validation through all nine stages, saving, loading
+   and the ending.
 
 ## Runtime
 

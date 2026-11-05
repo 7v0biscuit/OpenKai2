@@ -340,6 +340,13 @@ struct GpuRasterBackend::Impl {
             }
         }
         if(c.scissor.x0>c.scissor.x1 || c.scissor.y0>c.scissor.y1)return false;
+        // Clamping both ends of an offscreen triangle collapses its bounds to
+        // the scissor edge and still queues work for that tile. Keep an extra
+        // pixel at the right and bottom edges for the rasterizer's fill rules.
+        if(triangle && (maxX<float(c.scissor.x0) || maxY<float(c.scissor.y0) ||
+                        minX>float(c.scissor.x1)+1.0f || minY>float(c.scissor.y1)+1.0f)){
+            cmd[2u]=1u;cmd[4u]=0u;return true;
+        }
         int x0=std::max<int>(int(sprite ? std::ceil(minX) : std::floor(minX)),c.scissor.x0),y0=std::max<int>(int(sprite ? std::ceil(minY) : std::floor(minY)),c.scissor.y0);
         int x1=std::min<int>(int(std::ceil(maxX))-(sprite ? 1 : 0),c.scissor.x1),y1=std::min<int>(int(std::ceil(maxY))-(sprite ? 1 : 0),c.scissor.y1);
         if(triangle){

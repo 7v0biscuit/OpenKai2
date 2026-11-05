@@ -1,7 +1,7 @@
 # Known issues
 
-OpenKai2 runs the intro, menus and fights. Current work focuses on Dragon World
-progression, music playback and performance on the snow stage.
+OpenKai2 runs the intro, menus, fights and Dragon World. Current work focuses on
+music playback and performance on the snow stage.
 Most gameplay outside the snow stage runs at roughly 60 FPS in current
 playtesting.
 
@@ -19,6 +19,8 @@ completed checks from the remaining stage-completion work.
 
 Previously reported distortion of character limbs, hair and accessories is
 resolved and is no longer an active issue.
+The stage 1 Goal transition has also passed testing through entry into stage 2;
+the earlier progression failure has not reproduced on the tested route.
 
 ## Audio
 

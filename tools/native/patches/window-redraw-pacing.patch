@@ -20,10 +20,11 @@
          try { presenter.rethrow_if_failed(); }
          catch (...) { requestStop(); break; }
          presenter.request(m_memory.gs().vsyncTick.load(std::memory_order_acquire));
-@@ -2486,6 +2494,22 @@
+@@ -2486,6 +2494,29 @@
          uint32_t presentWidth = FB_WIDTH;
          uint32_t presentHeight = DEFAULT_DISPLAY_HEIGHT;
-         const uint64_t completedFrame=presenter.completed();
+-        const uint64_t completedFrame=presenter.completed();
++        uint64_t completedFrame=presenter.completed();
 +        const int windowWidth = GetScreenWidth(), windowHeight = GetScreenHeight();
 +        const bool debugOverlay = m_debugUiInitialized && m_debugUiDrawCallback;
 +        if (completedFrame == lastWindowFrame && windowWidth == lastWindowWidth &&
@@ -34,6 +35,13 @@
 +            PollInputEvents();
 +            std::this_thread::sleep_for(std::chrono::milliseconds(1));
 +            continue;
++        }
++        if (completedFrame == lastWindowFrame && debugOverlay)
++        {
++            // Wake as soon as a field is ready; refresh idle overlays at most
++            // every four milliseconds without consuming their input events.
++            presenter.wait_for_frame(completedFrame, std::chrono::milliseconds(4));
++            completedFrame = presenter.completed();
 +        }
 +        lastWindowFrame = completedFrame;
 +        lastWindowWidth = windowWidth;

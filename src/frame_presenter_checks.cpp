@@ -53,6 +53,7 @@ void verify_frame_presenter() {
             if(!changed.wait_for(lock,2s,[&]{return release;})) timedOut=true;
         } else if(tick==1010u) latest.set_value();
     });
+    require(!presenter.wait_for_frame(0u,0ms),"idle wait reported an unfinished field");
     present_guest_field(1u);
     FieldPresentationScope fields(presenter);
     std::thread unrelated([]{present_guest_field(99999u);});unrelated.join();
@@ -65,8 +66,10 @@ void verify_frame_presenter() {
         release=true;
     }
     changed.notify_all();
+    require(presenter.wait_for_frame(0u,2s),"window was not notified when its field completed");
     require(latest.get_future().wait_for(2s)==std::future_status::ready,"latest requested field was lost");
     presenter.stop();presenter.rethrow_if_failed();
+    require(!presenter.wait_for_frame(presenter.completed(),2s),"stopping invented another completed field");
     require(ticks==std::vector<uint64_t>({10u,1010u}) && presenter.completed()==1001u && presenter.rendered()==2u,
             "presentation duplicated ticks or processed a stale queue");
     std::promise<void> failed;

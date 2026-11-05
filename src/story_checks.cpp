@@ -3,11 +3,86 @@
 #include "openkai2_translation_entries.h"
 #include "ps2_runtime.h"
 #include "runtime/ee_scheduler.h"
+#include <array>
 #include <cstring>
 #include <stdexcept>
 #include <vector>
 namespace openkai2 {
 namespace {
+void verify_board_events(PS2Runtime &runtime, uint8_t *ram) {
+    constexpr uint32_t gp = 0x3ac4f0, root = 0x650000, table = 0x650100;
+    constexpr uint32_t records = 0x650200, units = 0x69bfa0, flags = 0x699a60;
+    constexpr uint32_t turn = 0x699ad8, sp = 0x1fffde0, returned = 0x29f00;
+    struct SavedRegion {
+        uint8_t *destination;
+        std::vector<uint8_t> bytes;
+        SavedRegion(uint8_t *at, size_t count) : destination(at), bytes(at, at + count) {}
+        ~SavedRegion() { std::memcpy(destination, bytes.data(), bytes.size()); }
+    } scratch(ram + root, 0x400), savedRoot(ram + gp - 0x7748, 4),
+      savedUnits(ram + units, 72), savedFlags(ram + flags, 16), savedTurn(ram + turn, 2);
+    auto &memory = runtime.memory();
+    // Intro, Goal, defeated bosses, then an event that must run only once.
+    const std::array<std::array<uint32_t, 7>, 4> events = {{
+        {{0xffffffffu, 0, 1, 301, 0, 0, 0}},
+        {{1, 15, 0, 303, 0, 0, 0}},
+        {{1, 0, 0, 357, 2, 87, 88}},
+        {{1, 0, 0, 358, 1, uint32_t(-95), 0}}
+    }};
+    for (uint32_t alias : {0u, 0x80000000u, 0xa0000000u}) {
+        std::memset(ram + root, 0, 0x400);
+        memory.write32(gp - 0x7748, root | alias);
+        memory.write32(root + 0x30, uint32_t(events.size()));
+        memory.write32(root + 0x34, table | alias);
+        for (unsigned i = 0; i < events.size(); ++i) {
+            memory.write32(table + i * 4, (records + i * 32) | alias);
+            for (unsigned j = 0; j < events[i].size(); ++j)
+                memory.write32(records + i * 32 + j * 4, events[i][j]);
+        }
+        for (uint32_t node : {13u, 15u})
+            for (uint32_t bits = 0; bits < 8; ++bits)
+                for (uint32_t round : {1u, 7u})
+                    for (uint32_t entry : {0x27fb50u, 0x27fd10u}) {
+                        memory.write16(units + 36 + 8, uint16_t(node));
+                        std::memset(ram + flags, 0, 16);
+                        memory.write32(flags + 8, ((bits & 1) ? 1u << 23 : 0) |
+                                                   ((bits & 2) ? 1u << 24 : 0) |
+                                                   ((bits & 4) ? 1u << 31 : 0));
+                        memory.write16(turn, uint16_t(round));
+                        R5900Context context{};
+                        context.pc = entry;
+                        context.r[4] = _mm_cvtsi32_si128(1);
+                        context.r[28] = _mm_cvtsi32_si128(gp);
+                        context.r[29] = _mm_cvtsi32_si128(sp);
+                        context.r[31] = _mm_cvtsi32_si128(returned);
+                        for (unsigned i = 16; i <= 20; ++i)
+                            context.r[i] = _mm_set_epi32(int(i), 2, 3, 4);
+                        const auto original = context;
+                        for (unsigned step = 0; step < 64 && context.pc != returned; ++step) {
+                            auto function = runtime.lookupFunction(context.pc);
+                            if (!function)
+                                throw std::runtime_error("Dragon World board event continuation is untranslated");
+                            try {
+                                function(ram, &context, &runtime);
+                            } catch (const EeDispatcherTransfer &) {
+                            }
+                        }
+                        const uint32_t expected = entry == 0x27fd10 && round == 1 ? 301u :
+                            node == 15 ? 303u : entry == 0x27fd10 ? 0xffffffffu :
+                            (bits & 3) == 3 ? 357u :
+                            !(bits & 4) ? 358u : 0xffffffffu;
+                        if (context.pc != returned || getRegU32(&context, 2) != expected ||
+                            getRegU32(&context, 29) != sp || getRegU32(&context, 28) != gp ||
+                            getRegU32(&context, 31) != returned ||
+                            std::memcmp(&context.r[16], &original.r[16], 5 * sizeof(context.r[16])) != 0)
+                            throw std::runtime_error("Dragon World board event mismatch: entry=" +
+                                std::to_string(entry) + " alias=" + std::to_string(alias) +
+                                " node=" + std::to_string(node) + " flags=" + std::to_string(bits) +
+                                " turn=" + std::to_string(round) + " expected=" + std::to_string(expected) +
+                                " actual=" + std::to_string(getRegU32(&context, 2)) +
+                                " pc=" + std::to_string(context.pc));
+                    }
+    }
+}
 void verify_transition_methods(PS2Runtime &runtime, uint8_t *ram) {
     const auto require = [](bool ok, const char *why) {
         if (!ok)
@@ -146,6 +221,7 @@ void verify_transition_methods(PS2Runtime &runtime, uint8_t *ram) {
 }
 }
 void verify_story_callbacks(PS2Runtime &runtime, uint8_t *ram) {
+    verify_board_events(runtime, ram);
     verify_transition_methods(runtime, ram);
     const auto require = [](bool ok, const char *why) {
         if (!ok)

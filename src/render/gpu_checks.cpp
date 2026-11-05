@@ -218,6 +218,35 @@ void checkEmptyTriangles(){
     pair.draw(original);pair.compare("Visible triangle after empty strip vertices");
     if(pair.gpu->stats().batches!=1u)throw std::runtime_error("Empty-strip culling lost a subsequent visible draw");
 }
+void checkOffscreenTriangles(){
+    unsigned cases=0;
+    for(unsigned primitive:{3u,4u,5u})for(unsigned format:{0u,2u})for(bool offset:{false,true}){
+        Comparison pair(false);
+        auto original=material(0u,false);auto& state=original.state;
+        state.prim.type=static_cast<GSPrimType>(primitive);state.prim.tme=state.prim.abe=false;
+        state.context.frame.psm=format;state.context.scissor={32u,95u,32u,95u};
+        state.context.xyoffset.ofx=offset ? 28673u : 0u;
+        state.context.xyoffset.ofy=offset ? 29187u : 0u;
+        for(unsigned side=0;side<4;++side)for(bool outside:{true,false}){
+            auto draw=original;
+            const float shift=side%2 ? (outside ? 72.0f : 48.0f) : (outside ? -24.0f : -12.0f);
+            for(unsigned i=0;i<3;++i){
+                auto& v=draw.vertices[i];
+                v.x=40.0f+(i==1 ? 12.0f : 0.0f)+float(state.context.xyoffset.ofx>>4u);
+                v.y=40.0f+(i==2 ? 12.0f : 0.0f)+float(state.context.xyoffset.ofy>>4u);
+                if(side<2)v.x+=shift;else v.y+=shift;
+            }
+            const auto before=pair.gpu->stats();
+            pair.draw(draw);pair.compare("Triangle scissor boundary "+std::to_string(cases++));
+            const auto after=pair.gpu->stats();
+            if(outside && (after.culled!=before.culled+1 || after.batches!=before.batches || after.tiles!=before.tiles))
+                throw std::runtime_error("Offscreen triangle reached GPU tile processing");
+            if(!outside && after.batches!=before.batches+1)
+                throw std::runtime_error("Scissor culling removed a partially visible triangle");
+        }
+    }
+    std::cout<<"GPU triangle scissor references passed: "<<cases<<" outside and intersecting draws.\n";
+}
 void checkMaterials(){
     for(unsigned type=0;type<2u;++type)for(unsigned mode=0;mode<128u;++mode){
         Comparison pair;auto p=material(mode,type!=0u);auto& s=p.state;auto& c=s.context;
@@ -639,7 +668,7 @@ int run_gpu_checks(bool required){
 #endif
         if(!initialized){std::cout<<"GPU checks unavailable: "<<error<<'\n';return required ? 1 : 77;}
         std::cout<<"GPU checks device: "<<gpu::current_device()->description()<<'\n';
-        checkDepthEnable();checkFlatDepth();checkDepthPlanes();checkPaletteReuse();checkPresentationReadbacks();checkEmptyTriangles();checkMaterials();checkIntegerPipeline();checkFormats();checkLines();checkCoherence();checkTransferPages();checkGpuTransfers();checkLargeTransfers();checkRebind();checkClears();checkSourceChanges();checkPartialReadbacks();checkGsWorker();checkInternalResolution();checkHdTextures();
+        checkDepthEnable();checkFlatDepth();checkDepthPlanes();checkPaletteReuse();checkPresentationReadbacks();checkEmptyTriangles();checkOffscreenTriangles();checkMaterials();checkIntegerPipeline();checkFormats();checkLines();checkCoherence();checkTransferPages();checkGpuTransfers();checkLargeTransfers();checkRebind();checkClears();checkSourceChanges();checkPartialReadbacks();checkGsWorker();checkInternalResolution();checkHdTextures();
         const auto before=gpu_render_statistics().gpuDraws;verify_vector_runtime_gpu();
         if(gpu_render_statistics().gpuDraws-before!=8u)throw std::runtime_error("VIF/PATH1 integration did not execute eight GPU triangles");
         auto device=gpu::current_device();device->post([](gpu::Host&){throw std::runtime_error("GPU failure propagation fixture");});

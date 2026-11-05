@@ -19,7 +19,8 @@ does not measure performance on a hardware Vulkan device.
 | Defeat Raditz | Combat exits, his board health reaches zero and the reward sequence opens. |
 | Defeat Nappa | Combat exits, his board health reaches zero and the reward sequence opens. |
 | Dialogue and ally confirmation labels | Text is missing; unresolved. |
-| Clear stage 1 and enter stage 2 | The Goal transition is under investigation; not yet verified. |
+| Clear stage 1 and enter stage 2 | Passed on v0.1.84: after both bosses were defeated, Goku moved to the Goal and the snow stage opened. |
+| Complete stage 2 setup | Objective, ally selection and keyboard confirmation completed; board control returned. |
 | Complete stages 2–9 and the ending | Not yet verified. |
 
 Combat transitions were accelerated with reduced opponent health and maintained
@@ -34,7 +35,8 @@ For each stage, retain a checkpoint before its final enemy and verify:
 - Required board events and movement paths finish and return control.
 - Battles return to the correct board state after both a win and a loss.
 - Rewards, dialogue and confirmation prompts remain usable.
-- Defeating the final enemy completes the stage and opens the next one.
+- The stage's completion condition opens the next stage, including reaching
+  the Goal where required.
 - Saving, closing the game and loading restores the expected progress.
 
 After stage 9, verify the ending and the return to a usable menu, then repeat
@@ -49,5 +51,5 @@ suppresses depth writes even when `ZBUF.ZMSK` is clear. Known-output checks cove
 write mask and primitive type. Both OpenGL and Vulkan comparisons pass.
 
 This correction does not resolve the missing story text. Captured dialogue
-textures contain readable glyphs, but the submitted draws fail their depth
-comparison. The source of the conflicting depth state remains under investigation.
+textures contain readable glyphs, but captures also include hidden text layers.
+The active text draws still need to be isolated before identifying a cause.
