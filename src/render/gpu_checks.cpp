@@ -77,6 +77,42 @@ GSPrimitiveBatch material(unsigned mode,bool sprite){
     if(sprite){b.vertices[1].v=2040u;b.vertices[1].t=float(b.vertices[1].v)/2048.0f;}
     return b;
 }
+void checkDepthEnable(){
+    unsigned cases=0u;
+    for(unsigned framePsm:{0u,2u})for(unsigned depthPsm:{48u,49u,50u,58u}){
+        Comparison pair(false);
+        for(bool enabled:{false,true})for(unsigned method=0;method<4u;++method)for(bool masked:{false,true})
+            for(unsigned primitive:{0u,1u,3u,6u}){
+                GSPrimitiveBatch b{};auto& s=b.state;auto& c=s.context;
+                s.prim.type=static_cast<GSPrimType>(primitive);s.colclamp=1u;
+                b.vertexCount=primitive==0u ? 1u : primitive==3u ? 3u : 2u;
+                c.frame.fbp=56u;c.frame.fbw=1u;c.frame.psm=framePsm;
+                c.zbuf.zbp=168u;c.zbuf.psm=depthPsm;c.zbuf.zmask=masked;
+                c.test=(uint64_t(enabled)<<16u)|(uint64_t(method)<<17u);c.scissor={0u,63u,0u,63u};
+                for(unsigned i=0;i<3u;++i){
+                    auto& v=b.vertices[i];v.x=16;v.y=16;v.z=enabled ? 101u : 1u;
+                    v.r=16;v.g=32;v.b=64;v.a=128;v.q=1;
+                }
+                if(primitive<=1u){b.vertices[0].x=18;b.vertices[0].y=18;b.vertices[1].x=34;b.vertices[1].y=18;}
+                else {b.vertices[1].x=40;b.vertices[1].y=primitive==6u ? 40 : 16;b.vertices[2].y=40;}
+                pair.write(framePsm,56u*32u,1u,18u,18u,0u);
+                pair.write(depthPsm,168u*32u,1u,18u,18u,100u);
+                pair.draw(b);
+                const bool passes=!enabled || method!=0u;
+                const uint32_t color=passes ? (framePsm==0u ? 0x80402010u : 0xa082u) : 0u;
+                const uint32_t depth=passes && enabled && !masked ? 101u : 100u;
+                for(auto* backend:{static_cast<GSRasterBackend*>(pair.cpu.get()),static_cast<GSRasterBackend*>(pair.gpu.get())}){
+                    if(backend->ReadVram(framePsm,56u*32u,1u,18u,18u)!=color ||
+                       backend->ReadVram(depthPsm,168u*32u,1u,18u,18u)!=depth)
+                        throw std::runtime_error("GS depth-enable state changed color or wrote depth while disabled: enable="+
+                            std::to_string(enabled)+" method="+std::to_string(method)+" primitive="+std::to_string(primitive));
+                }
+                ++cases;
+            }
+        pair.compare("Depth-enable state");
+    }
+    std::cout<<"GPU depth-enable references passed: "<<cases<<" point/line/triangle/sprite, color/depth formats and write masks.\n";
+}
 void checkPaletteReuse(){
     unsigned cases=0u;
     for(unsigned psm:{19u,20u,44u})for(unsigned cpsm:{0u,2u})for(unsigned csm:{0u,1u}){
@@ -603,7 +639,7 @@ int run_gpu_checks(bool required){
 #endif
         if(!initialized){std::cout<<"GPU checks unavailable: "<<error<<'\n';return required ? 1 : 77;}
         std::cout<<"GPU checks device: "<<gpu::current_device()->description()<<'\n';
-        checkFlatDepth();checkDepthPlanes();checkPaletteReuse();checkPresentationReadbacks();checkEmptyTriangles();checkMaterials();checkIntegerPipeline();checkFormats();checkLines();checkCoherence();checkTransferPages();checkGpuTransfers();checkLargeTransfers();checkRebind();checkClears();checkSourceChanges();checkPartialReadbacks();checkGsWorker();checkInternalResolution();checkHdTextures();
+        checkDepthEnable();checkFlatDepth();checkDepthPlanes();checkPaletteReuse();checkPresentationReadbacks();checkEmptyTriangles();checkMaterials();checkIntegerPipeline();checkFormats();checkLines();checkCoherence();checkTransferPages();checkGpuTransfers();checkLargeTransfers();checkRebind();checkClears();checkSourceChanges();checkPartialReadbacks();checkGsWorker();checkInternalResolution();checkHdTextures();
         const auto before=gpu_render_statistics().gpuDraws;verify_vector_runtime_gpu();
         if(gpu_render_statistics().gpuDraws-before!=8u)throw std::runtime_error("VIF/PATH1 integration did not execute eight GPU triangles");
         auto device=gpu::current_device();device->post([](gpu::Host&){throw std::runtime_error("GPU failure propagation fixture");});

@@ -353,7 +353,11 @@ struct GpuRasterBackend::Impl {
         if(line && (maxX-minX>4096.0f || maxY-minY>4096.0f))return false;
         cmd[0]=point ? 0u : line ? 1u : sprite ? 6u : 3u;cmd[1]=unsigned(textured)|(unsigned(s.prim.fst)<<1u)|(unsigned(s.prim.iip)<<2u)|(unsigned(s.prim.abe)<<3u)|(unsigned(s.prim.fge)<<4u)|(unsigned(s.linearFilter)<<5u)|(unsigned(s.pabe)<<6u);
         cmd[2]=unsigned(x0);cmd[3]=unsigned(y0);cmd[4]=unsigned(x1);cmd[5]=unsigned(y1);cmd[6]=c.frame.fbp*32u;cmd[7]=c.zbuf.zbp*32u;cmd[8]=width;
-        cmd[9]=uint32_t(c.test);cmd[10]=uint32_t(c.alpha);cmd[11]=uint32_t(c.alpha>>32u)&255u;cmd[12]=c.frame.fbmsk;cmd[13]=c.zbuf.psm;cmd[14]=c.zbuf.zmask;cmd[15]=uint32_t(c.fba)&1u;
+        const bool depthEnabled=(c.test&0x10000u)!=0u;
+        // ZTE=0 bypasses ZTST and blocks writes even when ZMSK is clear.
+        // Normalize the compute command so native and scaled targets agree.
+        cmd[9]=depthEnabled ? uint32_t(c.test) : (uint32_t(c.test)&~(3u<<17u))|(1u<<17u);
+        cmd[10]=uint32_t(c.alpha);cmd[11]=uint32_t(c.alpha>>32u)&255u;cmd[12]=c.frame.fbmsk;cmd[13]=c.zbuf.psm;cmd[14]=c.zbuf.zmask || !depthEnabled;cmd[15]=uint32_t(c.fba)&1u;
         cmd[16]=t.psm;cmd[17]=t.tbp0;cmd[18]=t.tbw;cmd[19]=s.textureWidth;cmd[20]=s.textureHeight;cmd[21]=uint32_t(c.clamp);cmd[22]=uint32_t(c.clamp>>32u);cmd[23]=t.tfx;cmd[24]=t.tcc;
         cmd[25]=s.texa.ta0;cmd[26]=s.texa.ta1;cmd[27]=s.texa.aem;cmd[29]=uint32_t(s.fogR)|(uint32_t(s.fogG)<<8u)|(uint32_t(s.fogB)<<16u);
         cmd[38]=c.frame.psm;cmd[39]=flatDepth;
@@ -361,14 +365,14 @@ struct GpuRasterBackend::Impl {
             const double z=batch.vertices[sprite ? 1u : 0u].z;
             cmd[88]=uint32_t(std::min(z+(flatDepth ? 0.5 : 0.0),4294967295.0));
         }
-        const bool usesDepth=((c.test>>17u)&3u)>=2u || !c.zbuf.zmask;
+        const bool usesDepth=((cmd[9]>>17u)&3u)>=2u || cmd[14]==0u;
         unsigned mx=0u,my=0u;
         if(textured){
             const auto maximum=[](unsigned size,unsigned mode,unsigned low,unsigned high){return mode==0u || mode==1u ? size-1u : mode==2u ? std::max(low,high) : low|high;};
             mx=maximum(s.textureWidth,c.clamp&3u,(c.clamp>>4u)&1023u,(c.clamp>>14u)&1023u);
             my=maximum(s.textureHeight,(c.clamp>>2u)&3u,(c.clamp>>24u)&1023u,(c.clamp>>34u)&1023u);
         }
-        const std::array<uint32_t,12> key={cmd[6],cmd[7],width,c.frame.psm,c.zbuf.psm,unsigned(usesDepth)|(unsigned(c.zbuf.zmask)<<1u)|(unsigned(textured)<<2u),
+        const std::array<uint32_t,12> key={cmd[6],cmd[7],width,c.frame.psm,c.zbuf.psm,unsigned(usesDepth)|(cmd[14]<<1u)|(unsigned(textured)<<2u),
             textured ? t.psm : 0u,textured ? t.tbp0 : 0u,textured ? t.tbw : 0u,mx,my,0u};
         footprint=footprintValid && key==footprintKey && x0>=covered[0] && y0>=covered[1] && x1<=covered[2] && y1<=covered[3];
         if(footprint){
@@ -381,7 +385,7 @@ struct GpuRasterBackend::Impl {
         }
         const auto frame=rectanglePages(c.frame.psm,cmd[6],width,x0,y0,unsigned(x1-x0+1),unsigned(y1-y0+1));
         const auto depth=usesDepth ? rectanglePages(c.zbuf.psm,cmd[7],width,x0,y0,unsigned(x1-x0+1),unsigned(y1-y0+1)) : Pages{};
-        if(usesDepth && (frame&depth).any())return false;writes=frame;if(!c.zbuf.zmask)writes|=depth;
+        if(usesDepth && (frame&depth).any())return false;writes=frame;if(cmd[14]==0u)writes|=depth;
         if(textured){
             const std::array<uint32_t,5> key={t.psm,t.tbp0,t.tbw,mx,my};
             if(!sourceValid || sourceKey!=key){sourcePages=rectanglePages(t.psm,t.tbp0,t.tbw,0u,0u,mx+1u,my+1u);sourceKey=key;sourceValid=true;}
