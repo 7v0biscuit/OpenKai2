@@ -50,14 +50,11 @@ files.
 
 - **Dragon World dialogue:** the speech text and the ally Yes/No text do not
   appear, making some prompts difficult to use.
-- **Dragon World progression:** reaching the Goal after defeating Raditz and
-  Nappa has been reported not to advance the stage. The Goal transition is
-  under investigation; full story completion remains unverified.
 - **Music:** background music can sound thin or distorted and may cut out
   after a fight or when returning to character selection.
 - **Snow stage:** frame-rate drops and uneven frame pacing remain an issue.
   Most gameplay outside this stage runs at roughly 60 FPS.
-- **Imported Budokai 3 characters** can look black or blue.
+- **Imported Budokai 3 characters** look black or blue.
 - **Imported Budokai 3 stages** load without their particle effects.
 
 See the [known-issues record](docs/known-issues.md) for current status,
