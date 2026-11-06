@@ -323,6 +323,11 @@ int main(int argc, char* argv[]) {
         const unsigned cpuLevel=online.enabled ? 0u : std::min(preferences.cpuDifficulty,3u);
         openkai2::cpu::install(runtime.memory().getRDRAM(),PS2_RAM_SIZE,cpuLevel,!online.enabled,speedrun);
         originalAiInitializer = runtime.lookupFunction(0x223bd0u);
+        struct RestoreAiInitializer {
+            PS2Runtime& runtime;
+            PS2Runtime::RecompiledFunction original;
+            ~RestoreAiInitializer() { runtime.replaceFunction(0x223bd0u,original); }
+        } restoreAi{runtime,originalAiInitializer};
         if (!originalAiInitializer || !runtime.replaceFunction(0x223bd0u, initializeBattleAi))
             throw std::runtime_error("Cannot bind the battle AI initializer");
         if (cpuLevel) std::cout << "[cpu] difficulty " << openkai2::cpu::level_name(cpuLevel) << (speedrun ? " (locked for the run)" : "") << std::endl;
