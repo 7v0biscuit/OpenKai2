@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstring>
 #include <mutex>
+#include <iostream>
 
 namespace openkai2::cpu {
 namespace {
@@ -16,6 +17,12 @@ uint32_t read32(const uint8_t *memory, size_t bytes, uint32_t address) {
         return 0;
     uint32_t value;
     std::memcpy(&value, memory + address, 4);
+    return value;
+}
+
+int16_t port(const uint8_t *memory, uint32_t battle, unsigned side) {
+    int16_t value;
+    std::memcpy(&value, memory + battle + fighter_port + side * fighter_stride, 2);
     return value;
 }
 
@@ -116,11 +123,9 @@ void tick(uint8_t *memory, size_t bytes, unsigned level, Tracker &tracker) {
         return;
     }
     const uint8_t mode = memory[battle + battle_mode];
-    if (mode <= 2) {
+    // Tournament uses these bytes for tier and round, not COM difficulty.
+    if (mode <= 1)
         memory[battle + battle_level] = strongest;
-        if (mode == 2)
-            memory[battle + battle_level + 1] = strongest;
-    }
     std::array<Fighter, 2> fighters;
     for (size_t side = 0; side < 2; ++side) {
         std::memcpy(&fighters[side], memory + battle + fighter_health + side * fighter_stride, sizeof(Fighter));
@@ -133,8 +138,23 @@ void tick(uint8_t *memory, size_t bytes, unsigned level, Tracker &tracker) {
         tracker.reset();
         return;
     }
+    const auto sides = mode == 2
+        ? std::array<bool, 2>{port(memory, battle, 0) < 0, port(memory, battle, 1) < 0}
+        : cpu_sides(mode, read32(memory, bytes, duel_sides));
+    const uint64_t key = uint64_t(battle) | (uint64_t(mode) << 25) | (uint64_t(level) << 28) |
+        (uint64_t(sides[0]) << 30) | (uint64_t(sides[1]) << 31) |
+        (uint64_t(memory[battle + battle_level]) << 32) |
+        (uint64_t(memory[battle + battle_level + 1]) << 40);
+    if (tracker.observe(key)) {
+        std::cout << "[cpu:battle] mode=" << unsigned(mode) << " difficulty=" << level_name(level)
+                  << " cpu_left=" << sides[0] << " cpu_right=" << sides[1];
+        if (mode == 2)
+            std::cout << " tier=" << unsigned(memory[battle + battle_level])
+                      << " round=" << unsigned(memory[battle + battle_level + 1]);
+        std::cout << std::endl;
+    }
     const auto before = fighters;
-    tracker.step(fighters, cpu_sides(mode, read32(memory, bytes, duel_sides)), edge(level));
+    tracker.step(fighters, sides, edge(level));
     for (size_t side = 0; side < 2; ++side) {
         auto *at = memory + battle + fighter_health + side * fighter_stride;
         if (fighters[side].health != before[side].health)
@@ -142,6 +162,45 @@ void tick(uint8_t *memory, size_t bytes, unsigned level, Tracker &tracker) {
         if (fighters[side].ki != before[side].ki)
             std::memcpy(at + 8, &fighters[side].ki, 4);
     }
+}
+
+unsigned prepare_ai(uint8_t *memory, size_t bytes, unsigned level) {
+    if (!memory || !level || level >= level_count) return 0;
+    const uint32_t battle = read32(memory, bytes, battle_pointer) & 0x1FFFFFFu;
+    if (battle < 0x100000u || size_t(battle) + battle_level + 2 > bytes ||
+        size_t(battle) + fighter_port + fighter_stride + 2 > bytes ||
+        memory[battle + battle_mode] > 2) return 0;
+    const unsigned mode = memory[battle + battle_mode];
+    unsigned applied = 0;
+    for (unsigned side = 0; side < 2; ++side) {
+        if (port(memory, battle, side) >= 0) continue;
+        const uint32_t context = ai_context + side * ai_stride;
+        if (size_t(context) + 0x17 > bytes) continue;
+        const uint32_t file = read32(memory, bytes, context + 8) & 0x1FFFFFFu;
+        if (file < 0x100000u || size_t(file) + 0x3c > bytes) continue;
+        // Original tables resolve a difficulty to a preset, not necessarily 4.
+        // Tournament uses the duel's Very Strong preset without changing its tier.
+        const uint32_t selection = read32(memory, bytes, file + (mode == 0 ? 0x14 : 0x28) + strongest * 4) & 0x1FFFFFFu;
+        const unsigned opponent = mode == 0 ? memory[battle + 0x143a3] : 0;
+        if (selection < 0x100000u || size_t(selection) + opponent >= bytes) continue;
+        const unsigned preset = memory[selection + opponent];
+        const uint32_t table = read32(memory, bytes, file + 0x10) & 0x1FFFFFFu;
+        if (preset >= 128 || table < 0x100000u || size_t(table) + preset * 4 + 4 > bytes) continue;
+        const uint32_t parameters = read32(memory, bytes, table + preset * 4) & 0x1FFFFFFu;
+        if (parameters < 0x100000u || size_t(parameters) + 0x11f > bytes) continue;
+        memory[context + 0x15] = uint8_t(preset);
+        ++applied;
+        std::cout << "[cpu:ai] mode=" << mode << " side=" << side << " difficulty=" << level_name(level)
+                  << " preset=" << preset << std::endl;
+    }
+    return applied;
+}
+
+void prepare_installed_ai(uint8_t *memory, size_t bytes) {
+    auto &state = installed();
+    std::lock_guard lock(state.mutex);
+    if (state.memory == memory && state.bytes == bytes)
+        prepare_ai(memory, bytes, state.level);
 }
 
 void install(uint8_t *memory, size_t bytes, unsigned level, bool allowed, bool locked) {

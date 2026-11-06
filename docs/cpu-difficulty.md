@@ -21,8 +21,10 @@ How it works:
   whatever the in-game setting is.
 - Budokai 2 has no scripts beyond Very Hard, so the Z levels also give the CPU a
   stat edge that grows with the level. The edge applies in Dragon World and in
-  1P vs COM and COM vs 2P duels. In COM vs COM and other modes, only the
-  behaviour changes.
+  1P vs COM and COM vs 2P duels, and against CPU opponents in World Tournament.
+  Tournament tiers and rounds keep their original values. Human-versus-human
+  matches receive no stat changes; two CPU opponents receive the same Ki bonus
+  without a damage advantage for either side.
 - Extra damage from the CPU never knocks you out by itself: it stops at 1
   health, and the game's own hit finishes the fight. A knocked-out CPU is never
   revived.
@@ -31,3 +33,8 @@ Z levels are off in online play, so online matches play the same for everyone.
 In speedrun mode they are allowed and each one is its own category; see
 [Speedrun mode](speedrun.md). The level is locked for a run, so F6 does nothing
 there.
+
+The startup log records each battle's mode, CPU sides and Z level. Tournament
+entries also include the tier and round; AI initialization records the preset
+selected from the original game data. These entries distinguish a selected
+launcher option from a modifier applied to an actual fight.

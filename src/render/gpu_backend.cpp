@@ -119,6 +119,7 @@ struct GpuRasterBackend::Impl {
     std::array<uint16_t,512> clut{};std::array<uint32_t,2> cbp{};uint32_t clutGeneration=0;
     std::array<uint32_t,8> loadedPaletteKey{};Pages loadedPalettePages;bool loadedPaletteValid=false;
     std::vector<uint32_t> commands,palette,activeTiles;
+    gpu::Command pendingCommand{};
     std::array<std::vector<uint32_t>,65536> tileCommands;
     std::map<std::array<uint32_t,3>,uint32_t> paletteOffsets;
     std::array<uint32_t,5> target{},sourceKey{};Pages sourcePages;bool sourceValid=false;size_t references=0;
@@ -430,15 +431,18 @@ void GpuRasterBackend::Submit(const GSPrimitiveBatch& batch){
     } timing{(++sampled&15u)==0u,{}};if(timing.on)timing.began=std::chrono::steady_clock::now();
     std::lock_guard lock(m->mutex);Pages writes,sources;bool footprint=false;
     if(!m->vram || !batch.vertexCount)return;
-    const size_t at=m->commands.size();m->commands.resize(at+gpu::CommandWords);
-    if(m->cpuFrame || !m->encode(batch,m->commands.data()+at,writes,sources,footprint) || !m->ready()){
+    // Encode before appending: culled primitives must not grow or clear the
+    // command buffer. Every used field is overwritten; HD slots are optional.
+    auto& pending=m->pendingCommand;pending[89]=pending[90]=pending[91]=0u;
+    if(m->cpuFrame || !m->encode(batch,pending.data(),writes,sources,footprint) || !m->ready()){
         const char* reason=gpu_draw_unsupported(batch);
         countFallback(batch,reason ? reason : m->cpuFrame ? "after-earlier-fallback" : !m->ready() ? "device-not-ready" : "draw-area");
-        m->commands.resize(at);m->footprintValid=false;m->loadedPaletteValid=false;
+        m->footprintValid=false;m->loadedPaletteValid=false;
         m->materialize();m->cpu.Submit(batch);m->cpuDirty.set();m->cpuFrame=true;++m->statistics.cpuDraws;totalCpuDraws.fetch_add(1u,std::memory_order_relaxed);return;
     }
     ++m->statistics.gpuDraws;totalGpuDraws.fetch_add(1u,std::memory_order_relaxed);
-    if(m->commands[at+2u]>m->commands[at+4u]){m->commands.resize(at);++m->statistics.culled;totalCulled.fetch_add(1u,std::memory_order_relaxed);return;}
+    if(pending[2u]>pending[4u]){++m->statistics.culled;totalCulled.fetch_add(1u,std::memory_order_relaxed);return;}
+    const size_t at=m->commands.size();m->commands.insert(m->commands.end(),pending.begin(),pending.end());
     if(!footprint){
         if((writes&m->loadedPalettePages).any())m->loadedPaletteValid=false;
         const uint32_t* encoded=m->commands.data()+at;

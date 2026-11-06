@@ -51,6 +51,12 @@
 #endif
 
 namespace {
+PS2Runtime::RecompiledFunction originalAiInitializer = nullptr;
+void initializeBattleAi(uint8_t *memory, R5900Context *context, PS2Runtime *runtime) {
+    openkai2::cpu::prepare_installed_ai(memory, PS2_RAM_SIZE);
+    originalAiInitializer(memory, context, runtime);
+}
+
 class TeeBuffer : public std::streambuf {
     std::streambuf *console_, *file_;
     std::mutex& mutex_;
@@ -316,6 +322,9 @@ int main(int argc, char* argv[]) {
         openkai2::mods::install_alternates(runtime.memory().getRDRAM(),PS2_RAM_SIZE,std::move(alternates));
         const unsigned cpuLevel=online.enabled ? 0u : std::min(preferences.cpuDifficulty,3u);
         openkai2::cpu::install(runtime.memory().getRDRAM(),PS2_RAM_SIZE,cpuLevel,!online.enabled,speedrun);
+        originalAiInitializer = runtime.lookupFunction(0x223bd0u);
+        if (!originalAiInitializer || !runtime.replaceFunction(0x223bd0u, initializeBattleAi))
+            throw std::runtime_error("Cannot bind the battle AI initializer");
         if (cpuLevel) std::cout << "[cpu] difficulty " << openkai2::cpu::level_name(cpuLevel) << (speedrun ? " (locked for the run)" : "") << std::endl;
         else if (preferences.cpuDifficulty) std::cout << "[cpu] difficulty Z levels are off online" << std::endl;
         presence.update("Playing Budokai 2",online.enabled ? "Online" : "In game");

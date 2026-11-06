@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "battle_command_checks.h"
+#include "cpu_difficulty.h"
+#include "runtime/ee_scheduler.h"
 #include "ps2_runtime.h"
 #include "openkai2_translation_entries.h"
 #include <algorithm>
@@ -9,6 +11,65 @@
 #include <vector>
 
 namespace openkai2 {
+void verify_tournament_cpu(PS2Runtime& runtime,uint8_t* ram) {
+    auto require=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
+    constexpr uint32_t battle=0x500000u,file=0x600000u,stack=0x1fffde0u,returned=0x29f00u;
+    auto& m=runtime.memory();
+    auto call=[&](uint32_t pc,unsigned side=0) {
+        R5900Context c{};c.pc=pc;c.r[16]=_mm_cvtsi32_si128(side);c.r[17]=_mm_cvtsi32_si128(battle+0x210u);
+        c.r[28]=_mm_cvtsi32_si128(0x3ac4f0u);c.r[29]=_mm_cvtsi32_si128(stack);c.r[31]=_mm_cvtsi32_si128(returned);
+        for(unsigned step=0;step<64u && c.pc!=returned;++step) {
+            require(runtime.hasFunction(c.pc),"Tournament CPU check reached an unregistered continuation");
+            try {runtime.lookupFunction(c.pc)(ram,&c,&runtime);} catch(const EeDispatcherTransfer&) {}
+        }
+        require(c.pc==returned,"Tournament CPU check did not return");
+    };
+    struct Restore {
+        PS2Runtime& runtime;std::vector<std::pair<uint32_t,PS2Runtime::RecompiledFunction>> entries;
+        ~Restore(){for(const auto& entry:entries)runtime.replaceFunction(entry.first,entry.second);}
+    } restore{runtime,{}};
+    for(const auto target:{0x1d0410u,0x1d0870u}) {
+        restore.entries.emplace_back(target,runtime.lookupFunction(target));
+        runtime.replaceFunction(target,[](uint8_t*,R5900Context* c,PS2Runtime* r){
+            r->memory().write32(c->pc==0x1d0410u ? 0x29800u : 0x29804u,1u);
+            c->pc=returned;
+        });
+    }
+    for(const uint32_t alias:{0u,0x80000000u,0xa0000000u}) {
+        std::memset(ram+battle,0,0x20000u);std::memset(ram+file,0,0x7000u);
+        std::memset(ram+cpu::ai_context,0,cpu::ai_stride*2u);
+        m.write32(cpu::battle_pointer,battle|alias);m.write8(battle+cpu::battle_mode,2);
+        m.write8(battle+0x143a0u,2);m.write8(battle+cpu::battle_level,1);m.write8(battle+cpu::battle_level+1,2);
+        m.write32(file+8u,(file+0x5000u)|alias);m.write32(file+0x10u,(file+0x2000u)|alias);
+        m.write32(file+0x38u,(file+0x1000u)|alias);m.write8(file+0x1000u,7);
+        m.write32(file+0x2000u+2u*4u,(file+0x3000u)|alias);
+        m.write32(file+0x2000u+7u*4u,(file+0x4000u)|alias);
+        m.write32(file+0x5000u,(file+0x6000u)|alias);
+        for(unsigned side=0;side<2;++side) {
+            const auto at=cpu::ai_context+side*cpu::ai_stride;
+            m.write32(at+8u,file|alias);m.write8(at+0x15u,2);
+            m.write16(battle+cpu::fighter_port+side*cpu::fighter_stride,side ? 0xffffu : 0u);
+        }
+        m.write8(file+0x4116u,31);m.write8(file+0x411du,47);m.write8(file+0x411eu,63);
+        require(cpu::prepare_ai(ram,PS2_RAM_SIZE,3)==1,"Tournament strongest AI preset was not prepared");
+        call(0x223bd0u);
+        require(m.read8(cpu::ai_context+0x16u)==2 && m.read8(cpu::ai_context+cpu::ai_stride+0x16u)==7,
+                "Original AI initializer did not apply the CPU preset exclusively");
+        require(m.read32(cpu::ai_context+cpu::ai_stride+0xcu)==((file+0x4000u)|alias) &&
+                m.read16(cpu::ai_context+cpu::ai_stride+0x22u)==31 &&
+                m.read16(cpu::ai_context+cpu::ai_stride+0x24u)==47 &&
+                m.read16(cpu::ai_context+cpu::ai_stride+0x26u)==63,
+                "Original AI initializer did not rebuild active behavior parameters");
+        require(m.read8(battle+cpu::battle_level)==1 && m.read8(battle+cpu::battle_level+1)==2,
+                "Tournament bracket or round changed");
+        for(unsigned side=0;side<2;++side) {
+            m.write32(0x29800u,0);m.write32(0x29804u,0);call(0x1e5ee0u,side);
+            require(m.read32(0x29800u)==side && m.read32(0x29804u)==1u-side,
+                    "Tournament CPU side disagrees with the original input dispatcher");
+        }
+    }
+}
+
 void verify_battle_commands(PS2Runtime& runtime,uint8_t* ram) {
     auto require=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
     for(auto entry:translation::battle_command_entries)

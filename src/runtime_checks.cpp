@@ -516,6 +516,8 @@ int run_runtime_checks() {
     std::cout << "Runtime battle update regression passed: 18 original methods, both selectors, 545 caller cases, tail aliases, character state, secondary flags, snapshots, pauses, and saved registers.\n";
     verify_aura_updates(runtime,memory);
     std::cout << "Runtime aura update regression passed: six original callbacks, both selectors, both characters, inactive objects, matrix scaling, progress, completion, and saved registers.\n";
+    verify_tournament_cpu(runtime,memory);
+    std::cout << "Runtime Tournament CPU regression passed: original input dispatch, strongest preset selection, active parameters, bracket preservation, and memory aliases.\n";
     verify_battle_commands(runtime,memory);
     std::cout << "Runtime battle command regression passed: 24 original handlers, 45 slots, both switches, enable flags, character state, saved registers, and caller guards.\n";
     verify_scene_modes(runtime,memory);

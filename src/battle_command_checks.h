@@ -3,5 +3,6 @@
 #include <cstdint>
 class PS2Runtime;
 namespace openkai2 {
+void verify_tournament_cpu(PS2Runtime&,uint8_t*);
 void verify_battle_commands(PS2Runtime&,uint8_t*);
 }

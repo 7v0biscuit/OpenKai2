@@ -95,6 +95,70 @@ void duel_sides_follow_the_menu() {
     }
 }
 
+void tournament_preserves_brackets_and_targets_cpu() {
+    for (unsigned level = 1; level < level_count; ++level)
+        for (unsigned tier = 0; tier < 3; ++tier)
+            for (unsigned round = 0; round < 4; ++round)
+                for (unsigned arrangement = 0; arrangement < 4; ++arrangement) {
+                    Guest guest;
+                    guest.fight(2, 0);
+                    guest.memory[battle + battle_level] = uint8_t(tier);
+                    guest.memory[battle + battle_level + 1] = uint8_t(round);
+                    for (unsigned side = 0; side < 2; ++side) {
+                        const int16_t controller = (arrangement & (1u << side)) ? -1 : int16_t(side);
+                        std::memcpy(guest.memory.data() + battle + fighter_port + side * fighter_stride, &controller, 2);
+                    }
+                    const auto before = guest.memory;
+                    Tracker tracker;
+                    tick(guest.memory.data(), guest.memory.size(), level, tracker);
+                    for (unsigned side = 0; side < 2; ++side)
+                        require(near(guest.ki(side), 300 + ((arrangement & (1u << side)) ? edge(level).ki : 0)),
+                                "Tournament ki modifier reached the wrong side");
+                    guest.putf(guest.fighter(0), 2900);
+                    tick(guest.memory.data(), guest.memory.size(), level, tracker);
+                    const float expected = arrangement == 1 ? 2900 + 100 * (1 - edge(level).taken)
+                        : arrangement == 2 ? 2900 - 100 * (edge(level).dealt - 1) : 2900;
+                    require(near(guest.health(0), expected), "Tournament damage modifier reached the wrong side");
+                    for (unsigned side = 0; side < 2; ++side)
+                        std::memcpy(guest.memory.data() + guest.fighter(side), before.data() + guest.fighter(side), sizeof(Fighter));
+                    require(guest.memory == before, "Tournament changed bracket, round, or unrelated memory");
+                }
+}
+
+void tournament_uses_original_strongest_preset() {
+    Guest guest;
+    guest.fight(2, 0);
+    for (unsigned side = 0; side < 2; ++side) {
+        const uint32_t context = ai_context + side * ai_stride;
+        guest.put(context + 8, 0x80600000);
+        guest.put(0x600038, 0x80601000);
+        guest.memory[0x601000] = 7;
+        guest.put(0x600010, 0x80602000);
+        guest.put(0x60201c, 0x80603000);
+        guest.memory[context + 0x15] = 2;
+        const int16_t controller = side ? -1 : 0;
+        std::memcpy(guest.memory.data() + battle + fighter_port + side * fighter_stride, &controller, 2);
+    }
+    auto before = guest.memory;
+    require(prepare_ai(guest.memory.data(), guest.memory.size(), 0) == 0 && guest.memory == before,
+            "Original difficulty changed the AI preset");
+    for (unsigned level = 1; level < level_count; ++level) {
+        guest.memory = before;
+        require(prepare_ai(guest.memory.data(), guest.memory.size(), level) == 1, "Tournament CPU preset not selected");
+        require(guest.memory[ai_context + 0x15] == 2 && guest.memory[ai_context + ai_stride + 0x15] == 7,
+                "AI selected a hard-coded preset or changed the human side");
+        auto expected = before;
+        expected[ai_context + ai_stride + 0x15] = 7;
+        require(guest.memory == expected, "Preset selection changed active scripts before original initialization");
+    }
+    guest.memory = before;
+    guest.put(0x600038, 0xffffffff);
+    before = guest.memory;
+    require(prepare_ai(guest.memory.data(), guest.memory.size(), 3) == 0 && guest.memory == before,
+            "Invalid AI data changed the battle");
+    require(prepare_ai(nullptr, 0, 3) == 0, "Null AI memory accepted");
+}
+
 void leaves_other_screens_alone() {
     Guest guest;
     guest.fight(0, 0);
@@ -127,6 +191,8 @@ int main() {
         game_setting_changes_nothing();
         dragon_world_edge();
         duel_sides_follow_the_menu();
+        tournament_preserves_brackets_and_targets_cpu();
+        tournament_uses_original_strongest_preset();
         leaves_other_screens_alone();
         edges_grow();
     } catch (const std::exception &error) {
