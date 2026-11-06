@@ -2,6 +2,7 @@
 #include "content_unlock_checks.h"
 #include "launcher/content_unlock.h"
 #include "launcher/capsule_catalog.h"
+#include "speedrun_rules.h"
 #include "ps2_runtime.h"
 #include "runtime/ee_scheduler.h"
 #include <algorithm>
@@ -160,5 +161,20 @@ void verify_original_save_codec(PS2Runtime &runtime, uint8_t *ram) {
     require(std::equal(expected.begin() + 0x90u, expected.begin() + 0x98u, ram + buffer + 0x90u) &&
                 std::equal(expected.begin() + 0xb4u, expected.begin() + 0xb6u, ram + buffer + 0xb4u),
             "Launcher unlock flags differ from original capsule handling and save serialization");
+    for (uint32_t alias : {0u, 0x80000000u, 0xa0000000u}) {
+        auto fresh = expected;
+        fresh[0x60] = 1; fresh[0x61] = 2;
+        std::fill(fresh.begin() + 0x800, fresh.begin() + 0x89c, 7);
+        speedrun::prepare_run_save(fresh, speedrun::run_profile(speedrun::Category::new_game_plus_very_hard, 0));
+        place(fresh);
+        std::memset(ram + object, 0, 0xb90);
+        call(0x2334e0, alias, object, buffer | alias);
+        require(memory.read32((object | alias) + 0x924) == 4 &&
+                    memory.read32((object | alias) + 0x928) == 2 && ram[object + 0x3a6] == 0xff,
+                "Original save loader changed speedrun difficulty or resumed the previous stage");
+        for (unsigned i = 0; i < 0x9c; ++i)
+            require(ram[object + 0x32c + i] == (i == 0x7a ? 0xff : 0),
+                    "Original save loader retained an unfinished speedrun board");
+    }
 }
 }

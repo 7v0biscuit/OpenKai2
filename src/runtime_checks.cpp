@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "runtime_checks.h"
+#include "machine_state.h"
 #include "runtime_layout.h"
 #include "sound_checks.h"
 #include "dma_checks.h"
@@ -376,6 +377,18 @@ void verify_file_callbacks(PS2Runtime& runtime,uint8_t* memory) {
 }
 }
 int run_runtime_checks() {
+    enable_manual_machine_states(false);
+    struct RestoreManualStates { ~RestoreManualStates(){enable_manual_machine_states(true);} } restoreManualStates;
+    unsigned rejectedStates = 0;
+    const auto rejected = [&](MachineStateResult result) {
+        if (!result.ok && result.message.find("speedrun") != std::string::npos) ++rejectedStates;
+    };
+    request_machine_save(rejected);
+    request_machine_load({}, rejected);
+    if (rejectedStates != 2 || machine_state_pending())
+        throw std::runtime_error("Speedrun mode accepted a manual save or load request");
+    enable_manual_machine_states(true);
+    std::cout << "Runtime speedrun state policy passed: manual save/load requests rejected without queuing.\n";
     verify_runtime_layout(sizeof(VU1Interpreter),sizeof(PS2Runtime));
     verify_vector_runtime();
     verify_vector_backend();

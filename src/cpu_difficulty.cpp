@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "cpu_difficulty.h"
+#include "speedrun_rules.h"
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -166,6 +167,7 @@ bool cycle(unsigned &level) {
 }
 
 void on_frame() {
+    speedrun::enforce_run_settings();
     auto &state = installed();
     std::lock_guard lock(state.mutex);
     if (state.memory && state.level)

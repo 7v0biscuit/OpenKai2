@@ -16,6 +16,20 @@ Turn it on in the launcher's **Speedrun** page (Ctrl+3):
 
 While speedrun mode is on, mods are not loaded.
 
+Each launch starts a fresh attempt. Any% uses an empty temporary memory card.
+NG+ uses a separate copy of your existing save's unlocks and equipment, with
+unfinished Dragon World progress cleared. Your original memory card is not
+changed. Quitting ends the attempt; reopening the game never resumes it.
+
+Manual state saving and loading are disabled throughout speedrun mode, including
+before the timer starts. The mode manages its own in-memory checkpoint for
+automatic permadeath resets. F8 abandons the attempt and starts fresh.
+
+Required setup is automatic: NG+ (Very Hard) locks the game's difficulty to
+Very Hard, and Z variants lock the selected Z modifier and strongest game/COM
+settings. Tournament profiles select their matching bracket. Adept, Advanced
+and Hercule Only require the relevant content to be unlocked in your save.
+
 ## Timing
 
 - The timer starts when Dragon World starts (its opening text begins).
@@ -34,17 +48,18 @@ The automatic timer applies to the five Dragon World profiles:
 | NG+ | Existing save; pre-equipped capsules allowed |
 | All Dragonballs | Collect all seven Dragon Balls before defeating Kid Buu; pre-equipped capsules allowed |
 | Hercule Only | Only Hercule may win battles; every other character must have zero wins. Show the results screen in the recording |
-| NG+ (Very Hard) | Set **Very Hard** in the game's options before starting; pre-equipped capsules allowed. Z3 is a different modifier |
+| NG+ (Very Hard) | **Very Hard** is applied and locked automatically; pre-equipped capsules allowed. Z3 is a different modifier |
 
 All finish at the final hit against Kid Buu in Stage 9. The profiles share the
 automatic Dragon World start, battle splits and finish detection; they do not
-automatically enforce equipment, Dragon Ball collection, character-win counts
-or the game's difficulty. Check those requirements in your recording.
+automatically enforce equipment, Dragon Ball collection or character-win counts.
+Check those objectives in your recording. Save setup and required difficulty
+are applied automatically.
 
 ### World Tournament
 
-Choose **Tournament (Novice)**, **Tournament (Adept)** or **Tournament (Advanced)**
-and select the same difficulty in the game. These profiles have **manual timing**,
+Choose **Tournament (Novice)**, **Tournament (Adept)** or **Tournament (Advanced)**;
+the matching unlocked bracket is selected in game. These profiles have **manual timing**,
 shown on the overlay:
 
 - **F9:** start or restart, when confirming **Normal** or **Custom** for your character.

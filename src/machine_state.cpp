@@ -28,6 +28,7 @@ std::mutex requestMutex;
 std::string blockedBy;
 std::optional<Request> pending;
 std::atomic<bool> hasPending{false};
+std::atomic<bool> manualStates{true};
 std::string identity;
 constexpr uint32_t magic = 0x3153424fu, version = 1u;
 
@@ -221,13 +222,22 @@ void set_machine_memory(const uint8_t *rdram, size_t bytes) {
 void set_machine_state_identity(std::string value) { identity = std::move(value); }
 const std::string &machine_state_identity() { return identity; }
 
-void request_machine_save(std::function<void(MachineStateResult)> done) {
+void enable_manual_machine_states(bool enabled) { manualStates = enabled; }
+void request_machine_save(std::function<void(MachineStateResult)> done, MachineStatePurpose purpose) {
+    if (purpose == MachineStatePurpose::manual && !manualStates.load()) {
+        if (done) done({false, "Manual save states are disabled in speedrun mode", {}});
+        return;
+    }
     std::lock_guard lock(requestMutex);
     pending = Request{false, {}, std::move(done)};
     hasPending = true;
 }
 
-void request_machine_load(std::vector<uint8_t> data, std::function<void(MachineStateResult)> done) {
+void request_machine_load(std::vector<uint8_t> data, std::function<void(MachineStateResult)> done, MachineStatePurpose purpose) {
+    if (purpose == MachineStatePurpose::manual && !manualStates.load()) {
+        if (done) done({false, "Manual load states are disabled in speedrun mode", {}});
+        return;
+    }
     std::lock_guard lock(requestMutex);
     pending = Request{true, std::move(data), std::move(done)};
     hasPending = true;

@@ -36,7 +36,7 @@ function(openkai2_attach_generated_sources)
         "${project_root}/src/mods/importer.cpp" "${project_root}/src/mods/roster.cpp"
         "${project_root}/src/mods/select_alternates.cpp" "${project_root}/src/mods/select_screen.cpp"
         "${project_root}/src/mods/disc_identity.cpp" "${project_root}/src/mods/budokai3.cpp" "${project_root}/src/mods/stages.cpp"
-        "${project_root}/src/cpu_difficulty.cpp")
+        "${project_root}/src/cpu_difficulty.cpp" "${project_root}/src/speedrun_rules.cpp")
     target_include_directories(openkai2_disc PUBLIC "${project_root}/src")
     target_compile_features(openkai2_disc PUBLIC cxx_std_17)
     if(WIN32)
@@ -49,7 +49,7 @@ function(openkai2_attach_generated_sources)
     endif()
     target_link_libraries(ps2EntryRunner PRIVATE openkai2_speedrun)
     add_library(openkai2_launcher_model STATIC "${project_root}/src/launcher/settings.cpp"
-        "${project_root}/src/launcher/saves.cpp" "${project_root}/src/launcher/content_unlock.cpp" "${project_root}/src/launcher/session.cpp" "${project_root}/src/launcher/update.cpp")
+        "${project_root}/src/launcher/saves.cpp" "${project_root}/src/launcher/content_unlock.cpp" "${project_root}/src/launcher/session.cpp" "${project_root}/src/launcher/update.cpp" "${project_root}/src/launcher/speedrun_session.cpp")
     target_link_libraries(openkai2_launcher_model PUBLIC openkai2_disc)
     target_compile_features(openkai2_launcher_model PUBLIC cxx_std_17)
     if(MSVC)
@@ -76,6 +76,9 @@ function(openkai2_attach_generated_sources)
     add_executable(openkai2_content_unlock_tests "${project_root}/tests/content_unlock_tests.cpp")
     target_link_libraries(openkai2_content_unlock_tests PRIVATE openkai2_launcher_model)
     add_test(NAME content_unlock_saves COMMAND openkai2_content_unlock_tests)
+    add_executable(openkai2_speedrun_rules_tests "${project_root}/tests/speedrun_rules_tests.cpp")
+    target_link_libraries(openkai2_speedrun_rules_tests PRIVATE openkai2_launcher_model)
+    add_test(NAME speedrun_category_setup COMMAND openkai2_speedrun_rules_tests)
     find_package(Python3 3.10 REQUIRED COMPONENTS Interpreter)
     find_package(Threads REQUIRED)
     execute_process(COMMAND "${Python3_EXECUTABLE}"

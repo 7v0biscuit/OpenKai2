@@ -92,9 +92,11 @@ void load_slot(unsigned slot) {
 }
 
 struct MenuState {
+    enum class Return { idle, pending, done, failed };
     std::mutex mutex;
     std::vector<uint8_t> data;
     bool saving = false;
+    std::atomic<Return> returned{Return::idle};
 };
 MenuState &menu_state() {
     static MenuState value;
@@ -117,7 +119,7 @@ void capture_menu() {
             menu.data = std::move(result.data);
         if (result.ok)
             std::cout << "[speedrun] main menu saved for permadeath resets" << std::endl;
-    });
+    }, openkai2::MachineStatePurpose::automatic_reset);
 }
 
 bool return_to_menu() {
@@ -129,10 +131,12 @@ bool return_to_menu() {
             return false;
         data = menu.data;
     }
+    menu.returned = MenuState::Return::pending;
     openkai2::request_machine_load(std::move(data), [](openkai2::MachineStateResult result) {
+        menu_state().returned = result.ok ? MenuState::Return::done : MenuState::Return::failed;
         if (!result.ok)
             std::cout << "[speedrun] could not return to the main menu: " << result.message << std::endl;
-    });
+    }, openkai2::MachineStatePurpose::automatic_reset);
     return true;
 }
 
@@ -316,13 +320,21 @@ struct Overlay {
         }
         if (options.permadeath && state_main_menu && !openkai2::machine_state_pending())
             capture_menu();
-        if (died_at >= 0 && now - died_at > 4.0 && !reset && !openkai2::machine_state_pending()) {
+        const auto returned = menu_state().returned.load();
+        if (returned == MenuState::Return::done) {
+            menu_state().returned = MenuState::Return::idle;
+            died_at = -1;
+            timer.reset();
+            recorded = true;
+        } else if (returned == MenuState::Return::failed) {
+            menu_state().returned = MenuState::Return::idle;
+            to_menu = true;
+            reset = true;
+        }
+        if (died_at >= 0 && now - died_at > 4.0 && !reset && !openkai2::machine_state_pending() &&
+            menu_state().returned.load() == MenuState::Return::idle) {
             note("permadeath: run over, back to the main menu");
-            if (return_to_menu()) {
-                died_at = -1;
-                timer.reset();
-                recorded = true;
-            } else {
+            if (!return_to_menu()) {
                 to_menu = true;
                 reset = true;
             }
@@ -696,6 +708,9 @@ void draw(PS2Runtime &runtime, void *) {
     auto *session = openkai2::netplay::active();
     if (session && (IsKeyPressed(KEY_F5) || IsKeyPressed(KEY_F9)))
         toast("Save states are off in online play");
+    else if (overlay->speedrun && (IsKeyPressed(KEY_F5) ||
+             (IsKeyPressed(KEY_F9) && !tournament(overlay->options.category))))
+        toast("Manual save and load are disabled during speedruns");
     else if (!overlay->speedrun && !openkai2::machine_state_pending()) {
         if (IsKeyPressed(KEY_F5))
             save_slot(1);
@@ -740,8 +755,18 @@ void shutdown(PS2Runtime &, void *) {
 }
 
 void install_overlay(PS2Runtime &runtime, OverlayOptions options) {
+    reset = false;
+    to_menu = false;
+    {
+        auto &menu = menu_state();
+        std::lock_guard lock(menu.mutex);
+        menu.data.clear();
+        menu.saving = false;
+        menu.returned = MenuState::Return::idle;
+    }
     overlay = std::make_unique<Overlay>();
     overlay->speedrun = options.category != Category::off;
+    openkai2::enable_manual_machine_states(!overlay->speedrun);
     overlay->skipping = options.skip_to_menu;
     overlay->options = std::move(options);
     overlay->timer = Timer{overlay->options.category};

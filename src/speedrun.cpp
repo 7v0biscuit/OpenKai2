@@ -46,18 +46,18 @@ const char *category_rules(Category category) {
     case Category::tournament_novice:
     case Category::tournament_adept:
     case Category::tournament_advanced:
-        return "Choose the matching World Tournament difficulty. Start when confirming Normal or Custom for your character. "
+        return "The matching World Tournament tier is selected automatically and must already be unlocked. Start when confirming Normal or Custom for your character. "
                "Finish on the first frame of the final opponent's ring-out animation, Time-Out! or K.O. Milliseconds are required for top-three times.";
     case Category::all_dragonballs:
         return "Start on Dragon World or Restart Dragon World. Collect all seven Dragon Balls before the final hit defeats Kid Buu in Stage 9. Pre-equipped capsules are allowed.";
     case Category::hercule_only:
         return "Start on Dragon World or Restart Dragon World. Finish on the final hit against Kid Buu in Stage 9. Only Hercule may win battles; all other characters must have zero wins. Show the results screen in your recording.";
     case Category::new_game_plus_very_hard:
-        return "Set the game's difficulty to Very Hard before starting. Start on Dragon World or Restart Dragon World and finish on the final hit against Kid Buu in Stage 9. Pre-equipped capsules are allowed. Z difficulty modifiers are separate variants.";
+        return "Very Hard is applied automatically and locked. Start a fresh Dragon World attempt using an existing save's unlocks. Finish on the final hit against Kid Buu in Stage 9. Pre-equipped capsules are allowed. Z difficulty modifiers are separate variants.";
     case Category::new_game_plus:
-        return "Use an existing save. Start on Dragon World or Restart Dragon World and finish on the final hit against Kid Buu in Stage 9. Pre-equipped capsules are allowed.";
+        return "An existing save's unlocks are copied into a fresh Dragon World attempt. Finish on the final hit against Kid Buu in Stage 9. Pre-equipped capsules are allowed. Quitting ends the attempt.";
     case Category::any:
-        return "Use a new game file. Start on Dragon World and finish on the final hit against Kid Buu in Stage 9. Restart Dragon World is not allowed.";
+        return "An empty memory card is prepared automatically. Start on Dragon World and finish on the final hit against Kid Buu in Stage 9. Quitting ends the attempt; the next launch starts fresh.";
     default: return "Choose a category to view its timing rules.";
     }
 }

@@ -13,6 +13,7 @@
 #include "graphics_settings.h"
 #include "launcher/settings.h"
 #include "launcher/session.h"
+#include "launcher/speedrun_session.h"
 #include "launcher/version.h"
 #include "speedrun_host.h"
 #include "speedrun_overlay.h"
@@ -217,6 +218,8 @@ int main(int argc, char* argv[]) {
                   << "[disc] ISO SHA-256: " << disc.image_sha256 << std::endl;
         const auto category=online.enabled ? openkai2::speedrun::Category::off : openkai2::speedrun::Category(preferences.speedrun);
         const bool speedrun=category!=openkai2::speedrun::Category::off;
+        const auto runProfile=openkai2::speedrun::run_profile(category,online.enabled ? 0u : std::min(preferences.cpuDifficulty,3u));
+        openkai2::launcher::SpeedrunCards runCards;
         PS2Runtime runtime;
         openkai2::set_machine_state_identity(std::string(OPENKAI2_SOURCE_REVISION)+":"+disc.image_sha256);
         EeScheduler::setStatePointHook(&openkai2::machine_state_point);
@@ -273,7 +276,12 @@ int main(int argc, char* argv[]) {
             throw std::runtime_error("Cannot load the verified game executable; see the startup log");
         auto paths=PS2Runtime::getIoPaths();
         paths.cdImage=std::filesystem::absolute(image);
+        if (speedrun) {
+            paths.mcRoot=runCards.prepare(paths.mcRoot,runProfile);
+            std::cout << "[speedrun] fresh attempt; separate memory card; manual save states disabled" << std::endl;
+        }
         PS2Runtime::setIoPaths(paths);
+        openkai2::speedrun::install_run_settings(runtime.memory().getRDRAM(),PS2_RAM_SIZE,runProfile);
         const auto modsDirectory=openkai2::mods::default_mods_directory();
         const auto mods=speedrun || online.enabled ? std::vector<std::filesystem::path>{} : openkai2::mods::enabled_mod_folders(modsDirectory);
         if (speedrun) std::cout << "[speedrun] " << openkai2::speedrun::category_name(category)

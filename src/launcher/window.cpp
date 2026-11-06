@@ -1585,7 +1585,7 @@ struct Window {
             ? std::wstring(L"F9 starts or restarts the run; F10 records a round split; F11 finishes. Tournament timing is manual. Permadeath is not used. Times show milliseconds.\r\n\r\n"
                            L"Use F10 for intermediate rounds only. Use F11 at the final finish frame. F8 resets without completing the attempt. Category goals and timing require review of your recording.\r\n\r\n"
                            L"Mods and save states are disabled. Each category and Z difficulty keeps separate records. Each session writes a checksummed log to logs") + wchar_t(92) + L"speedruns for moderators."
-            : timingRulesBase + L"\r\n\r\nCategory objectives, equipment and difficulty must be checked against your recording.";
+            : timingRulesBase + L"\r\n\r\nSave and difficulty requirements are applied automatically. Runs use a temporary memory card; your original save is unchanged. Quitting ends the attempt. Category objectives and equipment still require review.";
         SetWindowTextW(controls[TimingRules], (intro + L"\r\n\r\n" + details).c_str());
         SendMessageW(controls[TimingRules], EM_SETSEL, 0, 0);
         SendMessageW(controls[TimingRules], EM_SCROLLCARET, 0, 0);
