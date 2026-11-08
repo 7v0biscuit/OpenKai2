@@ -1,18 +1,22 @@
-# CPU difficulty: Z1, Z2 and Z3
+# CPU difficulty: Z1 to Z6
 
 Budokai 2 has two CPU settings in its **Options > Game Options** menu: **Game
 Difficulty** for Dragon World and **COM Level** for duels. OpenKai2 adds three
-harder levels on top of them, named after Budokai 3's Z1, Z2 and Z3.
+six harder levels on top of them. Z1 to Z3 are named after Budokai 3's levels;
+Z4 to Z6 go further for experienced players.
 
 Choose one on the launcher's **Settings** page under **Game > CPU difficulty**.
-In game, **F6** cycles Game setting, Z1, Z2 and Z3 for the current session.
+In game, **F6** cycles Game setting and Z1 to Z6 for the current session.
 
-| Level | CPU behaviour | CPU hits | Damage the CPU takes | CPU Ki |
-| --- | --- | --- | --- | --- |
-| Game setting | As set in the game's Options | Normal | Normal | Normal |
-| Z1 | Strongest | +10% | Normal | Slightly faster |
-| Z2 | Strongest | +20% | −10% | Faster |
-| Z3 | Strongest | +30% | −20% | Much faster |
+| Level | CPU behaviour | CPU hits | Damage the CPU takes | CPU Ki | Starting Ki | Health recovery |
+| --- | --- | --- | --- | --- | --- | --- |
+| Game setting | As set in the game's Options | Normal | Normal | Normal | Normal | None |
+| Z1 | Strongest | +10% | Normal | Slightly faster | Normal | None |
+| Z2 | Strongest | +20% | −10% | Faster | 10% | None |
+| Z3 | Strongest | +30% | −20% | Much faster | 25% | None |
+| Z4 | Strongest | +40% | −30% | Faster still | 40% | About 0.3% of its health a second |
+| Z5 | Strongest | +55% | −40% | Very fast | 60% | About 0.6% a second |
+| Z6 | Strongest | +70% | −50% | Fastest | Full | About 0.9% a second |
 
 How it works:
 
@@ -27,7 +31,9 @@ How it works:
   without a damage advantage for either side.
 - Extra damage from the CPU never knocks you out by itself: it stops at 1
   health, and the game's own hit finishes the fight. A knocked-out CPU is never
-  revived.
+  revived, and health recovery stops once it is knocked out.
+- Starting Ki is given at the start of each fight. Health recovery only applies
+  when one side is human, so two CPU opponents are never healed.
 
 Z levels are off in online play, so online matches play the same for everyone.
 In speedrun mode they are allowed and each one is its own category; see

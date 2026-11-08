@@ -35,10 +35,10 @@ files.
 - **Save states:** F5 saves and F9 loads the whole console outside speedrun and online play.
 - **Audio:** volume, and an option to turn off only the music while voices and
   sound effects keep playing.
-- **CPU difficulty:** Z1, Z2 and Z3 levels above Very Hard, set in the launcher or
+- **CPU difficulty:** Z1 to Z6 levels above Very Hard, set in the launcher or
   with F6 in game. See [docs/cpu-difficulty.md](docs/cpu-difficulty.md).
 - **Speedrun mode:** Dragon World and World Tournament category profiles, automatic
-  story timing, manual Tournament timing, splits, Z1 to Z3 variants, permadeath
+  story and Tournament timing, splits, Z1 to Z6 variants, permadeath
   and checksummed session logs.
 - **Mods:** add characters, movesets and stages from other Dragon Ball PS2 games
   without changing your ISO.

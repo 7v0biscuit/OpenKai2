@@ -972,7 +972,7 @@ struct Window {
         combo(OverlayDecimals, {speedrun::overlay_decimal_names[0], speedrun::overlay_decimal_names[1],
                                 speedrun::overlay_decimal_names[2], speedrun::overlay_decimal_names[3]},
               int(std::min(settings.overlayDecimals, 3u)));
-        combo(SpeedrunCpu, {L"Game setting", L"Z1", L"Z2", L"Z3"}, int(std::min(settings.cpuDifficulty, 3u)));
+        combo(SpeedrunCpu, {L"Game setting", L"Z1", L"Z2", L"Z3", L"Z4", L"Z5", L"Z6"}, int(std::min(settings.cpuDifficulty, 6u)));
         list(SplitList, L"Saved splits", 30, false);
         edit(SplitTime, L"Time, like 12:34.56");
         button(SplitSet, L"Set time");
@@ -985,7 +985,7 @@ struct Window {
             L"• Real time is the leaderboard time. PS2 time counts the console's frames, so slowdown is not added.\r\n\r\n"
             L"• Any% starts with default equipment. NG+ allows skills set up before Dragon World.\r\n\r\n"
             L"• Permadeath: being knocked out in a Dragon World fight, or losing one on time, ends the run.\r\n\r\n"
-            L"• Z1, Z2 and Z3 make the CPU stronger and are locked for the whole run; F6 is off in speedrun mode.\r\n\r\n"
+            L"• Z1 to Z6 make the CPU stronger and are locked for the whole run; F6 is off in speedrun mode.\r\n\r\n"
             L"• Each battle won is a split. Best runs and best segments are saved after every attempt.\r\n\r\n"
             L"• Runs are flagged if the disc differs from the US retail disc, the game runs fast, or a memory editor is open.\r\n\r\n"
             L"• Each session writes a checksummed log to logs\\speedruns for speedrun.com moderators.";
@@ -998,7 +998,7 @@ struct Window {
               int(settings.aspect));
         combo(Audio, {L"Off", L"100% volume", L"75% volume", L"50% volume", L"25% volume"},
               audioChoice(settings));
-        combo(CpuDifficulty, {L"Game setting", L"Z1", L"Z2", L"Z3"}, int(std::min(settings.cpuDifficulty, 3u)));
+        combo(CpuDifficulty, {L"Game setting", L"Z1", L"Z2", L"Z3", L"Z4", L"Z5", L"Z6"}, int(std::min(settings.cpuDifficulty, 6u)));
         combo(UpdateChannel, {L"Stable", L"Stable and prerelease"}, int(settings.updateChannel));
         combo(AutomaticUpdates, {L"Off", L"On"}, settings.autoUpdates ? 1 : 0);
         combo(TargetMod, {}, 0);
@@ -1594,7 +1594,7 @@ struct Window {
         return settings_path().parent_path() / "splits" /
                speedrun::splits_name(speedrun::Category(std::min(settings.speedrun, speedrun::category_count - 1)),
                                      settings.permadeath && !speedrun::tournament(speedrun::Category(settings.speedrun)),
-                                     std::min(settings.cpuDifficulty, 3u));
+                                     std::min(settings.cpuDifficulty, 6u));
     }
     std::string splitTime(double seconds) const {
         return speedrun::format_time(seconds, speedrun::tournament(speedrun::Category(settings.speedrun)) ? 3u : 2u);
@@ -2057,9 +2057,12 @@ struct Window {
         const wchar_t *const cpuNotes[] = {
             L"The CPU plays at the Game Difficulty and COM Level set in the game's Options.",
             L"Z1: the strongest CPU behaviour in every fight, and its hits do 10% more damage.",
-            L"Z2: the strongest CPU, 20% stronger hits, 10% less damage taken and faster Ki.",
-            L"Z3: the strongest CPU, 30% stronger hits, 20% less damage taken and much faster Ki."};
-        section(gameTop, 1, L"Game", cpuNotes[std::min(settings.cpuDifficulty, 3u)], muted);
+            L"Z2: the strongest CPU, 20% stronger hits, 10% less damage taken, faster Ki and a small Ki head start.",
+            L"Z3: the strongest CPU, 30% stronger hits, 20% less damage taken, much faster Ki and a Ki head start.",
+            L"Z4: 40% stronger hits, 30% less damage taken, faster Ki, slow health recovery and 40% starting Ki.",
+            L"Z5: 55% stronger hits, 40% less damage taken, very fast Ki, health recovery and 60% starting Ki.",
+            L"Z6: 70% stronger hits, half damage taken, fastest Ki, quick health recovery and full Ki at the start."};
+        section(gameTop, 1, L"Game", cpuNotes[std::min(settings.cpuDifficulty, 6u)], muted);
         label(gameTop, 0, 0, L"CPU DIFFICULTY");
         label(gameTop, 0, 1, L"HD TEXTURES");
         label(gameTop, 0, 2, L"MUSIC");
@@ -2091,13 +2094,13 @@ struct Window {
         caps(dc, L"PERMADEATH", grid.x(1), Grid::label(speedrunTop, 0), grid.column);
         caps(dc, L"FPS COUNTER", grid.x(2), Grid::label(speedrunTop, 0), grid.column);
         caps(dc, L"CPU DIFFICULTY", grid.x(0), Grid::label(speedrunTop, 1), grid.column);
-        text(dc, L"Z1, Z2 and Z3 runs are timed as their own categories, with their own splits.", grid.x(1),
+        text(dc, L"Z1 to Z6 runs are timed as their own categories, with their own splits.", grid.x(1),
              Grid::field(speedrunTop, 1) + 8, grid.column * 2 + 16, 28, fonts.caption, muted,
              DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
         panelBox(dc, contentLeft, splitsTop, right, splitBottom);
         const std::wstring splitTitle = settings.speedrun ? L"Splits · " +
             wide(speedrun::category_label(speedrun::Category(std::min(settings.speedrun, speedrun::category_count - 1)),
-                                          std::min(settings.cpuDifficulty, 3u))) +
+                                          std::min(settings.cpuDifficulty, 6u))) +
             (settings.permadeath && !speedrun::tournament(speedrun::Category(settings.speedrun)) ? L" permadeath" : L"") : std::wstring(L"Splits");
         const std::wstring attempts = settings.speedrun && splitBook.attempts() ?
             std::to_wstring(splitBook.attempts()) + (splitBook.attempts() == 1 ? L" attempt" : L" attempts") +
@@ -4413,7 +4416,7 @@ struct Window {
             if (id == SpeedrunCpu)
                 SendMessageW(controls[CpuDifficulty], CB_SETCURSEL, selected(SpeedrunCpu), 0);
             saveOptions();
-            SendMessageW(controls[SpeedrunCpu], CB_SETCURSEL, std::min(settings.cpuDifficulty, 3u), 0);
+            SendMessageW(controls[SpeedrunCpu], CB_SETCURSEL, std::min(settings.cpuDifficulty, 6u), 0);
             if (id == SpeedrunMode || id == Permadeath || id == SpeedrunCpu || id == CpuDifficulty) {
                 refreshSplits();
                 refreshTimingRules();

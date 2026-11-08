@@ -63,8 +63,8 @@ const char *category_rules(Category category) {
 }
 
 std::string category_label(Category category, unsigned cpu) {
-    static const char *const levels[] = {"", " Z1", " Z2", " Z3"};
-    return std::string(category_name(category)) + levels[cpu < 4u ? cpu : 0u];
+    static const char *const levels[] = {"", " Z1", " Z2", " Z3", " Z4", " Z5", " Z6"};
+    return std::string(category_name(category)) + levels[cpu < 7u ? cpu : 0u];
 }
 
 std::string splits_name(Category category, bool permadeath, unsigned cpu) {
@@ -74,7 +74,7 @@ std::string splits_name(Category category, bool permadeath, unsigned cpu) {
     std::string name = names[index < category_count ? index : 0];
     if (permadeath)
         name += "-permadeath";
-    if (cpu >= 1u && cpu <= 3u)
+    if (cpu >= 1u && cpu <= 6u)
         name += "-z" + std::to_string(cpu);
     return name + ".txt";
 }

@@ -51,7 +51,7 @@ Installed &installed() { static Installed state; return state; }
 }
 
 RunProfile run_profile(Category category, unsigned cpu) {
-    if (unsigned(category) >= category_count || cpu > 3)
+    if (unsigned(category) >= category_count || cpu > 6)
         throw std::runtime_error("Invalid speedrun category or Z difficulty");
     RunProfile profile;
     profile.category = category;

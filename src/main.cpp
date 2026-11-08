@@ -224,7 +224,7 @@ int main(int argc, char* argv[]) {
                   << "[disc] ISO SHA-256: " << disc.image_sha256 << std::endl;
         const auto category=online.enabled ? openkai2::speedrun::Category::off : openkai2::speedrun::Category(preferences.speedrun);
         const bool speedrun=category!=openkai2::speedrun::Category::off;
-        const auto runProfile=openkai2::speedrun::run_profile(category,online.enabled ? 0u : std::min(preferences.cpuDifficulty,3u));
+        const auto runProfile=openkai2::speedrun::run_profile(category,online.enabled ? 0u : std::min(preferences.cpuDifficulty,6u));
         openkai2::launcher::SpeedrunCards runCards;
         PS2Runtime runtime;
         openkai2::set_machine_state_identity(std::string(OPENKAI2_SOURCE_REVISION)+":"+disc.image_sha256);
@@ -248,7 +248,7 @@ int main(int argc, char* argv[]) {
             overlay.size=preferences.overlaySize;
             overlay.background=preferences.overlayBackground;
             overlay.split_rows=run::overlay_split_rows[std::min(preferences.overlaySplits,3u)];
-            overlay.cpu=online.enabled ? 0u : std::min(preferences.cpuDifficulty,3u);
+            overlay.cpu=online.enabled ? 0u : std::min(preferences.cpuDifficulty,6u);
             overlay.decimals=run::tournament(category) ? 3u : std::min(preferences.overlayDecimals,3u);
             for (unsigned role=0;role<run::overlay_color_roles;++role) {
                 const auto& c=run::overlay_colors[std::min(preferences.overlayColors[role],run::overlay_color_count-1u)];
@@ -320,7 +320,7 @@ int main(int argc, char* argv[]) {
         if (!alternates.empty())
             std::cout << "[mods] select: R2 switches characters on shared spots" << std::endl;
         openkai2::mods::install_alternates(runtime.memory().getRDRAM(),PS2_RAM_SIZE,std::move(alternates));
-        const unsigned cpuLevel=online.enabled ? 0u : std::min(preferences.cpuDifficulty,3u);
+        const unsigned cpuLevel=online.enabled ? 0u : std::min(preferences.cpuDifficulty,6u);
         openkai2::cpu::install(runtime.memory().getRDRAM(),PS2_RAM_SIZE,cpuLevel,!online.enabled,speedrun);
         originalAiInitializer = runtime.lookupFunction(0x223bd0u);
         struct RestoreAiInitializer {

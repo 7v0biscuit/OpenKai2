@@ -62,9 +62,12 @@ Installed &installed() {
 
 Edge edge(unsigned level) {
     switch (level) {
-    case 1: return {1.10f, 1.00f, 0.03f};
-    case 2: return {1.20f, 0.90f, 0.06f};
-    case 3: return {1.30f, 0.80f, 0.10f};
+    case 1: return {1.10f, 1.00f, 0.03f, 0.0f, 0.0f};
+    case 2: return {1.20f, 0.90f, 0.06f, 0.0f, 0.10f};
+    case 3: return {1.30f, 0.80f, 0.10f, 0.0f, 0.25f};
+    case 4: return {1.40f, 0.70f, 0.14f, 0.00005f, 0.40f};
+    case 5: return {1.55f, 0.60f, 0.18f, 0.00010f, 0.60f};
+    case 6: return {1.70f, 0.50f, 0.25f, 0.00015f, 1.00f};
     default: return {};
     }
 }
@@ -74,6 +77,9 @@ const char *level_name(unsigned level) {
     case 1: return "Z1";
     case 2: return "Z2";
     case 3: return "Z3";
+    case 4: return "Z4";
+    case 5: return "Z5";
+    case 6: return "Z6";
     default: return "game setting";
     }
 }
@@ -104,8 +110,13 @@ void Tracker::step(std::array<Fighter, 2> &fighters, std::array<bool, 2> cpu, co
                 f.health = std::max(1.0f, f.health - damage * (edge.dealt - 1.0f));
             }
         }
-        if (cpu[side] && f.health > 0)
+        if (cpu[side] && f.health > 0) {
+            if (!known_)
+                f.ki = std::max(f.ki, std::min(f.max_ki, f.max_ki * edge.start_ki));
             f.ki = std::min(f.max_ki, f.ki + edge.ki);
+            if (scaled)
+                f.health = std::min(f.max_health, f.health + f.max_health * edge.regen);
+        }
         health_[side] = f.health;
     }
     known_ = true;

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "cpu_difficulty.h"
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <iostream>
@@ -112,11 +113,11 @@ void tournament_preserves_brackets_and_targets_cpu() {
                     Tracker tracker;
                     tick(guest.memory.data(), guest.memory.size(), level, tracker);
                     for (unsigned side = 0; side < 2; ++side)
-                        require(near(guest.ki(side), 300 + ((arrangement & (1u << side)) ? edge(level).ki : 0)),
+                        require(near(guest.ki(side), (arrangement & (1u << side)) ? std::min(700.0f, std::max(300.0f, 700 * edge(level).start_ki) + edge(level).ki) : 300.0f),
                                 "Tournament ki modifier reached the wrong side");
                     guest.putf(guest.fighter(0), 2900);
                     tick(guest.memory.data(), guest.memory.size(), level, tracker);
-                    const float expected = arrangement == 1 ? 2900 + 100 * (1 - edge(level).taken)
+                    const float expected = arrangement == 1 ? 2900 + 100 * (1 - edge(level).taken) + 3000 * edge(level).regen
                         : arrangement == 2 ? 2900 - 100 * (edge(level).dealt - 1) : 2900;
                     require(near(guest.health(0), expected), "Tournament damage modifier reached the wrong side");
                     for (unsigned side = 0; side < 2; ++side)
@@ -178,11 +179,40 @@ void leaves_other_screens_alone() {
 
 void edges_grow() {
     require(edge(0).dealt == 1 && edge(0).taken == 1 && edge(0).ki == 0, "Game setting has an edge");
-    for (unsigned level = 1; level < 3; ++level)
+    for (unsigned level = 1; level + 1 < level_count; ++level)
         require(edge(level + 1).dealt > edge(level).dealt && edge(level + 1).taken <= edge(level).taken &&
-                    edge(level + 1).ki > edge(level).ki,
+                    edge(level + 1).ki > edge(level).ki && edge(level + 1).regen >= edge(level).regen &&
+                    edge(level + 1).start_ki >= edge(level).start_ki,
                 "Z levels do not grow");
-    require(std::string(level_name(1)) == "Z1" && std::string(level_name(3)) == "Z3", "Level names");
+    require(level_count == 7 && std::string(level_name(1)) == "Z1" && std::string(level_name(6)) == "Z6", "Level names");
+}
+
+void top_levels_recover_and_start_charged() {
+    Guest guest;
+    guest.fight(0, 0);
+    guest.putf(guest.fighter(1) + 8, 0);
+    Tracker tracker;
+    tick(guest.memory.data(), guest.memory.size(), 6, tracker);
+    require(near(guest.ki(1), 700) && near(guest.ki(0), 300), "Z6 did not give only the CPU a full Ki gauge");
+    guest.putf(guest.fighter(1), 2000);
+    tick(guest.memory.data(), guest.memory.size(), 6, tracker);
+    const float hit = guest.health(1);
+    require(hit > 2000 + 1000 * 0.5f - 1 && hit < 2000 + 1000 * 0.5f + 3000 * 0.0002f + 1, "Z6 damage reduction or recovery wrong");
+    for (int frame = 0; frame < 600; ++frame)
+        tick(guest.memory.data(), guest.memory.size(), 6, tracker);
+    require(guest.health(1) > hit + 200 && guest.health(1) <= 3000, "Z6 CPU did not recover health over time");
+    guest.putf(guest.fighter(1), 0);
+    tick(guest.memory.data(), guest.memory.size(), 6, tracker);
+    tick(guest.memory.data(), guest.memory.size(), 6, tracker);
+    require(guest.health(1) == 0, "A knocked out CPU recovered");
+    Guest lower;
+    lower.fight(0, 0);
+    Tracker plain;
+    lower.putf(lower.fighter(1), 2000);
+    tick(lower.memory.data(), lower.memory.size(), 3, plain);
+    for (int frame = 0; frame < 600; ++frame)
+        tick(lower.memory.data(), lower.memory.size(), 3, plain);
+    require(near(lower.health(1), 2000), "Z3 recovered health");
 }
 }
 
@@ -195,6 +225,7 @@ int main() {
         tournament_uses_original_strongest_preset();
         leaves_other_screens_alone();
         edges_grow();
+        top_levels_recover_and_start_charged();
     } catch (const std::exception &error) {
         std::cerr << error.what() << '\n';
         return 1;

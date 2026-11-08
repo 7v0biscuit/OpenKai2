@@ -6,7 +6,7 @@
 
 namespace openkai2::cpu {
 
-inline constexpr unsigned level_count = 4;
+inline constexpr unsigned level_count = 7;
 inline constexpr uint32_t battle_pointer = 0x3A4CB4u;
 inline constexpr uint32_t battle_over = 0x3A4D60u;
 inline constexpr uint32_t task_first = 0x3B5358u;
@@ -23,7 +23,7 @@ inline constexpr uint32_t fighter_stride = 0x9F50u;
 inline constexpr uint8_t strongest = 4;
 
 struct Edge {
-    float dealt = 1, taken = 1, ki = 0;
+    float dealt = 1, taken = 1, ki = 0, regen = 0, start_ki = 0;
 };
 Edge edge(unsigned level);
 const char *level_name(unsigned level);

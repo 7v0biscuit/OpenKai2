@@ -2,7 +2,7 @@
 
 Speedrun mode provides category profiles based on the
 [speedrun.com rules for Budokai 2](https://www.speedrun.com/dbzb2) and keeps separate records and a checksummed session log. Dragon World timing
-is automatic; World Tournament timing uses manual controls. Z difficulties are
+and World Tournament timing are automatic. Z difficulties are
 local variants, separate from the published categories.
 
 Turn it on in the launcher's **Speedrun** page (Ctrl+3):
@@ -12,7 +12,7 @@ Turn it on in the launcher's **Speedrun** page (Ctrl+3):
 | Speedrun mode | Off, Any%, NG+, Tournament (Novice), Tournament (Adept), Tournament (Advanced), All Dragonballs, Hercule Only, NG+ (Very Hard) |
 | Permadeath | Being knocked out in a Dragon World fight, or losing one on time, ends the run. Loading Dragon World, changing maps, story scenes, fights the story ends on its own and having less health than the CPU during a fight never count. **GAME OVER** shows, then the game goes straight back to the main menu without closing, and the timer resets |
 | FPS counter | Frame counter in the top corner, also outside speedrun mode |
-| CPU difficulty | Game setting, Z1, Z2, Z3 ([CPU difficulty](cpu-difficulty.md)). Each Z level is its own category with its own splits, shown on the overlay and in the run log (for example "Any% Z3"). It is locked for the run: F6 is off in speedrun mode. The same setting is on the Settings page |
+| CPU difficulty | Game setting, Z1 to Z6 ([CPU difficulty](cpu-difficulty.md)). Each Z level is its own category with its own splits, shown on the overlay and in the run log (for example "Any% Z3"). It is locked for the run: F6 is off in speedrun mode. The same setting is on the Settings page |
 
 While speedrun mode is on, mods are not loaded.
 
@@ -59,20 +59,26 @@ are applied automatically.
 ### World Tournament
 
 Choose **Tournament (Novice)**, **Tournament (Adept)** or **Tournament (Advanced)**;
-the matching unlocked bracket is selected in game. These profiles have **manual timing**,
-shown on the overlay:
+the matching unlocked bracket is selected in game. Timing is **automatic**:
 
-- **F9:** start or restart, when confirming **Normal** or **Custom** for your character.
+- The timer starts when you confirm **Normal** or **Custom** for your character.
+- Each match won is a split, timed at the moment the match is decided
+  (**K.O.**, ring-out or **Time-Out!**). The split is confirmed when the next
+  bracket appears.
+- The run finishes when the champion scene appears, at the moment the final
+  match was decided.
+- Returning to the tier select or the main menu ends the attempt without a
+  finish; a lost match ends it this way.
+
+The overlay keeps the manual controls as an override:
+
+- **F9:** start or restart.
 - **F10:** add a split at the end of an intermediate round.
-- **F11:** finish on the first frame of the final opponent's ring-out animation,
-  **Time-Out!** or **K.O.** This also records the final split.
-- **F8:** abandon/reset without recording a completed run. Use this after a loss.
+- **F11:** finish now and record the final split.
+- **F8:** abandon/reset without recording a completed run.
 
-A completed attempt and its splits are saved when F11 is pressed. Other game modes
-cannot start or finish a Tournament timer automatically. Tournament times always
-show milliseconds, which the published rules require for top-three times.
-Permadeath is disabled for these profiles. Automatic Tournament timing has not
-been validated, so no menu transition or round count is used to infer completion.
+Tournament times always show milliseconds, which the published rules require for
+top-three times. Permadeath is disabled for these profiles.
 
 The published category list and rules are linked above. OpenKai2's native runtime
 is not currently a listed speedrun.com platform; a local PB or a passing runtime
@@ -88,7 +94,7 @@ and whether times show milliseconds, hundredths, tenths or whole seconds. The pr
 as you change them when the window is tall enough to show it.
 
 In Dragon World, each battle won is a split and the final split is Kid Buu.
-Tournament splits are entered with F10 and F11. The overlay
+In World Tournament, each match won is a split and the final split is the final match. The overlay
 compares the run with your best run and shows:
 
 | Item | Shows |

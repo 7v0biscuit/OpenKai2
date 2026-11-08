@@ -133,7 +133,10 @@ int main() {
             vulkan.cpuDifficulty = 3;
             write_settings(root / "vulkan.ini", vulkan);
             require(read_settings(root / "vulkan.ini").cpuDifficulty == 3, "CPU difficulty was not kept");
-            vulkan.cpuDifficulty = 4;
+            vulkan.cpuDifficulty = 6;
+            write_settings(root / "vulkan.ini", vulkan);
+            require(read_settings(root / "vulkan.ini").cpuDifficulty == 6, "Z6 was not kept");
+            vulkan.cpuDifficulty = 7;
             bool refused = false;
             try {
                 write_settings(root / "bad.ini", vulkan);
