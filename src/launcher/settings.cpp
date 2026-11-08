@@ -167,6 +167,8 @@ Settings read_settings(const std::filesystem::path &file) {
     if (!version)
         throw std::runtime_error("Missing settings version");
     validate_settings(s);
+    if (s.hdTextures && s.internalScale == 1)
+        s.internalScale = 2;
     return s;
 }
 void write_settings(const std::filesystem::path &file, const Settings &s) {

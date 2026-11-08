@@ -64,6 +64,11 @@ class OpenGlCompute final : public Compute {
                 try {
                     hires_ = variant("HIRES");
                     seed_ = variant("SEED");
+                    try {
+                        resolve_ = variant("RESOLVE");
+                    } catch (const std::exception &) {
+                        resolve_ = 0u;
+                    }
                 } catch (const std::exception &) {
                     if (hires_)
                         gl_.DeleteProgram(hires_);
@@ -177,6 +182,18 @@ class OpenGlCompute final : public Compute {
         gl_.check("GPU hi-res seed");
     }
 
+    bool hires_resolve(const std::vector<uint32_t> &params, unsigned groupsX, unsigned groupsY) override {
+        if (!resolve_ || !groupsX || !groupsY)
+            return false;
+        gl_.MemoryBarrier(ShaderStorageBarrier | BufferUpdateBarrier);
+        bindExtras(params);
+        gl_.UseProgram(resolve_);
+        gl_.DispatchCompute(groupsX, groupsY, 1u);
+        gl_.MemoryBarrier(ShaderStorageBarrier | BufferUpdateBarrier);
+        gl_.check("GPU hi-res resolve");
+        return true;
+    }
+
     void hires_read(size_t offsetWords, size_t words, uint32_t *destination) override {
         if (!hires_ || !words)
             return;
@@ -202,8 +219,10 @@ class OpenGlCompute final : public Compute {
             gl_.DeleteProgram(hires_);
         if (seed_)
             gl_.DeleteProgram(seed_);
+        if (resolve_)
+            gl_.DeleteProgram(resolve_);
         extra_.fill(0u);
-        hires_ = seed_ = 0u;
+        hires_ = seed_ = resolve_ = 0u;
         reserved_[0] = reserved_[1] = 0u;
         if (buffers_[0])
             gl_.DeleteBuffers(int(buffers_.size()), buffers_.data());
@@ -226,7 +245,7 @@ class OpenGlCompute final : public Compute {
     }
     Api &gl_;
     std::array<UInt, 3> extra_{};
-    UInt hires_ = 0u, seed_ = 0u;
+    UInt hires_ = 0u, seed_ = 0u, resolve_ = 0u;
     size_t reserved_[2] = {0u, 0u};
     std::string description_;
     size_t storageWords_ = 0;

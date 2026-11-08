@@ -13,8 +13,12 @@ renderer always draws at the PS2's native resolution.
 | 3x | 1920x1344 |
 | 4x | 2560x1792 |
 
-3D scenes, menus and sprites are drawn at the higher resolution, then scaled to
-the window with the chosen upscaler. The game's own memory is still drawn at
+3D scenes, menus and sprites are drawn at the higher resolution. When the
+picture is taller than the window, the graphics card averages it down to the
+window height before it is copied out, which smooths edges and keeps the copy
+small. The result is scaled to the window with the chosen upscaler; when it is
+still larger than the window, every upscaler except Nearest averages it down
+instead of skipping pixels. The game's own memory is still drawn at
 native resolution as well, so effects that read back the picture, videos and
 anything the game copies with the CPU stay at native sharpness. Higher choices
 need more graphics power and graphics memory; 4x uses about 400 MB.
@@ -26,7 +30,15 @@ resolution (`frames_scaled`) and frames that fell back to native
 
 ## HD textures
 
-Needs an internal resolution of 2x or higher.
+Needs an internal resolution of 2x or higher. Choosing an HD texture mode while
+internal resolution is Native sets it to 2x; choosing Native turns HD textures
+off.
+
+Textures are recognised by a hash of their memory pages, so a texture the game
+uploads again unchanged is matched without reading it again. At most 262,144
+new texels are read per frame; textures beyond that keep their original look
+for a frame and are picked up on the next. **Texture packs** with no PNG files
+in the textures folder turns itself off.
 
 | Choice | What it does |
 |---|---|

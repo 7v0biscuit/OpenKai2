@@ -613,7 +613,36 @@ void checkInternalResolution(){
         if(interior<4000u || refined<64u)throw std::runtime_error("Internal resolution did not refine edges: "+std::to_string(interior)+" solid, "+std::to_string(refined)+" refined");
         pair.compare("Internal resolution keeps native VRAM");
     }
-    std::cout<<"GPU internal resolution checks passed: 2x color, 16-bit, depth-tested and interlaced presentation.\n";
+    for(unsigned variant=0;variant<2u;++variant){
+        auto large=saved;large.internalScale=3u;large.height=448u;set_graphics_settings(large);
+        Comparison pair(false);auto tri=material(0u,false);auto& s=tri.state;auto& c=s.context;
+        s.prim.tme=s.prim.abe=s.prim.iip=false;c.scissor={0u,127u,0u,127u};
+        if(variant)c.frame.psm=GS_PSM_CT16;
+        for(auto& v:tri.vertices){v.r=200;v.g=90;v.b=30;v.a=128;v.z=5000u;}
+        tri.vertices[0].x=3.25f;tri.vertices[0].y=2.5f;tri.vertices[1].x=120.75f;tri.vertices[1].y=30.5f;tri.vertices[2].x=20.5f;tri.vertices[2].y=118.25f;
+        pair.draw(tri);
+        GSPresentationRequest request{};request.pmode=1;
+        request.dispfb1=uint64_t(56)|(uint64_t(8)<<9)|(uint64_t(c.frame.psm)<<15);
+        request.display1=(uint64_t(127)<<32)|(uint64_t(255)<<44);
+        pair.gpu->Sync(GSSyncReason::Presentation);
+        const auto hi=pair.gpu->Present(request),native=pair.cpu->Present(request);
+        if(!native || native.height!=256u || hi.width!=224u || hi.height!=448u || hi.stride!=hi.width)
+            throw std::runtime_error("Internal resolution did not fit a 3x frame to the window height: "+std::to_string(hi.width)+"x"+std::to_string(hi.height));
+        const unsigned stride=native.stride ? native.stride : 640u;
+        const auto at=[&](const PresentationFrame& f,unsigned rowStride,unsigned x,unsigned y){uint32_t px;std::memcpy(&px,f.pixels.data()+(size_t(y)*rowStride+x)*4u,4u);return px&0xffffffu;};
+        unsigned solid=0u,blended=0u;
+        for(unsigned y=0u;y<hi.height;++y)for(unsigned x=0u;x<hi.width;++x){
+            const unsigned nx=x*native.width/hi.width,ny=y*native.height/hi.height;if(!nx || !ny || nx+1u>=native.width || ny+1u>=native.height)continue;
+            const uint32_t centre=at(native,stride,nx,ny);bool uniform=true;
+            for(int dy=-1;dy<=1;++dy)for(int dx=-1;dx<=1;++dx)uniform=uniform && at(native,stride,nx+dx,ny+dy)==centre;
+            const uint32_t value=at(hi,hi.width,x,y);
+            if(uniform){if(value!=centre)throw std::runtime_error("Downsampled internal resolution changed a solid area");++solid;}
+            else if(value!=centre && value!=0u)++blended;
+        }
+        if(solid<20000u || blended<64u)throw std::runtime_error("Downsampled internal resolution lost edge detail: "+std::to_string(solid)+" solid, "+std::to_string(blended)+" blended");
+    }
+    set_graphics_settings(scaled);
+    std::cout<<"GPU internal resolution checks passed: 2x color, 16-bit, depth-tested and interlaced presentation, and 3x fitted to the window.\n";
 }
 void checkHdTextures(){
     const auto saved=graphics_settings();
@@ -764,7 +793,7 @@ int benchmark_sprite_submission(unsigned frames){
         gs.reset();gpu::shutdown_device();return draws ? 0 : 1;
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';gpu::shutdown_device();return 1;}
 }
-int benchmark_gs_replay(const char* path,unsigned passes){
+int benchmark_gs_replay(const char* path,unsigned passes,unsigned scale,unsigned hdMode,const char* folder){
     try{
         std::ifstream in(path,std::ios::binary);
         if(!in)throw std::runtime_error("Cannot open the GS recording");
@@ -775,6 +804,7 @@ int benchmark_gs_replay(const char* path,unsigned passes){
 #else
         if(!gpu::initialize_headless(error))throw std::runtime_error(error);
 #endif
+        {auto settings=graphics_settings();settings.internalScale=scale;settings.hdTextures=hdMode;if(folder)settings.textureFolder=folder;set_graphics_settings(settings);}
         std::vector<uint8_t> vram(gpu::VramBytes,0x35u);auto gs=std::make_unique<GS>();
         auto backendOwner=std::make_unique<GpuRasterBackend>();auto* backend=backendOwner.get();
         gs->init(vram.data(),uint32_t(vram.size()));gs->setRasterBackend(std::move(backendOwner));
@@ -789,7 +819,7 @@ int benchmark_gs_replay(const char* path,unsigned passes){
                 offset+=16u+((size+15u)&~15u);
             }
         };
-        play();
+        play();if(hdMode){hd::library().wait_idle();play();}
         const auto before=gpu_render_statistics();packets=uploads=0;
         timespec cpuStart{},cpuEnd{};clock_gettime(CLOCK_THREAD_CPUTIME_ID,&cpuStart);
         const auto start=std::chrono::steady_clock::now();

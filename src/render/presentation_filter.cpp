@@ -74,6 +74,16 @@ void main(){vec2 pos=fragTexCoord*sourceSize-0.5,base=floor(pos),f=fract(pos);ve
   sum+=texture(texture0,clamp(uv,0.5/sourceSize,contentMax-0.5/sourceSize)).rgb*kernel(float(x)-f.x)*kernel(float(y)-f.y);}
  finalColor=vec4(clamp(sum,0.0,1.0),1.0)*fragColor*colDiffuse;
 })GLSL";
+constexpr const char *downsampleSource = R"GLSL(#version 330
+in vec2 fragTexCoord; in vec4 fragColor;
+uniform sampler2D texture0; uniform vec4 colDiffuse;
+uniform vec2 sourceSize; uniform vec2 contentMax;
+out vec4 finalColor;
+void main(){vec2 pos=fragTexCoord*sourceSize,span=max(abs(fwidth(pos)),vec2(1.0));vec3 sum=vec3(0);
+ for(int y=0;y<4;++y)for(int x=0;x<4;++x){vec2 at=pos+((vec2(x,y)+0.5)*0.25-0.5)*span;
+  sum+=texture(texture0,clamp(at/sourceSize,0.5/sourceSize,contentMax-0.5/sourceSize)).rgb;}
+ finalColor=vec4(sum/16.0,1.0)*fragColor*colDiffuse;
+})GLSL";
 constexpr const char *fsrEasuAdapter = R"GLSL(
 in vec2 fragTexCoord; in vec4 fragColor;
 uniform sampler2D texture0; uniform vec4 colDiffuse;
@@ -189,6 +199,18 @@ void PresentationFilter::drawImage(Texture2D frame, Rectangle source, Rectangle 
         frame = target_.texture;
         source = {0, 0, float(w), -float(h)};
     }
+    if (s.upscaler != 0 && (destination.width < source.width - 0.5f ||
+                            destination.height < std::abs(source.height) - 0.5f)) {
+        if (!downsample_.id)downsample_ = shader(downsampleSource);
+        SetTextureFilter(frame, TEXTURE_FILTER_BILINEAR);
+        dimensions(downsample_, frame, source);
+        if(cacheOutput){BeginTextureMode(output_);ClearBackground(BLACK);}
+        BeginShaderMode(downsample_);
+        DrawTexturePro(frame,source,destination,{0,0},0,WHITE);
+        EndShaderMode();
+        if(cacheOutput)EndTextureMode();
+        return;
+    }
     if (s.upscaler == 3 && destination.width >= source.width &&
         destination.height >= std::abs(source.height)) {
         drawFsr(frame, source, destination, cacheOutput);
@@ -260,6 +282,7 @@ void PresentationFilter::close() {
     if(easu_.id){UnloadShader(easu_);easu_={};}
     if(lanczos_.id){UnloadShader(lanczos_);lanczos_={};}
     if(sharp_.id){UnloadShader(sharp_);sharp_={};}
+    if(downsample_.id){UnloadShader(downsample_);downsample_={};}
     if(rcas_.id){UnloadShader(rcas_);rcas_={};}
     if (target_.id) {
         UnloadRenderTexture(target_);
@@ -384,6 +407,22 @@ int test_presentation_filters() {
         draw(1,3,102);activeSource={0,0,8,8};
         const auto cropped=draw(1,3,102),croppedReference=draw(1,3);
         require(equivalent(cropped,croppedReference),"Active source changes reused an old filtered crop");
+        {
+            std::vector<Color> checker(32u*32u,MAGENTA);
+            for(unsigned y=0;y<16;++y)for(unsigned x=0;x<16;++x)checker[y*32u+x]=((x^y)&1u) ? WHITE : BLACK;
+            UpdateTexture(source,checker.data());
+            outputRect={16,8,4,4};
+            for(unsigned scaler=1;scaler<6;++scaler){
+                const auto reduced=draw(0,scaler);
+                for(unsigned y=9;y<11;++y)for(unsigned x=17;x<19;++x){
+                    const auto c=reduced[y*80u+x];
+                    require(c.r>80 && c.r<176 && c.g>80 && c.g<176 && c.b>80 && c.b<176,
+                            ("Display filter "+std::to_string(scaler)+" aliased a larger frame instead of averaging it").c_str());
+                }
+            }
+            for(unsigned y=0;y<16;++y)for(unsigned x=0;x<16;++x)checker[y*32u+x]=x>y ? WHITE : BLACK;
+            UpdateTexture(source,checker.data());
+        }
         activeSource={0,0,16,16};outputRect={16,8,48,48};
         auto edgeCount = [&](unsigned aa) {
             auto settings = saved;
@@ -414,7 +453,7 @@ int test_presentation_filters() {
         CloseWindow();
         set_graphics_settings(saved);
         std::cout << "Display filter comparisons passed: all twelve AA/scaler combinations (including FSR 1 EASU/RCAS, Lanczos and sharp pixels), content "
-                     "bounds, orientation, letterboxing, native-size edge smoothing and completion-aware filter reuse.\n";
+                     "bounds, orientation, letterboxing, downscaling of larger frames, native-size edge smoothing and completion-aware filter reuse.\n";
         return 0;
     } catch (...) {
         filter.close();

@@ -7,7 +7,7 @@ layout(std430,binding=2) readonly buffer Tiles {uint tiles[];};
 layout(std430,binding=3) readonly buffer References {uint references[];};
 layout(std430,binding=4) readonly buffer Palettes {uint palettes[];};
 layout(std430,binding=5) readonly buffer AddressTables {uint tables[];};
-#if defined(HIRES) || defined(SEED)
+#if defined(HIRES) || defined(SEED) || defined(RESOLVE)
 layout(std430,binding=6) buffer HiresColor {uint hiColor[];};
 layout(std430,binding=7) buffer HiresDepth {uint hiDepth[];};
 layout(std430,binding=8) readonly buffer HiresParams {uint params[];};
@@ -206,7 +206,33 @@ void storeTarget(uint address,uint shift,uint count,uint value){
     }else if(count==24u)memory[address]=(memory[address]&4278190080u)|(value&16777215u);
     else memory[address]=value;
 }
-#ifdef SEED
+#if defined(RESOLVE)
+uvec4 shownColor(uint value){
+    if(params[4]==2u || params[4]==10u){uvec3 c=uvec3(value,value>>5u,value>>10u)&uvec3(31u);return uvec4((c<<3u)|(c>>2u),255u);}
+    return uvec4(unpackColor(value).xyz,255u);
+}
+uvec4 shownPixel(uvec2 p){
+    uint rows=params[6];
+    if(params[5]!=0u){
+        uint a=min(p.y/2u,rows-1u),b=min(a+(p.y&1u),rows-1u);
+        return (shownColor(hiColor[params[2]+a*params[3]+p.x])+shownColor(hiColor[params[2]+b*params[3]+p.x])+uvec4(1u))/2u;
+    }
+    return shownColor(hiColor[params[2]+min(p.y,rows-1u)*params[3]+p.x]);
+}
+void main(){
+    uvec2 out_=gl_GlobalInvocationID.xy,source=uvec2(params[0],params[1]),target=uvec2(params[7],params[8]);
+    if(out_.x>=target.x || out_.y>=target.y)return;
+    vec2 ratio=vec2(source)/vec2(target);
+    uvec2 taps=min(uvec2(ceil(ratio-vec2(0.001))),uvec2(4u));taps=max(taps,uvec2(1u));
+    uvec4 sum=uvec4(0u);
+    for(uint j=0u;j<taps.y;++j)for(uint i=0u;i<taps.x;++i){
+        uvec2 at=min(uvec2((vec2(out_)+(vec2(i,j)+0.5)/vec2(taps))*ratio),source-uvec2(1u));
+        sum+=shownPixel(at);
+    }
+    uint count=taps.x*taps.y;
+    hiColor[params[9]+out_.y*target.x+out_.x]=packColor((sum+uvec4(count/2u))/count);
+}
+#elif defined(SEED)
 void main(){
     uint scale=params[0],width=params[2],height=params[6];
     uint hx=gl_WorkGroupID.x*8u+gl_LocalInvocationID.x,hy=gl_WorkGroupID.y*8u+gl_LocalInvocationID.y;

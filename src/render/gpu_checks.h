@@ -1,3 +1,3 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #pragma once
-namespace openkai2 {int run_gpu_checks(bool required=false);int benchmark_gpu_renderer(unsigned draws);int benchmark_gpu_footprints(unsigned iterations);int benchmark_gpu_submission(unsigned draws);int benchmark_gif_submission(unsigned packets);int benchmark_sprite_submission(unsigned frames);int benchmark_gs_replay(const char* path,unsigned passes);}
+namespace openkai2 {int run_gpu_checks(bool required=false);int benchmark_gpu_renderer(unsigned draws);int benchmark_gpu_footprints(unsigned iterations);int benchmark_gpu_submission(unsigned draws);int benchmark_gif_submission(unsigned packets);int benchmark_sprite_submission(unsigned frames);int benchmark_gs_replay(const char* path,unsigned passes,unsigned scale=1u,unsigned hdMode=0u,const char* folder=nullptr);}

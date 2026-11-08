@@ -208,6 +208,11 @@ void Library::wait_idle() {
     idle_.wait(lock, [&] { return queue_.empty() && !busy_; });
 }
 
+bool Library::has_packs() const {
+    std::lock_guard lock(mutex_);
+    return !files_.empty();
+}
+
 Library::Counts Library::counts() const {
     std::lock_guard lock(mutex_);
     return counts_;

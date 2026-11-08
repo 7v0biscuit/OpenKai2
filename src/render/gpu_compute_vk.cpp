@@ -97,7 +97,7 @@ struct Shared {
     VkPhysicalDeviceMemoryProperties memory{};
     VkDescriptorSetLayout setLayout = VK_NULL_HANDLE;
     VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
-    VkPipeline raster = VK_NULL_HANDLE, transfer = VK_NULL_HANDLE, hires = VK_NULL_HANDLE, seed = VK_NULL_HANDLE;
+    VkPipeline raster = VK_NULL_HANDLE, transfer = VK_NULL_HANDLE, hires = VK_NULL_HANDLE, seed = VK_NULL_HANDLE, resolve = VK_NULL_HANDLE;
     std::string description;
     size_t storageWords = 0;
 
@@ -141,6 +141,8 @@ struct Shared {
                 vkDestroyPipeline(device, hires, nullptr);
             if (seed)
                 vkDestroyPipeline(device, seed, nullptr);
+            if (resolve)
+                vkDestroyPipeline(device, resolve, nullptr);
             if (raster)
                 vkDestroyPipeline(device, raster, nullptr);
             if (transfer)
@@ -254,6 +256,7 @@ struct Shared {
         transfer = make_pipeline(openkai2_transfer_spirv, sizeof(openkai2_transfer_spirv));
         hires = make_pipeline(openkai2_hires_spirv, sizeof(openkai2_hires_spirv));
         seed = make_pipeline(openkai2_seed_spirv, sizeof(openkai2_seed_spirv));
+        resolve = make_pipeline(openkai2_resolve_spirv, sizeof(openkai2_resolve_spirv));
     }
 };
 
@@ -429,6 +432,20 @@ class VulkanCompute final : public Compute {
                                 nullptr);
         vkCmdDispatch(command_, groupsX, groupsY, 1);
         barrier();
+    }
+
+    bool hires_resolve(const std::vector<uint32_t> &params, unsigned groupsX, unsigned groupsY) override {
+        if (!groupsX || !groupsY || !shared_->resolve)
+            return false;
+        ensure(hiParams_, params.size() * 4u);
+        copy_in(hiParams_, 0, params.data(), params.size() * 4u);
+        barrier();
+        vkCmdBindPipeline(command_, VK_PIPELINE_BIND_POINT_COMPUTE, shared_->resolve);
+        vkCmdBindDescriptorSets(command_, VK_PIPELINE_BIND_POINT_COMPUTE, shared_->pipelineLayout, 0, 1, &rasterSet_, 0,
+                                nullptr);
+        vkCmdDispatch(command_, groupsX, groupsY, 1);
+        barrier();
+        return true;
     }
 
     void hires_read(size_t offsetWords, size_t words, uint32_t *destination) override {

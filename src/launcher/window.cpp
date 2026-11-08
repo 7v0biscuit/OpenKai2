@@ -4415,6 +4415,12 @@ struct Window {
             notification == CBN_SELCHANGE) {
             if (id == SpeedrunCpu)
                 SendMessageW(controls[CpuDifficulty], CB_SETCURSEL, selected(SpeedrunCpu), 0);
+            const bool previousHd = settings.hdTextures != 0;
+            const bool raisedScale = id == HdTextures && selected(HdTextures) > 0 && selected(InternalScale) <= 0;
+            if (raisedScale)
+                SendMessageW(controls[InternalScale], CB_SETCURSEL, 1, 0);
+            if (id == InternalScale && selected(InternalScale) <= 0 && selected(HdTextures) > 0)
+                SendMessageW(controls[HdTextures], CB_SETCURSEL, 0, 0);
             saveOptions();
             SendMessageW(controls[SpeedrunCpu], CB_SETCURSEL, std::min(settings.cpuDifficulty, 6u), 0);
             if (id == SpeedrunMode || id == Permadeath || id == SpeedrunCpu || id == CpuDifficulty) {
@@ -4449,6 +4455,10 @@ struct Window {
                                    L"x: 3D scenes render at a higher resolution with the GPU and Vulkan renderers. "
                                    L"It needs more graphics power and applies the next time the game starts."
                              : std::wstring(L"Internal resolution: native, as on a PS2.");
+            if (id == HdTextures && raisedScale)
+                status += L" Internal resolution is now 2x, which HD textures need.";
+            if (id == InternalScale && settings.internalScale == 1 && previousHd)
+                status = L"Internal resolution: native, as on a PS2. HD textures are off because they need 2x or higher.";
             refreshEnabled();
             return;
         }

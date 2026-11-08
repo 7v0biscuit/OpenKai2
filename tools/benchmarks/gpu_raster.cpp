@@ -5,7 +5,7 @@ int main(int argc,char** argv){
     if(argc>1 && std::string(argv[1])=="--footprints")return openkai2::benchmark_gpu_footprints(argc>2 ? unsigned(std::stoul(argv[2])) : 10000u);
     if(argc>1 && std::string(argv[1])=="--submission")return openkai2::benchmark_gpu_submission(argc>2 ? unsigned(std::stoul(argv[2])) : 10000u);
     if(argc>1 && std::string(argv[1])=="--gif")return openkai2::benchmark_gif_submission(argc>2 ? unsigned(std::stoul(argv[2])) : 20000u);
-    if(argc>2 && std::string(argv[1])=="--replay")return openkai2::benchmark_gs_replay(argv[2],argc>3 ? unsigned(std::stoul(argv[3])) : 1u);
+    if(argc>2 && std::string(argv[1])=="--replay")return openkai2::benchmark_gs_replay(argv[2],argc>3 ? unsigned(std::stoul(argv[3])) : 1u,argc>4 ? unsigned(std::stoul(argv[4])) : 1u,argc>5 ? unsigned(std::stoul(argv[5])) : 0u,argc>6 ? argv[6] : nullptr);
     if(argc>1 && std::string(argv[1])=="--sprites")return openkai2::benchmark_sprite_submission(argc>2 ? unsigned(std::stoul(argv[2])) : 60u);
     return openkai2::benchmark_gpu_renderer(argc>1 ? unsigned(std::stoul(argv[1])) : 256u);
 }

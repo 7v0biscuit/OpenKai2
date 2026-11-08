@@ -38,6 +38,7 @@ class Library {
     bool replacing() const { return mode_ == upscaled || mode_ == packs || mode_ == packs_upscaled; }
     std::shared_ptr<const Image> find(uint64_t hash) const;
     bool known(uint64_t hash) const;
+    bool has_packs() const;
     void submit(uint64_t hash, Image source);
     void wait_idle();
     struct Counts {
