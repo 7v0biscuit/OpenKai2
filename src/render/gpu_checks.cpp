@@ -576,7 +576,7 @@ void checkGsWorker(){
 void checkInternalResolution(){
     const auto saved=graphics_settings();auto scaled=saved;scaled.internalScale=2u;set_graphics_settings(scaled);
     struct Restore{GraphicsSettings value;~Restore(){set_graphics_settings(value);}} restore{saved};
-    for(unsigned variant=0;variant<4u;++variant){
+    for(unsigned variant=0;variant<5u;++variant){
         Comparison pair(false);auto tri=material(0u,false);auto& s=tri.state;auto& c=s.context;
         s.prim.tme=s.prim.abe=s.prim.iip=false;c.scissor={0u,127u,0u,127u};
         if(variant&1u)c.frame.psm=GS_PSM_CT16;
@@ -592,7 +592,8 @@ void checkInternalResolution(){
         GSPresentationRequest request{};request.pmode=1;
         request.dispfb1=uint64_t(56)|(uint64_t(8)<<9)|(uint64_t(c.frame.psm)<<15);
         request.display1=(uint64_t(127)<<32)|(uint64_t(127)<<44);
-        if(variant==3u)request.smode2=3;
+        if(variant>=3u)request.smode2=3;
+        if(variant==4u)request.vsyncTick=1u;
         pair.gpu->Sync(GSSyncReason::Presentation);
         const auto hi=pair.gpu->Present(request),native=pair.cpu->Present(request);
         if(!native || hi.width!=native.width*2u || hi.height!=native.height*2u || hi.stride!=hi.width)
@@ -642,7 +643,7 @@ void checkInternalResolution(){
         if(solid<20000u || blended<64u)throw std::runtime_error("Downsampled internal resolution lost edge detail: "+std::to_string(solid)+" solid, "+std::to_string(blended)+" blended");
     }
     set_graphics_settings(scaled);
-    std::cout<<"GPU internal resolution checks passed: 2x color, 16-bit, depth-tested and interlaced presentation, and 3x fitted to the window.\n";
+    std::cout<<"GPU internal resolution checks passed: 2x color, 16-bit, depth-tested and both interlaced fields, and 3x fitted to the window.\n";
 }
 void checkHdTextures(){
     const auto saved=graphics_settings();
@@ -826,11 +827,13 @@ int benchmark_gs_replay(const char* path,unsigned passes,unsigned scale,unsigned
         for(unsigned i=0;i<passes;++i)play();
         clock_gettime(CLOCK_THREAD_CPUTIME_ID,&cpuEnd);
         gs->writeRegister(0x61u,0u);
+        backend->Sync(GSSyncReason::DebugReadback);
+        uint64_t vramHash=1469598103934665603ull;for(const auto byte:vram){vramHash^=byte;vramHash*=1099511628211ull;}
         const auto ns=std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now()-start).count();
         const auto after=gpu_render_statistics();
         std::cout<<"replay bytes="<<stream.size()<<" packets="<<packets<<" uploads="<<uploads<<" gpu_draws="<<after.gpuDraws-before.gpuDraws
                  <<" cpu_draws="<<after.cpuDraws-before.cpuDraws<<" culled="<<after.culled-before.culled<<" batches="<<after.batches-before.batches
-                 <<" ms="<<double(ns)/1e6<<" thread_cpu_ms="<<double(cpuEnd.tv_sec-cpuStart.tv_sec)*1e3+double(cpuEnd.tv_nsec-cpuStart.tv_nsec)/1e6<<" ns_per_draw="<<double(ns)/double(std::max<uint64_t>(after.gpuDraws-before.gpuDraws+after.culled-before.culled,1u))<<'\n';
+                 <<" ms="<<double(ns)/1e6<<" thread_cpu_ms="<<double(cpuEnd.tv_sec-cpuStart.tv_sec)*1e3+double(cpuEnd.tv_nsec-cpuStart.tv_nsec)/1e6<<" ns_per_draw="<<double(ns)/double(std::max<uint64_t>(after.gpuDraws-before.gpuDraws+after.culled-before.culled,1u))<<" vram_hash="<<std::hex<<vramHash<<std::dec<<'\n';
         for(const auto& [reason,count]:gpu_fallback_counts())std::cout<<"fallback "<<reason<<"="<<count<<'\n';
         gs.reset();gpu::shutdown_device();return 0;
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';gpu::shutdown_device();return 1;}

@@ -626,7 +626,7 @@ PresentationFrame GpuRasterBackend::Present(const GSPresentationRequest& request
         auto done=std::make_shared<std::promise<void>>();readback=done->get_future();
         std::vector<uint32_t> resolveParams;
         if(hiresCount)resolveParams={plan.width*plan.scale,plan.height*plan.scale,uint32_t(plan.offset+size_t(plan.x)*plan.scale),plan.stride,plan.psm,plan.half ? 1u : 0u,
-            plan.rows*plan.scale,plan.outWidth,plan.outHeight,uint32_t(plan.resolveBase)};
+            plan.rows*plan.scale,plan.outWidth,plan.outHeight,uint32_t(plan.resolveBase),uint32_t(request.vsyncTick&1u),plan.scale};
         m->device->post([r=m->resources,ranges=pageRanges(dirty),ram=snapshot.data(),done,hiresWords,hiresCount,offset=plan.offset,resolveParams=std::move(resolveParams),resolved](gpu::Host&){
             try{
                 if(!ranges.empty())r->compute->read(ranges,ram);
@@ -665,7 +665,8 @@ PresentationFrame GpuRasterBackend::Present(const GSPresentationRequest& request
         for(unsigned y=firstRow;y<lastRow;++y){
             uint8_t* out=scaled.pixels.data()+size_t(y)*outWidth*4u;
             if(plan.half){
-                const unsigned a=std::min(y/2u,sourceRows-1u),b=std::min(a+(y&1u),sourceRows-1u);
+                const int d=int(y)-int(unsigned(request.vsyncTick&1u)*s);
+                const unsigned a=d<0 ? 0u : std::min(unsigned(d)/2u,sourceRows-1u),b=d<0 ? 0u : std::min(unsigned(d)/2u+unsigned(d&1),sourceRows-1u);
                 const uint32_t* rowA=words.data()+size_t(a)*plan.stride+plan.x*s;const uint32_t* rowB=words.data()+size_t(b)*plan.stride+plan.x*s;
                 for(unsigned x=0;x<outWidth;++x){
                     const uint32_t p=hiresPixel(rowA[x],plan.psm),q=hiresPixel(rowB[x],plan.psm);

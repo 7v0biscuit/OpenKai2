@@ -1,0 +1,61 @@
+--- a/runtime/gs/gs_cpu_backend.cpp
++++ b/runtime/gs/gs_cpu_backend.cpp
+@@ -2168,6 +2168,58 @@
+             put(data[offset]);
+         break;
+     case GS_PSM_T4:
++    {
++        static const std::vector<uint16_t> layout = []
++        {
++            std::vector<uint8_t> scratch(4u * 1024u * 1024u, 0u);
++            std::vector<uint16_t> table(128u * 128u, 0u);
++            for (uint32_t py = 0u; py < 128u; ++py)
++                for (uint32_t px = 0u; px < 128u; ++px)
++                {
++                    GSMem::WriteP4(scratch.data(), 0u, 2u, px, py, 0x0Fu);
++                    for (uint32_t word = 0u; word < 8192u / 8u; ++word)
++                    {
++                        uint64_t bits = 0u;
++                        std::memcpy(&bits, scratch.data() + word * 8u, 8u);
++                        if (!bits)
++                            continue;
++                        for (uint32_t i = word * 8u; i < word * 8u + 8u; ++i)
++                            if (scratch[i])
++                            {
++                                table[py * 128u + px] = static_cast<uint16_t>(i * 2u + (scratch[i] == 0xF0u ? 1u : 0u));
++                                scratch[i] = 0u;
++                                break;
++                            }
++                        break;
++                    }
++                }
++            return table;
++        }();
++        const uint32_t pageBase = dbp / 32u, blockBase = dbp % 32u, pagesPerRow = (dbw * 64u) / 128u;
++        const uint32_t available = sizeBytes * 2u;
++        uint32_t nibble = 0u;
++        while (nibble < available && copied < total)
++        {
++            const uint32_t run = std::min(std::min(rowEnd - x, total - copied), available - nibble);
++            const uint16_t *rowLayout = layout.data() + (y & 127u) * 128u;
++            const uint32_t rowPage = pageBase + (y / 128u) * pagesPerRow;
++            for (uint32_t k = 0u; k < run; ++k, ++x, ++nibble)
++            {
++                const uint32_t pixel = ((rowPage + x / 128u) * 32u + blockBase) * 512u + rowLayout[x & 127u];
++                const uint32_t value = (data[nibble >> 1u] >> ((nibble & 1u) * 4u)) & 0x0Fu;
++                uint8_t &target = m_vram[(pixel >> 1u) & (4u * 1024u * 1024u - 1u)];
++                const uint32_t shift = (pixel & 1u) * 4u;
++                target = static_cast<uint8_t>((target & ~(0x0Fu << shift)) | (value << shift));
++            }
++            copied += run;
++            if (x == rowEnd)
++            {
++                x = dsax;
++                ++y;
++            }
++        }
++        break;
++    }
+     case GS_PSM_T4HL:
+     case GS_PSM_T4HH:
+         for (; offset < sizeBytes && copied < total; ++offset)

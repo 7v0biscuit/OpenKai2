@@ -1,0 +1,18 @@
+--- a/runtime/ps2_runtime.cpp
++++ b/runtime/ps2_runtime.cpp
+@@ -461,6 +461,15 @@
+         tex = LoadTextureFromImage(resized);
+         UnloadImage(resized);
+     }
++    if (width == uint32_t(textureWidth) && height == uint32_t(textureHeight) &&
++        s_scratch.size() >= size_t(width) * size_t(height) * 4u)
++    {
++        UpdateTexture(tex, s_scratch.data());
++        outWidth = width;
++        outHeight = height;
++        s_hasUploadedFrame = true;
++        return;
++    }
+     const uint32_t textureStride = uint32_t(textureWidth);
+     s_uploadBuffer.resize(size_t(textureWidth) * size_t(textureHeight) * 4u);
+     std::fill(s_uploadBuffer.begin(), s_uploadBuffer.end(), 0u);
