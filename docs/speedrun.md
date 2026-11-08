@@ -24,6 +24,11 @@ Manual state saving and loading are disabled throughout speedrun mode, including
 before the timer starts. The mode manages its own in-memory checkpoint for
 automatic permadeath resets. F8 abandons the attempt and starts fresh.
 
+**Randomizer** (on the Speedrun page and in Settings) works with every
+category and with permadeath: your character changes every Dragon World and
+World Tournament fight, the CPU does not. Randomizer runs are their own
+categories, for example "Any% Randomizer", with their own splits.
+
 Required setup is automatic: NG+ (Very Hard) locks the game's difficulty to
 Very Hard, and Z variants lock the selected Z modifier and strongest game/COM
 settings. Tournament profiles select their matching bracket. Adept, Advanced

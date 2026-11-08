@@ -33,6 +33,8 @@ files.
   friends, invites, a room browser and room passwords. Both games run in lockstep
   and check that they stay in sync. [Experimental]
 - **Save states:** F5 saves and F9 loads the whole console outside speedrun and online play.
+- **Randomizer:** a random character, with its own moves and skills, for every
+  Dragon World and World Tournament fight. Works with speedruns and permadeath.
 - **Launcher:** twelve themes (including a light one), seventeen accent colors,
   every color changeable on its own, tabs you can reorder or hide, an Updates
   page, and a choice of the page it opens on. See [Windows](docs/windows.md).

@@ -9,8 +9,8 @@ The launcher has seven pages: **Play**, **Online**, **Speedrun**, **Mods**,
 **Saves**, **Settings** and **Updates** (Ctrl+1 to Ctrl+7, in the order shown in
 the sidebar). See [Online play](online.md) and
 [Speedrun mode](speedrun.md). **Settings** groups display mode, resolution, aspect ratio,
-frame rate cap and VSync; CPU difficulty, HD textures, music and the FPS
-counter (**Game**); renderer, anti-aliasing (FXAA, FXAA High or FXAA Ultra),
+frame rate cap and VSync; CPU difficulty, HD textures, music, the FPS
+counter and the randomizer (**Game**, see below); renderer, anti-aliasing (FXAA, FXAA High or FXAA Ultra),
 texture filtering, upscaling and internal resolution (**Graphics**); and the
 launcher's look (**Launcher**, see below) (see
 [Internal resolution and HD textures](graphics.md)). **Music:
@@ -20,6 +20,16 @@ automatically and apply to the next game session; an already running game keeps
 its launch settings. Borderless mode uses the desktop resolution. **Restore
 defaults** resets only display and graphics settings, preserving the ISO, saves
 and update preferences.
+
+### Randomizer
+
+**Randomizer: On** gives you a random character from the Budokai 2 roster for
+every fight in Dragon World and the World Tournament, with that character's own
+moves and skills. Every fight and every retry after a loss picks again, and the
+same character never comes twice in a row. Only your character changes: the
+CPU's character, skills and difficulty stay as the game set them. Dueling and
+Babidi's Spaceship are not affected, and the randomizer is off in online play.
+A message in the corner names your new character when a fight starts.
 
 ### Making the launcher your own
 
