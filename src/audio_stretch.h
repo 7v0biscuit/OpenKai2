@@ -118,7 +118,7 @@ class StretchedPlayback {
                 const float *a = input_.data() + at * 2u;
                 float frame[2];
                 for (unsigned channel = 0; channel < 2u; ++channel) {
-                    const float p0 = at ? a[channel - 2] : a[channel], p1 = a[channel], p2 = a[channel + 2u], p3 = a[channel + 4u];
+                    const float p0 = at ? a[int(channel) - 2] : a[channel], p1 = a[channel], p2 = a[channel + 2u], p3 = a[channel + 4u];
                     frame[channel] = t == 0.0f ? p1 : cubic(p0, p1, p2, p3, t);
                 }
                 mix(rest.subspan(count * 2u), frame, 1u);
