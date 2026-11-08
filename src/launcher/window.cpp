@@ -239,7 +239,9 @@ enum Id {
     ColorReset,
     ColorResetAll,
     CloseColors,
-    OpenColors
+    OpenColors,
+    RandomizerMode,
+    SpeedrunRandomizer
 };
 constexpr int tabStep = 52, tabHeight = 46;
 constexpr int pageCount = 7, onlinePage = 1, speedrunPage = 2, modsPage = 3, savesPage = 4, settingsPage = 5, updatesPage = 6,
@@ -1095,6 +1097,8 @@ struct Window {
             combo(LauncherAccent, colors, int(std::min(settings.launcherAccent, accent_count - 1u)));
         }
         combo(StartPage, {L"Play", L"Last page used"}, int(std::min(settings.startPage, 1u)));
+        combo(RandomizerMode, {L"Off", L"On"}, settings.randomizer ? 1 : 0);
+        combo(SpeedrunRandomizer, {L"Off", L"On"}, settings.randomizer ? 1 : 0);
         list(TabList, L"Tabs", 40, false);
         list(ColorList, L"Colors", 36, false);
         combo(AutomaticUpdates, {L"Off", L"On"}, settings.autoUpdates ? 1 : 0);
@@ -1287,6 +1291,7 @@ struct Window {
             position(SpeedrunMode, grid.x(0), Grid::field(speedrunTop, 0), grid.column, 34);
             position(Permadeath, grid.x(1), Grid::field(speedrunTop, 0), grid.column, 34);
             position(SpeedrunCpu, grid.x(0), Grid::field(speedrunTop, 1), grid.column, 34);
+            position(SpeedrunRandomizer, grid.x(2), Grid::field(speedrunTop, 0), grid.column, 34);
             position(OpenOverlay, right - 20 - 170, speedrunTop + 10, 170, 28);
             const int listWidth = (content - 40) * 58 / 100, side = contentLeft + 20 + listWidth + 16;
             const int sideWidth = right - 20 - side, half = (sideWidth - 10) / 2;
@@ -1425,6 +1430,7 @@ struct Window {
             position(HdTextures, grid.x(1), grid.field(gameTop, 0), grid.column, grid.controlHeight);
             position(Music, grid.x(2), grid.field(gameTop, 0), grid.column, grid.controlHeight);
             position(FpsCounter, grid.x(0), grid.field(gameTop, 1), grid.column, grid.controlHeight);
+            position(RandomizerMode, grid.x(1), grid.field(gameTop, 1), grid.column, grid.controlHeight);
             position(TextureFolder, right - 20 - 170, gameTop + (grid.header - 28) / 2, 170, 28);
             position(LauncherTheme, grid.x(0), grid.field(updatesTop, 0), grid.column, grid.controlHeight);
             position(LauncherAccent, grid.x(1), grid.field(updatesTop, 0), grid.column, grid.controlHeight);
@@ -1513,7 +1519,7 @@ struct Window {
             L"Add characters, stages and movesets from other Dragon Ball Z games. Nothing in Budokai 2 is removed.",
             L"Pick what the in-game overlay shows. Splits, deltas and best times are tracked for you.",
             L"Choose the order of the tabs in the sidebar and hide the ones you do not use.",
-            L"Recolor any part of the launcher. Colors you do not change follow the theme."};
+            L"Every color in the launcher."};
         lettering(dc, titles[page], p(contentLeft), p(60), fonts.title, ink, titleShadow, p(2));
         if (hasNotice()) {
             const auto message = noticeText();
@@ -1725,7 +1731,7 @@ struct Window {
         return settings_path().parent_path() / "splits" /
                speedrun::splits_name(speedrun::Category(std::min(settings.speedrun, speedrun::category_count - 1)),
                                      settings.permadeath && !speedrun::tournament(speedrun::Category(settings.speedrun)),
-                                     std::min(settings.cpuDifficulty, 6u));
+                                     std::min(settings.cpuDifficulty, 6u), settings.randomizer);
     }
     std::string splitTime(double seconds) const {
         return speedrun::format_time(seconds, speedrun::tournament(speedrun::Category(settings.speedrun)) ? 3u : 2u);
@@ -1863,8 +1869,8 @@ struct Window {
             const Rgb color = look.*(color_roles[role].member);
             wchar_t hex[8]{};
             swprintf(hex, 8, L"#%02X%02X%02X", color.r, color.g, color.b);
-            const std::wstring row = std::wstring(hex) + L" \u00b7 " + color_roles[role].name + L" \u00b7 " +
-                                     (settings.launcherColors[role] >= 0 ? L"Custom" : L"Theme") + L" \u00b7 " + color_roles[role].about;
+            const std::wstring row = std::wstring(hex) + L" \u00b7 " + color_roles[role].name +
+                                     (settings.launcherColors[role] >= 0 ? L" (changed)" : L"") + L" \u00b7 " + color_roles[role].about;
             SendMessageW(list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(row.c_str()));
         }
         SendMessageW(list, LB_SETTOPINDEX, WPARAM(std::max<LRESULT>(top, 0)), 0);
@@ -1875,9 +1881,8 @@ struct Window {
         panelBox(dc, contentLeft, 124, right, 196);
         text(dc, std::wstring(L"Theme ") + themes[std::min(settings.launcherTheme, theme_count - 1u)].name,
              contentLeft + 20, 136, content - 200, 22, fonts.strong);
-        text(dc, L"Pick a part of the launcher, then Change color. Use theme color returns it to the theme. "
-                 L"Double-click a row to change it.",
-             contentLeft + 20, 160, content - 200, 32, fonts.caption, muted, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
+        text(dc, L"Double-click a part to recolor it.", contentLeft + 20, 160, content - 200, 18, fonts.caption, muted,
+             DT_LEFT | DT_SINGLELINE | DT_NOPREFIX);
         panelBox(dc, contentLeft, 208, right, panelBottom);
         caps(dc, L"COLORS", contentLeft + 20, 212, 200);
         const unsigned custom = unsigned(std::count_if(settings.launcherColors.begin(), settings.launcherColors.end(),
@@ -2326,6 +2331,7 @@ struct Window {
         label(gameTop, 0, 1, L"HD TEXTURES");
         label(gameTop, 0, 2, L"MUSIC");
         label(gameTop, 1, 0, L"FPS COUNTER");
+        label(gameTop, 1, 1, L"RANDOMIZER");
 
         section(updatesTop, 1, L"Launcher", L"Colors, tab order and the page the launcher opens on", muted);
         label(updatesTop, 0, 0, L"THEME");
@@ -2346,6 +2352,7 @@ struct Window {
              DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
         caps(dc, L"CATEGORY", grid.x(0), Grid::label(speedrunTop, 0), grid.column);
         caps(dc, L"PERMADEATH", grid.x(1), Grid::label(speedrunTop, 0), grid.column);
+        caps(dc, L"RANDOMIZER", grid.x(2), Grid::label(speedrunTop, 0), grid.column);
         caps(dc, L"CPU DIFFICULTY", grid.x(0), Grid::label(speedrunTop, 1), grid.column);
         text(dc, L"Z1 to Z6 runs are timed as their own categories, with their own splits.", grid.x(1),
              Grid::field(speedrunTop, 1) + 8, grid.column * 2 + 16, 28, fonts.caption, muted,
@@ -2353,7 +2360,7 @@ struct Window {
         panelBox(dc, contentLeft, splitsTop, right, splitBottom);
         const std::wstring splitTitle = settings.speedrun ? L"Splits · " +
             wide(speedrun::category_label(speedrun::Category(std::min(settings.speedrun, speedrun::category_count - 1)),
-                                          std::min(settings.cpuDifficulty, 6u))) +
+                                          std::min(settings.cpuDifficulty, 6u), settings.randomizer)) +
             (settings.permadeath && !speedrun::tournament(speedrun::Category(settings.speedrun)) ? L" permadeath" : L"") : std::wstring(L"Splits");
         const std::wstring attempts = settings.speedrun && splitBook.attempts() ?
             std::to_wstring(splitBook.attempts()) + (splitBook.attempts() == 1 ? L" attempt" : L" attempts") +
@@ -2713,10 +2720,11 @@ struct Window {
         if (item.hwndItem == controls[ColorList] && parts.size() > 1 && parts[0].size() == 7 && parts[0][0] == L'#') {
             const auto value = std::wcstol(parts[0].c_str() + 1, nullptr, 16);
             const COLORREF swatch = RGB(value >> 16 & 255, value >> 8 & 255, value & 255);
-            const RECT box{r.left, r.top + p(8), r.left + p(34), r.bottom - p(8)};
+            const RECT box{r.left, r.top + p(6), r.left + p(56), r.bottom - p(6)};
             fill(dc, box, mix(border, ink, 60));
             fill(dc, {box.left + 1, box.top + 1, box.right - 1, box.bottom - 1}, swatch);
-            r.left += p(46);
+            r.left += p(70);
+            parts.erase(parts.begin());
         }
         if (parts.size() > 1 && (parts[0] == L"On" || parts[0] == L"Off")) {
             const bool on = parts[0] == L"On";
@@ -4927,6 +4935,17 @@ struct Window {
             const size_t slot = size_t(id - ShortcutFirst);
             if (slot < shown.size())
                 command(PlayTab + shown[slot], BN_CLICKED);
+            return;
+        }
+        if ((id == RandomizerMode || id == SpeedrunRandomizer) && notification == CBN_SELCHANGE) {
+            settings.randomizer = selected(id) == 1;
+            SendMessageW(controls[id == RandomizerMode ? SpeedrunRandomizer : RandomizerMode], CB_SETCURSEL, settings.randomizer ? 1 : 0, 0);
+            saveLauncherLook(settings.randomizer
+                                 ? L"Randomizer on: your character changes every Dragon World and World Tournament fight. The CPU is not changed."
+                                 : L"Randomizer off.");
+            refreshSplits();
+            refreshTimingRules();
+            InvalidateRect(hwnd, nullptr, FALSE);
             return;
         }
         if (id == OpenColors && notification == BN_CLICKED) {

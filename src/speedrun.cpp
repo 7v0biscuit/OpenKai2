@@ -62,12 +62,12 @@ const char *category_rules(Category category) {
     }
 }
 
-std::string category_label(Category category, unsigned cpu) {
+std::string category_label(Category category, unsigned cpu, bool randomizer) {
     static const char *const levels[] = {"", " Z1", " Z2", " Z3", " Z4", " Z5", " Z6"};
-    return std::string(category_name(category)) + levels[cpu < 7u ? cpu : 0u];
+    return std::string(category_name(category)) + levels[cpu < 7u ? cpu : 0u] + (randomizer ? " Randomizer" : "");
 }
 
-std::string splits_name(Category category, bool permadeath, unsigned cpu) {
+std::string splits_name(Category category, bool permadeath, unsigned cpu, bool randomizer) {
     static constexpr const char *names[] = {"off", "any", "ngplus", "tournament-novice", "tournament-adept",
         "tournament-advanced", "all-dragonballs", "hercule-only", "ngplus-very-hard"};
     const auto index = unsigned(category);
@@ -76,6 +76,8 @@ std::string splits_name(Category category, bool permadeath, unsigned cpu) {
         name += "-permadeath";
     if (cpu >= 1u && cpu <= 6u)
         name += "-z" + std::to_string(cpu);
+    if (randomizer)
+        name += "-randomizer";
     return name + ".txt";
 }
 

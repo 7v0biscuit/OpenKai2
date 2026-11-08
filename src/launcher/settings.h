@@ -33,6 +33,7 @@ struct Settings {
     unsigned speedrun = 0;
     bool permadeath = false;
     bool fpsCounter = false;
+    bool randomizer = false;
     unsigned overlayItems = speedrun::overlay_defaults;
     unsigned overlayCorner = 0, overlaySize = 1, overlayBackground = 1, overlaySplits = 1;
     std::array<unsigned, speedrun::overlay_color_roles> overlayColors{0, 2, 3, 4};

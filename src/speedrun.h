@@ -19,8 +19,8 @@ inline constexpr unsigned category_count = 9;
 bool tournament(Category category);
 const char *category_name(Category category);
 const char *category_rules(Category category);
-std::string category_label(Category category, unsigned cpu);
-std::string splits_name(Category category, bool permadeath, unsigned cpu);
+std::string category_label(Category category, unsigned cpu, bool randomizer = false);
+std::string splits_name(Category category, bool permadeath, unsigned cpu, bool randomizer = false);
 
 inline constexpr uint32_t task_first = 0x3B5358u;
 inline constexpr uint32_t task_end = 0x3B53B0u;

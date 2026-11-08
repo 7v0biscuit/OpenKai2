@@ -136,6 +136,8 @@ Settings read_settings(const std::filesystem::path &file) {
             row >> s.speedrun >> s.permadeath;
         else if (key == "fps_counter")
             row >> s.fpsCounter;
+        else if (key == "randomizer")
+            row >> s.randomizer;
         else if (key == "overlay")
         {
             row >> s.overlayItems >> s.overlayCorner >> s.overlaySize >> s.overlayBackground >> s.overlaySplits;
@@ -223,7 +225,7 @@ void write_settings(const std::filesystem::path &file, const Settings &s) {
     for (int32_t value : s.launcherColors)
         out << ' ' << value;
     out << "\nspeedrun " << s.speedrun << ' ' << s.permadeath
-        << "\nfps_counter " << s.fpsCounter << "\noverlay " << s.overlayItems << ' ' << s.overlayCorner << ' '
+        << "\nrandomizer " << s.randomizer << "\nfps_counter " << s.fpsCounter << "\noverlay " << s.overlayItems << ' ' << s.overlayCorner << ' '
         << s.overlaySize << ' ' << s.overlayBackground << ' ' << s.overlaySplits << "\noverlay_style "
         << s.overlayColors[0] << ' ' << s.overlayColors[1] << ' ' << s.overlayColors[2] << ' ' << s.overlayColors[3] << ' '
         << s.overlayDecimals << "\noverlay_custom " << s.overlayMargin << ' ' << s.overlayShape << ' '

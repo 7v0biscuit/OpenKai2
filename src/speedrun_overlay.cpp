@@ -9,6 +9,7 @@
 #include "netplay.h"
 #include "render/gpu_backend.h"
 #include "render/hd_textures.h"
+#include "randomizer.h"
 #include <fstream>
 #include <iterator>
 #include <mutex>
@@ -536,7 +537,7 @@ struct Overlay {
         }
         if (shows(show_status)) {
             Row row;
-            row.left = category_label(options.category, options.cpu) + (options.permadeath ? "   Permadeath" : "");
+            row.left = category_label(options.category, options.cpu, options.randomizer) + (options.permadeath ? "   Permadeath" : "");
             if (!options.permadeath && timer.losses())
                 row.left += "   Lost " + std::to_string(timer.losses());
             row.left_color = grey;
@@ -735,6 +736,14 @@ void draw(PS2Runtime &runtime, void *) {
         unsigned level = 0;
         if (openkai2::cpu::cycle(level))
             toast(std::string("CPU difficulty: ") + openkai2::cpu::level_name(level));
+    }
+    if (auto &random = openkai2::randomizer::active(); random.enabled()) {
+        random.observe(openkai2::randomizer::mode_from_tasks(runtime.memory().getRDRAM(), PS2_RAM_SIZE, random.mode()));
+        static uint64_t announced = 0;
+        if (random.changes() != announced) {
+            announced = random.changes();
+            toast(std::string("Randomizer: you are ") + openkai2::randomizer::display_name(random.last()));
+        }
     }
     if (IsKeyPressed(KEY_F4)) {
         auto &textures = openkai2::hd::library();

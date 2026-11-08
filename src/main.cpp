@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "cpu_difficulty.h"
+#include "randomizer.h"
 #include "discord_presence.h"
 #include "host_audio.h"
 #include "disc_image.h"
@@ -30,6 +31,7 @@
 #include "runtime_layout.h"
 #include "ps2_runtime.h"
 #include <algorithm>
+#include <chrono>
 #include <exception>
 #include <cstdlib>
 #include <fstream>
@@ -55,6 +57,12 @@ PS2Runtime::RecompiledFunction originalAiInitializer = nullptr;
 void initializeBattleAi(uint8_t *memory, R5900Context *context, PS2Runtime *runtime) {
     openkai2::cpu::prepare_installed_ai(memory, PS2_RAM_SIZE);
     originalAiInitializer(memory, context, runtime);
+}
+PS2Runtime::RecompiledFunction originalBattleRequest = nullptr;
+void requestBattle(uint8_t *memory, R5900Context *context, PS2Runtime *runtime) {
+    if (openkai2::randomizer::active().prepare(memory, PS2_RAM_SIZE, getRegU32(context, 4)))
+        std::cout << "[randomizer] player is " << openkai2::randomizer::display_name(openkai2::randomizer::active().last()) << std::endl;
+    originalBattleRequest(memory, context, runtime);
 }
 
 class TeeBuffer : public std::streambuf {
@@ -253,13 +261,14 @@ int main(int argc, char* argv[]) {
              while(!overlay.split_names.empty() && overlay.split_names.back().empty())overlay.split_names.pop_back();}
             overlay.split_rows=run::overlay_split_rows[std::min(preferences.overlaySplits,3u)];
             overlay.cpu=online.enabled ? 0u : std::min(preferences.cpuDifficulty,6u);
+            overlay.randomizer=preferences.randomizer && !online.enabled;
             overlay.decimals=run::tournament(category) ? 3u : std::min(preferences.overlayDecimals,3u);
             for (unsigned role=0;role<run::overlay_color_roles;++role) {
                 const auto& c=run::overlay_colors[std::min(preferences.overlayColors[role],run::overlay_color_count-1u)];
                 overlay.colors[role]={c.r,c.g,c.b};
             }
             overlay.logs=log.path.parent_path()/"speedruns";
-            overlay.splits=log.path.parent_path().parent_path()/"splits"/run::splits_name(category,overlay.permadeath,overlay.cpu);
+            overlay.splits=log.path.parent_path().parent_path()/"splits"/run::splits_name(category,overlay.permadeath,overlay.cpu,overlay.randomizer);
             if (speedrun) {
                 std::vector<run::DiscFileHash> hashes;
                 for (const auto& file : disc.files) hashes.push_back({file.path.generic_string(),file.sha256});
@@ -271,7 +280,7 @@ int main(int argc, char* argv[]) {
                     "iso sha256 "+disc.image_sha256,
                     std::string("game executable sha256 ")+openkai2::retail_elf_sha256+" (US retail)",
                     std::string("game data ")+(overlay.problems.empty() ? "matches the US retail disc" : "differs from the US retail disc"),
-                    "category "+run::category_label(category,overlay.cpu)+(overlay.permadeath ? " permadeath" : ""),
+                    "category "+run::category_label(category,overlay.cpu,overlay.randomizer)+(overlay.permadeath ? " permadeath" : ""),
                     std::string("cpu difficulty ")+openkai2::cpu::level_name(overlay.cpu),
                     "timing: starts when Dragon World starts, ends on the last hit of Kid Buu",
                     "renderer "+openkai2::renderer_preference()+" fps_limit "+std::to_string(openkai2::window_fps_limit())+
@@ -334,6 +343,17 @@ int main(int argc, char* argv[]) {
         } restoreAi{runtime,originalAiInitializer};
         if (!originalAiInitializer || !runtime.replaceFunction(0x223bd0u, initializeBattleAi))
             throw std::runtime_error("Cannot bind the battle AI initializer");
+        const bool randomize=preferences.randomizer && !online.enabled;
+        openkai2::randomizer::active().enable(randomize,uint64_t(std::chrono::steady_clock::now().time_since_epoch().count()));
+        originalBattleRequest = runtime.lookupFunction(openkai2::randomizer::battle_request_entry);
+        struct RestoreBattleRequest {
+            PS2Runtime& runtime;
+            PS2Runtime::RecompiledFunction original;
+            ~RestoreBattleRequest() { if (original) runtime.replaceFunction(openkai2::randomizer::battle_request_entry,original); }
+        } restoreRequest{runtime,originalBattleRequest};
+        if (!originalBattleRequest || !runtime.replaceFunction(openkai2::randomizer::battle_request_entry, requestBattle))
+            throw std::runtime_error("Cannot bind the battle request");
+        if (randomize) std::cout << "[randomizer] on: the player's character changes every Dragon World and World Tournament fight" << std::endl;
         if (cpuLevel) std::cout << "[cpu] difficulty " << openkai2::cpu::level_name(cpuLevel) << (speedrun ? " (locked for the run)" : "") << std::endl;
         else if (preferences.cpuDifficulty) std::cout << "[cpu] difficulty Z levels are off online" << std::endl;
         presence.update("Playing Budokai 2",online.enabled ? "Online" : "In game");
