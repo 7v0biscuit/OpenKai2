@@ -5,19 +5,33 @@ story sequences. Progression, performance and complete matches need validation.
 
 ## Launcher preferences
 
-The launcher has six pages: **Play**, **Online**, **Speedrun**, **Mods**,
-**Saves** and **Settings** (Ctrl+1 to Ctrl+6). See [Online play](online.md) and
+The launcher has seven pages: **Play**, **Online**, **Speedrun**, **Mods**,
+**Saves**, **Settings** and **Updates** (Ctrl+1 to Ctrl+7, in the order shown in
+the sidebar). See [Online play](online.md) and
 [Speedrun mode](speedrun.md). **Settings** groups display mode, resolution, aspect ratio,
 frame rate cap and VSync; CPU difficulty, HD textures, music and the FPS
 counter (**Game**); renderer, anti-aliasing (FXAA, FXAA High or FXAA Ultra),
-texture filtering, upscaling and internal resolution (**Graphics**); and update
-preferences (see [Internal resolution and HD textures](graphics.md)). **Music:
+texture filtering, upscaling and internal resolution (**Graphics**); and the
+launcher's look (**Launcher**, see below) (see
+[Internal resolution and HD textures](graphics.md)). **Music:
 Off** silences the game's music tracks only; voices, sound effects and videos
 still play. Lists support mouse and keyboard selection. Changes save
 automatically and apply to the next game session; an already running game keeps
 its launch settings. Borderless mode uses the desktop resolution. **Restore
 defaults** resets only display and graphics settings, preserving the ISO, saves
 and update preferences.
+
+### Making the launcher your own
+
+- **Theme:** Ember (the original look), Ocean, Forest, Violet, Crimson or
+  Graphite. Each colors the background, panels, sidebar and buttons.
+- **Accent color:** the theme's own color, or Orange, Gold, Red, Pink, Purple,
+  Blue, Cyan, Green or White for buttons and highlights.
+- **Arrange tabs…:** move tabs up or down and hide the ones you do not use.
+  Play and Settings are always shown. Ctrl+1 to Ctrl+7 follow your order.
+- **Start on:** open the launcher on Play or on the last page you used.
+
+Changes apply at once and are saved with your other settings.
 
 The **Saves** page contains automatic session backups, imports and recovery.
 **Unlock all** unlocks characters, stages and all 404 supported capsules in an existing USA progress
@@ -45,13 +59,15 @@ generation require renderer inputs and backend support that are not available.
 
 ## Launcher updates
 
-The **Updates** section of **Settings** checks releases from `7v0biscuit/OpenKai2`
+The **Updates** page checks releases from `7v0biscuit/OpenKai2`
 on GitHub. Automatic updates are enabled by default on the **Stable and
 prerelease** channel, so published development builds are included. Choose
 **Stable** to exclude prereleases, or turn automatic updates off and use
 **Check now** / **Install**.
-Checks do not require a GitHub account or token. A connection failure leaves the
-existing application available.
+Checks do not require a GitHub account or token. If GitHub does not answer, the
+connection drops or a download is interrupted, the launcher tries again a few
+times before reporting it. A connection failure leaves the existing application
+available.
 
 Downloads use HTTPS and the release's `SHA256SUMS.txt`. Extracted and installed
 copies also validate every ZIP payload against its release manifest. The local

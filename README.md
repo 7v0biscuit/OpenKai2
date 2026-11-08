@@ -33,6 +33,8 @@ files.
   friends, invites, a room browser and room passwords. Both games run in lockstep
   and check that they stay in sync. [Experimental]
 - **Save states:** F5 saves and F9 loads the whole console outside speedrun and online play.
+- **Launcher:** six color themes, accent colors, tabs you can reorder or hide, an
+  Updates page, and a choice of the page it opens on. See [Windows](docs/windows.md).
 - **Audio:** volume, and an option to turn off only the music while voices and
   sound effects keep playing.
 - **CPU difficulty:** Z1 to Z6 levels above Very Hard, set in the launcher or
