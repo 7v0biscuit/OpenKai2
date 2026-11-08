@@ -34,6 +34,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <cwchar>
 #include <cwctype>
 #include <commctrl.h>
@@ -241,7 +242,11 @@ enum Id {
     CloseColors,
     OpenColors,
     RandomizerMode,
-    SpeedrunRandomizer
+    SpeedrunRandomizer,
+    ColorCopy,
+    ColorPaste,
+    ColorSurprise,
+    OpenLogs
 };
 constexpr int tabStep = 52, tabHeight = 46;
 constexpr int pageCount = 7, onlinePage = 1, speedrunPage = 2, modsPage = 3, savesPage = 4, settingsPage = 5, updatesPage = 6,
@@ -970,6 +975,10 @@ struct Window {
                                                           {ColorReset, L"Use theme color"},
                                                           {ColorResetAll, L"Reset all colors"},
                                                           {CloseColors, L"Back to settings"},
+                                                          {ColorCopy, L"Copy colors"},
+                                                          {ColorPaste, L"Paste colors"},
+                                                          {ColorSurprise, L"Surprise me"},
+                                                          {OpenLogs, L"Open logs folder"},
                                                           {OverlayToggle, L"Show / hide"},
                                                           {OverlayDefaults, L"Restore defaults"},
                                                           {ClearImage, L"Crisp"},
@@ -1362,6 +1371,7 @@ struct Window {
             position(CheckUpdates, grid.x(2), Grid::field(236, 0), half, 34);
             position(InstallUpdate, grid.x(2) + half + 10, Grid::field(236, 0), grid.column - half - 10, 34);
             position(ReleasePage, right - 20 - 130, 136, 130, 34);
+            position(OpenLogs, contentLeft + 20, 470, 170, 34);
         } else if (page == colorsPage) {
             const int panelBottom = h - 64, listWidth = std::min(560, content - 40 - 200);
             position(CloseColors, right - 20 - 150, 136, 150, 34);
@@ -1369,7 +1379,10 @@ struct Window {
             const int side = contentLeft + 20 + listWidth + 20, buttonWidth = std::min(170, right - 20 - side);
             position(ColorPick, side, 228, buttonWidth, 34);
             position(ColorReset, side, 272, buttonWidth, 34);
-            position(ColorResetAll, side, 336, buttonWidth, 34);
+            position(ColorResetAll, side, 316, buttonWidth, 34);
+            position(ColorSurprise, side, 380, buttonWidth, 34);
+            position(ColorCopy, side, 424, buttonWidth, 34);
+            position(ColorPaste, side, 468, buttonWidth, 34);
         } else if (page == tabsPage) {
             const int panelBottom = h - 64, listWidth = std::min(420, content - 40 - 180);
             position(CloseTabs, right - 20 - 150, 136, 150, 34);
@@ -1852,12 +1865,14 @@ struct Window {
         text(dc, settings.updateChannel ? L"Stable and prerelease: every published build, including test versions."
                                         : L"Stable: only versions marked stable.",
              grid.x(0), 344, content - 40, 18, fonts.caption, muted, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
-        panelBox(dc, contentLeft, 384, right, std::min(h - 64, 484));
+        panelBox(dc, contentLeft, 384, right, std::min(h - 64, 518));
         text(dc, L"How updates install", contentLeft + 20, 396, content - 40, 22, fonts.strong);
         text(dc, L"With automatic updates on, the launcher looks for a new version between game sessions. A found update downloads, "
                  L"is checked against its published SHA-256, and installs after the game closes; your settings, saves and mods are kept. "
                  L"If GitHub is busy, the launcher tries again a few times.",
-             contentLeft + 20, 422, content - 40, 56, fonts.caption, muted, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
+             contentLeft + 20, 418, content - 40, 46, fonts.caption, muted, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
+        text(dc, L"Reporting a problem? Attach startup.log or launcher.log from the logs folder.", contentLeft + 200, 478,
+             content - 220, 18, fonts.caption, muted, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
     }
     void refreshColors() {
         const auto list = controls[ColorList];
@@ -1888,7 +1903,7 @@ struct Window {
         const unsigned custom = unsigned(std::count_if(settings.launcherColors.begin(), settings.launcherColors.end(),
                                                        [](int32_t value) { return value >= 0; }));
         const int listWidth = std::min(560, content - 40 - 200), side = contentLeft + 20 + listWidth + 20;
-        text(dc, std::to_wstring(custom) + (custom == 1 ? L" color changed" : L" colors changed"), side, 384,
+        text(dc, std::to_wstring(custom) + (custom == 1 ? L" color changed" : L" colors changed"), side, 516,
              std::max(40, right - 20 - side), 18, fonts.caption, muted, DT_LEFT | DT_SINGLELINE | DT_NOPREFIX);
     }
     void paintTabs(HDC dc, int h, int content) {
@@ -4946,6 +4961,74 @@ struct Window {
             refreshSplits();
             refreshTimingRules();
             InvalidateRect(hwnd, nullptr, FALSE);
+            return;
+        }
+        if (id == OpenLogs && notification == BN_CLICKED) {
+            const auto folder = default_cache_directory().parent_path() / "logs";
+            std::error_code ignored;
+            std::filesystem::create_directories(folder, ignored);
+            ShellExecuteW(hwnd, L"open", folder.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+            return;
+        }
+        if ((id == ColorCopy || id == ColorPaste || id == ColorSurprise) && notification == BN_CLICKED) {
+            std::wstring message;
+            if (id == ColorCopy) {
+                const auto code = wide(look_code(settings.launcherTheme, settings.launcherAccent, settings.launcherColors));
+                bool copied = false;
+                if (OpenClipboard(hwnd)) {
+                    EmptyClipboard();
+                    if (HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, (code.size() + 1) * sizeof(wchar_t))) {
+                        std::memcpy(GlobalLock(memory), code.c_str(), (code.size() + 1) * sizeof(wchar_t));
+                        GlobalUnlock(memory);
+                        copied = SetClipboardData(CF_UNICODETEXT, memory) != nullptr;
+                        if (!copied)
+                            GlobalFree(memory);
+                    }
+                    CloseClipboard();
+                }
+                status = copied ? L"Colors copied. Paste them into a message to share this look." : L"Could not copy to the clipboard.";
+                error = !copied;
+                InvalidateRect(hwnd, nullptr, FALSE);
+                return;
+            }
+            if (id == ColorPaste) {
+                std::wstring text;
+                if (OpenClipboard(hwnd)) {
+                    if (HANDLE data = GetClipboardData(CF_UNICODETEXT))
+                        if (const auto *chars = static_cast<const wchar_t *>(GlobalLock(data))) {
+                            text = chars;
+                            GlobalUnlock(data);
+                        }
+                    CloseClipboard();
+                }
+                unsigned theme = 0, accent = 0;
+                CustomColors colors{};
+                if (!parse_look_code(utf8(trimmed(text)), theme, accent, colors)) {
+                    status = L"The clipboard does not hold OpenKai2 colors. Copy them with Copy colors first.";
+                    error = true;
+                    InvalidateRect(hwnd, nullptr, FALSE);
+                    return;
+                }
+                settings.launcherTheme = theme;
+                settings.launcherAccent = accent;
+                settings.launcherColors = colors;
+                message = std::wstring(L"Colors pasted: ") + themes[theme].name + L".";
+            } else {
+                const uint64_t tick = GetTickCount64();
+                unsigned theme = unsigned(tick % theme_count);
+                if (theme == settings.launcherTheme)
+                    theme = (theme + 1u) % theme_count;
+                settings.launcherTheme = theme;
+                settings.launcherAccent = unsigned((tick / theme_count) % accent_count);
+                settings.launcherColors = no_custom_colors();
+                message = std::wstring(L"Surprise: ") + themes[theme].name +
+                          (settings.launcherAccent ? std::wstring(L" with ") + accents[settings.launcherAccent].name : std::wstring()) + L".";
+            }
+            SendMessageW(controls[LauncherTheme], CB_SETCURSEL, settings.launcherTheme, 0);
+            SendMessageW(controls[LauncherAccent], CB_SETCURSEL, settings.launcherAccent, 0);
+            saveLauncherLook(message);
+            refreshColors();
+            restyle();
             return;
         }
         if (id == OpenColors && notification == BN_CLICKED) {

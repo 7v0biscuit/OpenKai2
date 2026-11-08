@@ -3,6 +3,9 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cstdio>
+#include <sstream>
+#include <string>
 
 namespace openkai2::launcher {
 
@@ -24,6 +27,10 @@ inline constexpr ThemeChoice themes[] = {
     {L"Saiyan Gold", 1.0f, 0.82f, 0.5f, {255, 196, 40}, false}, {L"Namek", 0.45f, 1.0f, 0.85f, {70, 220, 170}, false},
     {L"Frieza", 0.9f, 0.55f, 1.0f, {214, 90, 230}, false},     {L"Midnight", 0.3f, 0.42f, 1.0f, {70, 200, 255}, false},
     {L"Sakura", 1.0f, 0.62f, 0.8f, {255, 120, 170}, false},    {L"Daylight", 0.95f, 0.97f, 1.0f, {232, 108, 18}, true},
+    {L"Ultra Instinct", 0.82f, 0.88f, 1.0f, {196, 212, 255}, false}, {L"Super Saiyan Blue", 0.32f, 0.72f, 1.0f, {40, 196, 255}, false},
+    {L"Kaioken", 1.0f, 0.42f, 0.38f, {255, 64, 52}, false},    {L"Majin", 1.0f, 0.55f, 0.85f, {255, 104, 188}, false},
+    {L"Shenron", 0.5f, 1.0f, 0.6f, {255, 208, 60}, false},     {L"Ginyu Force", 0.78f, 0.6f, 1.0f, {150, 92, 255}, false},
+    {L"Capsule Corp", 0.92f, 0.96f, 1.0f, {28, 118, 228}, true}, {L"Kami's Lookout", 1.0f, 0.97f, 0.9f, {40, 150, 100}, true},
 };
 inline constexpr unsigned theme_count = sizeof(themes) / sizeof(themes[0]);
 
@@ -36,7 +43,9 @@ inline constexpr AccentChoice accents[] = {
     {L"Pink", {244, 110, 190}},     {L"Purple", {168, 112, 255}}, {L"Blue", {64, 156, 255}},  {L"Cyan", {52, 206, 220}},
     {L"Green", {86, 200, 120}},     {L"White", {226, 230, 238}}, {L"Teal", {40, 190, 170}},   {L"Lime", {170, 220, 60}},
     {L"Magenta", {220, 70, 200}},   {L"Coral", {255, 120, 90}},  {L"Sky", {110, 190, 255}},   {L"Indigo", {100, 110, 240}},
-    {L"Silver", {170, 176, 190}},   {L"Amber", {255, 170, 0}},
+    {L"Silver", {170, 176, 190}},   {L"Amber", {255, 170, 0}},   {L"Mint", {120, 230, 180}},  {L"Peach", {255, 180, 140}},
+    {L"Lavender", {190, 160, 255}}, {L"Turquoise", {40, 210, 200}}, {L"Rose", {230, 90, 130}}, {L"Olive", {150, 170, 60}},
+    {L"Navy", {60, 96, 200}},       {L"Crimson", {205, 36, 56}},  {L"Ice", {170, 220, 255}},   {L"Bronze", {205, 127, 50}},
 };
 inline constexpr unsigned accent_count = sizeof(accents) / sizeof(accents[0]);
 
@@ -201,6 +210,43 @@ constexpr bool valid_custom_colors(const CustomColors &custom) {
     for (int32_t value : custom)
         if (value < -1 || value > 0xffffff)
             return false;
+    return true;
+}
+
+inline std::string look_code(unsigned theme, unsigned accent, const CustomColors &custom) {
+    std::string code = "OPENKAI2-LOOK 1 " + std::to_string(theme) + ' ' + std::to_string(accent);
+    for (int32_t value : custom) {
+        if (value < 0) {
+            code += " -";
+            continue;
+        }
+        char hex[12];
+        std::snprintf(hex, sizeof hex, " %06X", unsigned(value) & 0xffffffu);
+        code += hex;
+    }
+    return code;
+}
+
+inline bool parse_look_code(const std::string &text, unsigned &theme, unsigned &accent, CustomColors &custom) {
+    std::istringstream in(text);
+    std::string magic, version, value;
+    unsigned chosenTheme = 0, chosenAccent = 0;
+    if (!(in >> magic >> version >> chosenTheme >> chosenAccent) || magic != "OPENKAI2-LOOK" || version != "1" ||
+        chosenTheme >= theme_count || chosenAccent >= accent_count)
+        return false;
+    CustomColors colors = no_custom_colors();
+    for (auto &color : colors) {
+        if (!(in >> value))
+            return false;
+        if (value == "-")
+            continue;
+        if (value.size() != 6 || value.find_first_not_of("0123456789abcdefABCDEF") != std::string::npos)
+            return false;
+        color = int32_t(std::stoul(value, nullptr, 16));
+    }
+    theme = chosenTheme;
+    accent = chosenAccent;
+    custom = colors;
     return true;
 }
 

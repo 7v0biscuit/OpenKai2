@@ -193,6 +193,14 @@ int main() {
                             !(mine.buttonBottom == plain.buttonBottom) && mine.panel == plain.panel,
                         "A custom launcher color was not applied to its part only");
                 require(color_role_count >= 20u && valid_custom_colors(custom), "Custom colors were refused");
+                unsigned theme = 0, accent = 0;
+                CustomColors pasted{};
+                require(parse_look_code(look_code(17, 22, custom), theme, accent, pasted) && theme == 17 && accent == 22 && pasted == custom,
+                        "A copied launcher look did not paste back the same");
+                require(!parse_look_code("OPENKAI2-LOOK 1 99 0", theme, accent, pasted) && !parse_look_code("hello", theme, accent, pasted) &&
+                            !parse_look_code(look_code(0, 0, custom).substr(0, 30), theme, accent, pasted),
+                        "A broken launcher look was accepted");
+                require(theme_count >= 20u && accent_count >= 27u, "Themes or accent colors are missing");
                 custom[4] = 0x1000000;
                 require(!valid_custom_colors(custom), "An impossible color was accepted");
             }
