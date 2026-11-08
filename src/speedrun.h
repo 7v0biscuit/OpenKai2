@@ -56,6 +56,7 @@ struct GuestState {
     bool main_menu = false;
     bool press_start = false;
     bool title_menu = false;
+    bool tournament = false, tiers = false, entrants = false, bracket = false, champion = false;
     int32_t result = 0;
     uint32_t reason = 0;
     bool health_known = false;
@@ -77,8 +78,6 @@ class Timer {
   public:
     explicit Timer(Category category = Category::any) : category_(category) {}
     Category category() const { return category_; }
-    // Tournament timing uses explicit controls until its exact menu/finish frames
-    // have been validated. Round results alone do not identify the final round.
     Event start(double real, uint64_t fields);
     Event split(double real, uint64_t fields);
     Event finish(double real, uint64_t fields);
@@ -108,6 +107,10 @@ class Timer {
     bool fight_live_ = false, fight_lost_ = false;
     float fight_player_ = 0, fight_opponent_ = 0;
     uint32_t fight_reason_ = 0;
+    bool tiers_ = false, entrants_ = false, bracket_ = false, champion_ = false, pending_ = false;
+    Split pending_split_;
+    int track_fight(const GuestState &state);
+    std::vector<Event> update_tournament(const GuestState &state, double real, uint64_t fields);
 };
 
 std::string format_time(double seconds, bool hundredths = true);

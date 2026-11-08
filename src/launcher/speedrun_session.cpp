@@ -25,10 +25,15 @@ std::filesystem::path SpeedrunCards::prepare(const std::filesystem::path &card, 
         ("session-" + std::to_string(stamp) + "-" + std::to_string(sequence++));
     std::filesystem::create_directories(directory_ / "mc0");
     if (!profile.new_save) {
-        const auto copy = [](const auto &from, const auto &to) {
-            if (std::filesystem::is_directory(from))
-                std::filesystem::copy(from, to, std::filesystem::copy_options::recursive |
-                                               std::filesystem::copy_options::skip_symlinks);
+        const auto copy = [](const std::filesystem::path &from, const std::filesystem::path &to) {
+            if (!std::filesystem::is_directory(from))
+                return;
+            std::filesystem::create_directories(to);
+            for (const auto &entry : std::filesystem::directory_iterator(from))
+                if (!entry.is_symlink())
+                    std::filesystem::copy(entry.path(), to / entry.path().filename(),
+                                          std::filesystem::copy_options::recursive |
+                                              std::filesystem::copy_options::skip_symlinks);
         };
         copy(card, directory_ / "mc0");
         copy(card.parent_path() / "mc1", directory_ / "mc1");

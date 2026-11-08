@@ -294,6 +294,56 @@ void categories() {
                 format_time(3600.125,3u) == "1:00:00.125", "Millisecond formatting is wrong");
 }
 
+void times_tournaments_automatically() {
+    Guest guest;
+    Timer timer(Category::tournament_novice);
+    guest.tasks({"TENK_SYS", "FG_NOVICE"});
+    require(timer.update(guest.read(), 1.0, 60).empty() && timer.phase() == Phase::waiting, "Tier select started the timer");
+    guest.tasks({"TENK_SYS", "# SEL_CHAR #"});
+    require(timer.update(guest.read(), 2.0, 120).empty(), "Character select started the timer");
+    guest.tasks({"TENK_SYS", "FG_ICON", "FG_PID"});
+    require(has(timer.update(guest.read(), 10.0, 600), Event::started), "Confirming the character did not start the timer");
+    guest.tasks({"TMAP_SYS"});
+    require(timer.update(guest.read(), 12.0, 720).empty(), "Opening bracket recorded a split");
+    const auto match = [&](double begin, double end, float player, float opponent) {
+        guest.tasks({"[BTL] MAIN"});
+        guest.battle(false, 0, uint32_t(-1));
+        guest.health(3000, 3000);
+        timer.update(guest.read(), begin, uint64_t(begin * 60));
+        guest.health(player, opponent);
+        guest.battle(true, 1, 6u);
+        return timer.update(guest.read(), end, uint64_t(end * 60));
+    };
+    require(match(20.0, 40.0, 1500, 0).empty(), "A match end counted before the bracket confirmed it");
+    guest.tasks({"TMAP_SYS"});
+    require(has(timer.update(guest.read(), 45.0, 2700), Event::battle_won) && timer.wins().back().real == 30.0,
+            "Round split is not at the end of the match");
+    require(match(50.0, 70.0, 1200, 1100).empty(), "A ring-out ended the run");
+    guest.tasks({"TMAP_SYS"});
+    require(has(timer.update(guest.read(), 75.0, 4500), Event::battle_won) && timer.wins().size() == 2, "Ring-out win was not split");
+    match(80.0, 95.0, 300, 0);
+    guest.tasks({"MTM_CLEAR"});
+    const auto finished = timer.update(guest.read(), 110.0, 6600);
+    require(has(finished, Event::finished) && timer.phase() == Phase::finished && timer.result().real == 85.0 &&
+                timer.wins().size() == 3,
+            "Champion scene did not finish on the final match");
+    require(timer.update(guest.read(), 120.0, 7200).empty() && timer.real(200.0) == 85.0, "Finished tournament kept changing");
+    guest.tasks({"TENK_SYS", "FG_ICON"});
+    require(has(timer.update(guest.read(), 130.0, 7800), Event::restarted) && timer.wins().empty(), "New tournament did not restart");
+    require(match(140.0, 150.0, 0, 900).empty() && timer.phase() == Phase::running, "Fighter health decided a tournament match");
+    guest.tasks({"TENK_SYS", "FG_NOVICE"});
+    require(has(timer.update(guest.read(), 160.0, 9600), Event::died) && timer.phase() == Phase::waiting,
+            "Returning to the tier select did not end the run");
+    guest.tasks({"TENK_SYS", "FG_ICON"});
+    timer.update(guest.read(), 165.0, 9900);
+    guest.tasks({"MOKUJI"});
+    require(has(timer.update(guest.read(), 170.0, 10200), Event::died), "Leaving the tournament did not end the run");
+    guest.tasks({"TENK_SYS", "FG_ICON"});
+    timer.update(guest.read(), 180.0, 10800);
+    require(timer.split(190.0, 11400) == Event::battle_won && timer.finish(200.0, 12000) == Event::finished,
+            "Manual override stopped working");
+}
+
 void edits_splits() {
     double t = 0;
     require(parse_time("1:02.50", t) && std::abs(t - 62.5) < 1e-9, "m:ss.cc not parsed");
@@ -444,6 +494,7 @@ int main() {
         knockouts_decide_dragon_world_fights();
         formats();
         categories();
+        times_tournaments_automatically();
         edits_splits();
         checks();
         splits();

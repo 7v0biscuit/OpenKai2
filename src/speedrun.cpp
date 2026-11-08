@@ -94,6 +94,16 @@ GuestState read_guest(const uint8_t *rdram, size_t bytes) {
             state.game_over = true;
         else if (starts(name, "#[DW STAFF]"))
             state.credits = true;
+        else if (name == "TENK_SYS")
+            state.tournament = true;
+        else if (name == "FG_NOVICE")
+            state.tiers = true;
+        else if (name == "FG_ICON")
+            state.entrants = true;
+        else if (name == "TMAP_SYS")
+            state.bracket = true;
+        else if (name == "MTM_CLEAR")
+            state.champion = true;
         else if (starts(name, "[BTL]"))
             state.battle = true;
         else if (name == "MOKUJI")
@@ -167,27 +177,7 @@ Event Timer::split(double real, uint64_t fields) {
     return Event::battle_won;
 }
 
-std::vector<Event> Timer::update(const GuestState &state, double real, uint64_t fields) {
-    std::vector<Event> events;
-    if (tournament(category_))
-        return events;
-    const bool fresh = !tournament(category_) && state.intro && !intro_;
-    if (fresh) {
-        events.push_back(phase_ == Phase::waiting ? Event::started : Event::restarted);
-        phase_ = Phase::running;
-        start_real_ = real;
-        start_fields_ = fields;
-        wins_.clear();
-        final_ = {};
-        losses_ = 0;
-        last_loss_.clear();
-    }
-    if (state.dragon_world || state.intro)
-        dragon_world_ = true;
-    else if (state.main_menu || state.title_menu || state.press_start)
-        dragon_world_ = false;
-    if (state.battle)
-        last_battle_ = real;
+int Timer::track_fight(const GuestState &state) {
     if (state.battle && !state.battle_over && !fight_live_) {
         fight_live_ = state.health_known;
         fight_lost_ = false;
@@ -207,6 +197,72 @@ std::vector<Event> Timer::update(const GuestState &state, double real, uint64_t 
         else if (fight_reason_ == timeout_reason)
             fight = fight_player_ < fight_opponent_ ? -1 : fight_player_ > fight_opponent_ ? 1 : 0;
     }
+    return fight;
+}
+
+std::vector<Event> Timer::update_tournament(const GuestState &state, double real, uint64_t fields) {
+    std::vector<Event> events;
+    const bool tiers = state.tiers && !tiers_, entrants = state.entrants && !entrants_;
+    const bool bracket = state.bracket && !bracket_, champion = state.champion && !champion_;
+    const bool decided = state.battle && state.battle_over && !battle_over_;
+    bool fresh = false;
+    if (entrants && phase_ != Phase::running) {
+        events.push_back(start(real, fields));
+        pending_ = false;
+        fresh = true;
+    }
+    if (phase_ == Phase::running && !fresh) {
+        if (decided) {
+            pending_ = true;
+            pending_split_ = {this->real(real), game(fields)};
+        }
+        if (pending_ && (bracket || state.champion)) {
+            wins_.push_back(pending_split_);
+            pending_ = false;
+            events.push_back(Event::battle_won);
+        }
+        if (champion && !wins_.empty()) {
+            final_ = wins_.back();
+            phase_ = Phase::finished;
+            events.push_back(Event::finished);
+        } else if (tiers || state.main_menu || state.title_menu || state.press_start) {
+            ++losses_;
+            last_loss_ = pending_ ? "lost a tournament match" : "left the tournament";
+            events.push_back(Event::died);
+            phase_ = Phase::waiting;
+            pending_ = false;
+        }
+    }
+    tiers_ = state.tiers;
+    entrants_ = state.entrants;
+    bracket_ = state.bracket;
+    champion_ = state.champion;
+    battle_over_ = state.battle_over;
+    return events;
+}
+
+std::vector<Event> Timer::update(const GuestState &state, double real, uint64_t fields) {
+    if (tournament(category_))
+        return update_tournament(state, real, fields);
+    std::vector<Event> events;
+    const bool fresh = !tournament(category_) && state.intro && !intro_;
+    if (fresh) {
+        events.push_back(phase_ == Phase::waiting ? Event::started : Event::restarted);
+        phase_ = Phase::running;
+        start_real_ = real;
+        start_fields_ = fields;
+        wins_.clear();
+        final_ = {};
+        losses_ = 0;
+        last_loss_.clear();
+    }
+    if (state.dragon_world || state.intro)
+        dragon_world_ = true;
+    else if (state.main_menu || state.title_menu || state.press_start)
+        dragon_world_ = false;
+    if (state.battle)
+        last_battle_ = real;
+    const int fight = track_fight(state);
     const int outcome = state.result == 1 ? 1 : state.result == -1 ? -1 : 0;
     bool won = false, lost = false;
     if (fresh) {

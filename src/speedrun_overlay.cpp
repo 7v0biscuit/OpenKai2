@@ -245,8 +245,6 @@ struct Overlay {
         const double previous_real = timer.real(now);
         auto events = timer.update(state, now, fields);
         if (tournament(options.category)) {
-            // F9 is otherwise reserved for loading states, which is disabled in runs.
-            // Only one timing action is accepted per host frame.
             const auto event = IsKeyPressed(KEY_F9) ? timer.start(now, fields)
                              : IsKeyPressed(KEY_F11) ? timer.finish(now, fields)
                              : IsKeyPressed(KEY_F10) ? timer.split(now, fields) : Event::none;
@@ -280,7 +278,7 @@ struct Overlay {
                 const auto result = timer.result();
                 note("run " + std::to_string(runs) + " finished  real " + format_time(result.real, options.decimals) + "  ps2 " +
                      format_time(result.game, options.decimals) + "  battles " + std::to_string(timer.wins().size()) +
-                     (flags.empty() ? (tournament(options.category) ? "  manual timing" : "  verified") : "  flagged"));
+                     (flags.empty() ? "  verified" : "  flagged"));
                 save(true, result.real, timer.wins());
                 if (livesplit) {
                     livesplit->send("setgametime " + format_time(result.game, options.decimals));
@@ -292,6 +290,11 @@ struct Overlay {
             case Event::died:
                 note(std::string(event == Event::died ? "game over" : "fight lost (" + timer.last_loss() + ")") + " at " +
                      times(now, fields));
+                if (event == Event::died && tournament(options.category)) {
+                    save(false, previous_real, previous_wins);
+                    if (livesplit)
+                        livesplit->send("reset");
+                }
                 if (options.permadeath && died_at < 0) {
                     died_at = now;
                     save(false, timer.real(now), timer.wins());
@@ -529,7 +532,7 @@ struct Overlay {
             if (!options.permadeath && timer.losses())
                 row.left += "   Lost " + std::to_string(timer.losses());
             row.left_color = grey;
-            row.right = died_at >= 0 ? "Run over" : flags.empty() ? (tournament(options.category) ? "Manual timing" : "Verified") : "Flagged";
+            row.right = died_at >= 0 ? "Run over" : flags.empty() ? "Verified" : "Flagged";
             row.right_color = died_at >= 0 || !flags.empty() ? behind : ahead;
             row.size = 12;
             rows.push_back(row);
@@ -563,7 +566,7 @@ struct Overlay {
                                               : white;
             row.size = 40;
             if (phase == Phase::waiting) {
-                row.left = tournament(options.category) ? "F9 start / F11 finish" : "Start Dragon World";
+                row.left = tournament(options.category) ? "Enter the World Tournament" : "Start Dragon World";
                 row.left_color = faint;
             }
             rows.push_back(row);
@@ -782,7 +785,7 @@ void install_overlay(PS2Runtime &runtime, OverlayOptions options) {
         for (const auto &problem : overlay->options.problems)
             overlay->flag(problem);
         if (tournament(overlay->options.category))
-            overlay->note("manual tournament timing: F9 start/restart, F10 round split, F11 finish; category rules require video review");
+            overlay->note("tournament timing is automatic: starts after confirming Normal or Custom, splits on each match won, finishes on the final match; F9, F10 and F11 override it");
         overlay->watchdog = std::make_unique<Watchdog>();
         overlay->livesplit = std::make_unique<LiveSplit>();
         std::cout << "[speedrun] log=" << overlay->log.path().string()
