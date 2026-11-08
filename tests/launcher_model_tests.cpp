@@ -92,6 +92,12 @@ int main() {
         s.overlayBackground = 4;
         s.overlayMargin = 2;
         s.overlayShape = 1;
+        s.launcherTheme = 3;
+        s.launcherAccent = 7;
+        s.startPage = 1;
+        s.lastPage = 4;
+        s.tabOrder = {5, 0, 3, 6, 1, 2, 4};
+        s.hiddenTabs = (1u << 1u) | (1u << 4u);
         s.overlayTitle = "My \"Any%\" run";
         s.overlaySplitNames = "Raditz, Nappa ,Vegeta";
         s.onlineName = "Son Goku";
@@ -116,7 +122,8 @@ int main() {
                     read.importIso == s.importIso && read.windowLeft == -1200 && read.windowTop == 40 &&
                     read.windowWidth == 1180 && read.windowHeight == 760 && read.windowMaximized &&
                     read.speedrun == 2 && read.permadeath && read.fpsCounter && read.overlayItems == (0x5u | openkai2::speedrun::overlay_required) &&
-                    read.overlayCorner == 3 && read.overlaySize == 3 && read.overlayBackground == 4 && read.overlayMargin == 2 && read.overlayShape == 1 &&
+                    read.overlayCorner == 3 && read.overlaySize == 3 && read.overlayBackground == 4 && read.overlayMargin == 2 && read.overlayShape == 1 && read.launcherTheme == 3 && read.launcherAccent == 7 && read.startPage == 1 && read.lastPage == 4 &&
+                    read.tabOrder == s.tabOrder && read.hiddenTabs == s.hiddenTabs &&
                     read.overlayTitle == "My \"Any%\" run" && read.overlaySplitNames == "Raditz, Nappa ,Vegeta" &&
                     read.overlaySplits == 3 && read.onlineName == "Son Goku" &&
                     read.onlineAddress == "203.0.113.7" && read.onlinePort == 7351 && read.onlineDelay == 4 &&
@@ -158,6 +165,36 @@ int main() {
                     "Run checks could be turned off in the settings file");
         }
         require(read_settings(root / "absent.ini").fps == 240, "Default frame rate cap is not 240 FPS");
+        {
+            using namespace openkai2::launcher;
+            const auto ember = make_theme(0, 0);
+            require(ember.background == Rgb{9, 11, 19} && ember.accent == Rgb{255, 136, 28} && ember.buttonTop == Rgb{255, 186, 70} &&
+                        ember.buttonInk == Rgb{36, 16, 4},
+                    "The default theme changed the original launcher colors");
+            for (unsigned theme = 0; theme < theme_count; ++theme)
+                for (unsigned accent = 0; accent < accent_count; ++accent) {
+                    const auto look = make_theme(theme, accent);
+                    require(luminance(look.ink) > luminance(look.panel) + 150u && luminance(look.muted) > luminance(look.panel) + 60u,
+                            "A launcher theme made text hard to read");
+                    const unsigned onButton = luminance(look.buttonInk), button = luminance(look.buttonBottom);
+                    require((onButton > button ? onButton - button : button - onButton) > 70u, "A launcher accent made button text hard to read");
+                }
+            require(valid_tab_order({5, 0, 3, 6, 1, 2, 4}, (1u << 2u) | (1u << 6u)) && !valid_tab_order({0, 0, 1, 2, 3, 4, 5}, 0u) &&
+                        !valid_tab_order({0, 1, 2, 3, 4, 5, 6}, 1u) && !valid_tab_order({0, 1, 2, 3, 4, 5, 6}, 1u << 5u),
+                    "Tab order validation accepted a broken order or a hidden Play or Settings tab");
+            {
+                std::ofstream old(root / "old-tabs.ini");
+                old << "version 1\nlauncher_tabs 5 0 3 1 2 4 4\n";
+            }
+            const auto upgraded = read_settings(root / "old-tabs.ini");
+            require(upgraded.tabOrder == std::array<unsigned, tab_count>{5, 0, 3, 1, 2, 4, 6} && upgraded.hiddenTabs == 4u,
+                    "A tab order saved before the Updates tab did not load");
+            Settings broken;
+            broken.hiddenTabs = 1u;
+            bool refused = false;
+            try { write_settings(root / "broken.ini", broken); } catch (const std::exception &) { refused = true; }
+            require(refused, "Hiding the Play tab was accepted");
+        }
         require(read_settings(root / "absent.ini").audio && read_settings(root / "absent.ini").volume == 100,
                 "Game audio is not on at full volume by default");
         s.volume = 101;

@@ -31,6 +31,9 @@ void validate_settings(const Settings &s) {
         s.onlineAddress.size() > 255 || s.onlineRoom.size() > 64 || s.onlinePassword.size() > 64 ||
         s.onlineLobby.size() > 255 || s.onlineProfiles.size() > 32)
         throw std::runtime_error("Invalid online settings");
+    if (s.launcherTheme >= theme_count || s.launcherAccent >= accent_count || s.startPage > 1 || s.lastPage >= tab_count ||
+        !valid_tab_order(s.tabOrder, s.hiddenTabs))
+        throw std::runtime_error("Invalid launcher appearance settings");
 }
 Settings read_settings(const std::filesystem::path &file) {
     Settings s;
@@ -105,6 +108,21 @@ Settings read_settings(const std::filesystem::path &file) {
             row >> std::quoted(s.renderer);
         else if (key == "launcher_window")
             row >> s.windowLeft >> s.windowTop >> s.windowWidth >> s.windowHeight >> s.windowMaximized;
+        else if (key == "launcher_look")
+            row >> s.launcherTheme >> s.launcherAccent >> s.startPage >> s.lastPage;
+        else if (key == "launcher_tabs") {
+            std::vector<unsigned> values;
+            for (unsigned value = 0; row >> value;)
+                values.push_back(value);
+            row.clear();
+            if (values.size() == tab_count) {
+                values.insert(values.end() - 1, tab_count - 1u);
+            }
+            if (values.size() != tab_count + 1u)
+                throw std::runtime_error("Invalid settings value: " + key);
+            std::copy(values.begin(), values.begin() + tab_count, s.tabOrder.begin());
+            s.hiddenTabs = values.back();
+        }
         else if (key == "speedrun")
             row >> s.speedrun >> s.permadeath;
         else if (key == "fps_counter")
@@ -190,7 +208,9 @@ void write_settings(const std::filesystem::path &file, const Settings &s) {
         << "\nupdate_channel " << s.updateChannel << "\nrenderer " << std::quoted(s.renderer)
         << "\ndiscord_presence " << s.discordPresence << "\nimport_iso " << std::quoted(path_utf8(s.importIso))
         << "\nlauncher_window " << s.windowLeft << ' ' << s.windowTop << ' ' << s.windowWidth << ' '
-        << s.windowHeight << ' ' << s.windowMaximized << "\nspeedrun " << s.speedrun << ' ' << s.permadeath
+        << s.windowHeight << ' ' << s.windowMaximized << "\nlauncher_look " << s.launcherTheme << ' ' << s.launcherAccent << ' ' << s.startPage << ' ' << s.lastPage
+        << "\nlauncher_tabs " << s.tabOrder[0] << ' ' << s.tabOrder[1] << ' ' << s.tabOrder[2] << ' ' << s.tabOrder[3] << ' '
+        << s.tabOrder[4] << ' ' << s.tabOrder[5] << ' ' << s.tabOrder[6] << ' ' << s.hiddenTabs << "\nspeedrun " << s.speedrun << ' ' << s.permadeath
         << "\nfps_counter " << s.fpsCounter << "\noverlay " << s.overlayItems << ' ' << s.overlayCorner << ' '
         << s.overlaySize << ' ' << s.overlayBackground << ' ' << s.overlaySplits << "\noverlay_style "
         << s.overlayColors[0] << ' ' << s.overlayColors[1] << ' ' << s.overlayColors[2] << ' ' << s.overlayColors[3] << ' '

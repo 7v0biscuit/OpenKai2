@@ -59,13 +59,30 @@
 
 namespace openkai2::launcher {
 namespace {
-constexpr COLORREF background = RGB(9, 11, 19), sidebar = RGB(12, 14, 24), panel = RGB(17, 20, 33);
-constexpr COLORREF field = RGB(22, 26, 42), raised = RGB(29, 34, 53), hover = RGB(39, 45, 69);
-constexpr COLORREF border = RGB(35, 41, 61), ink = RGB(242, 238, 230), muted = RGB(148, 153, 174);
-constexpr COLORREF faint = RGB(86, 93, 117), orange = RGB(255, 136, 28), gold = RGB(255, 204, 86);
+COLORREF background = RGB(9, 11, 19), sidebar = RGB(12, 14, 24), panel = RGB(17, 20, 33);
+COLORREF field = RGB(22, 26, 42), raised = RGB(29, 34, 53), hover = RGB(39, 45, 69);
+COLORREF border = RGB(35, 41, 61), ink = RGB(242, 238, 230), muted = RGB(148, 153, 174);
+COLORREF faint = RGB(86, 93, 117), orange = RGB(255, 136, 28), gold = RGB(255, 204, 86);
 constexpr COLORREF red = RGB(255, 112, 102), green = RGB(98, 214, 152);
-constexpr COLORREF ember = RGB(255, 112, 24), sky = RGB(70, 110, 255);
-constexpr COLORREF heroFrom = RGB(64, 24, 8), heroTo = RGB(15, 17, 31);
+COLORREF ember = RGB(255, 112, 24);
+constexpr COLORREF sky = RGB(70, 110, 255);
+COLORREF heroFrom = RGB(64, 24, 8), heroTo = RGB(15, 17, 31);
+COLORREF buttonTop = RGB(255, 186, 70), buttonBottom = RGB(250, 126, 22), buttonHotTop = RGB(255, 214, 110),
+         buttonHotBottom = RGB(255, 150, 44), buttonPressedTop = RGB(236, 120, 22), buttonPressedBottom = RGB(214, 96, 14),
+         buttonShine = RGB(255, 245, 214), buttonInk = RGB(36, 16, 4);
+COLORREF colorOf(Rgb c) { return RGB(c.r, c.g, c.b); }
+void apply_theme(unsigned choice, unsigned accent) {
+    const auto t = make_theme(choice, accent);
+    background = colorOf(t.background); sidebar = colorOf(t.sidebar); panel = colorOf(t.panel);
+    field = colorOf(t.field); raised = colorOf(t.raised); hover = colorOf(t.hover); border = colorOf(t.border);
+    ink = colorOf(t.ink); muted = colorOf(t.muted); faint = colorOf(t.faint);
+    orange = colorOf(t.accent); gold = colorOf(t.highlight); ember = colorOf(t.glow);
+    heroFrom = colorOf(t.heroFrom); heroTo = colorOf(t.heroTo);
+    buttonTop = colorOf(t.buttonTop); buttonBottom = colorOf(t.buttonBottom);
+    buttonHotTop = colorOf(t.buttonHotTop); buttonHotBottom = colorOf(t.buttonHotBottom);
+    buttonPressedTop = colorOf(t.buttonPressedTop); buttonPressedBottom = colorOf(t.buttonPressedBottom);
+    buttonShine = RGB(255, 245, 214); buttonInk = colorOf(t.buttonInk);
+}
 
 constexpr int sidebarWidth = 220, contentLeft = 252, margin = 32;
 constexpr int heroTop = 124, heroBottom = 316, discTop = 332, discBottom = 420;
@@ -81,6 +98,7 @@ enum Id {
     ModsTab,
     SavesTab,
     SettingsTab,
+    UpdatesTab,
     ChooseIso = 110,
     VerifyIso,
     Play,
@@ -198,11 +216,23 @@ enum Id {
     OverlayMargin,
     OverlayShape,
     OverlayTitle,
-    OverlayNames
+    OverlayNames,
+    TabList,
+    TabUp,
+    TabDown,
+    TabToggle,
+    TabDefaults,
+    CloseTabs,
+    ArrangeTabs,
+    LauncherTheme,
+    LauncherAccent,
+    StartPage,
+    ShortcutFirst,
+    ShortcutLast = ShortcutFirst + 6
 };
-constexpr int friendsTop = 462;
-constexpr int pageCount = 6, onlinePage = 1, speedrunPage = 2, modsPage = 3, savesPage = 4, settingsPage = 5, importPage = 6,
-              overlayPage = 7;
+constexpr int tabStep = 52, tabHeight = 46;
+constexpr int pageCount = 7, onlinePage = 1, speedrunPage = 2, modsPage = 3, savesPage = 4, settingsPage = 5, updatesPage = 6,
+              importPage = 7, overlayPage = 8, tabsPage = 9;
 constexpr std::array<unsigned, 4> audioVolumes{100u, 75u, 50u, 25u};
 int audioChoice(const Settings &settings) {
     if (!settings.audio)
@@ -518,12 +548,12 @@ struct SettingsGrid : Grid {
     int header, rowHeight, gap, controlHeight, fieldGap;
     int displayTop = 112, graphicsTop, gameTop, updatesTop;
     SettingsGrid(int width, int height) : Grid(width) {
-        const bool compact = height < 778;
-        header = compact ? (height < 660 ? 36 : 40) : 44;
-        rowHeight = compact ? 48 : 56;
-        gap = compact && height >= 660 ? 10 : 6;
-        controlHeight = compact ? 30 : 34;
-        fieldGap = compact ? 16 : 18;
+        const bool compact = height < 778, tight = height < 700;
+        header = tight ? 34 : compact ? 40 : 44;
+        rowHeight = tight ? 44 : compact ? 48 : 56;
+        gap = tight ? 6 : compact ? 8 : 10;
+        controlHeight = tight ? 28 : compact ? 30 : 34;
+        fieldGap = tight ? 15 : compact ? 16 : 18;
         gameTop = bottom(displayTop, 2) + gap;
         graphicsTop = bottom(gameTop, 2) + gap;
         updatesTop = bottom(graphicsTop, 2) + gap;
@@ -656,7 +686,22 @@ struct Window {
     bool trayAdded = false, wasRunning = false;
     int p(int n) const { return MulDiv(n, int(dpi), 96); }
     int unscale(int n) const { return MulDiv(n, 96, int(dpi)); }
-    int navigationPage() const { return page == importPage ? modsPage : page == overlayPage ? speedrunPage : page; }
+    int navigationPage() const {
+        return page == importPage ? modsPage : page == overlayPage ? speedrunPage : page == tabsPage ? settingsPage : page;
+    }
+    std::vector<int> visibleTabs() const {
+        std::vector<int> shown;
+        for (unsigned tab : settings.tabOrder)
+            if (!((settings.hiddenTabs >> tab) & 1u))
+                shown.push_back(int(tab));
+        return shown;
+    }
+    int friendsTop() const { return 104 + int(visibleTabs().size()) * tabStep + 22; }
+    int tabSlot(int tab) const {
+        const auto shown = visibleTabs();
+        const auto found = std::find(shown.begin(), shown.end(), tab);
+        return found == shown.end() ? -1 : int(found - shown.begin());
+    }
     bool busy() const { return task.valid(); }
     bool updating() const { return updateTask.valid(); }
     bool running() const { return child || externalGame; }
@@ -743,21 +788,21 @@ struct Window {
             fill(dc, r, fallback);
     }
     void emberFill(HDC dc, RECT r, int radius, bool pressed, bool hot) {
-        const COLORREF from = pressed ? RGB(236, 120, 22) : hot ? RGB(255, 214, 110) : RGB(255, 186, 70);
-        const COLORREF to = pressed ? RGB(214, 96, 14) : hot ? RGB(255, 150, 44) : RGB(250, 126, 22);
+        const COLORREF from = pressed ? buttonPressedTop : hot ? buttonHotTop : buttonTop;
+        const COLORREF to = pressed ? buttonPressedBottom : hot ? buttonHotBottom : buttonBottom;
         const int height = std::max(1L, r.bottom - r.top);
         if (cutShape(dc, r, cut(radius), [&](int, int y) {
-                return y == r.top ? mix(from, RGB(255, 245, 214), 150) : mix(from, to, (y - r.top) * 255 / height);
+                return y == r.top ? mix(from, buttonShine, 150) : mix(from, to, (y - r.top) * 255 / height);
             }, std::nullopt))
             return;
         auto region = cutRegion(r, cut(radius));
         SelectClipRgn(dc, region);
-        const COLORREF top = pressed ? RGB(236, 120, 22) : hot ? RGB(255, 214, 110) : RGB(255, 186, 70);
-        const COLORREF bottom = pressed ? RGB(214, 96, 14) : hot ? RGB(255, 150, 44) : RGB(250, 126, 22);
+        const COLORREF top = pressed ? buttonPressedTop : hot ? buttonHotTop : buttonTop;
+        const COLORREF bottom = pressed ? buttonPressedBottom : hot ? buttonHotBottom : buttonBottom;
         const int span = std::max(1L, r.bottom - r.top);
         for (int y = r.top; y < r.bottom; ++y)
             fill(dc, {r.left, y, r.right, y + 1}, mix(top, bottom, (y - r.top) * 255 / span));
-        fill(dc, {r.left, r.top, r.right, r.top + 1}, mix(top, RGB(255, 245, 214), 150));
+        fill(dc, {r.left, r.top, r.right, r.top + 1}, mix(top, buttonShine, 150));
         SelectClipRgn(dc, nullptr);
         DeleteObject(region);
     }
@@ -842,6 +887,9 @@ struct Window {
             ShowWindow(c, visible ? SW_SHOWNA : SW_HIDE);
     }
     void initialize() {
+        apply_theme(settings.launcherTheme, settings.launcherAccent);
+        if (settings.startPage && settings.lastPage < tab_count && !((settings.hiddenTabs >> settings.lastPage) & 1u))
+            page = int(settings.lastPage);
         if (!settings.discordPresence) {
             settings.discordPresence = true;
             try {
@@ -876,6 +924,7 @@ struct Window {
                                                           {SaveReport, L"Disc report…"},
                                                           {CloseImporter, L"Back to mods"},
                                                           {SettingsTab, L"Settings"},
+                                                          {UpdatesTab, L"Updates"},
                                                           {OnlineTab, L"Online"},
                                                           {SpeedrunTab, L"Speedrun"},
                                                           {HostGame, L"Host room"},
@@ -895,6 +944,12 @@ struct Window {
                                                           {TextureFolder, L"Open texture folder"},
                                                           {OpenOverlay, L"Customize overlay…"},
                                                           {CloseOverlay, L"Back to speedrun"},
+                                                          {CloseTabs, L"Back to settings"},
+                                                          {TabUp, L"Move up"},
+                                                          {TabDown, L"Move down"},
+                                                          {TabToggle, L"Show / hide"},
+                                                          {TabDefaults, L"Restore order"},
+                                                          {ArrangeTabs, L"Arrange tabs…"},
                                                           {OverlayToggle, L"Show / hide"},
                                                           {OverlayDefaults, L"Restore defaults"},
                                                           {ClearImage, L"Crisp"},
@@ -1012,6 +1067,17 @@ struct Window {
               audioChoice(settings));
         combo(CpuDifficulty, {L"Game setting", L"Z1", L"Z2", L"Z3", L"Z4", L"Z5", L"Z6"}, int(std::min(settings.cpuDifficulty, 6u)));
         combo(UpdateChannel, {L"Stable", L"Stable and prerelease"}, int(settings.updateChannel));
+        {
+            std::vector<std::wstring> names, colors;
+            for (const auto &theme : themes)
+                names.push_back(theme.name);
+            for (const auto &accent : accents)
+                colors.push_back(accent.name);
+            combo(LauncherTheme, names, int(std::min(settings.launcherTheme, theme_count - 1u)));
+            combo(LauncherAccent, colors, int(std::min(settings.launcherAccent, accent_count - 1u)));
+        }
+        combo(StartPage, {L"Play", L"Last page used"}, int(std::min(settings.startPage, 1u)));
+        list(TabList, L"Tabs", 40, false);
         combo(AutomaticUpdates, {L"Off", L"On"}, settings.autoUpdates ? 1 : 0);
         combo(TargetMod, {}, 0);
         combo(SpotMode, {L"Share a spot (R2 switches)", L"Add a new spot"}, 0);
@@ -1132,17 +1198,19 @@ struct Window {
         GetClientRect(hwnd, &rect);
         const int w = unscale(rect.right), h = unscale(rect.bottom);
         const int content = w - contentLeft - margin, right = contentLeft + content;
-        std::vector<int> order{PlayTab, OnlineTab, SpeedrunTab, ModsTab, SavesTab, SettingsTab};
+        std::vector<int> order{PlayTab, OnlineTab, SpeedrunTab, ModsTab, SavesTab, SettingsTab, UpdatesTab};
         std::map<int, Placement> plan;
         planning = &plan;
         auto position = [&](int id, int x, int y, int width, int height) {
             place(id, x, y, width, height);
             order.push_back(id);
         };
-        for (int i = 0; i < pageCount; ++i)
-            place(PlayTab + i, 12, 104 + i * 58, sidebarWidth - 24, 50);
+        for (int i = 0; i < pageCount; ++i) {
+            const int slot = tabSlot(i);
+            place(PlayTab + i, 12, 104 + std::max(slot, 0) * tabStep, sidebarWidth - 24, tabHeight, slot >= 0);
+        }
         if (!friendRows.empty())
-            position(FriendList, 12, friendsTop + 30, sidebarWidth - 24, std::max(32, h - 56 - friendsTop - 30));
+            position(FriendList, 12, friendsTop() + 30, sidebarWidth - 24, std::max(32, h - 56 - friendsTop() - 30));
         if (hasNotice()) {
             position(NoticeDecline, contentLeft + content - 96, 64, 96, 30);
             position(NoticeAccept, contentLeft + content - 96 - 10 - 96, 64, 96, 30);
@@ -1262,6 +1330,23 @@ struct Window {
             position(OverlayShape, side, row(5), column, height);
             position(OverlayTitle, side + column + 12, row(5), column, height);
             position(OverlayNames, side, row(6), column * 2 + 12, height);
+        } else if (page == updatesPage) {
+            const Grid grid(content);
+            const int half = (grid.column - 10) / 2;
+            position(UpdateChannel, grid.x(0), Grid::field(236, 0), grid.column, 34);
+            position(AutomaticUpdates, grid.x(1), Grid::field(236, 0), grid.column, 34);
+            position(CheckUpdates, grid.x(2), Grid::field(236, 0), half, 34);
+            position(InstallUpdate, grid.x(2) + half + 10, Grid::field(236, 0), grid.column - half - 10, 34);
+            position(ReleasePage, right - 20 - 130, 136, 130, 34);
+        } else if (page == tabsPage) {
+            const int panelBottom = h - 64, listWidth = std::min(420, content - 40 - 180);
+            position(CloseTabs, right - 20 - 150, 136, 150, 34);
+            position(TabList, contentLeft + 20, 228, listWidth, std::min(int(tab_count) * 40 + 4, panelBottom - 20 - 228));
+            const int side = contentLeft + 20 + listWidth + 20;
+            position(TabUp, side, 228, 150, 34);
+            position(TabDown, side, 272, 150, 34);
+            position(TabToggle, side, 316, 150, 34);
+            position(TabDefaults, side, 380, 150, 34);
         } else if (page == importPage) {
             const int listsBottom = h - 210, targetTop = listsBottom + 12;
             int x = contentLeft + 20;
@@ -1313,13 +1398,11 @@ struct Window {
             position(HdTextures, grid.x(1), grid.field(gameTop, 0), grid.column, grid.controlHeight);
             position(Music, grid.x(2), grid.field(gameTop, 0), grid.column, grid.controlHeight);
             position(FpsCounter, grid.x(0), grid.field(gameTop, 1), grid.column, grid.controlHeight);
-            position(TextureFolder, right - 20 - 170, gameTop + 10, 170, 28);
-            position(UpdateChannel, grid.x(0), grid.field(updatesTop, 0), grid.column, grid.controlHeight);
-            position(AutomaticUpdates, grid.x(1), grid.field(updatesTop, 0), grid.column, grid.controlHeight);
-            position(CheckUpdates, grid.x(2), grid.field(updatesTop, 0), half, grid.controlHeight);
-            position(InstallUpdate, grid.x(2) + half + 10, grid.field(updatesTop, 0),
-                     grid.column - half - 10, grid.controlHeight);
-            position(ReleasePage, right - 20 - 116, updatesTop + 10, 116, 28);
+            position(TextureFolder, right - 20 - 170, gameTop + (grid.header - 28) / 2, 170, 28);
+            position(LauncherTheme, grid.x(0), grid.field(updatesTop, 0), grid.column, grid.controlHeight);
+            position(LauncherAccent, grid.x(1), grid.field(updatesTop, 0), grid.column, grid.controlHeight);
+            position(StartPage, grid.x(2), grid.field(updatesTop, 0), grid.column, grid.controlHeight);
+            position(ArrangeTabs, right - 20 - 140, updatesTop + (grid.header - 28) / 2, 140, 28);
 
         }
         planning = nullptr;
@@ -1364,8 +1447,8 @@ struct Window {
         buffer.frame.ball(p(38), p(48), p(15), {0, 0, p(sidebarWidth), p(h)});
         lettering(dc, L"OpenKai2", p(64), p(46), fonts.mark, ink, RGB(6, 7, 12), p(1));
         text(dc, L"Budokai 2 for PC", 64, 52, 150, 18, fonts.caption, muted);
-        const int chosen = navigationPage();
-        const RECT row{p(12), p(104 + chosen * 58), p(sidebarWidth - 12), p(154 + chosen * 58)};
+        const int chosen = std::max(tabSlot(navigationPage()), 0);
+        const RECT row{p(12), p(104 + chosen * tabStep), p(sidebarWidth - 12), p(104 + tabHeight + chosen * tabStep)};
         const int span = std::max(1L, row.right - row.left);
         cutShape(dc, row, cut(12), [&](int x, int) {
             return mix(mix(sidebar, orange, 58), mix(sidebar, orange, 14), (x - row.left) * 255 / span);
@@ -1374,23 +1457,23 @@ struct Window {
         fill(dc, accent, orange);
         buffer.frame.halo(accent, 0, p(10), ember, 110);
 
-        line(dc, p(24), p(friendsTop - 6), p(sidebarWidth - 48), border);
-        caps(dc, L"FRIENDS", 24, friendsTop + 6, sidebarWidth - 48);
+        line(dc, p(24), p(friendsTop() - 6), p(sidebarWidth - 48), border);
+        caps(dc, L"FRIENDS", 24, friendsTop() + 6, sidebarWidth - 48);
         const size_t onlineFriends = std::count_if(friendRows.begin(), friendRows.end(), [&](const auto &row) {
             return directory && directory->player(row.first).has_value();
         });
         if (!friendRows.empty()) {
             const auto count = std::to_wstring(onlineFriends) + L" online";
             const int width = measure(dc, count, fonts.caption);
-            text(dc, count, sidebarWidth - 24 - width, friendsTop + 4, width, 18, fonts.caption, onlineFriends ? green : faint,
+            text(dc, count, sidebarWidth - 24 - width, friendsTop() + 4, width, 18, fonts.caption, onlineFriends ? green : faint,
                  DT_LEFT | DT_SINGLELINE | DT_NOPREFIX);
         } else
             text(dc, activeProfile() ? L"Add friends from the Players list on the Online page." : L"Add a profile on the Online page to make friends.",
-                 24, friendsTop + 32, sidebarWidth - 48, 40, fonts.caption, muted, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
+                 24, friendsTop() + 32, sidebarWidth - 48, 40, fonts.caption, muted, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
         text(dc, L"v" + wide(application_version), 24, h - 38, sidebarWidth - 48, 18, fonts.caption, faint);
     }
     void paintHeader(HDC dc, int w, int content) {
-        const wchar_t *titles[] = {L"Play", L"Online", L"Speedrun", L"Mods", L"Saves", L"Settings", L"Import tool", L"Speedrun overlay"};
+        const wchar_t *titles[] = {L"Play", L"Online", L"Speedrun", L"Mods", L"Saves", L"Settings", L"Updates", L"Import tool", L"Speedrun overlay", L"Arrange tabs"};
         const wchar_t *subtitles[] = {
             L"",
             L"Play versus with friends and other players over the internet.",
@@ -1398,8 +1481,10 @@ struct Window {
             L"Characters, movesets and stages layered over your disc. Your ISO is never changed.",
             L"Import, back up and restore your memory card.",
             L"Saved automatically. Game settings apply at the next launch.",
+            L"New versions of OpenKai2, how they are found and when they install.",
             L"Add characters, stages and movesets from other Dragon Ball Z games. Nothing in Budokai 2 is removed.",
-            L"Pick what the in-game overlay shows. Splits, deltas and best times are tracked for you."};
+            L"Pick what the in-game overlay shows. Splits, deltas and best times are tracked for you.",
+            L"Choose the order of the tabs in the sidebar and hide the ones you do not use."};
         lettering(dc, titles[page], p(contentLeft), p(60), fonts.title, ink, RGB(6, 7, 12), p(2));
         if (hasNotice()) {
             const auto message = noticeText();
@@ -1678,6 +1763,76 @@ struct Window {
         status = message;
         error = false;
         InvalidateRect(hwnd, nullptr, FALSE);
+    }
+    void refreshTabs() {
+        const auto list = controls[TabList];
+        const auto chosen = SendMessageW(list, LB_GETCURSEL, 0, 0);
+        SendMessageW(list, LB_RESETCONTENT, 0, 0);
+        for (unsigned tab : settings.tabOrder) {
+            const bool hidden = (settings.hiddenTabs >> tab) & 1u, fixed = (fixed_tabs >> tab) & 1u;
+            const int slot = tabSlot(int(tab));
+            const std::wstring row = std::wstring(hidden ? L"Off" : L"On") + L" \u00b7 " + tab_names[tab] + L" \u00b7 " +
+                                     (hidden ? std::wstring(L"Hidden from the sidebar") : L"Shown, Ctrl+" + std::to_wstring(slot + 1)) +
+                                     (fixed ? L". Always shown." : L"");
+            SendMessageW(list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(row.c_str()));
+        }
+        SendMessageW(list, LB_SETCURSEL, chosen, 0);
+    }
+    void saveLauncherLook(const std::wstring &message) {
+        try {
+            write_settings(settings_path(), settings);
+            status = message;
+            error = false;
+        } catch (const std::exception &failure) {
+            status = wide(failure.what());
+            error = true;
+        }
+    }
+    void restyle() {
+        apply_theme(settings.launcherTheme, settings.launcherAccent);
+        renderFrame();
+        layout();
+        RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_FRAME);
+    }
+    void paintUpdates(HDC dc, int h, int content) {
+        const int right = contentLeft + content;
+        std::wstring message = updateStatus;
+        if (updating()) {
+            std::lock_guard lock(updateProgress->mutex);
+            if (!updateProgress->text.empty())
+                message = updateProgress->text;
+        }
+        panelBox(dc, contentLeft, 124, right, 212);
+        text(dc, L"OpenKai2 v" + wide(application_version), contentLeft + 20, 136, content - 200, 24, fonts.strong);
+        text(dc, release ? L"Version " + wide(release->version) + L" is available." : std::wstring(L"You have this version installed."),
+             contentLeft + 20, 162, content - 200, 18, fonts.caption, release ? gold : muted, DT_LEFT | DT_SINGLELINE | DT_NOPREFIX);
+        text(dc, message, contentLeft + 20, 184, content - 200, 18, fonts.caption, updateError ? red : muted,
+             DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        const Grid grid(content);
+        panelBox(dc, contentLeft, 224, right, 372);
+        text(dc, L"Preferences", contentLeft + 20, 236, content - 40, 22, fonts.strong);
+        caps(dc, L"UPDATE CHANNEL", grid.x(0), Grid::label(236, 0), grid.column);
+        caps(dc, L"AUTOMATIC UPDATES", grid.x(1), Grid::label(236, 0), grid.column);
+        caps(dc, L"MANUAL CHECK", grid.x(2), Grid::label(236, 0), grid.column);
+        text(dc, settings.updateChannel ? L"Stable and prerelease: every published build, including test versions."
+                                        : L"Stable: only versions marked stable.",
+             grid.x(0), 344, content - 40, 18, fonts.caption, muted, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        panelBox(dc, contentLeft, 384, right, std::min(h - 64, 484));
+        text(dc, L"How updates install", contentLeft + 20, 396, content - 40, 22, fonts.strong);
+        text(dc, L"With automatic updates on, the launcher looks for a new version between game sessions. A found update downloads, "
+                 L"is checked against its published SHA-256, and installs after the game closes; your settings, saves and mods are kept. "
+                 L"If GitHub is busy, the launcher tries again a few times.",
+             contentLeft + 20, 422, content - 40, 56, fonts.caption, muted, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
+    }
+    void paintTabs(HDC dc, int h, int content) {
+        const int right = contentLeft + content, panelBottom = h - 64;
+        panelBox(dc, contentLeft, 124, right, 196);
+        text(dc, L"Your sidebar", contentLeft + 20, 136, content - 200, 22, fonts.strong);
+        text(dc, L"Pick a tab, then move it up or down or hide it. Ctrl+1 to Ctrl+7 follow the order shown. "
+                 L"Play and Settings are always shown.",
+             contentLeft + 20, 160, content - 200, 32, fonts.caption, muted, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
+        panelBox(dc, contentLeft, 208, right, panelBottom);
+        caps(dc, L"TABS", contentLeft + 20, 212, 200);
     }
     void paintOverlay(HDC dc, int h, int content) {
         const int right = contentLeft + content, panelBottom = h - 64, half = (content - 52) / 2;
@@ -2070,7 +2225,7 @@ struct Window {
         auto section = [&](int top, int rows, const wchar_t *title, const std::wstring &note, COLORREF tone) {
             panelBox(dc, contentLeft, top, right, grid.bottom(top, rows));
             text(dc, title, contentLeft + 20, top + 12, 200, 22, fonts.strong);
-            const int actions = top == updatesTop ? 130 : top == gameTop ? 190 : 0;
+            const int actions = top == updatesTop ? 160 : top == gameTop ? 190 : 0;
             text(dc, note, contentLeft + 120, top + 14, content - 140 - actions, 18,
                  fonts.caption, tone, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
         };
@@ -2110,16 +2265,10 @@ struct Window {
         label(gameTop, 0, 2, L"MUSIC");
         label(gameTop, 1, 0, L"FPS COUNTER");
 
-        std::wstring message = updateStatus;
-        if (updating()) {
-            std::lock_guard lock(updateProgress->mutex);
-            if (!updateProgress->text.empty())
-                message = updateProgress->text;
-        }
-        section(updatesTop, 1, L"Updates", message, updateError ? red : muted);
-        label(updatesTop, 0, 0, L"CHANNEL");
-        label(updatesTop, 0, 1, L"AUTOMATIC UPDATES");
-        label(updatesTop, 0, 2, L"MANUAL CHECK");
+        section(updatesTop, 1, L"Launcher", L"Colors, tab order and the page the launcher opens on", muted);
+        label(updatesTop, 0, 0, L"THEME");
+        label(updatesTop, 0, 1, L"ACCENT COLOR");
+        label(updatesTop, 0, 2, L"START ON");
     }
     void paintSpeedrun(HDC dc, int h, int content) {
         const int right = contentLeft + content;
@@ -2265,6 +2414,10 @@ struct Window {
             paintImport(memory, h, content);
         else if (page == overlayPage)
             paintOverlay(memory, h, content);
+        else if (page == tabsPage)
+            paintTabs(memory, h, content);
+        else if (page == updatesPage)
+            paintUpdates(memory, h, content);
         else if (page == onlinePage)
             paintOnline(memory, h, content);
         else if (page == speedrunPage)
@@ -2293,7 +2446,7 @@ struct Window {
         return glowing;
     }
     COLORREF surface(int id, const RECT &r) const {
-        if (id >= PlayTab && id <= SettingsTab)
+        if (id >= PlayTab && id <= UpdatesTab)
             return sidebar;
         if (id == Play) {
             const int width = std::max(1, p(contentWidth()));
@@ -2305,7 +2458,7 @@ struct Window {
         return panel;
     }
     void navigationIcon(HDC dc, int id, RECT r, COLORREF color) {
-        const int left = r.left + p(18), top = r.top + p(17), size = p(16);
+        const int size = p(16), left = r.left + p(18), top = r.top + (r.bottom - r.top - size) / 2;
         auto pen = CreatePen(PS_SOLID, p(2), color);
         auto previous = SelectObject(dc, pen);
         auto hollow = SelectObject(dc, GetStockObject(NULL_BRUSH));
@@ -2331,6 +2484,16 @@ struct Window {
             LineTo(dc, left + size / 2, top + p(6));
             MoveToEx(dc, left + size / 2 - p(3), top, nullptr);
             LineTo(dc, left + size / 2 + p(3), top);
+        } else if (id == UpdatesTab) {
+            MoveToEx(dc, left + size / 2, top, nullptr);
+            LineTo(dc, left + size / 2, top + size - p(5));
+            MoveToEx(dc, left + size / 2 - p(5), top + size - p(10), nullptr);
+            LineTo(dc, left + size / 2, top + size - p(5));
+            LineTo(dc, left + size / 2 + p(5) + 1, top + size - p(10) - 1);
+            MoveToEx(dc, left, top + size - p(4), nullptr);
+            LineTo(dc, left, top + size);
+            LineTo(dc, left + size, top + size);
+            LineTo(dc, left + size, top + size - p(5));
         } else if (id == ModsTab) {
             const int half = size / 2 - p(1);
             for (int i = 0; i < 4; ++i) {
@@ -2357,7 +2520,7 @@ struct Window {
             Canvas canvas(item.hDC, r);
             dc = canvas.dc;
             const int id = int(item.CtlID);
-            const bool navigation = id >= PlayTab && id <= SettingsTab;
+            const bool navigation = id >= PlayTab && id <= UpdatesTab;
             const bool chosen = navigation && id == PlayTab + navigationPage();
             const bool primary = id == Play;
             const bool taskChoice = (id == TaskCharacters && importTask == Task::characters) ||
@@ -2375,7 +2538,7 @@ struct Window {
                 label = chosen || hot ? ink : muted;
             } else if (lit) {
                 emberFill(dc, r, primary ? 12 : 10, pressed, hot);
-                label = RGB(36, 16, 4);
+                label = buttonInk;
             } else {
                 const COLORREF color = !enabled ? panel : pressed ? field : hot ? hover : raised;
                 const COLORREF outline = !enabled ? mix(panel, border, 140) : hot ? mix(border, orange, 110) : border;
@@ -2414,11 +2577,11 @@ struct Window {
             if ((item.itemState & ODS_FOCUS) && !(item.itemState & ODS_NOFOCUSRECT) && !chosen) {
                 RECT focus = r;
                 InflateRect(&focus, -p(3), -p(3));
-                SetDCPenColor(dc, lit ? RGB(36, 16, 4) : navigation ? mix(sidebar, orange, 70) : orange);
+                SetDCPenColor(dc, lit ? buttonInk : navigation ? mix(sidebar, orange, 70) : orange);
                 auto pen = SelectObject(dc, GetStockObject(DC_PEN));
                 auto brush = SelectObject(dc, GetStockObject(NULL_BRUSH));
                 if (!cutShape(dc, focus, cut(8), [](int, int) { return COLORREF(0); },
-                              lit ? RGB(36, 16, 4) : navigation ? mix(sidebar, orange, 70) : orange, false)) {
+                              lit ? buttonInk : navigation ? mix(sidebar, orange, 70) : orange, false)) {
                     const auto points = cutCorners(focus, cut(8));
                     Polygon(dc, points.data(), int(points.size()));
                 }
@@ -3378,8 +3541,9 @@ struct Window {
     }
     void timer() {
         presence.enable(true);
-        const char* pages[]={"Choosing a game","Setting up online play","Setting up a speedrun","Managing mods","Managing saves","Configuring settings","Importing mods","Setting up a speedrun"};
-        presence.update(running()?"Playing Budokai 2":"In launcher",running()?"In game":pages[page]);
+        const char* pages[]={"Choosing a game","Setting up online play","Setting up a speedrun","Managing mods","Managing saves","Configuring settings","Checking for updates"};
+        const int shown=std::clamp(navigationPage(),0,int(std::size(pages))-1);
+        presence.update(running()?"Playing Budokai 2":"In launcher",running()?"In game":page==importPage?"Importing mods":pages[shown]);
         if(presence.status()!=lastPresenceStatus && !dropdownOpen()) {
             lastPresenceStatus=presence.status();InvalidateRect(hwnd,nullptr,FALSE);
         }
@@ -3474,7 +3638,7 @@ struct Window {
             }
             const bool idle = std::chrono::steady_clock::now() - lastInput >= std::chrono::seconds(5);
             if (!busy() && !updating() && !running() && staged &&
-                (installRequested || (settings.autoUpdates && idle && (page == 0 || page == settingsPage)))) {
+                (installRequested || (settings.autoUpdates && idle && (page == 0 || page == updatesPage)))) {
                 try { apply_update(*staged); }
                 catch (const std::exception &e) {
                     updateStatus = wide(e.what());
@@ -3490,7 +3654,7 @@ struct Window {
                 return;
             }
         }
-        if (busy() || (updating() && page == settingsPage)) InvalidateRect(hwnd, nullptr, FALSE);
+        if (busy() || (updating() && page == updatesPage)) InvalidateRect(hwnd, nullptr, FALSE);
     }
     std::filesystem::path chooseFallback(bool folder, bool iso, const wchar_t *title) {
         if (folder) {
@@ -4418,12 +4582,19 @@ struct Window {
         }
         if (picking)
             return;
-        if (id >= PlayTab && id <= SettingsTab) {
+        if (id >= PlayTab && id <= UpdatesTab) {
             if (page == id - PlayTab) {
                 SetFocus(controls[id]);
                 return;
             }
             page = id - PlayTab;
+            if (settings.startPage && settings.lastPage != unsigned(page)) {
+                settings.lastPage = unsigned(page);
+                try {
+                    write_settings(settings_path(), settings);
+                } catch (const std::exception &) {
+                }
+            }
             if (page == modsPage)
                 refreshMods();
             renderFrame();
@@ -4675,6 +4846,78 @@ struct Window {
             const auto folder = mods::default_mods_directory();
             std::filesystem::create_directories(folder);
             ShellExecuteW(hwnd, L"open", folder.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+            return;
+        }
+        if (id >= ShortcutFirst && id <= ShortcutLast) {
+            const auto shown = visibleTabs();
+            const size_t slot = size_t(id - ShortcutFirst);
+            if (slot < shown.size())
+                command(PlayTab + shown[slot], BN_CLICKED);
+            return;
+        }
+        if (id == ArrangeTabs && notification == BN_CLICKED) {
+            page = tabsPage;
+            refreshTabs();
+            layout();
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return;
+        }
+        if (id == CloseTabs && notification == BN_CLICKED) {
+            page = settingsPage;
+            layout();
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return;
+        }
+        if ((id == TabUp || id == TabDown || id == TabToggle || id == TabDefaults) && notification == BN_CLICKED) {
+            const auto row = SendMessageW(controls[TabList], LB_GETCURSEL, 0, 0);
+            std::wstring message;
+            if (id == TabDefaults) {
+                settings.tabOrder = {0, 1, 2, 3, 4, 5, 6};
+                settings.hiddenTabs = 0;
+                message = L"Tabs restored to their original order.";
+            } else if (row < 0 || row >= LRESULT(tab_count)) {
+                status = L"Pick a tab first.";
+                error = true;
+                InvalidateRect(hwnd, nullptr, FALSE);
+                return;
+            } else {
+                const unsigned tab = settings.tabOrder[size_t(row)];
+                if (id == TabToggle) {
+                    if ((fixed_tabs >> tab) & 1u) {
+                        status = std::wstring(tab_names[tab]) + L" is always shown.";
+                        error = true;
+                        InvalidateRect(hwnd, nullptr, FALSE);
+                        return;
+                    }
+                    settings.hiddenTabs ^= 1u << tab;
+                    message = std::wstring(tab_names[tab]) + ((settings.hiddenTabs >> tab) & 1u ? L" is hidden." : L" is shown.");
+                } else {
+                    const LRESULT target = id == TabUp ? row - 1 : row + 1;
+                    if (target < 0 || target >= LRESULT(tab_count))
+                        return;
+                    std::swap(settings.tabOrder[size_t(row)], settings.tabOrder[size_t(target)]);
+                    SendMessageW(controls[TabList], LB_SETCURSEL, WPARAM(target), 0);
+                    message = std::wstring(tab_names[tab]) + L" moved " + (id == TabUp ? L"up." : L"down.");
+                }
+            }
+            saveLauncherLook(message);
+            refreshTabs();
+            layout();
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return;
+        }
+        if ((id == LauncherTheme || id == LauncherAccent || id == StartPage) && notification == CBN_SELCHANGE) {
+            settings.launcherTheme = unsigned(std::max(0, selected(LauncherTheme)));
+            settings.launcherAccent = unsigned(std::max(0, selected(LauncherAccent)));
+            settings.startPage = unsigned(std::max(0, selected(StartPage)));
+            settings.lastPage = unsigned(std::clamp(navigationPage(), 0, int(tab_count) - 1));
+            saveLauncherLook(id == StartPage ? (settings.startPage ? L"The launcher opens on the last page you used." : L"The launcher opens on Play.")
+                                             : L"Theme " + std::wstring(themes[settings.launcherTheme].name) + L" with " +
+                                                   (settings.launcherAccent ? std::wstring(accents[settings.launcherAccent].name) + L" accents." : L"its own accent color."));
+            if (id != StartPage)
+                restyle();
+            else
+                InvalidateRect(hwnd, nullptr, FALSE);
             return;
         }
         if (id == OpenOverlay && notification == BN_CLICKED) {
@@ -5369,12 +5612,13 @@ int run_window(const std::filesystem::path &initialIso) {
     UpdateWindow(hwnd);
     if (!state.settings.iso.empty())
         state.start(Job::verify, state.settings.iso);
-    ACCEL shortcuts[] = {{FCONTROL | FVIRTKEY, '1', PlayTab},
-                         {FCONTROL | FVIRTKEY, '2', OnlineTab},
-                         {FCONTROL | FVIRTKEY, '3', SpeedrunTab},
-                         {FCONTROL | FVIRTKEY, '4', ModsTab},
-                         {FCONTROL | FVIRTKEY, '5', SavesTab},
-                         {FCONTROL | FVIRTKEY, '6', SettingsTab},
+    ACCEL shortcuts[] = {{FCONTROL | FVIRTKEY, '1', ShortcutFirst},
+                         {FCONTROL | FVIRTKEY, '2', ShortcutFirst + 1},
+                         {FCONTROL | FVIRTKEY, '3', ShortcutFirst + 2},
+                         {FCONTROL | FVIRTKEY, '4', ShortcutFirst + 3},
+                         {FCONTROL | FVIRTKEY, '5', ShortcutFirst + 4},
+                         {FCONTROL | FVIRTKEY, '6', ShortcutFirst + 5},
+                         {FCONTROL | FVIRTKEY, '7', ShortcutFirst + 6},
                          {FCONTROL | FVIRTKEY, 'R', RefreshRooms},
                          {FVIRTKEY, VK_F5, Play}};
     const auto accelerators = CreateAcceleratorTableW(shortcuts, int(std::size(shortcuts)));

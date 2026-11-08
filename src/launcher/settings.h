@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 #include "speedrun_items.h"
+#include "launcher/theme.h"
 
 namespace openkai2::launcher {
 struct Settings {
@@ -50,6 +51,9 @@ struct Settings {
     std::vector<Friend> onlineFriends;
     std::string onlineRoom, onlinePassword, onlineLobby;
     bool onlineListed = true;
+    unsigned launcherTheme = 0, launcherAccent = 0, startPage = 0, lastPage = 0;
+    std::array<unsigned, tab_count> tabOrder{0, 1, 2, 3, 4, 5, 6};
+    unsigned hiddenTabs = 0;
 };
 std::filesystem::path settings_path();
 std::filesystem::path textures_directory();
