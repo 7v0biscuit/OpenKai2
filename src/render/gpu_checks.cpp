@@ -13,7 +13,9 @@
 #include <algorithm>
 #include <chrono>
 #include <cstring>
+#include <fstream>
 #include <iostream>
+#include <iterator>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -759,6 +761,43 @@ int benchmark_sprite_submission(unsigned frames){
         std::cout<<"sprite frames="<<frames<<" sprites="<<draws<<" ns_per_sprite="<<double(ns)/double(std::max<uint64_t>(draws,1u))
                  <<" ms_per_frame="<<double(ns)/1e6/frames<<'\n';
         gs.reset();gpu::shutdown_device();return draws ? 0 : 1;
+    }catch(const std::exception& e){std::cerr<<e.what()<<'\n';gpu::shutdown_device();return 1;}
+}
+int benchmark_gs_replay(const char* path,unsigned passes){
+    try{
+        std::ifstream in(path,std::ios::binary);
+        if(!in)throw std::runtime_error("Cannot open the GS recording");
+        const std::vector<uint8_t> stream((std::istreambuf_iterator<char>(in)),{});
+        std::string error;
+#ifdef _WIN32
+        set_renderer_preference("gpu");initialize_window_gpu();
+#else
+        if(!gpu::initialize_headless(error))throw std::runtime_error(error);
+#endif
+        std::vector<uint8_t> vram(gpu::VramBytes,0x35u);auto gs=std::make_unique<GS>();
+        gs->init(vram.data(),uint32_t(vram.size()));gs->setRasterBackend(std::make_unique<GpuRasterBackend>());
+        uint64_t packets=0,uploads=0;
+        const auto play=[&]{
+            for(size_t offset=0;offset+16u<=stream.size();){
+                uint32_t size=0,kind=0;std::memcpy(&size,stream.data()+offset,4);std::memcpy(&kind,stream.data()+offset+4,4);
+                if(offset+16u+size>stream.size())break;
+                const uint8_t* payload=stream.data()+offset+16u;
+                if(kind==1u && size>=32u){uint64_t r[4];std::memcpy(r,payload,32);gs->uploadImageNative(r[0],r[1],r[2],r[3],payload+32,size-32u);++uploads;}
+                else{gs->processGIFPacket(payload,size);++packets;}
+                offset+=16u+((size+15u)&~15u);
+            }
+        };
+        play();
+        const auto before=gpu_render_statistics();packets=uploads=0;
+        const auto start=std::chrono::steady_clock::now();
+        for(unsigned i=0;i<passes;++i)play();
+        gs->writeRegister(0x61u,0u);
+        const auto ns=std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now()-start).count();
+        const auto after=gpu_render_statistics();
+        std::cout<<"replay bytes="<<stream.size()<<" packets="<<packets<<" uploads="<<uploads<<" gpu_draws="<<after.gpuDraws-before.gpuDraws
+                 <<" cpu_draws="<<after.cpuDraws-before.cpuDraws<<" culled="<<after.culled-before.culled<<" batches="<<after.batches-before.batches
+                 <<" ms="<<double(ns)/1e6<<" ns_per_draw="<<double(ns)/double(std::max<uint64_t>(after.gpuDraws-before.gpuDraws+after.culled-before.culled,1u))<<'\n';
+        gs.reset();gpu::shutdown_device();return 0;
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';gpu::shutdown_device();return 1;}
 }
 int benchmark_gif_submission(unsigned packets){
