@@ -34,11 +34,13 @@ A message in the corner names your new character when a fight starts.
 ### Making the launcher your own
 
 - **Theme:** Ember (the original look), Ocean, Forest, Violet, Crimson,
-  Graphite, Saiyan Gold, Namek, Frieza, Midnight, Sakura or Daylight (a light
-  theme). Each colors the background, panels, sidebar and buttons.
+  Graphite, Saiyan Gold, Namek, Frieza, Midnight, Sakura, Ultra Instinct,
+  Super Saiyan Blue, Kaioken, Majin, Shenron, Ginyu Force, or the light themes
+  Daylight, Capsule Corp and Kami's Lookout. Each colors the background, panels, sidebar and buttons.
 - **Accent color:** the theme's own color, or Orange, Gold, Red, Pink, Purple,
-  Blue, Cyan, Green, White, Teal, Lime, Magenta, Coral, Sky, Indigo, Silver or
-  Amber for buttons and highlights.
+  Blue, Cyan, Green, White, Teal, Lime, Magenta, Coral, Sky, Indigo, Silver,
+  Amber, Mint, Peach, Lavender, Turquoise, Rose, Olive, Navy, Crimson, Ice or
+  Bronze for buttons and highlights.
 - **Colors…:** recolor any part of the launcher with the Windows color picker:
   background, sidebar, panels, fields, buttons and their hover color, borders,
   the three text shades, accent, highlight, glow, main buttons and their text,
@@ -47,6 +49,9 @@ A message in the corner names your new character when a fight starts.
   **Change color…** (or double-click it); **Use theme color** undoes one part
   and **Reset all colors** undoes them all. Parts you do not change follow the
   theme.
+- **Copy colors / Paste colors:** copy your whole look (theme, accent and every
+  changed color) as one line of text, and paste a look you saved or someone
+  shared to apply it. **Surprise me** picks a random theme and accent.
 - **Arrange tabs…:** move tabs up or down and hide the ones you do not use.
   Play and Settings are always shown. Ctrl+1 to Ctrl+7 follow your order.
 - **Start on:** open the launcher on Play or on the last page you used.
@@ -100,6 +105,8 @@ in a writable folder; Windows PowerShell 5.1 is required to apply updates.
 Settings, ISO preferences, saves, backups, and cached game files remain under
 `%LOCALAPPDATA%\OpenKai2`. Update reports are retained under its `updates`
 subfolder in `apply.log`. No game files are downloaded by the updater.
+**Open logs folder** on the Updates page opens the folder with the launcher and
+game logs.
 
 ## Downloads
 
