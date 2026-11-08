@@ -51,9 +51,11 @@ Url parse_url(const std::wstring &url) {
     if(out.host!=L"api.github.com"&&out.host!=L"github.com"&&out.host!=L"release-assets.githubusercontent.com"&&out.host!=L"objects.githubusercontent.com"&&out.host!=L"github-releases.githubusercontent.com")throw std::runtime_error("Update download left GitHub");
     return out;
 }
-std::string fetch(std::wstring url,uint64_t limit,const std::filesystem::path &file={},
-                  const std::function<void(const std::string &)> &progress={}) {
-    Internet session(WinHttpOpen(L"OpenKai2/" L"0.1.25",WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,WINHTTP_NO_PROXY_NAME,WINHTTP_NO_PROXY_BYPASS,0));
+struct ServerBusy : std::runtime_error {using std::runtime_error::runtime_error;};
+std::string fetch_once(std::wstring url,uint64_t limit,const std::filesystem::path &file,
+                       const std::function<void(const std::string &)> &progress) {
+    const std::wstring agent=L"OpenKai2/"+wide(application_version);
+    Internet session(WinHttpOpen(agent.c_str(),WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,WINHTTP_NO_PROXY_NAME,WINHTTP_NO_PROXY_BYPASS,0));
     WinHttpSetTimeouts(session,10000,10000,15000,15000);
     DWORD protocols=WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2;
     if(!WinHttpSetOption(session,WINHTTP_OPTION_SECURE_PROTOCOLS,&protocols,sizeof(protocols)))throw std::runtime_error("TLS 1.2 is unavailable for updates");
@@ -74,6 +76,7 @@ std::string fetch(std::wstring url,uint64_t limit,const std::filesystem::path &f
             if(!WinHttpQueryHeaders(request,WINHTTP_QUERY_LOCATION,WINHTTP_HEADER_NAME_BY_INDEX,next.data(),&bytes,WINHTTP_NO_HEADER_INDEX))throw std::runtime_error("Cannot read update redirect");
             next.resize(wcslen(next.c_str()));(void)parse_url(next);url=std::move(next);continue;
         }
+        if(status>=500&&status<600)throw ServerBusy("GitHub's download servers did not respond (HTTP "+std::to_string(status)+"). A new release can take a few minutes to become downloadable; try again shortly");
         if(status!=200)throw std::runtime_error(status==403||status==429?"GitHub temporarily limited update checks. Try again later":"GitHub update download returned HTTP "+std::to_string(status));
         std::ofstream out;
         if(!file.empty()) {out.open(file,std::ios::binary|std::ios::trunc);if(!out)throw std::runtime_error("Cannot stage the downloaded update");}
@@ -91,6 +94,17 @@ std::string fetch(std::wstring url,uint64_t limit,const std::filesystem::path &f
         return response;
     }
     throw std::runtime_error("Too many update download redirects");
+}
+std::string fetch(const std::wstring &url,uint64_t limit,const std::filesystem::path &file={},
+                  const std::function<void(const std::string &)> &progress={}) {
+    for(unsigned attempt=0;;++attempt) {
+        try {return fetch_once(url,limit,file,progress);}
+        catch(const ServerBusy &) {
+            if(attempt>=3)throw;
+            if(progress)progress("GitHub is busy; retrying in "+std::to_string(3u<<attempt)+" seconds…");
+            Sleep(DWORD(3000u<<attempt));
+        }
+    }
 }
 std::wstring environment(const wchar_t *key) {
     DWORD n=GetEnvironmentVariableW(key,nullptr,0);if(!n||n>32768)return {};
