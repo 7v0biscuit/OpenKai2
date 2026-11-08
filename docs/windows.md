@@ -8,8 +8,9 @@ story sequences. Progression, performance and complete matches need validation.
 The launcher has six pages: **Play**, **Online**, **Speedrun**, **Mods**,
 **Saves** and **Settings** (Ctrl+1 to Ctrl+6). See [Online play](online.md) and
 [Speedrun mode](speedrun.md). **Settings** groups display mode, resolution, aspect ratio,
-frame rate cap and VSync; renderer, FXAA, texture filtering, upscaling and
-internal resolution; CPU difficulty, HD textures and music; and update
+frame rate cap and VSync; CPU difficulty, HD textures, music and the FPS
+counter (**Game**); renderer, anti-aliasing (FXAA, FXAA High or FXAA Ultra),
+texture filtering, upscaling and internal resolution (**Graphics**); and update
 preferences (see [Internal resolution and HD textures](graphics.md)). **Music:
 Off** silences the game's music tracks only; voices, sound effects and videos
 still play. Lists support mouse and keyboard selection. Changes save

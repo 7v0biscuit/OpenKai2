@@ -36,6 +36,8 @@ struct Settings {
     unsigned overlayCorner = 0, overlaySize = 1, overlayBackground = 1, overlaySplits = 1;
     std::array<unsigned, speedrun::overlay_color_roles> overlayColors{0, 2, 3, 4};
     unsigned overlayDecimals = 2;
+    unsigned overlayMargin = 1, overlayShape = 0;
+    std::string overlayTitle, overlaySplitNames;
     std::string onlineName = "Player";
     std::string onlineAddress;
     unsigned onlinePort = 7350, onlineDelay = 0;

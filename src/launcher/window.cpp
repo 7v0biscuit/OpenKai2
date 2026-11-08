@@ -194,7 +194,11 @@ enum Id {
     SplitAdd,
     SplitRemove,
     SplitReset,
-    TimingRules = 290
+    TimingRules = 290,
+    OverlayMargin,
+    OverlayShape,
+    OverlayTitle,
+    OverlayNames
 };
 constexpr int friendsTop = 462;
 constexpr int pageCount = 6, onlinePage = 1, speedrunPage = 2, modsPage = 3, savesPage = 4, settingsPage = 5, importPage = 6,
@@ -514,15 +518,15 @@ struct SettingsGrid : Grid {
     int header, rowHeight, gap, controlHeight, fieldGap;
     int displayTop = 112, graphicsTop, gameTop, updatesTop;
     SettingsGrid(int width, int height) : Grid(width) {
-        const bool compact = height < 722;
+        const bool compact = height < 778;
         header = compact ? (height < 660 ? 36 : 40) : 44;
         rowHeight = compact ? 48 : 56;
         gap = compact && height >= 660 ? 10 : 6;
         controlHeight = compact ? 30 : 34;
         fieldGap = compact ? 16 : 18;
-        graphicsTop = bottom(displayTop, 2) + gap;
-        gameTop = bottom(graphicsTop, 2) + gap;
-        updatesTop = bottom(gameTop, 1) + gap;
+        gameTop = bottom(displayTop, 2) + gap;
+        graphicsTop = bottom(gameTop, 2) + gap;
+        updatesTop = bottom(graphicsTop, 2) + gap;
     }
     int bottom(int top, int rows) const { return top + header + rows * rowHeight + 4; }
     int label(int top, int row) const { return top + header + row * rowHeight; }
@@ -927,7 +931,7 @@ struct Window {
         combo(Resolution, resolutions,
               int(std::find(sizes.begin(), sizes.end(), size) - sizes.begin()));
         combo(WindowMode, {L"Windowed", L"Borderless fullscreen"}, int(settings.windowMode));
-        combo(Antialiasing, {L"Off", L"FXAA"}, int(settings.antialiasing));
+        combo(Antialiasing, {L"Off", L"FXAA", L"FXAA High", L"FXAA Ultra"}, int(std::min(settings.antialiasing, 3u)));
         combo(Filtering, {L"Game default", L"Nearest (sharp)", L"Bilinear (3D surfaces)"},
               int(settings.textureFilter));
         combo(Upscaler, {L"Nearest", L"Bilinear", L"Bicubic", L"AMD FSR 1", L"Lanczos", L"Sharp pixels"}, int(settings.upscaler));
@@ -958,8 +962,16 @@ struct Window {
         combo(OnlineProfile, {}, 0);
         fillProfiles();
         combo(OverlayCorner, {L"Top left", L"Top right", L"Bottom left", L"Bottom right"}, int(settings.overlayCorner));
-        combo(OverlaySize, {L"Small", L"Medium", L"Large"}, int(settings.overlaySize));
-        combo(OverlayBackground, {L"None", L"Light", L"Dark"}, int(settings.overlayBackground));
+        combo(OverlaySize, {L"Small", L"Medium", L"Large", L"Extra large"}, int(std::min(settings.overlaySize, 3u)));
+        combo(OverlayBackground, {L"None", L"Light", L"Dark", L"Faint", L"Solid"}, int(std::min(settings.overlayBackground, 4u)));
+        combo(OverlayMargin, {L"Tight", L"Normal", L"Wide"}, int(std::min(settings.overlayMargin, 2u)));
+        combo(OverlayShape, {L"Rounded", L"Square"}, int(std::min(settings.overlayShape, 1u)));
+        edit(OverlayTitle, L"Title, like My Any% run");
+        SetWindowTextW(controls[OverlayTitle], wide(settings.overlayTitle).c_str());
+        SendMessageW(controls[OverlayTitle], EM_LIMITTEXT, 48, 0);
+        edit(OverlayNames, L"Split names, separated by commas");
+        SetWindowTextW(controls[OverlayNames], wide(settings.overlaySplitNames).c_str());
+        SendMessageW(controls[OverlayNames], EM_LIMITTEXT, 600, 0);
         combo(OverlaySplits, {L"3 splits", L"5 splits", L"8 splits", L"12 splits"}, int(settings.overlaySplits));
         {
             std::vector<std::wstring> colors;
@@ -1187,7 +1199,6 @@ struct Window {
             const int buttonHeight = compact ? 30 : 34;
             position(SpeedrunMode, grid.x(0), Grid::field(speedrunTop, 0), grid.column, 34);
             position(Permadeath, grid.x(1), Grid::field(speedrunTop, 0), grid.column, 34);
-            position(FpsCounter, grid.x(2), Grid::field(speedrunTop, 0), grid.column, 34);
             position(SpeedrunCpu, grid.x(0), Grid::field(speedrunTop, 1), grid.column, 34);
             position(OpenOverlay, right - 20 - 170, speedrunTop + 10, 170, 28);
             const int listWidth = (content - 40) * 58 / 100, side = contentLeft + 20 + listWidth + 16;
@@ -1236,16 +1247,21 @@ struct Window {
             position(OverlayItems, contentLeft + 20, 228, half, std::max(120, panelBottom - 68 - 228));
             position(OverlayToggle, contentLeft + 20, panelBottom - 52, 130, 36);
             position(OverlayDefaults, contentLeft + 160, panelBottom - 52, 150, 36);
-            const int column = (content - 52 - half - 12) / 2;
-            position(OverlayCorner, side, 246, column, 34);
-            position(OverlaySize, side + column + 12, 246, column, 34);
-            position(OverlayBackground, side, 314, column, 34);
-            position(OverlaySplits, side + column + 12, 314, column, 34);
-            position(OverlayText, side, 382, column, 34);
-            position(OverlayAhead, side + column + 12, 382, column, 34);
-            position(OverlayBehind, side, 450, column, 34);
-            position(OverlayGold, side + column + 12, 450, column, 34);
-            position(OverlayDecimals, side, 518, column, 34);
+            const int column = (content - 52 - half - 12) / 2, step = overlayStep(h), height = step < 64 ? 30 : 34;
+            const auto row = [&](int index) { return 246 + index * step; };
+            position(OverlayCorner, side, row(0), column, height);
+            position(OverlaySize, side + column + 12, row(0), column, height);
+            position(OverlayBackground, side, row(1), column, height);
+            position(OverlaySplits, side + column + 12, row(1), column, height);
+            position(OverlayText, side, row(2), column, height);
+            position(OverlayAhead, side + column + 12, row(2), column, height);
+            position(OverlayBehind, side, row(3), column, height);
+            position(OverlayGold, side + column + 12, row(3), column, height);
+            position(OverlayDecimals, side, row(4), column, height);
+            position(OverlayMargin, side + column + 12, row(4), column, height);
+            position(OverlayShape, side, row(5), column, height);
+            position(OverlayTitle, side + column + 12, row(5), column, height);
+            position(OverlayNames, side, row(6), column * 2 + 12, height);
         } else if (page == importPage) {
             const int listsBottom = h - 210, targetTop = listsBottom + 12;
             int x = contentLeft + 20;
@@ -1296,6 +1312,7 @@ struct Window {
             position(CpuDifficulty, grid.x(0), grid.field(gameTop, 0), grid.column, grid.controlHeight);
             position(HdTextures, grid.x(1), grid.field(gameTop, 0), grid.column, grid.controlHeight);
             position(Music, grid.x(2), grid.field(gameTop, 0), grid.column, grid.controlHeight);
+            position(FpsCounter, grid.x(0), grid.field(gameTop, 1), grid.column, grid.controlHeight);
             position(TextureFolder, right - 20 - 170, gameTop + 10, 170, 28);
             position(UpdateChannel, grid.x(0), grid.field(updatesTop, 0), grid.column, grid.controlHeight);
             position(AutomaticUpdates, grid.x(1), grid.field(updatesTop, 0), grid.column, grid.controlHeight);
@@ -1482,7 +1499,7 @@ struct Window {
             settings.autoBackups ? L"Auto backup" : L"Manual backup"};
         const std::wstring details[] = {
             std::wstring(scaling[std::min(5u, settings.upscaler)]) + L" upscaling" +
-                (settings.antialiasing ? L", FXAA" : L""),
+                (settings.antialiasing == 3 ? L", FXAA Ultra" : settings.antialiasing == 2 ? L", FXAA High" : settings.antialiasing ? L", FXAA" : L""),
             std::wstring(aspects[std::min(3u, settings.aspect)]) + L", " +
                 (settings.fps ? std::to_wstring(settings.fps) + L" FPS cap" : L"uncapped") +
                 (settings.vsync ? L", VSync" : L""),
@@ -1641,6 +1658,7 @@ struct Window {
         }
         SendMessageW(list, LB_SETCURSEL, chosen, 0);
     }
+    static int overlayStep(int h) { return std::clamp((h - 64 - 246 - 48) / 6, 52, 68); }
     void saveOverlay(const std::wstring &message) {
         auto next = settings;
         next.overlayCorner = unsigned(selected(OverlayCorner));
@@ -1651,6 +1669,10 @@ struct Window {
         for (unsigned role = 0; role < speedrun::overlay_color_roles; ++role)
             next.overlayColors[role] = unsigned(std::max(0, selected(roles[role])));
         next.overlayDecimals = unsigned(std::max(0, selected(OverlayDecimals)));
+        next.overlayMargin = unsigned(std::max(0, selected(OverlayMargin)));
+        next.overlayShape = unsigned(std::max(0, selected(OverlayShape)));
+        next.overlayTitle = utf8(trimmed(textOf(OverlayTitle)).substr(0, 48));
+        next.overlaySplitNames = utf8(trimmed(textOf(OverlayNames)).substr(0, 600));
         write_settings(settings_path(), next);
         settings = std::move(next);
         status = message;
@@ -1667,16 +1689,22 @@ struct Window {
              contentLeft + 20, 160, content - 200, 32, fonts.caption, muted, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
         panelBox(dc, contentLeft, 208, right, panelBottom);
         caps(dc, L"SHOWN IN GAME", contentLeft + 20, 212, half);
-        caps(dc, L"POSITION", side, 228, 200);
-        caps(dc, L"SIZE", side + column + 12, 228, 200);
-        caps(dc, L"BACKGROUND", side, 296, 200);
-        caps(dc, L"SPLIT LIST", side + column + 12, 296, 200);
-        caps(dc, L"TEXT COLOR", side, 364, 200);
-        caps(dc, L"AHEAD COLOR", side + column + 12, 364, 200);
-        caps(dc, L"BEHIND COLOR", side, 432, 200);
-        caps(dc, L"BEST SEGMENT COLOR", side + column + 12, 432, 200);
-        caps(dc, L"TIMES SHOWN TO", side, 500, 200);
-        const int previewTop = 576;
+        const int step = overlayStep(h);
+        const auto heading = [&](int index) { return 228 + index * step; };
+        caps(dc, L"POSITION", side, heading(0), 200);
+        caps(dc, L"SIZE", side + column + 12, heading(0), 200);
+        caps(dc, L"BACKGROUND", side, heading(1), 200);
+        caps(dc, L"SPLIT LIST", side + column + 12, heading(1), 200);
+        caps(dc, L"TEXT COLOR", side, heading(2), 200);
+        caps(dc, L"AHEAD COLOR", side + column + 12, heading(2), 200);
+        caps(dc, L"BEHIND COLOR", side, heading(3), 200);
+        caps(dc, L"BEST SEGMENT COLOR", side + column + 12, heading(3), 200);
+        caps(dc, L"TIMES SHOWN TO", side, heading(4), 200);
+        caps(dc, L"DISTANCE FROM EDGE", side + column + 12, heading(4), 200);
+        caps(dc, L"CORNERS", side, heading(5), 200);
+        caps(dc, L"TITLE", side + column + 12, heading(5), 200);
+        caps(dc, L"SPLIT NAMES", side, heading(6), 200);
+        const int previewTop = 246 + 7 * step + 2;
         if (panelBottom - 20 - previewTop < 80)
             return;
         caps(dc, L"PREVIEW", side, previewTop - 20, 200);
@@ -1690,12 +1718,24 @@ struct Window {
                  mix(RGB(70, 120, 190), RGB(46, 80, 40), (y - screen.top) * 255 / span));
         const unsigned items = settings.overlayItems;
         std::vector<std::pair<std::wstring, std::wstring>> rows;
+        if (!settings.overlayTitle.empty())
+            rows.push_back({wide(settings.overlayTitle), L""});
         if (items & speedrun::overlay_bit(speedrun::show_status))
             rows.push_back({wide(speedrun::category_name(speedrun::Category(settings.speedrun))), speedrun::tournament(speedrun::Category(settings.speedrun)) ? L"Manual timing" : L"Verified"});
         if (items & speedrun::overlay_bit(speedrun::show_splits)) {
             const unsigned shown = speedrun::overlay_split_rows[std::min(settings.overlaySplits, 3u)];
             for (unsigned i = 0; i < std::min(shown, 4u); ++i)
-                rows.push_back({L"Battle " + std::to_wstring(i + 1), i < 2 ? (i ? L"+0.84" : L"-1.20") : L""});
+            {
+                std::vector<std::wstring> names;
+                std::wstring name;
+                for (const wchar_t c : wide(settings.overlaySplitNames) + L",") {
+                    if (c != L',') { name += c; continue; }
+                    names.push_back(trimmed(name));
+                    name.clear();
+                }
+                const std::wstring label = i < names.size() && !names[i].empty() ? names[i] : L"Battle " + std::to_wstring(i + 1);
+                rows.push_back({label, i < 2 ? (i ? L"+0.84" : L"-1.20") : L""});
+            }
         }
         const bool big = items & speedrun::overlay_bit(speedrun::show_timer);
         const wchar_t *names[] = {L"", L"", L"Segment", L"Previous segment", L"Possible time save", L"Best possible time",
@@ -1704,19 +1744,21 @@ struct Window {
         for (unsigned i = speedrun::show_segment; i <= speedrun::show_attempts; ++i)
             if (items & (1u << i))
                 info.push_back(names[i]);
-        const int scale[] = {85, 100, 125};
-        const int unit = std::max(1, previewHeight * scale[std::min(settings.overlaySize, 2u)] / 100);
+        const int scale[] = {85, 100, 125, 150};
+        const int unit = std::max(1, previewHeight * scale[std::min(settings.overlaySize, 3u)] / 100);
         const int row = std::max(5, unit / 22), timer = big ? row * 2 : 0;
-        const int boxWidth = std::max(40, previewWidth * 23 / 100 * scale[std::min(settings.overlaySize, 2u)] / 100);
+        const int boxWidth = std::max(40, previewWidth * 23 / 100 * scale[std::min(settings.overlaySize, 3u)] / 100);
         const int boxHeight = int(rows.size() + info.size()) * row + timer + 8;
         if (!rows.empty() || !info.empty() || big) {
             const int corner = int(settings.overlayCorner);
-            const int left = corner % 2 ? screen.right - p(8) - p(boxWidth) : screen.left + p(8);
-            const int top = corner < 2 ? screen.top + p(8) : screen.bottom - p(8) - p(boxHeight);
+            const int edges[] = {3, 8, 20}, edge = edges[std::min(settings.overlayMargin, 2u)];
+            const int left = corner % 2 ? screen.right - p(edge) - p(boxWidth) : screen.left + p(edge);
+            const int top = corner < 2 ? screen.top + p(edge) : screen.bottom - p(edge) - p(boxHeight);
             RECT frame{left, top, left + p(boxWidth), top + p(boxHeight)};
+            const int shades[] = {0, 120, 210, 60, 250};
             if (settings.overlayBackground)
-                box(dc, frame, mix(RGB(60, 90, 120), RGB(8, 9, 14), settings.overlayBackground == 1 ? 120 : 210),
-                    mix(RGB(60, 90, 120), RGB(8, 9, 14), 90), 6);
+                box(dc, frame, mix(RGB(60, 90, 120), RGB(8, 9, 14), shades[std::min(settings.overlayBackground, 4u)]),
+                    mix(RGB(60, 90, 120), RGB(8, 9, 14), 90), settings.overlayShape ? 0 : 6);
             int y = top + p(4);
             auto bar = [&](int width, COLORREF color) {
                 fill(dc, {frame.left + p(5), y + p(row) / 3, frame.left + p(5) + p(width), y + p(row) * 2 / 3}, color);
@@ -2062,10 +2104,11 @@ struct Window {
             L"Z4: 40% stronger hits, 30% less damage taken, faster Ki, slow health recovery and 40% starting Ki.",
             L"Z5: 55% stronger hits, 40% less damage taken, very fast Ki, health recovery and 60% starting Ki.",
             L"Z6: 70% stronger hits, half damage taken, fastest Ki, quick health recovery and full Ki at the start."};
-        section(gameTop, 1, L"Game", cpuNotes[std::min(settings.cpuDifficulty, 6u)], muted);
+        section(gameTop, 2, L"Game", cpuNotes[std::min(settings.cpuDifficulty, 6u)], muted);
         label(gameTop, 0, 0, L"CPU DIFFICULTY");
         label(gameTop, 0, 1, L"HD TEXTURES");
         label(gameTop, 0, 2, L"MUSIC");
+        label(gameTop, 1, 0, L"FPS COUNTER");
 
         std::wstring message = updateStatus;
         if (updating()) {
@@ -2092,7 +2135,6 @@ struct Window {
              DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
         caps(dc, L"CATEGORY", grid.x(0), Grid::label(speedrunTop, 0), grid.column);
         caps(dc, L"PERMADEATH", grid.x(1), Grid::label(speedrunTop, 0), grid.column);
-        caps(dc, L"FPS COUNTER", grid.x(2), Grid::label(speedrunTop, 0), grid.column);
         caps(dc, L"CPU DIFFICULTY", grid.x(0), Grid::label(speedrunTop, 1), grid.column);
         text(dc, L"Z1 to Z6 runs are timed as their own categories, with their own splits.", grid.x(1),
              Grid::field(speedrunTop, 1) + 8, grid.column * 2 + 16, 28, fonts.caption, muted,
@@ -4665,9 +4707,13 @@ struct Window {
             saveOverlay(std::wstring(speedrun::overlay_item_text[row].name) + (on ? L" is shown." : L" is hidden."));
             return;
         }
-        if (((id >= OverlayCorner && id <= OverlaySplits) || (id >= OverlayText && id <= OverlayDecimals)) &&
+        if (((id >= OverlayCorner && id <= OverlaySplits) || (id >= OverlayText && id <= OverlayDecimals) || id == OverlayMargin || id == OverlayShape) &&
             notification == CBN_SELCHANGE) {
             saveOverlay(L"Overlay layout saved.");
+            return;
+        }
+        if ((id == OverlayTitle || id == OverlayNames) && notification == EN_KILLFOCUS) {
+            saveOverlay(id == OverlayTitle ? L"Overlay title saved." : L"Split names saved. They replace the names in order: the first name is the first split.");
             return;
         }
         if (id == SplitList && notification == LBN_SELCHANGE) {
@@ -4734,8 +4780,12 @@ struct Window {
                                           {OverlayAhead, defaults.overlayColors[1]},
                                           {OverlayBehind, defaults.overlayColors[2]},
                                           {OverlayGold, defaults.overlayColors[3]},
-                                          {OverlayDecimals, defaults.overlayDecimals}})
+                                          {OverlayDecimals, defaults.overlayDecimals},
+                                          {OverlayMargin, defaults.overlayMargin},
+                                          {OverlayShape, defaults.overlayShape}})
                 SendMessageW(controls[control], CB_SETCURSEL, value, 0);
+            SetWindowTextW(controls[OverlayTitle], L"");
+            SetWindowTextW(controls[OverlayNames], L"");
             refreshOverlayItems();
             saveOverlay(L"Overlay restored to its defaults.");
             return;

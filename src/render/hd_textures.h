@@ -62,5 +62,7 @@ class Library {
 };
 
 Library &library();
+void set_shown(bool shown);
+bool shown();
 
 }

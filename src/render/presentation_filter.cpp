@@ -41,6 +41,48 @@ void main(){
  vec3 four=two*0.5+0.25*(readAt(p-dir*0.5)+readAt(p+dir*0.5));
  float result=luma(four);finalColor=vec4(result<lo || result>hi ? two : four,1.0)*fragColor*colDiffuse;
 })GLSL";
+constexpr const char *fxaaQualityBody = R"GLSL(
+in vec2 fragTexCoord; in vec4 fragColor;
+uniform sampler2D texture0; uniform vec4 colDiffuse;
+uniform vec2 sourceSize; uniform vec2 contentMax;
+out vec4 finalColor;
+vec3 readAt(vec2 uv){return texture(texture0,clamp(uv,0.5/sourceSize,contentMax-0.5/sourceSize)).rgb;}
+float luma(vec3 c){return dot(c,vec3(0.299,0.587,0.114));}
+void main(){
+ vec2 p=fragTexCoord,d=1.0/sourceSize;
+ vec3 centre=readAt(p);float m=luma(centre);
+ float n=luma(readAt(p+vec2(0,-d.y))),s=luma(readAt(p+vec2(0,d.y))),w=luma(readAt(p+vec2(-d.x,0))),e=luma(readAt(p+vec2(d.x,0)));
+ float hi=max(m,max(max(n,s),max(w,e))),lo=min(m,min(min(n,s),min(w,e))),range=hi-lo;
+ if(range<max(EDGE_MIN,hi*EDGE_SCALE)){finalColor=vec4(centre,1.0)*fragColor*colDiffuse;return;}
+ float nw=luma(readAt(p+vec2(-d.x,-d.y))),ne=luma(readAt(p+vec2(d.x,-d.y))),sw=luma(readAt(p+vec2(-d.x,d.y))),se=luma(readAt(p+vec2(d.x,d.y)));
+ float edgeH=abs(-2.0*w+nw+sw)+2.0*abs(-2.0*m+n+s)+abs(-2.0*e+ne+se);
+ float edgeV=abs(-2.0*n+nw+ne)+2.0*abs(-2.0*m+w+e)+abs(-2.0*s+sw+se);
+ bool horizontal=edgeH>=edgeV;
+ float a=horizontal ? n : w,b=horizontal ? s : e,ga=a-m,gb=b-m;
+ bool first=abs(ga)>=abs(gb);float gradient=0.25*max(abs(ga),abs(gb));
+ float stepLength=horizontal ? d.y : d.x,local;
+ if(first){stepLength=-stepLength;local=0.5*(a+m);}else local=0.5*(b+m);
+ vec2 start=p;if(horizontal)start.y+=stepLength*0.5;else start.x+=stepLength*0.5;
+ vec2 offset=horizontal ? vec2(d.x,0.0) : vec2(0.0,d.y);
+ vec2 u1=start-offset,u2=start+offset;
+ float e1=luma(readAt(u1))-local,e2=luma(readAt(u2))-local;
+ bool done1=abs(e1)>=gradient,done2=abs(e2)>=gradient;
+ const float steps[12]=float[](1.0,1.0,1.0,1.0,1.5,2.0,2.0,2.0,2.0,4.0,8.0,8.0);
+ for(int i=0;i<SEARCH_STEPS && !(done1 && done2);++i){
+  if(!done1){u1-=offset*steps[i];e1=luma(readAt(u1))-local;done1=abs(e1)>=gradient;}
+  if(!done2){u2+=offset*steps[i];e2=luma(readAt(u2))-local;done2=abs(e2)>=gradient;}
+ }
+ float d1=horizontal ? p.x-u1.x : p.y-u1.y,d2=horizontal ? u2.x-p.x : u2.y-p.y;
+ bool nearer1=d1<d2;float nearest=min(d1,d2),length=d1+d2;
+ float edgeOffset=((nearer1 ? e1 : e2)<0.0)!=(m<local) ? 0.5-nearest/length : 0.0;
+ float average=(2.0*(n+s+w+e)+nw+ne+sw+se)/12.0;
+ float sub=clamp(abs(average-m)/range,0.0,1.0);sub=(-2.0*sub+3.0)*sub*sub;
+ float finalOffset=max(edgeOffset,sub*sub*SUBPIXEL);
+ vec2 uv=p;if(horizontal)uv.y+=finalOffset*stepLength;else uv.x+=finalOffset*stepLength;
+ finalColor=vec4(readAt(uv),1.0)*fragColor*colDiffuse;
+})GLSL";
+const std::string fxaaHighSource=std::string("#version 330\n#define EDGE_MIN 0.0625\n#define EDGE_SCALE 0.125\n#define SEARCH_STEPS 6\n#define SUBPIXEL 0.5\n")+fxaaQualityBody;
+const std::string fxaaUltraSource=std::string("#version 330\n#define EDGE_MIN 0.0312\n#define EDGE_SCALE 0.063\n#define SEARCH_STEPS 12\n#define SUBPIXEL 0.75\n")+fxaaQualityBody;
 constexpr const char *lanczosSource = R"GLSL(#version 330
 in vec2 fragTexCoord; in vec4 fragColor;
 uniform sampler2D texture0; uniform vec4 colDiffuse;
@@ -178,8 +220,9 @@ void PresentationFilter::draw(Texture2D frame, Rectangle source, Rectangle desti
 void PresentationFilter::drawImage(Texture2D frame, Rectangle source, Rectangle destination, bool cacheOutput) {
     const auto &s = graphics_settings();
     if (s.antialiasing) {
-        if (!edge_.id)
-            edge_ = shader(edgeSource);
+        Shader &smoothing = s.antialiasing == 3 ? fxaaUltra_ : s.antialiasing == 2 ? fxaaHigh_ : edge_;
+        if (!smoothing.id)
+            smoothing = shader(s.antialiasing == 3 ? fxaaUltraSource.c_str() : s.antialiasing == 2 ? fxaaHighSource.c_str() : edgeSource);
         const auto w = int(source.width), h = int(source.height);
         if (target_.texture.width != w || target_.texture.height != h) {
             if (target_.id)
@@ -189,10 +232,10 @@ void PresentationFilter::drawImage(Texture2D frame, Rectangle source, Rectangle 
                 throw std::runtime_error("Cannot allocate antialiasing target");
         }
         SetTextureFilter(frame, TEXTURE_FILTER_BILINEAR);
-        dimensions(edge_, frame, source);
+        dimensions(smoothing, frame, source);
         BeginTextureMode(target_);
         ClearBackground(BLACK);
-        BeginShaderMode(edge_);
+        BeginShaderMode(smoothing);
         DrawTexturePro(frame, source, {0, 0, float(w), float(h)}, {0, 0}, 0, WHITE);
         EndShaderMode();
         EndTextureMode();
@@ -292,6 +335,8 @@ void PresentationFilter::close() {
         UnloadShader(edge_);
         edge_ = {};
     }
+    if(fxaaHigh_.id){UnloadShader(fxaaHigh_);fxaaHigh_={};}
+    if(fxaaUltra_.id){UnloadShader(fxaaUltra_);fxaaUltra_={};}
     if (cubic_.id) {
         UnloadShader(cubic_);
         cubic_ = {};
@@ -339,7 +384,7 @@ int test_presentation_filters() {
             EndDrawing();
             return result;
         };
-        for (unsigned aa = 0; aa < 2; ++aa)
+        for (unsigned aa = 0; aa < 4; ++aa)
             for (unsigned scaler = 0; scaler < 6; ++scaler) {
                 auto result = draw(aa, scaler);
                 require(result.size() == 80u * 64u, "Display output dimensions changed");
@@ -388,7 +433,7 @@ int test_presentation_filters() {
                    std::abs(int(a[i].b)-int(b[i].b))>1 || a[i].a!=b[i].a)return false;
             return true;
         };
-        for(unsigned aa=0;aa<2;++aa)for(unsigned scaler=0;scaler<6;++scaler){
+        for(unsigned aa=0;aa<4;++aa)for(unsigned scaler=0;scaler<6;++scaler){
             if(!aa && scaler<2)continue;
             const auto expected=draw(aa,scaler),first=draw(aa,scaler,100),repeat=draw(aa,scaler,100);
             require(equivalent(first,expected) && equivalent(repeat,expected),"Cached filtering changed image orientation or colors");
@@ -448,11 +493,13 @@ int test_presentation_filters() {
             return count;
         };
         require(edgeCount(1) > edgeCount(0), "FXAA did not smooth the diagonal edge");
+        require(edgeCount(2) > edgeCount(0), "FXAA High did not smooth the diagonal edge");
+        require(edgeCount(3) > edgeCount(0), "FXAA Ultra did not smooth the diagonal edge");
         filter.close();
         UnloadTexture(source);
         CloseWindow();
         set_graphics_settings(saved);
-        std::cout << "Display filter comparisons passed: all twelve AA/scaler combinations (including FSR 1 EASU/RCAS, Lanczos and sharp pixels), content "
+        std::cout << "Display filter comparisons passed: all twenty-four AA/scaler combinations (FXAA, FXAA High and FXAA Ultra) (including FSR 1 EASU/RCAS, Lanczos and sharp pixels), content "
                      "bounds, orientation, letterboxing, downscaling of larger frames, native-size edge smoothing and completion-aware filter reuse.\n";
         return 0;
     } catch (...) {

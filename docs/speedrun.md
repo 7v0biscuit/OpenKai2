@@ -11,7 +11,6 @@ Turn it on in the launcher's **Speedrun** page (Ctrl+3):
 |---|---|
 | Speedrun mode | Off, Any%, NG+, Tournament (Novice), Tournament (Adept), Tournament (Advanced), All Dragonballs, Hercule Only, NG+ (Very Hard) |
 | Permadeath | Being knocked out in a Dragon World fight, or losing one on time, ends the run. Loading Dragon World, changing maps, story scenes, fights the story ends on its own and having less health than the CPU during a fight never count. **GAME OVER** shows, then the game goes straight back to the main menu without closing, and the timer resets |
-| FPS counter | Frame counter in the top corner, also outside speedrun mode |
 | CPU difficulty | Game setting, Z1 to Z6 ([CPU difficulty](cpu-difficulty.md)). Each Z level is its own category with its own splits, shown on the overlay and in the run log (for example "Any% Z3"). It is locked for the run: F6 is off in speedrun mode. The same setting is on the Settings page |
 
 While speedrun mode is on, mods are not loaded.
@@ -88,10 +87,20 @@ moderators before submitting a run.
 ## Overlay
 
 **Customize overlay…** on the Speedrun page opens the overlay page. Pick the
-items to show, the corner, the size, the background and how many splits are
-listed, the colors of the text, of times ahead and behind and of best segments,
-and whether times show milliseconds, hundredths, tenths or whole seconds. The preview updates
-as you change them when the window is tall enough to show it.
+items to show, the corner, the size (up to Extra large), the background (None,
+Faint, Light, Dark or Solid) and how many splits are listed, the colors of the
+text, of times ahead and behind and of best segments, and whether times show
+milliseconds, hundredths, tenths or whole seconds. You can also set:
+
+- **Distance from edge:** Tight, Normal or Wide.
+- **Corners:** Rounded or Square.
+- **Title:** your own heading at the top of the overlay, up to 48 characters.
+- **Split names:** your own names for the splits, separated by commas. The
+  first name replaces the first split, the second the second, and so on; leave
+  a name empty (two commas in a row) to keep the original.
+
+The preview updates as you change them when the window is tall enough to show
+it. The FPS counter is on the Settings page, under **Game**.
 
 In Dragon World, each battle won is a split and the final split is Kid Buu.
 In World Tournament, each match won is a split and the final split is the final match. The overlay

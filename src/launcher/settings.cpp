@@ -21,10 +21,10 @@ std::filesystem::path settings_path() {
 }
 void validate_settings(const Settings &s) {
     if (s.fps > 240 || s.width < 640 || s.width > 7680 || s.height < 448 || s.height > 4320 ||
-        s.windowMode > 1 || s.antialiasing > 1 || s.textureFilter > 2 || s.upscaler > 5 ||
+        s.windowMode > 1 || s.antialiasing > 3 || s.textureFilter > 2 || s.upscaler > 5 ||
         s.aspect > 3 || s.internalScale < 1 || s.internalScale > 4 || s.hdTextures > 4 || s.volume > 100 || s.cpuDifficulty > 6 || s.windowWidth < 0 || s.windowHeight < 0 ||
         s.windowWidth > 32768 || s.windowHeight > 32768 || s.updateChannel > 1 || s.speedrun >= speedrun::category_count || s.overlayItems > speedrun::overlay_all || s.overlayCorner > 3 ||
-        s.overlaySize > 2 || s.overlayBackground > 2 || s.overlaySplits > 3 || s.overlayDecimals > 3 ||
+        s.overlaySize > 3 || s.overlayBackground > 4 || s.overlayMargin > 2 || s.overlayShape > 1 || s.overlayTitle.size() > 192 || s.overlaySplitNames.size() > 2400 || s.overlaySplits > 3 || s.overlayDecimals > 3 ||
         std::any_of(s.overlayColors.begin(), s.overlayColors.end(), [](unsigned c) { return c >= speedrun::overlay_color_count; }) || (s.renderer != "auto" && s.renderer != "gpu" && s.renderer != "vulkan" && s.renderer != "cpu"))
         throw std::runtime_error("Invalid graphics settings");
     if (s.onlinePort < 1 || s.onlinePort > 65535 || s.onlineDelay > 8 || s.onlineVisibility > 2 || s.onlineKeys.size() > 32 || s.onlineName.size() > 64 ||
@@ -114,6 +114,8 @@ Settings read_settings(const std::filesystem::path &file) {
             row >> s.overlayItems >> s.overlayCorner >> s.overlaySize >> s.overlayBackground >> s.overlaySplits;
             s.overlayItems |= speedrun::overlay_required;
         }
+        else if (key == "overlay_custom")
+            row >> s.overlayMargin >> s.overlayShape >> std::quoted(s.overlayTitle) >> std::quoted(s.overlaySplitNames);
         else if (key == "overlay_style") {
             for (auto &color : s.overlayColors)
                 row >> color;
@@ -192,7 +194,8 @@ void write_settings(const std::filesystem::path &file, const Settings &s) {
         << "\nfps_counter " << s.fpsCounter << "\noverlay " << s.overlayItems << ' ' << s.overlayCorner << ' '
         << s.overlaySize << ' ' << s.overlayBackground << ' ' << s.overlaySplits << "\noverlay_style "
         << s.overlayColors[0] << ' ' << s.overlayColors[1] << ' ' << s.overlayColors[2] << ' ' << s.overlayColors[3] << ' '
-        << s.overlayDecimals << "\nonline "
+        << s.overlayDecimals << "\noverlay_custom " << s.overlayMargin << ' ' << s.overlayShape << ' '
+        << std::quoted(s.overlayTitle) << ' ' << std::quoted(s.overlaySplitNames) << "\nonline "
         << std::quoted(s.onlineName) << ' ' << std::quoted(s.onlineAddress) << ' ' << s.onlinePort << ' '
         << s.onlineDelay << "\nonline_room " << std::quoted(s.onlineRoom) << ' ' << std::quoted(s.onlinePassword) << ' '
         << s.onlineListed << ' ' << std::quoted(s.onlineLobby) << "\nonline_profiles";

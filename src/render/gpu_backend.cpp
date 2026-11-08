@@ -184,7 +184,7 @@ struct GpuRasterBackend::Impl {
         if((c.clamp&3u)==3u || ((c.clamp>>2u)&3u)==3u){++hdSkips[0];return;}
         if(w<8u || h<8u || w>1024u || h>1024u){++hdSkips[1];return;}
         const uint64_t hash=hdContent(state,cmd);if(!hash){++hdSkips[2];return;}
-        if(!hd::library().replacing())return;
+        if(!hd::library().replacing() || !hd::shown())return;
         auto slot=hdSlots.find(hash);
         if(slot==hdSlots.end()){
             const auto image=hd::library().find(hash);

@@ -8,6 +8,7 @@
 #include "machine_state.h"
 #include "netplay.h"
 #include "render/gpu_backend.h"
+#include "render/hd_textures.h"
 #include <fstream>
 #include <iterator>
 #include <mutex>
@@ -477,8 +478,8 @@ struct Overlay {
             hidden = !hidden;
         if (hidden && !speedrun)
             return;
-        const float scale_choice[] = {0.85f, 1.0f, 1.25f};
-        const float s = std::max(0.75f, float(GetScreenHeight()) / 1080.0f) * scale_choice[std::min(options.size, 2u)];
+        const float scale_choice[] = {0.85f, 1.0f, 1.25f, 1.5f};
+        const float s = std::max(0.75f, float(GetScreenHeight()) / 1080.0f) * scale_choice[std::min(options.size, 3u)];
         const auto pick = [&](unsigned role, unsigned char alpha) {
             const auto &c = options.colors[role];
             return Color{c[0], c[1], c[2], alpha};
@@ -526,6 +527,13 @@ struct Overlay {
         };
 
         std::vector<Row> rows;
+        if (!options.title.empty()) {
+            Row row;
+            row.left = options.title;
+            row.left_color = white;
+            row.size = 17;
+            rows.push_back(row);
+        }
         if (shows(show_status)) {
             Row row;
             row.left = category_label(options.category, options.cpu) + (options.permadeath ? "   Permadeath" : "");
@@ -543,6 +551,8 @@ struct Overlay {
             for (const auto &split : view.rows) {
                 Row row;
                 row.left = split.name;
+                if (split.index < options.split_names.size() && !options.split_names[split.index].empty())
+                    row.left = options.split_names[split.index];
                 row.left_color = split.done || split.current ? white : grey;
                 if (split.has_delta) {
                     row.middle = format_delta(split.delta);
@@ -626,11 +636,12 @@ struct Overlay {
         float height = pad * 2;
         for (const auto &row : rows)
             height += row.rule ? row.size * s : row.timer ? row.size * s * 1.1f : row.size * s * 1.6f;
-        const float x = corner % 2 == 0 ? 14 * s : float(GetScreenWidth()) - width - 14 * s;
-        float y = corner < 2 ? 12 * s : float(GetScreenHeight()) - height - 12 * s;
-        const unsigned char shade[] = {0, 105, 180};
-        if (const auto alpha = shade[std::min(options.background, 2u)])
-            DrawRectangleRounded({x, y, width, height}, 0.06f, 6, Color{10, 12, 18, alpha});
+        const float edge[] = {4.0f, 14.0f, 40.0f}, margin = edge[std::min(options.margin, 2u)] * s;
+        const float x = corner % 2 == 0 ? margin : float(GetScreenWidth()) - width - margin;
+        float y = corner < 2 ? margin : float(GetScreenHeight()) - height - margin;
+        const unsigned char shade[] = {0, 105, 180, 55, 235};
+        if (const auto alpha = shade[std::min(options.background, 4u)])
+            DrawRectangleRounded({x, y, width, height}, options.shape ? 0.0f : 0.06f, 6, Color{10, 12, 18, alpha});
         y += pad;
         const float left = x + pad, right = x + width - pad;
         for (const auto &row : rows) {
@@ -724,6 +735,18 @@ void draw(PS2Runtime &runtime, void *) {
         unsigned level = 0;
         if (openkai2::cpu::cycle(level))
             toast(std::string("CPU difficulty: ") + openkai2::cpu::level_name(level));
+    }
+    if (IsKeyPressed(KEY_F4)) {
+        auto &textures = openkai2::hd::library();
+        if (!textures.replacing())
+            toast("HD textures are off. Choose them in Settings, with internal resolution 2x or higher");
+        else {
+            openkai2::hd::set_shown(!openkai2::hd::shown());
+            const auto counts = textures.counts();
+            toast(openkai2::hd::shown()
+                      ? "HD textures on: " + std::to_string(counts.packed) + " from packs, " + std::to_string(counts.upscaled) + " upscaled"
+                      : std::string("HD textures off (original textures). F4 turns them back on"));
+        }
     }
     if (overlay->options.fps_counter)
         overlay->count(now);

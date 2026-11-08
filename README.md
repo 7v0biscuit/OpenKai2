@@ -27,7 +27,7 @@ files.
   fights. Music, voices and sound effects play.
 - **Graphics:** GPU rendering (OpenGL 4.3 or Vulkan) with a CPU fallback, internal
   resolution up to 4x, HD textures (upscaled from your disc or from texture packs),
-  window sizes up to 4K, 16:9, FXAA, and several upscalers including AMD FSR 1.
+  window sizes up to 4K, 16:9, three FXAA levels, and several upscalers including AMD FSR 1.
   See [Internal resolution and HD textures](docs/graphics.md).
 - **Online play:** versus over the internet from the launcher, with profiles,
   friends, invites, a room browser and room passwords. Both games run in lockstep

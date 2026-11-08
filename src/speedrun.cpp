@@ -652,6 +652,7 @@ RunView make_view(const Timer &timer, const SplitBook &book, double now, size_t 
         const bool final_split = !best.empty() && i + 1 == best.size();
         row.name = tournament(timer.category()) ? (final_split ? "Final" : "Round " + std::to_string(i + 1))
                                               : (final_split ? "Kid Buu" : "Battle " + std::to_string(i + 1));
+        row.index = i;
         row.done = i < done;
         row.current = running && i == done;
         if (row.done) {

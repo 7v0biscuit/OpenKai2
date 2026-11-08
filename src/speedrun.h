@@ -191,6 +191,7 @@ class SplitBook {
 struct SplitRow {
     std::string name;
     double time = 0;
+    size_t index = 0;
     bool done = false, current = false, has_time = false, has_delta = false, gold = false;
     double delta = 0;
 };

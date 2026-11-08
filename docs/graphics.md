@@ -50,6 +50,24 @@ in the textures folder turns itself off.
 
 **Open texture folder** opens `%LOCALAPPDATA%\OpenKai2\textures`.
 
+In game, **F4** switches HD textures off and on, so you can compare them with
+the original textures. A message shows how many textures have been replaced
+from packs or upscaled. Textures the game draws itself, such as reflections and
+some effects, keep their original look.
+
+## Anti-aliasing
+
+| Choice | What it does |
+|---|---|
+| Off | No edge smoothing |
+| FXAA | Fast smoothing of the sharpest edges |
+| FXAA High | Follows each edge a few pixels further, so long edges are smoother |
+| FXAA Ultra | Follows edges furthest and also smooths small details; the softest picture |
+
+Anti-aliasing runs before the picture is scaled to the window. Internal
+resolution 2x or higher also smooths edges, because the picture is averaged
+down to the window.
+
 ### Making a texture pack
 
 1. Choose **Dump textures for pack makers** and play the parts of the game you

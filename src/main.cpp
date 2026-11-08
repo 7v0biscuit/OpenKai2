@@ -247,6 +247,10 @@ int main(int argc, char* argv[]) {
             overlay.corner=preferences.overlayCorner;
             overlay.size=preferences.overlaySize;
             overlay.background=preferences.overlayBackground;
+            overlay.margin=preferences.overlayMargin;overlay.shape=preferences.overlayShape;overlay.title=preferences.overlayTitle;
+            {std::string name;for(const char c:preferences.overlaySplitNames+","){if(c==','){const auto first=name.find_first_not_of(' '),last=name.find_last_not_of(' ');
+                overlay.split_names.push_back(first==std::string::npos ? std::string() : name.substr(first,last-first+1));name.clear();}else name+=c;}
+             while(!overlay.split_names.empty() && overlay.split_names.back().empty())overlay.split_names.pop_back();}
             overlay.split_rows=run::overlay_split_rows[std::min(preferences.overlaySplits,3u)];
             overlay.cpu=online.enabled ? 0u : std::min(preferences.cpuDifficulty,6u);
             overlay.decimals=run::tournament(category) ? 3u : std::min(preferences.overlayDecimals,3u);

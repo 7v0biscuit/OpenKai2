@@ -87,9 +87,13 @@ int main() {
         s.fpsCounter = true;
         s.overlayItems = 0x5u | openkai2::speedrun::overlay_required;
         s.overlayCorner = 3;
-        s.overlaySize = 2;
-        s.overlayBackground = 0;
         s.overlaySplits = 3;
+        s.overlaySize = 3;
+        s.overlayBackground = 4;
+        s.overlayMargin = 2;
+        s.overlayShape = 1;
+        s.overlayTitle = "My \"Any%\" run";
+        s.overlaySplitNames = "Raditz, Nappa ,Vegeta";
         s.onlineName = "Son Goku";
         s.onlineAddress = "203.0.113.7";
         s.onlinePort = 7351;
@@ -112,7 +116,8 @@ int main() {
                     read.importIso == s.importIso && read.windowLeft == -1200 && read.windowTop == 40 &&
                     read.windowWidth == 1180 && read.windowHeight == 760 && read.windowMaximized &&
                     read.speedrun == 2 && read.permadeath && read.fpsCounter && read.overlayItems == (0x5u | openkai2::speedrun::overlay_required) &&
-                    read.overlayCorner == 3 && read.overlaySize == 2 && read.overlayBackground == 0 &&
+                    read.overlayCorner == 3 && read.overlaySize == 3 && read.overlayBackground == 4 && read.overlayMargin == 2 && read.overlayShape == 1 &&
+                    read.overlayTitle == "My \"Any%\" run" && read.overlaySplitNames == "Raditz, Nappa ,Vegeta" &&
                     read.overlaySplits == 3 && read.onlineName == "Son Goku" &&
                     read.onlineAddress == "203.0.113.7" && read.onlinePort == 7351 && read.onlineDelay == 4 &&
                     read.onlineProfiles == s.onlineProfiles && read.onlineRoom == "Kame House" &&

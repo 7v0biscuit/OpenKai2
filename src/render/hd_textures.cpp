@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "hd_textures.h"
+#include <atomic>
 #include "raylib.h"
 #include <algorithm>
 #include <cstdio>
@@ -278,5 +279,13 @@ Library &library() {
     static Library value;
     return value;
 }
+
+namespace {
+std::atomic<bool> showing{true};
+}
+
+void set_shown(bool value) { showing.store(value, std::memory_order_relaxed); }
+
+bool shown() { return showing.load(std::memory_order_relaxed); }
 
 }
