@@ -60,9 +60,15 @@ void initializeBattleAi(uint8_t *memory, R5900Context *context, PS2Runtime *runt
 }
 PS2Runtime::RecompiledFunction originalBattleRequest = nullptr;
 void requestBattle(uint8_t *memory, R5900Context *context, PS2Runtime *runtime) {
-    if (openkai2::randomizer::active().prepare(memory, PS2_RAM_SIZE, getRegU32(context, 4)))
+    if (openkai2::randomizer::active().request_battle(memory, PS2_RAM_SIZE, getRegU32(context, 4)))
         std::cout << "[randomizer] player is " << openkai2::randomizer::display_name(openkai2::randomizer::active().last()) << std::endl;
     originalBattleRequest(memory, context, runtime);
+}
+PS2Runtime::RecompiledFunction originalDragonWorldLoader = nullptr;
+void loadDragonWorldFight(uint8_t *memory, R5900Context *context, PS2Runtime *runtime) {
+    if (openkai2::randomizer::active().load_dragon_world(memory, PS2_RAM_SIZE))
+        std::cout << "[randomizer] player is " << openkai2::randomizer::display_name(openkai2::randomizer::active().last()) << std::endl;
+    originalDragonWorldLoader(memory, context, runtime);
 }
 
 class TeeBuffer : public std::streambuf {
@@ -353,6 +359,14 @@ int main(int argc, char* argv[]) {
         } restoreRequest{runtime,originalBattleRequest};
         if (!originalBattleRequest || !runtime.replaceFunction(openkai2::randomizer::battle_request_entry, requestBattle))
             throw std::runtime_error("Cannot bind the battle request");
+        originalDragonWorldLoader = runtime.lookupFunction(openkai2::randomizer::dragon_world_loader_entry);
+        struct RestoreDragonWorldLoader {
+            PS2Runtime& runtime;
+            PS2Runtime::RecompiledFunction original;
+            ~RestoreDragonWorldLoader() { if (original) runtime.replaceFunction(openkai2::randomizer::dragon_world_loader_entry,original); }
+        } restoreLoader{runtime,originalDragonWorldLoader};
+        if (!originalDragonWorldLoader || !runtime.replaceFunction(openkai2::randomizer::dragon_world_loader_entry, loadDragonWorldFight))
+            throw std::runtime_error("Cannot bind the Dragon World fight loader");
         if (randomize) std::cout << "[randomizer] on: the player's character changes every Dragon World and World Tournament fight" << std::endl;
         if (cpuLevel) std::cout << "[cpu] difficulty " << openkai2::cpu::level_name(cpuLevel) << (speedrun ? " (locked for the run)" : "") << std::endl;
         else if (preferences.cpuDifficulty) std::cout << "[cpu] difficulty Z levels are off online" << std::endl;
