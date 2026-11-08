@@ -23,10 +23,20 @@ and update preferences.
 
 ### Making the launcher your own
 
-- **Theme:** Ember (the original look), Ocean, Forest, Violet, Crimson or
-  Graphite. Each colors the background, panels, sidebar and buttons.
+- **Theme:** Ember (the original look), Ocean, Forest, Violet, Crimson,
+  Graphite, Saiyan Gold, Namek, Frieza, Midnight, Sakura or Daylight (a light
+  theme). Each colors the background, panels, sidebar and buttons.
 - **Accent color:** the theme's own color, or Orange, Gold, Red, Pink, Purple,
-  Blue, Cyan, Green or White for buttons and highlights.
+  Blue, Cyan, Green, White, Teal, Lime, Magenta, Coral, Sky, Indigo, Silver or
+  Amber for buttons and highlights.
+- **Colors…:** recolor any part of the launcher with the Windows color picker:
+  background, sidebar, panels, fields, buttons and their hover color, borders,
+  the three text shades, accent, highlight, glow, main buttons and their text,
+  both sides of the Play banner with its title and details, success, error and
+  link colors, and the Dragon Ball with its stars. Pick a part and choose
+  **Change color…** (or double-click it); **Use theme color** undoes one part
+  and **Reset all colors** undoes them all. Parts you do not change follow the
+  theme.
 - **Arrange tabs…:** move tabs up or down and hide the ones you do not use.
   Play and Settings are always shown. Ctrl+1 to Ctrl+7 follow your order.
 - **Start on:** open the launcher on Play or on the last page you used.
