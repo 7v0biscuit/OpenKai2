@@ -54,6 +54,7 @@ struct Settings {
     unsigned launcherTheme = 0, launcherAccent = 0, startPage = 0, lastPage = 0;
     std::array<unsigned, tab_count> tabOrder{0, 1, 2, 3, 4, 5, 6};
     unsigned hiddenTabs = 0;
+    CustomColors launcherColors = no_custom_colors();
 };
 std::filesystem::path settings_path();
 std::filesystem::path textures_directory();

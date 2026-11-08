@@ -15,11 +15,15 @@ struct ThemeChoice {
     const wchar_t *name;
     float r, g, b;
     Rgb accent;
+    bool light;
 };
 inline constexpr ThemeChoice themes[] = {
-    {L"Ember", 0.47f, 0.58f, 1.0f, {255, 136, 28}},   {L"Ocean", 0.36f, 0.62f, 1.0f, {64, 156, 255}},
-    {L"Forest", 0.55f, 1.0f, 0.72f, {86, 200, 120}},  {L"Violet", 0.78f, 0.55f, 1.0f, {168, 112, 255}},
-    {L"Crimson", 1.0f, 0.5f, 0.62f, {236, 72, 84}},   {L"Graphite", 0.9f, 0.93f, 1.0f, {214, 218, 228}},
+    {L"Ember", 0.47f, 0.58f, 1.0f, {255, 136, 28}, false},     {L"Ocean", 0.36f, 0.62f, 1.0f, {64, 156, 255}, false},
+    {L"Forest", 0.55f, 1.0f, 0.72f, {86, 200, 120}, false},    {L"Violet", 0.78f, 0.55f, 1.0f, {168, 112, 255}, false},
+    {L"Crimson", 1.0f, 0.5f, 0.62f, {236, 72, 84}, false},     {L"Graphite", 0.9f, 0.93f, 1.0f, {214, 218, 228}, false},
+    {L"Saiyan Gold", 1.0f, 0.82f, 0.5f, {255, 196, 40}, false}, {L"Namek", 0.45f, 1.0f, 0.85f, {70, 220, 170}, false},
+    {L"Frieza", 0.9f, 0.55f, 1.0f, {214, 90, 230}, false},     {L"Midnight", 0.3f, 0.42f, 1.0f, {70, 200, 255}, false},
+    {L"Sakura", 1.0f, 0.62f, 0.8f, {255, 120, 170}, false},    {L"Daylight", 0.95f, 0.97f, 1.0f, {232, 108, 18}, true},
 };
 inline constexpr unsigned theme_count = sizeof(themes) / sizeof(themes[0]);
 
@@ -28,10 +32,11 @@ struct AccentChoice {
     Rgb color;
 };
 inline constexpr AccentChoice accents[] = {
-    {L"Theme color", {0, 0, 0}},    {L"Orange", {255, 136, 28}}, {L"Gold", {246, 196, 64}},
-    {L"Red", {236, 72, 84}},        {L"Pink", {244, 110, 190}},  {L"Purple", {168, 112, 255}},
-    {L"Blue", {64, 156, 255}},      {L"Cyan", {52, 206, 220}},   {L"Green", {86, 200, 120}},
-    {L"White", {226, 230, 238}},
+    {L"Theme color", {0, 0, 0}},    {L"Orange", {255, 136, 28}}, {L"Gold", {246, 196, 64}},   {L"Red", {236, 72, 84}},
+    {L"Pink", {244, 110, 190}},     {L"Purple", {168, 112, 255}}, {L"Blue", {64, 156, 255}},  {L"Cyan", {52, 206, 220}},
+    {L"Green", {86, 200, 120}},     {L"White", {226, 230, 238}}, {L"Teal", {40, 190, 170}},   {L"Lime", {170, 220, 60}},
+    {L"Magenta", {220, 70, 200}},   {L"Coral", {255, 120, 90}},  {L"Sky", {110, 190, 255}},   {L"Indigo", {100, 110, 240}},
+    {L"Silver", {170, 176, 190}},   {L"Amber", {255, 170, 0}},
 };
 inline constexpr unsigned accent_count = sizeof(accents) / sizeof(accents[0]);
 
@@ -43,7 +48,48 @@ struct Theme {
     Rgb background, sidebar, panel, field, raised, hover, border, ink, muted, faint;
     Rgb accent, highlight, glow, heroFrom, heroTo;
     Rgb buttonTop, buttonBottom, buttonHotTop, buttonHotBottom, buttonPressedTop, buttonPressedBottom, buttonShine, buttonInk;
+    Rgb bannerTitle, bannerText, success, error, info, ball, ballStars, shadow;
 };
+
+struct ColorRole {
+    const wchar_t *name, *about;
+    Rgb Theme::*member;
+};
+inline constexpr ColorRole color_roles[] = {
+    {L"Background", L"Behind every page", &Theme::background},
+    {L"Sidebar", L"The tab column on the left", &Theme::sidebar},
+    {L"Panels", L"Boxes that hold each group of settings", &Theme::panel},
+    {L"Fields", L"Dropdowns, lists and text boxes", &Theme::field},
+    {L"Buttons", L"Ordinary buttons", &Theme::raised},
+    {L"Button hover", L"Buttons under the mouse", &Theme::hover},
+    {L"Borders", L"Outlines and dividing lines", &Theme::border},
+    {L"Text", L"Headings, values and labels", &Theme::ink},
+    {L"Secondary text", L"Notes and descriptions", &Theme::muted},
+    {L"Faint text", L"Hints, disabled items and the version", &Theme::faint},
+    {L"Accent", L"Selected tab, selection marks and focus", &Theme::accent},
+    {L"Highlight", L"Gold details and best times", &Theme::highlight},
+    {L"Glow", L"Light behind the logo and main buttons", &Theme::glow},
+    {L"Main buttons", L"Play, Import and other main actions", &Theme::buttonTop},
+    {L"Main button text", L"Text on main buttons", &Theme::buttonInk},
+    {L"Banner left", L"Left side of the Play banner", &Theme::heroFrom},
+    {L"Banner right", L"Right side of the Play banner", &Theme::heroTo},
+    {L"Banner title", L"The Budokai 2 title on Play", &Theme::bannerTitle},
+    {L"Banner details", L"Console, region and ID on Play", &Theme::bannerText},
+    {L"Success", L"Online, verified and finished states", &Theme::success},
+    {L"Errors", L"Problems and warnings", &Theme::error},
+    {L"Links", L"Information marks", &Theme::info},
+    {L"Dragon Ball", L"The ball in the corner", &Theme::ball},
+    {L"Dragon Ball stars", L"The stars on the ball", &Theme::ballStars},
+};
+inline constexpr unsigned color_role_count = sizeof(color_roles) / sizeof(color_roles[0]);
+inline constexpr unsigned main_button_role = 13;
+using CustomColors = std::array<int32_t, color_role_count>;
+constexpr CustomColors no_custom_colors() {
+    CustomColors out{};
+    for (auto &value : out)
+        value = -1;
+    return out;
+}
 
 constexpr uint8_t channel(float value) { return uint8_t(std::clamp(value + 0.5f, 0.0f, 255.0f)); }
 constexpr Rgb blend(Rgb a, Rgb b, unsigned amount) {
@@ -51,38 +97,70 @@ constexpr Rgb blend(Rgb a, Rgb b, unsigned amount) {
     return {part(a.r, b.r), part(a.g, b.g), part(a.b, b.b)};
 }
 constexpr unsigned luminance(Rgb c) { return (c.r * 299u + c.g * 587u + c.b * 114u) / 1000u; }
+constexpr Rgb from_hex(int32_t value) { return {uint8_t(value >> 16 & 255), uint8_t(value >> 8 & 255), uint8_t(value & 255)}; }
+constexpr int32_t to_hex(Rgb c) { return int32_t(c.r) << 16 | int32_t(c.g) << 8 | int32_t(c.b); }
 
-constexpr Theme make_theme(unsigned theme, unsigned accent) {
+constexpr void shade_main_buttons(Theme &out, Rgb base) {
+    const Rgb white{255, 255, 255}, black{0, 0, 0};
+    out.buttonTop = blend(base, white, 80);
+    out.buttonBottom = blend(base, black, 12);
+    out.buttonHotTop = blend(base, white, 130);
+    out.buttonHotBottom = blend(base, white, 40);
+    out.buttonPressedTop = blend(base, black, 25);
+    out.buttonPressedBottom = blend(base, black, 55);
+    out.buttonShine = blend(out.buttonTop, Rgb{255, 245, 214}, 150);
+}
+
+constexpr Theme make_theme(unsigned theme, unsigned accent, const CustomColors &custom = no_custom_colors()) {
     const auto &t = themes[std::min(theme, theme_count - 1u)];
     const auto tone = [&](float level, float grey) {
         const float r = t.r + (1.0f - t.r) * grey, g = t.g + (1.0f - t.g) * grey, b = t.b + (1.0f - t.b) * grey;
         return Rgb{channel(level * r), channel(level * g), channel(level * b)};
     };
     Theme out{};
-    out.background = tone(19, 0.0f);
-    out.sidebar = tone(24, 0.0f);
-    out.panel = tone(33, 0.0f);
-    out.field = tone(42, 0.0f);
-    out.raised = tone(53, 0.0f);
-    out.hover = tone(69, 0.0f);
-    out.border = tone(61, 0.0f);
-    out.ink = {242, 238, 230};
-    out.muted = tone(174, 0.7f);
-    out.faint = tone(117, 0.55f);
     const Rgb white{255, 255, 255}, black{0, 0, 0};
     out.accent = accent && accent < accent_count ? accents[accent].color : t.accent;
-    out.highlight = blend(out.accent, Rgb{255, 236, 170}, 120);
+    if (t.light) {
+        out.background = tone(238, 0.0f);
+        out.sidebar = tone(226, 0.0f);
+        out.panel = tone(250, 0.0f);
+        out.field = {255, 255, 255};
+        out.raised = tone(232, 0.0f);
+        out.hover = tone(216, 0.0f);
+        out.border = tone(204, 0.0f);
+        out.ink = {26, 28, 36};
+        out.muted = {84, 90, 108};
+        out.faint = {132, 138, 156};
+        out.highlight = blend(out.accent, black, 60);
+        out.heroFrom = blend(Rgb{20, 22, 30}, out.accent, 90);
+        out.heroTo = {32, 36, 52};
+        out.shadow = blend(out.background, white, 200);
+    } else {
+        out.background = tone(19, 0.0f);
+        out.sidebar = tone(24, 0.0f);
+        out.panel = tone(33, 0.0f);
+        out.field = tone(42, 0.0f);
+        out.raised = tone(53, 0.0f);
+        out.hover = tone(69, 0.0f);
+        out.border = tone(61, 0.0f);
+        out.ink = {242, 238, 230};
+        out.muted = tone(174, 0.7f);
+        out.faint = tone(117, 0.55f);
+        out.highlight = blend(out.accent, Rgb{255, 236, 170}, 120);
+        out.heroFrom = blend(black, out.accent, 64);
+        out.heroTo = tone(31, 0.0f);
+        out.shadow = {6, 7, 12};
+    }
     out.glow = blend(out.accent, black, 20);
-    out.heroFrom = blend(black, out.accent, 64);
-    out.heroTo = tone(31, 0.0f);
-    out.buttonTop = blend(out.accent, white, 80);
-    out.buttonBottom = blend(out.accent, black, 12);
-    out.buttonHotTop = blend(out.accent, white, 130);
-    out.buttonHotBottom = blend(out.accent, white, 40);
-    out.buttonPressedTop = blend(out.accent, black, 25);
-    out.buttonPressedBottom = blend(out.accent, black, 55);
-    out.buttonShine = blend(out.buttonTop, Rgb{255, 245, 214}, 150);
+    shade_main_buttons(out, out.accent);
     out.buttonInk = luminance(out.accent) > 110u ? blend(out.accent, black, 220) : white;
+    out.bannerTitle = {255, 240, 222};
+    out.bannerText = {206, 176, 150};
+    out.success = t.light ? Rgb{24, 150, 90} : Rgb{98, 214, 152};
+    out.error = t.light ? Rgb{200, 50, 44} : Rgb{255, 112, 102};
+    out.info = {70, 110, 255};
+    out.ball = {255, 145, 26};
+    out.ballStars = {220, 40, 28};
     if (std::min(theme, theme_count - 1u) == 0u) {
         out.background = {9, 11, 19};
         out.sidebar = {12, 14, 24};
@@ -108,7 +186,22 @@ constexpr Theme make_theme(unsigned theme, unsigned accent) {
             out.buttonInk = {36, 16, 4};
         }
     }
+    for (unsigned role = 0; role < color_role_count; ++role) {
+        if (custom[role] < 0)
+            continue;
+        const Rgb chosen = from_hex(custom[role]);
+        if (role == main_button_role)
+            shade_main_buttons(out, chosen);
+        out.*(color_roles[role].member) = chosen;
+    }
     return out;
+}
+
+constexpr bool valid_custom_colors(const CustomColors &custom) {
+    for (int32_t value : custom)
+        if (value < -1 || value > 0xffffff)
+            return false;
+    return true;
 }
 
 constexpr bool valid_tab_order(const std::array<unsigned, tab_count> &order, unsigned hidden) {

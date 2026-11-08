@@ -63,16 +63,18 @@ COLORREF background = RGB(9, 11, 19), sidebar = RGB(12, 14, 24), panel = RGB(17,
 COLORREF field = RGB(22, 26, 42), raised = RGB(29, 34, 53), hover = RGB(39, 45, 69);
 COLORREF border = RGB(35, 41, 61), ink = RGB(242, 238, 230), muted = RGB(148, 153, 174);
 COLORREF faint = RGB(86, 93, 117), orange = RGB(255, 136, 28), gold = RGB(255, 204, 86);
-constexpr COLORREF red = RGB(255, 112, 102), green = RGB(98, 214, 152);
+COLORREF red = RGB(255, 112, 102), green = RGB(98, 214, 152);
 COLORREF ember = RGB(255, 112, 24);
-constexpr COLORREF sky = RGB(70, 110, 255);
+COLORREF sky = RGB(70, 110, 255);
+COLORREF bannerTitle = RGB(255, 240, 222), bannerText = RGB(206, 176, 150), titleShadow = RGB(6, 7, 12);
+COLORREF ballColor = RGB(255, 145, 26), ballStars = RGB(220, 40, 28);
 COLORREF heroFrom = RGB(64, 24, 8), heroTo = RGB(15, 17, 31);
 COLORREF buttonTop = RGB(255, 186, 70), buttonBottom = RGB(250, 126, 22), buttonHotTop = RGB(255, 214, 110),
          buttonHotBottom = RGB(255, 150, 44), buttonPressedTop = RGB(236, 120, 22), buttonPressedBottom = RGB(214, 96, 14),
          buttonShine = RGB(255, 245, 214), buttonInk = RGB(36, 16, 4);
 COLORREF colorOf(Rgb c) { return RGB(c.r, c.g, c.b); }
-void apply_theme(unsigned choice, unsigned accent) {
-    const auto t = make_theme(choice, accent);
+void apply_theme(unsigned choice, unsigned accent, const CustomColors &custom) {
+    const auto t = make_theme(choice, accent, custom);
     background = colorOf(t.background); sidebar = colorOf(t.sidebar); panel = colorOf(t.panel);
     field = colorOf(t.field); raised = colorOf(t.raised); hover = colorOf(t.hover); border = colorOf(t.border);
     ink = colorOf(t.ink); muted = colorOf(t.muted); faint = colorOf(t.faint);
@@ -81,7 +83,10 @@ void apply_theme(unsigned choice, unsigned accent) {
     buttonTop = colorOf(t.buttonTop); buttonBottom = colorOf(t.buttonBottom);
     buttonHotTop = colorOf(t.buttonHotTop); buttonHotBottom = colorOf(t.buttonHotBottom);
     buttonPressedTop = colorOf(t.buttonPressedTop); buttonPressedBottom = colorOf(t.buttonPressedBottom);
-    buttonShine = RGB(255, 245, 214); buttonInk = colorOf(t.buttonInk);
+    buttonShine = colorOf(t.buttonShine); buttonInk = colorOf(t.buttonInk);
+    red = colorOf(t.error); green = colorOf(t.success); sky = colorOf(t.info);
+    bannerTitle = colorOf(t.bannerTitle); bannerText = colorOf(t.bannerText); titleShadow = colorOf(t.shadow);
+    ballColor = colorOf(t.ball); ballStars = colorOf(t.ballStars);
 }
 
 constexpr int sidebarWidth = 220, contentLeft = 252, margin = 32;
@@ -228,11 +233,17 @@ enum Id {
     LauncherAccent,
     StartPage,
     ShortcutFirst,
-    ShortcutLast = ShortcutFirst + 6
+    ShortcutLast = ShortcutFirst + 6,
+    ColorList,
+    ColorPick,
+    ColorReset,
+    ColorResetAll,
+    CloseColors,
+    OpenColors
 };
 constexpr int tabStep = 52, tabHeight = 46;
 constexpr int pageCount = 7, onlinePage = 1, speedrunPage = 2, modsPage = 3, savesPage = 4, settingsPage = 5, updatesPage = 6,
-              importPage = 7, overlayPage = 8, tabsPage = 9;
+              importPage = 7, overlayPage = 8, tabsPage = 9, colorsPage = 10;
 constexpr std::array<unsigned, 4> audioVolumes{100u, 75u, 50u, 25u};
 int audioChoice(const Settings &settings) {
     if (!settings.audio)
@@ -448,12 +459,14 @@ struct Frame {
                     const double nz = std::sqrt(1.0 - d2);
                     const double diffuse = std::max(0.0, nx * lx + ny * ly + nz * lz);
                     const double through = std::max(0.0, nx * 0.45 + ny * 0.5 + nz * 0.25);
-                    double cr = 150 + 105 * diffuse + 40 * through, cg = 50 + 95 * diffuse + 60 * through,
-                           cb = 6 + 20 * diffuse + 20 * through;
+                    const double br = GetRValue(ballColor), bg = GetGValue(ballColor), bb = GetBValue(ballColor);
+                    double cr = br * (150 + 105 * diffuse) / 255 + 40 * through * br / 255,
+                           cg = bg * (50 + 95 * diffuse) / 145 + 60 * through * bg / 145,
+                           cb = bb * (6 + 20 * diffuse) / 26 + 20 * through * bb / 26;
                     if (inStar(nx, ny, -0.2, 0.02, 0.28) || inStar(nx, ny, 0.25, 0.26, 0.28)) {
-                        cr = 170 + 50 * diffuse;
-                        cg = 24 + 16 * diffuse;
-                        cb = 18 + 10 * diffuse;
+                        cr = GetRValue(ballStars) * (170 + 50 * diffuse) / 220;
+                        cg = GetGValue(ballStars) * (24 + 16 * diffuse) / 40;
+                        cb = GetBValue(ballStars) * (18 + 10 * diffuse) / 28;
                     }
                     const double rim = 1.0 - 0.35 * std::pow(d2, 3);
                     const double hx = nx + 0.5, hy = ny + 0.52;
@@ -687,7 +700,7 @@ struct Window {
     int p(int n) const { return MulDiv(n, int(dpi), 96); }
     int unscale(int n) const { return MulDiv(n, 96, int(dpi)); }
     int navigationPage() const {
-        return page == importPage ? modsPage : page == overlayPage ? speedrunPage : page == tabsPage ? settingsPage : page;
+        return page == importPage ? modsPage : page == overlayPage ? speedrunPage : page == tabsPage || page == colorsPage ? settingsPage : page;
     }
     std::vector<int> visibleTabs() const {
         std::vector<int> shown;
@@ -887,7 +900,7 @@ struct Window {
             ShowWindow(c, visible ? SW_SHOWNA : SW_HIDE);
     }
     void initialize() {
-        apply_theme(settings.launcherTheme, settings.launcherAccent);
+        apply_theme(settings.launcherTheme, settings.launcherAccent, settings.launcherColors);
         if (settings.startPage && settings.lastPage < tab_count && !((settings.hiddenTabs >> settings.lastPage) & 1u))
             page = int(settings.lastPage);
         if (!settings.discordPresence) {
@@ -950,6 +963,11 @@ struct Window {
                                                           {TabToggle, L"Show / hide"},
                                                           {TabDefaults, L"Restore order"},
                                                           {ArrangeTabs, L"Arrange tabs…"},
+                                                          {OpenColors, L"Colors…"},
+                                                          {ColorPick, L"Change color…"},
+                                                          {ColorReset, L"Use theme color"},
+                                                          {ColorResetAll, L"Reset all colors"},
+                                                          {CloseColors, L"Back to settings"},
                                                           {OverlayToggle, L"Show / hide"},
                                                           {OverlayDefaults, L"Restore defaults"},
                                                           {ClearImage, L"Crisp"},
@@ -1078,6 +1096,7 @@ struct Window {
         }
         combo(StartPage, {L"Play", L"Last page used"}, int(std::min(settings.startPage, 1u)));
         list(TabList, L"Tabs", 40, false);
+        list(ColorList, L"Colors", 36, false);
         combo(AutomaticUpdates, {L"Off", L"On"}, settings.autoUpdates ? 1 : 0);
         combo(TargetMod, {}, 0);
         combo(SpotMode, {L"Share a spot (R2 switches)", L"Add a new spot"}, 0);
@@ -1338,6 +1357,14 @@ struct Window {
             position(CheckUpdates, grid.x(2), Grid::field(236, 0), half, 34);
             position(InstallUpdate, grid.x(2) + half + 10, Grid::field(236, 0), grid.column - half - 10, 34);
             position(ReleasePage, right - 20 - 130, 136, 130, 34);
+        } else if (page == colorsPage) {
+            const int panelBottom = h - 64, listWidth = std::min(560, content - 40 - 200);
+            position(CloseColors, right - 20 - 150, 136, 150, 34);
+            position(ColorList, contentLeft + 20, 228, listWidth, std::max(120, panelBottom - 20 - 228));
+            const int side = contentLeft + 20 + listWidth + 20, buttonWidth = std::min(170, right - 20 - side);
+            position(ColorPick, side, 228, buttonWidth, 34);
+            position(ColorReset, side, 272, buttonWidth, 34);
+            position(ColorResetAll, side, 336, buttonWidth, 34);
         } else if (page == tabsPage) {
             const int panelBottom = h - 64, listWidth = std::min(420, content - 40 - 180);
             position(CloseTabs, right - 20 - 150, 136, 150, 34);
@@ -1403,6 +1430,7 @@ struct Window {
             position(LauncherAccent, grid.x(1), grid.field(updatesTop, 0), grid.column, grid.controlHeight);
             position(StartPage, grid.x(2), grid.field(updatesTop, 0), grid.column, grid.controlHeight);
             position(ArrangeTabs, right - 20 - 140, updatesTop + (grid.header - 28) / 2, 140, 28);
+            position(OpenColors, right - 20 - 140 - 10 - 100, updatesTop + (grid.header - 28) / 2, 100, 28);
 
         }
         planning = nullptr;
@@ -1445,7 +1473,7 @@ struct Window {
         fill(dc, {p(sidebarWidth) - 1, 0, p(sidebarWidth), p(h)}, mix(sidebar, border, 170));
         buffer.frame.radial({0, 0, p(sidebarWidth) - 1, p(h)}, p(38), p(48), p(40), ember, 90);
         buffer.frame.ball(p(38), p(48), p(15), {0, 0, p(sidebarWidth), p(h)});
-        lettering(dc, L"OpenKai2", p(64), p(46), fonts.mark, ink, RGB(6, 7, 12), p(1));
+        lettering(dc, L"OpenKai2", p(64), p(46), fonts.mark, ink, titleShadow, p(1));
         text(dc, L"Budokai 2 for PC", 64, 52, 150, 18, fonts.caption, muted);
         const int chosen = std::max(tabSlot(navigationPage()), 0);
         const RECT row{p(12), p(104 + chosen * tabStep), p(sidebarWidth - 12), p(104 + tabHeight + chosen * tabStep)};
@@ -1473,7 +1501,7 @@ struct Window {
         text(dc, L"v" + wide(application_version), 24, h - 38, sidebarWidth - 48, 18, fonts.caption, faint);
     }
     void paintHeader(HDC dc, int w, int content) {
-        const wchar_t *titles[] = {L"Play", L"Online", L"Speedrun", L"Mods", L"Saves", L"Settings", L"Updates", L"Import tool", L"Speedrun overlay", L"Arrange tabs"};
+        const wchar_t *titles[] = {L"Play", L"Online", L"Speedrun", L"Mods", L"Saves", L"Settings", L"Updates", L"Import tool", L"Speedrun overlay", L"Arrange tabs", L"Colors"};
         const wchar_t *subtitles[] = {
             L"",
             L"Play versus with friends and other players over the internet.",
@@ -1484,8 +1512,9 @@ struct Window {
             L"New versions of OpenKai2, how they are found and when they install.",
             L"Add characters, stages and movesets from other Dragon Ball Z games. Nothing in Budokai 2 is removed.",
             L"Pick what the in-game overlay shows. Splits, deltas and best times are tracked for you.",
-            L"Choose the order of the tabs in the sidebar and hide the ones you do not use."};
-        lettering(dc, titles[page], p(contentLeft), p(60), fonts.title, ink, RGB(6, 7, 12), p(2));
+            L"Choose the order of the tabs in the sidebar and hide the ones you do not use.",
+            L"Recolor any part of the launcher. Colors you do not change follow the theme."};
+        lettering(dc, titles[page], p(contentLeft), p(60), fonts.title, ink, titleShadow, p(2));
         if (hasNotice()) {
             const auto message = noticeText();
             const int width = std::min(content - 220, measure(dc, message, fonts.caption) + 40);
@@ -1531,11 +1560,11 @@ struct Window {
         buffer.frame.radial(hero, p(contentLeft), p(heroTop), p(260), ember, 34, p(18));
 
         caps(dc, L"DRAGON BALL Z", contentLeft + 30, heroTop + 22, 300, gold);
-        lettering(dc, L"Budokai 2", p(contentLeft + 28), p(heroTop + 76), fonts.wordmark, RGB(255, 240, 222),
-                  RGB(28, 12, 4), p(2));
+        lettering(dc, L"Budokai 2", p(contentLeft + 28), p(heroTop + 76), fonts.wordmark, bannerTitle,
+                  mix(heroFrom, RGB(0, 0, 0), 180), p(2));
         int spec = contentLeft + 30;
         for (const wchar_t *part : {L"PLAYSTATION 2", L"NTSC-U", L"SLUS-20779"}) {
-            caps(dc, part, spec, heroTop + 93, 160, RGB(206, 176, 150));
+            caps(dc, part, spec, heroTop + 93, 160, bannerText);
             spec += measure(dc, part, fonts.label) + int(std::wcslen(part)) + 22;
         }
 
@@ -1556,9 +1585,9 @@ struct Window {
             headline = L"No disc selected";
             detail = L"Choose your USA ISO below to get started.";
         }
-        text(dc, headline, contentLeft + 214, heroBottom - (detail.empty() ? 59 : 69), content - 400, 22, fonts.strong);
+        text(dc, headline, contentLeft + 214, heroBottom - (detail.empty() ? 59 : 69), content - 400, 22, fonts.strong, bannerTitle);
         text(dc, detail, contentLeft + 214, heroBottom - 47, content - 400, 20, fonts.caption,
-             RGB(214, 196, 180), DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+             mix(bannerText, RGB(255, 255, 255), 50), DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
 
         panelBox(dc, contentLeft, discTop, right, discBottom);
         caps(dc, L"GAME DISC", contentLeft + 20, discTop + 16, 200);
@@ -1789,7 +1818,7 @@ struct Window {
         }
     }
     void restyle() {
-        apply_theme(settings.launcherTheme, settings.launcherAccent);
+        apply_theme(settings.launcherTheme, settings.launcherAccent, settings.launcherColors);
         renderFrame();
         layout();
         RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_FRAME);
@@ -1823,6 +1852,39 @@ struct Window {
                  L"is checked against its published SHA-256, and installs after the game closes; your settings, saves and mods are kept. "
                  L"If GitHub is busy, the launcher tries again a few times.",
              contentLeft + 20, 422, content - 40, 56, fonts.caption, muted, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
+    }
+    void refreshColors() {
+        const auto list = controls[ColorList];
+        const auto chosen = SendMessageW(list, LB_GETCURSEL, 0, 0);
+        const auto top = SendMessageW(list, LB_GETTOPINDEX, 0, 0);
+        SendMessageW(list, LB_RESETCONTENT, 0, 0);
+        const auto look = make_theme(settings.launcherTheme, settings.launcherAccent, settings.launcherColors);
+        for (unsigned role = 0; role < color_role_count; ++role) {
+            const Rgb color = look.*(color_roles[role].member);
+            wchar_t hex[8]{};
+            swprintf(hex, 8, L"#%02X%02X%02X", color.r, color.g, color.b);
+            const std::wstring row = std::wstring(hex) + L" \u00b7 " + color_roles[role].name + L" \u00b7 " +
+                                     (settings.launcherColors[role] >= 0 ? L"Custom" : L"Theme") + L" \u00b7 " + color_roles[role].about;
+            SendMessageW(list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(row.c_str()));
+        }
+        SendMessageW(list, LB_SETTOPINDEX, WPARAM(std::max<LRESULT>(top, 0)), 0);
+        SendMessageW(list, LB_SETCURSEL, chosen, 0);
+    }
+    void paintColors(HDC dc, int h, int content) {
+        const int right = contentLeft + content, panelBottom = h - 64;
+        panelBox(dc, contentLeft, 124, right, 196);
+        text(dc, std::wstring(L"Theme ") + themes[std::min(settings.launcherTheme, theme_count - 1u)].name,
+             contentLeft + 20, 136, content - 200, 22, fonts.strong);
+        text(dc, L"Pick a part of the launcher, then Change color. Use theme color returns it to the theme. "
+                 L"Double-click a row to change it.",
+             contentLeft + 20, 160, content - 200, 32, fonts.caption, muted, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
+        panelBox(dc, contentLeft, 208, right, panelBottom);
+        caps(dc, L"COLORS", contentLeft + 20, 212, 200);
+        const unsigned custom = unsigned(std::count_if(settings.launcherColors.begin(), settings.launcherColors.end(),
+                                                       [](int32_t value) { return value >= 0; }));
+        const int listWidth = std::min(560, content - 40 - 200), side = contentLeft + 20 + listWidth + 20;
+        text(dc, std::to_wstring(custom) + (custom == 1 ? L" color changed" : L" colors changed"), side, 384,
+             std::max(40, right - 20 - side), 18, fonts.caption, muted, DT_LEFT | DT_SINGLELINE | DT_NOPREFIX);
     }
     void paintTabs(HDC dc, int h, int content) {
         const int right = contentLeft + content, panelBottom = h - 64;
@@ -2225,7 +2287,7 @@ struct Window {
         auto section = [&](int top, int rows, const wchar_t *title, const std::wstring &note, COLORREF tone) {
             panelBox(dc, contentLeft, top, right, grid.bottom(top, rows));
             text(dc, title, contentLeft + 20, top + 12, 200, 22, fonts.strong);
-            const int actions = top == updatesTop ? 160 : top == gameTop ? 190 : 0;
+            const int actions = top == updatesTop ? 270 : top == gameTop ? 190 : 0;
             text(dc, note, contentLeft + 120, top + 14, content - 140 - actions, 18,
                  fonts.caption, tone, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
         };
@@ -2416,6 +2478,8 @@ struct Window {
             paintOverlay(memory, h, content);
         else if (page == tabsPage)
             paintTabs(memory, h, content);
+        else if (page == colorsPage)
+            paintColors(memory, h, content);
         else if (page == updatesPage)
             paintUpdates(memory, h, content);
         else if (page == onlinePage)
@@ -2540,12 +2604,14 @@ struct Window {
                 emberFill(dc, r, primary ? 12 : 10, pressed, hot);
                 label = buttonInk;
             } else {
-                const COLORREF color = !enabled ? panel : pressed ? field : hot ? hover : raised;
-                const COLORREF outline = !enabled ? mix(panel, border, 140) : hot ? mix(border, orange, 110) : border;
+                const bool onBanner = id == Play;
+                const COLORREF idle = onBanner ? mix(heroTo, bannerTitle, 26) : panel;
+                const COLORREF color = !enabled ? idle : pressed ? field : hot ? hover : raised;
+                const COLORREF outline = !enabled ? mix(idle, onBanner ? bannerTitle : border, onBanner ? 50 : 140) : hot ? mix(border, orange, 110) : border;
                 box(dc, r, color, outline, 10);
                 if (enabled && !pressed)
                     fill(dc, {r.left + cut(10) + 1, r.top + 1, r.right - 1, r.top + 2}, mix(color, ink, 18));
-                label = enabled ? ink : faint;
+                label = enabled ? ink : onBanner ? mix(bannerTitle, heroTo, 120) : faint;
                 if (id == DeleteSelected && enabled) label = red;
             }
             wchar_t text[100]{};
@@ -2643,6 +2709,14 @@ struct Window {
             }
             SelectObject(dc, old);
             return;
+        }
+        if (item.hwndItem == controls[ColorList] && parts.size() > 1 && parts[0].size() == 7 && parts[0][0] == L'#') {
+            const auto value = std::wcstol(parts[0].c_str() + 1, nullptr, 16);
+            const COLORREF swatch = RGB(value >> 16 & 255, value >> 8 & 255, value & 255);
+            const RECT box{r.left, r.top + p(8), r.left + p(34), r.bottom - p(8)};
+            fill(dc, box, mix(border, ink, 60));
+            fill(dc, {box.left + 1, box.top + 1, box.right - 1, box.bottom - 1}, swatch);
+            r.left += p(46);
         }
         if (parts.size() > 1 && (parts[0] == L"On" || parts[0] == L"Off")) {
             const bool on = parts[0] == L"On";
@@ -4853,6 +4927,60 @@ struct Window {
             const size_t slot = size_t(id - ShortcutFirst);
             if (slot < shown.size())
                 command(PlayTab + shown[slot], BN_CLICKED);
+            return;
+        }
+        if (id == OpenColors && notification == BN_CLICKED) {
+            page = colorsPage;
+            refreshColors();
+            layout();
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return;
+        }
+        if (id == CloseColors && notification == BN_CLICKED) {
+            page = settingsPage;
+            layout();
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return;
+        }
+        if (((id == ColorPick || id == ColorReset || id == ColorResetAll) && notification == BN_CLICKED) ||
+            (id == ColorList && notification == LBN_DBLCLK)) {
+            const auto row = SendMessageW(controls[ColorList], LB_GETCURSEL, 0, 0);
+            std::wstring message;
+            if (id == ColorResetAll) {
+                if (MessageBoxW(hwnd, L"Return every color to the theme?", L"Reset colors", MB_YESNO | MB_ICONQUESTION) != IDYES)
+                    return;
+                settings.launcherColors = no_custom_colors();
+                message = L"All colors follow the theme again.";
+            } else if (row < 0 || row >= LRESULT(color_role_count)) {
+                status = L"Pick a color first.";
+                error = true;
+                InvalidateRect(hwnd, nullptr, FALSE);
+                return;
+            } else if (id == ColorReset) {
+                settings.launcherColors[size_t(row)] = -1;
+                message = std::wstring(color_roles[row].name) + L" follows the theme again.";
+            } else {
+                static COLORREF saved[16]{};
+                const auto look = make_theme(settings.launcherTheme, settings.launcherAccent, settings.launcherColors);
+                for (unsigned i = 0; i < 16 && i < color_role_count; ++i)
+                    if (!saved[i])
+                        saved[i] = colorOf(look.*(color_roles[i + 6u < color_role_count ? i + 6u : i].member));
+                const Rgb current = look.*(color_roles[row].member);
+                CHOOSECOLORW choice{};
+                choice.lStructSize = sizeof(choice);
+                choice.hwndOwner = hwnd;
+                choice.rgbResult = colorOf(current);
+                choice.lpCustColors = saved;
+                choice.Flags = CC_FULLOPEN | CC_RGBINIT | CC_ANYCOLOR;
+                if (!ChooseColorW(&choice))
+                    return;
+                settings.launcherColors[size_t(row)] = int32_t(GetRValue(choice.rgbResult)) << 16 |
+                                                       int32_t(GetGValue(choice.rgbResult)) << 8 | int32_t(GetBValue(choice.rgbResult));
+                message = std::wstring(color_roles[row].name) + L" changed.";
+            }
+            saveLauncherLook(message);
+            refreshColors();
+            restyle();
             return;
         }
         if (id == ArrangeTabs && notification == BN_CLICKED) {

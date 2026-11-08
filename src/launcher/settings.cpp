@@ -32,7 +32,7 @@ void validate_settings(const Settings &s) {
         s.onlineLobby.size() > 255 || s.onlineProfiles.size() > 32)
         throw std::runtime_error("Invalid online settings");
     if (s.launcherTheme >= theme_count || s.launcherAccent >= accent_count || s.startPage > 1 || s.lastPage >= tab_count ||
-        !valid_tab_order(s.tabOrder, s.hiddenTabs))
+        !valid_tab_order(s.tabOrder, s.hiddenTabs) || !valid_custom_colors(s.launcherColors))
         throw std::runtime_error("Invalid launcher appearance settings");
 }
 Settings read_settings(const std::filesystem::path &file) {
@@ -110,6 +110,15 @@ Settings read_settings(const std::filesystem::path &file) {
             row >> s.windowLeft >> s.windowTop >> s.windowWidth >> s.windowHeight >> s.windowMaximized;
         else if (key == "launcher_look")
             row >> s.launcherTheme >> s.launcherAccent >> s.startPage >> s.lastPage;
+        else if (key == "launcher_colors") {
+            for (unsigned role = 0; role < color_role_count; ++role) {
+                int32_t value = -1;
+                if (!(row >> value))
+                    break;
+                s.launcherColors[role] = value;
+            }
+            row.clear();
+        }
         else if (key == "launcher_tabs") {
             std::vector<unsigned> values;
             for (unsigned value = 0; row >> value;)
@@ -210,7 +219,10 @@ void write_settings(const std::filesystem::path &file, const Settings &s) {
         << "\nlauncher_window " << s.windowLeft << ' ' << s.windowTop << ' ' << s.windowWidth << ' '
         << s.windowHeight << ' ' << s.windowMaximized << "\nlauncher_look " << s.launcherTheme << ' ' << s.launcherAccent << ' ' << s.startPage << ' ' << s.lastPage
         << "\nlauncher_tabs " << s.tabOrder[0] << ' ' << s.tabOrder[1] << ' ' << s.tabOrder[2] << ' ' << s.tabOrder[3] << ' '
-        << s.tabOrder[4] << ' ' << s.tabOrder[5] << ' ' << s.tabOrder[6] << ' ' << s.hiddenTabs << "\nspeedrun " << s.speedrun << ' ' << s.permadeath
+        << s.tabOrder[4] << ' ' << s.tabOrder[5] << ' ' << s.tabOrder[6] << ' ' << s.hiddenTabs << "\nlauncher_colors";
+    for (int32_t value : s.launcherColors)
+        out << ' ' << value;
+    out << "\nspeedrun " << s.speedrun << ' ' << s.permadeath
         << "\nfps_counter " << s.fpsCounter << "\noverlay " << s.overlayItems << ' ' << s.overlayCorner << ' '
         << s.overlaySize << ' ' << s.overlayBackground << ' ' << s.overlaySplits << "\noverlay_style "
         << s.overlayColors[0] << ' ' << s.overlayColors[1] << ' ' << s.overlayColors[2] << ' ' << s.overlayColors[3] << ' '
