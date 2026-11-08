@@ -62,7 +62,12 @@ uint hdPoint(uint c,ivec2 p){
     uint vlow=((modes>>24u)|(high<<8u))&1023u,vhigh=(high>>2u)&1023u;
     p.x=(modes&3u)==0u ? ((p.x%w)+w)%w : (modes&3u)==1u ? clamp(p.x,0,w-1) : clamp(p.x,int((modes>>4u)&1023u)*sx,int((modes>>14u)&1023u)*sx+sx-1);
     p.y=((modes>>2u)&3u)==0u ? ((p.y%h)+h)%h : ((modes>>2u)&3u)==1u ? clamp(p.y,0,h-1) : clamp(p.y,int(vlow)*sy,int(vhigh)*sy+sy-1);
-    return hiColor[params[13]+word(c,89u)-1u+uint(p.y)*uint(w)+uint(p.x)];
+    uint stride=word(c,92u)!=0u ? word(c,92u) : uint(w);
+    uint value=hiColor[params[13]+word(c,89u)-1u+uint(p.y)*stride+uint(p.x)];
+    if(word(c,93u)==0u)return value;
+    uint psm=word(c,16u);
+    if(psm==2u || psm==10u)value=convert16(value&65535u);
+    return applyAlpha(c,psm,value);
 }
 uint sampleHd(uint c,vec2 uv){
     vec2 scaled=uv*vec2(float(word(c,90u))/float(word(c,19u)),float(word(c,91u))/float(word(c,20u)));

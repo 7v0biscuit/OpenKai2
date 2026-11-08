@@ -132,7 +132,7 @@ struct GpuRasterBackend::Impl {
     static constexpr size_t hdWords=24u<<20u,hdLargest=4u<<20u;
     size_t hdCapacity=0;
     struct HdSlot{uint32_t offset=0,width=0,height=0;};
-    bool hdOn=false,hdFull=false;size_t hdHead=0;uint64_t hiresFrames=0,nativeFrames=0;std::array<uint64_t,6> hdSkips{};std::array<uint64_t,6> nativeWhy{};std::unordered_map<uint64_t,HdSlot> hdSlots;
+    bool hdOn=false,hdFull=false;size_t hdHead=0;uint64_t hiresFrames=0,nativeFrames=0,shadowSources=0;std::array<uint64_t,6> hdSkips{};std::array<uint64_t,6> nativeWhy{};std::unordered_map<uint64_t,HdSlot> hdSlots;
     struct KeyHash{size_t operator()(const std::array<uint64_t,4>& k)const{uint64_t h=k[0];for(unsigned i=1;i<4u;++i)h=(h^k[i])*0x9e3779b97f4a7c15ull;return size_t(h^(h>>29u));}};
     std::unordered_map<std::array<uint64_t,4>,uint64_t,KeyHash> hdHashes;std::array<uint32_t,gpu::PageCount> pageVersion{},pageHashed{};std::array<uint64_t,gpu::PageCount> pageHash{};
     struct HdMemo{std::array<uint64_t,2> key{};uint64_t generation=0,result=0;Pages pages;};
@@ -197,6 +197,21 @@ struct GpuRasterBackend::Impl {
             hdHead+=(words+63u)&~size_t(63u);
         }
         ++hdSkips[4];cmd[89]=slot->second.offset+1u;cmd[90]=slot->second.width;cmd[91]=slot->second.height;
+    }
+    bool applyShadowSource(const GSDrawState& state,uint32_t* cmd){
+        const auto& c=state.context;const auto& t=c.tex0;const unsigned w=state.textureWidth,h=state.textureHeight;
+        if(!(t.psm==0u || t.psm==1u || t.psm==2u || t.psm==10u) || !t.tbw || !w || !h)return false;
+        if((c.clamp&3u)==3u || ((c.clamp>>2u)&3u)==3u)return false;
+        if(t.tbp0==target[0] || w>t.tbw*64u || h>shadowHeight)return false;
+        for(unsigned i=0;i<colorSlots;++i){
+            const auto& shadow=colorShadows[i];
+            if(!shadow.used || !shadow.valid || shadow.base!=t.tbp0 || shadow.width!=t.tbw || shadow.psm!=t.psm)continue;
+            const auto pages=rectanglePages(t.psm,t.tbp0,t.tbw,0u,0u,w,h);
+            if((shadow.stale&pages).any() || (cpuDirty&pages).any())return false;
+            cmd[89]=uint32_t(size_t(i)*slotWords())-uint32_t(hdBase())+1u;cmd[90]=w*scale;cmd[91]=h*scale;
+            cmd[92]=t.tbw*64u*scale;cmd[93]=1u;++shadowSources;return true;
+        }
+        return false;
     }
     void invalidateShadows(const Pages& pages){
         if(!hires || !pages.any())return;
@@ -456,7 +471,7 @@ void GpuRasterBackend::Submit(const GSPrimitiveBatch& batch){
     if(!m->vram || !batch.vertexCount)return;
     // Encode before appending: culled primitives must not grow or clear the
     // command buffer. Every used field is overwritten; HD slots are optional.
-    auto& pending=m->pendingCommand;pending[89]=pending[90]=pending[91]=0u;
+    auto& pending=m->pendingCommand;pending[89]=pending[90]=pending[91]=pending[92]=pending[93]=0u;
     if(m->cpuFrame || !m->encode(batch,pending.data(),writes,sources,footprint) || !m->ready()){
         const char* reason=gpu_draw_unsupported(batch);
         countFallback(batch,reason ? reason : m->cpuFrame ? "after-earlier-fallback" : !m->ready() ? "device-not-ready" : "draw-area");
@@ -481,7 +496,8 @@ void GpuRasterBackend::Submit(const GSPrimitiveBatch& batch){
     m->upload();
     const size_t base=m->commands.size()-gpu::CommandWords;
     if((m->commands[base+1u]&1u) && indexed(batch.state.context.tex0.psm))m->commands[base+28u]=m->paletteFor(batch.state);
-    if(m->hdOn && (m->commands[base+1u]&1u))m->applyHd(batch.state,m->commands.data()+base);
+    if(m->hires && (m->commands[base+1u]&1u) && m->applyShadowSource(batch.state,m->commands.data()+base)){}
+    else if(m->hdOn && (m->commands[base+1u]&1u))m->applyHd(batch.state,m->commands.data()+base);
     const uint32_t* command=m->commands.data()+base;
     const auto index=uint32_t(base/gpu::CommandWords);
     const auto addTile=[&](unsigned tile){auto& list=m->tileCommands[tile];if(list.empty())m->activeTiles.push_back(tile);list.push_back(index);++m->references;};
@@ -645,7 +661,7 @@ PresentationFrame GpuRasterBackend::Present(const GSPresentationRequest& request
         if(plan.ok && !scaledFrame)++m->nativeWhy[5];
         if((m->hiresFrames+m->nativeFrames)%600u==0u){
             const auto counts=hd::library().counts();
-            std::cout<<"[renderer:hires] frames_scaled="<<m->hiresFrames<<" frames_native="<<m->nativeFrames<<" hd_upscaled="<<counts.upscaled<<" hd_packed="<<counts.packed<<" hd_dumped="<<counts.dumped<<" hd_resident="<<m->hdSlots.size()<<" hd_draws="<<m->hdSkips[4]<<" hd_skip_region="<<m->hdSkips[0]<<" hd_skip_size="<<m->hdSkips[1]<<" hd_skip_target="<<m->hdSkips[2]<<" hd_pending="<<m->hdSkips[3]<<" hd_deferred="<<m->hdSkips[5]<<" native_display="<<m->nativeWhy[0]<<" native_no_shadow="<<m->nativeWhy[1]<<" native_stale="<<m->nativeWhy[2]<<" native_cpu="<<m->nativeWhy[3]<<" native_bounds="<<m->nativeWhy[4]<<" native_source="<<m->nativeWhy[5]<<std::endl;
+            std::cout<<"[renderer:hires] frames_scaled="<<m->hiresFrames<<" frames_native="<<m->nativeFrames<<" hd_upscaled="<<counts.upscaled<<" hd_packed="<<counts.packed<<" hd_dumped="<<counts.dumped<<" hd_resident="<<m->hdSlots.size()<<" hd_draws="<<m->hdSkips[4]<<" hd_skip_region="<<m->hdSkips[0]<<" hd_skip_size="<<m->hdSkips[1]<<" hd_skip_target="<<m->hdSkips[2]<<" hd_pending="<<m->hdSkips[3]<<" hd_deferred="<<m->hdSkips[5]<<" native_display="<<m->nativeWhy[0]<<" native_no_shadow="<<m->nativeWhy[1]<<" native_stale="<<m->nativeWhy[2]<<" native_cpu="<<m->nativeWhy[3]<<" native_bounds="<<m->nativeWhy[4]<<" native_source="<<m->nativeWhy[5]<<" hires_texture_draws="<<m->shadowSources<<std::endl;
         }
     }
     if(!scaledFrame)return frame;

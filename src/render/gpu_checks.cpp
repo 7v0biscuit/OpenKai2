@@ -645,6 +645,38 @@ void checkInternalResolution(){
     set_graphics_settings(scaled);
     std::cout<<"GPU internal resolution checks passed: 2x color, 16-bit, depth-tested and both interlaced fields, and 3x fitted to the window.\n";
 }
+void checkHiresTextureSources(){
+    const auto saved=graphics_settings();auto scaled=saved;scaled.internalScale=2u;set_graphics_settings(scaled);
+    struct Restore{GraphicsSettings value;~Restore(){set_graphics_settings(value);}} restore{saved};
+    Comparison pair(false);auto tri=material(0u,false);auto& s=tri.state;auto& c=s.context;
+    s.prim.tme=s.prim.abe=s.prim.iip=false;c.scissor={0u,127u,0u,127u};
+    for(auto& v:tri.vertices){v.r=200;v.g=90;v.b=30;v.a=128;v.z=5000u;}
+    tri.vertices[0].x=3.25f;tri.vertices[0].y=2.5f;tri.vertices[1].x=120.75f;tri.vertices[1].y=30.5f;tri.vertices[2].x=20.5f;tri.vertices[2].y=118.25f;
+    pair.draw(tri);
+    auto copy=material(2u,true);auto& cs=copy.state;auto& cc=cs.context;
+    cs.prim.abe=cs.prim.iip=false;cs.prim.fst=true;cs.linearFilter=false;cs.textureWidth=cs.textureHeight=128u;
+    cc.frame.fbp=200u;cc.frame.fbw=8u;cc.scissor={0u,127u,0u,127u};cc.test=0x30000u;
+    cc.tex0.psm=GS_PSM_CT32;cc.tex0.tbp0=56u*32u;cc.tex0.tbw=8u;cc.tex0.tfx=1u;cc.tex0.tcc=0u;cc.clamp=1u|(1u<<2u);
+    copy.vertices[0].x=0.0f;copy.vertices[0].y=0.0f;copy.vertices[0].u=8u;copy.vertices[0].v=8u;
+    copy.vertices[1].x=128.0f;copy.vertices[1].y=128.0f;copy.vertices[1].u=128u*16u+8u;copy.vertices[1].v=128u*16u+8u;
+    for(auto& v:copy.vertices){v.r=v.g=v.b=128;v.a=128;}
+    pair.draw(copy);
+    GSPresentationRequest request{};request.pmode=1;
+    request.dispfb1=uint64_t(200)|(uint64_t(8)<<9);
+    request.display1=(uint64_t(127)<<32)|(uint64_t(127)<<44);
+    pair.gpu->Sync(GSSyncReason::Presentation);
+    const auto hi=pair.gpu->Present(request);
+    if(hi.width!=256u || hi.height!=256u)throw std::runtime_error("Copied frame was not presented at 2x");
+    const auto at=[&](unsigned x,unsigned y){uint32_t px;std::memcpy(&px,hi.pixels.data()+(size_t(y)*hi.width+x)*4u,4u);return px&0xffffffu;};
+    unsigned refined=0u;
+    for(unsigned y=0;y<128u;++y)for(unsigned x=0;x<128u;++x){
+        const uint32_t a=at(x*2u,y*2u);
+        if(at(x*2u+1u,y*2u)!=a || at(x*2u,y*2u+1u)!=a || at(x*2u+1u,y*2u+1u)!=a)++refined;
+    }
+    if(refined<64u)throw std::runtime_error("A frame copied from a render target lost its higher resolution: "+std::to_string(refined)+" refined pixels");
+    pair.compare("Hi-res texture sources keep native VRAM");
+    std::cout<<"GPU hi-res texture sources passed: a render target copied to the screen keeps its higher resolution.\n";
+}
 void checkHdTextures(){
     const auto saved=graphics_settings();
     struct Restore{GraphicsSettings value;~Restore(){set_graphics_settings(value);hd::library().configure(hd::off,{},2u);}} restore{saved};
@@ -701,7 +733,7 @@ int run_gpu_checks(bool required){
 #endif
         if(!initialized){std::cout<<"GPU checks unavailable: "<<error<<'\n';return required ? 1 : 77;}
         std::cout<<"GPU checks device: "<<gpu::current_device()->description()<<'\n';
-        checkDepthEnable();checkFlatDepth();checkDepthPlanes();checkPaletteReuse();checkPresentationReadbacks();checkEmptyTriangles();checkOffscreenTriangles();checkMaterials();checkIntegerPipeline();checkFormats();checkLines();checkCoherence();checkTransferPages();checkGpuTransfers();checkLargeTransfers();checkRebind();checkClears();checkSourceChanges();checkPartialReadbacks();checkGsWorker();checkInternalResolution();checkHdTextures();
+        checkDepthEnable();checkFlatDepth();checkDepthPlanes();checkPaletteReuse();checkPresentationReadbacks();checkEmptyTriangles();checkOffscreenTriangles();checkMaterials();checkIntegerPipeline();checkFormats();checkLines();checkCoherence();checkTransferPages();checkGpuTransfers();checkLargeTransfers();checkRebind();checkClears();checkSourceChanges();checkPartialReadbacks();checkGsWorker();checkInternalResolution();checkHiresTextureSources();checkHdTextures();
         const auto before=gpu_render_statistics().gpuDraws;verify_vector_runtime_gpu();
         if(gpu_render_statistics().gpuDraws-before!=8u)throw std::runtime_error("VIF/PATH1 integration did not execute eight GPU triangles");
         auto device=gpu::current_device();device->post([](gpu::Host&){throw std::runtime_error("GPU failure propagation fixture");});

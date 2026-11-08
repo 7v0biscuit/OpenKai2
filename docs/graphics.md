@@ -13,7 +13,9 @@ renderer always draws at the PS2's native resolution.
 | 3x | 1920x1344 |
 | 4x | 2560x1792 |
 
-3D scenes, menus and sprites are drawn at the higher resolution. When the
+3D scenes, menus and sprites are drawn at the higher resolution. Pictures the
+game draws and then reuses as a texture, such as full-screen copies and
+effects, keep the higher resolution too. When the
 picture is taller than the window, the graphics card averages it down to the
 window height before it is copied out, which smooths edges and keeps the copy
 small. The result is scaled to the window with the chosen upscaler; when it is
