@@ -112,11 +112,15 @@ class StretchedPlayback {
             size_t count = 0;
             while (count < wanted) {
                 const size_t at = read_ + size_t(phase_);
-                if (at + 1u >= frames)
+                if (at + 2u >= frames)
                     break;
                 const float t = float(phase_ - std::floor(phase_));
                 const float *a = input_.data() + at * 2u;
-                const float frame[2] = {a[0] + (a[2] - a[0]) * t, a[1] + (a[3] - a[1]) * t};
+                float frame[2];
+                for (unsigned channel = 0; channel < 2u; ++channel) {
+                    const float p0 = at ? a[channel - 2] : a[channel], p1 = a[channel], p2 = a[channel + 2u], p3 = a[channel + 4u];
+                    frame[channel] = t == 0.0f ? p1 : cubic(p0, p1, p2, p3, t);
+                }
                 mix(rest.subspan(count * 2u), frame, 1u);
                 ++count;
                 phase_ += step;
@@ -126,9 +130,9 @@ class StretchedPlayback {
             phase_ -= double(consumed);
             if (count < wanted)
                 underrun(rest.subspan(count * 2u));
-            else if (average_ > overfull) {
-                read_ += available() > target ? available() - target : 0u;
-                phase_ = 0.0;
+            else if (average_ > overfull && available() > target + crossfade) {
+                const size_t skip = available() - target;
+                skipFrames(skip);
             }
         }
         if (read_ > 8192u || read_ == input_.size() / 2u) {
@@ -137,6 +141,7 @@ class StretchedPlayback {
         }
     }
     double speed() const { return speed_; }
+    uint64_t skips() const { return skips_.load(std::memory_order_relaxed); }
     bool stretching() const { return stretched_; }
     uint64_t underruns() const { return underruns_.load(std::memory_order_relaxed); }
     uint64_t silentFrames() const { return silent_.load(std::memory_order_relaxed); }
@@ -204,6 +209,23 @@ class StretchedPlayback {
         speed_ = 1.0;
         settled_ = 0;
         fillAt_ = 0;
+    }
+    static float cubic(float p0, float p1, float p2, float p3, float t) {
+        const float a = -0.5f * p0 + 1.5f * p1 - 1.5f * p2 + 0.5f * p3, b = p0 - 2.5f * p1 + 2.0f * p2 - 0.5f * p3,
+                    c = -0.5f * p0 + 0.5f * p2;
+        return ((a * t + b) * t + c) * t + p1;
+    }
+    void skipFrames(size_t skip) {
+        const size_t blend = crossfade;
+        float *from = input_.data() + read_ * 2u, *to = input_.data() + (read_ + skip) * 2u;
+        for (size_t i = 0; i < blend; ++i) {
+            const float in = float(i + 1u) / float(blend + 1u);
+            for (unsigned channel = 0; channel < 2u; ++channel)
+                to[i * 2u + channel] = from[i * 2u + channel] * (1.0f - in) + to[i * 2u + channel] * in;
+        }
+        read_ += skip;
+        phase_ = 0.0;
+        skips_.fetch_add(1u, std::memory_order_relaxed);
     }
     void remember(const float *samples, size_t frames) {
         fed_.insert(fed_.end(), samples, samples + frames * 2u);
@@ -297,6 +319,6 @@ class StretchedPlayback {
     unsigned settled_ = 0;
     std::array<float, 2> last_{};
     unsigned fadeLeft_ = 0, fadeIn_ = 0;
-    std::atomic<uint64_t> underruns_{0}, silent_{0};
+    std::atomic<uint64_t> underruns_{0}, silent_{0}, skips_{0};
 };
 }

@@ -146,7 +146,8 @@ void stop_host_audio(const void *owner) {
                   << " stop_requests=" << output->stops[core].load(std::memory_order_relaxed)
                   << " queued_frames=" << output->queues[core].queued()
                   << " silent_frames=" << output->playback[core].silentFrames()
-                  << " tempo=" << output->playback[core].speed() << '\n';
+                  << " tempo=" << output->playback[core].speed()
+                  << " skips=" << output->playback[core].skips() << '\n';
     }
     std::cerr << "[audio:output] stopped dropped_frames=" << dropped << " underruns=" << underruns << '\n';
     output.reset();
@@ -310,13 +311,37 @@ int test_host_audio() {
         for (size_t i = 0; i < 8000u; ++i)
             worst = std::max(worst, double(std::fabs(through[(12000u + i) * 2u] - input(lag + i))));
         require(worst < 1.0e-4, "Full-speed playback changed the waveform");
+        auto flooded = std::make_unique<Output>();
+        flooded->gain = 1.0f;
+        std::vector<int16_t> sine(48000u * 4u * 2u);
+        for (unsigned i = 0; i < 48000u * 4u; ++i)
+            sine[i * 2u] = sine[i * 2u + 1u] = int16_t(8000.0 * std::sin(2.0 * 3.14159265358979323846 * 440.0 * i / 48000.0));
+        size_t given = StretchedPlayback::prefill;
+        flooded->queues[0].push(std::span<const int16_t>(sine.data(), given * 2u));
+        float previous = 0.0f, jump = 0.0f;
+        bool started = false;
+        for (unsigned step = 0; step < 150u; ++step) {
+            const size_t count = std::min<size_t>(step == 20u ? 40000u : 1024u, 48000u * 4u - given);
+            flooded->queues[0].push(std::span<const int16_t>(sine.data() + given * 2u, count * 2u));
+            given += count;
+            std::fill(block.begin(), block.end(), 0.0f);
+            render(*flooded, block.data(), 1024u);
+            for (unsigned i = 0; i < 1024u; ++i) {
+                if (started)
+                    jump = std::max(jump, std::fabs(block[i * 2u] - previous));
+                previous = block[i * 2u];
+                started = started || std::fabs(previous) > 0.1f;
+            }
+        }
+        require(flooded->playback[0].skips() > 0u, "An overfull buffer was not brought back to its target");
+        require(jump < 0.05f, "Catching up on an overfull buffer made an audible jump");
         check->queues[0].discardPending();
         check->queues[1].discardPending();
         render(*check, samples.data(), 1024u);
         std::fill(samples.begin(), samples.end(), 0.0f);
         render(*check, samples.data(), 1024u);
         require(std::fabs(samples[1023u * 2u]) < 1.0e-6f, "Stopped stream kept playing");
-        std::cout << "Host audio mixer passed: 48 kHz float stereo, both SPU2 cores, volume, limiter, transparent full-speed playback, 100 ms hitches absorbed, a steady tempo at 93% speed, stretching to 40% speed and back to untouched playback.\n"
+        std::cout << "Host audio mixer passed: 48 kHz float stereo, both SPU2 cores, volume, limiter, transparent full-speed playback, 100 ms hitches absorbed, a steady tempo at 93% speed, stretching to 40% speed and back to untouched playback, and smooth catch-up from an overfull buffer.\n"
                   << "Host audio output is " << (options.enabled ? "enabled" : "disabled")
                   << " in settings at " << options.volume << "% volume.\n";
         return 0;
