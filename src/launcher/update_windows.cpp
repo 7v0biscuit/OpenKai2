@@ -56,7 +56,7 @@ std::string fetch_once(std::wstring url,uint64_t limit,const std::filesystem::pa
                        const std::function<void(const std::string &)> &progress) {
     const std::wstring agent=L"OpenKai2/"+wide(application_version);
     Internet session(WinHttpOpen(agent.c_str(),WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,WINHTTP_NO_PROXY_NAME,WINHTTP_NO_PROXY_BYPASS,0));
-    WinHttpSetTimeouts(session,10000,10000,15000,15000);
+    WinHttpSetTimeouts(session,15000,15000,30000,30000);
     DWORD protocols=WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2;
     if(!WinHttpSetOption(session,WINHTTP_OPTION_SECURE_PROTOCOLS,&protocols,sizeof(protocols)))throw std::runtime_error("TLS 1.2 is unavailable for updates");
     for(unsigned redirects=0;redirects<6;++redirects) {
@@ -66,7 +66,7 @@ std::string fetch_once(std::wstring url,uint64_t limit,const std::filesystem::pa
         DWORD redirect=WINHTTP_OPTION_REDIRECT_POLICY_NEVER;
         if(!WinHttpSetOption(request,WINHTTP_OPTION_REDIRECT_POLICY,&redirect,sizeof(redirect)))throw std::runtime_error("Cannot restrict update redirects");
         const wchar_t *headers=L"Accept: application/vnd.github+json\r\nX-GitHub-Api-Version: 2022-11-28\r\n";
-        if(!WinHttpSendRequest(request,headers,DWORD(-1),WINHTTP_NO_REQUEST_DATA,0,0,0)||!WinHttpReceiveResponse(request,nullptr))throw std::runtime_error("GitHub update check failed. Check your connection and try again");
+        if(!WinHttpSendRequest(request,headers,DWORD(-1),WINHTTP_NO_REQUEST_DATA,0,0,0)||!WinHttpReceiveResponse(request,nullptr))throw ServerBusy("Could not reach GitHub. Check your connection and try again");
         DWORD status=0,size=sizeof(status);
         if(!WinHttpQueryHeaders(request,WINHTTP_QUERY_STATUS_CODE|WINHTTP_QUERY_FLAG_NUMBER,WINHTTP_HEADER_NAME_BY_INDEX,&status,&size,WINHTTP_NO_HEADER_INDEX))throw std::runtime_error("Cannot read GitHub update response");
         if(status==301||status==302||status==303||status==307||status==308) {
@@ -83,7 +83,7 @@ std::string fetch_once(std::wstring url,uint64_t limit,const std::filesystem::pa
         std::string response;std::array<char,65536> buffer{};uint64_t total=0,last=0;
         for(;;) {
             DWORD got=0;
-            if(!WinHttpReadData(request,buffer.data(),DWORD(buffer.size()),&got))throw std::runtime_error("Update download was interrupted");
+            if(!WinHttpReadData(request,buffer.data(),DWORD(buffer.size()),&got))throw ServerBusy("Update download was interrupted");
             if(!got)break;
             total+=got;if(total>limit)throw std::runtime_error("Update response exceeds its expected size");
             if(out.is_open()) {out.write(buffer.data(),got);if(!out)throw std::runtime_error("Cannot write the update download");}
