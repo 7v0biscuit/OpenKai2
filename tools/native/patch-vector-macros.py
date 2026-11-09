@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""Give the translated VU0 macro conversions and divides their VU results."""
+"""Give the translated VU0 macro conversions, divides, MAX and MINI their VU results."""
 import argparse
 import re
 from pathlib import Path
@@ -8,6 +8,8 @@ from pathlib import Path
 VFTOI = ('__m128i res_i = _mm_cvttps_epi32(src);', '__m128i res_i = ps2_vftoi(src);')
 VDIV = ('ctx->vu0_q = (ft != 0.0f) ? (fs / ft) : 0.0f;', 'ctx->vu0_q = ps2_vdiv(fs, ft);')
 VSQRT = ('ctx->vu0_q = sqrtf(std::max(0.0f, ft));', 'ctx->vu0_q = ps2_vsqrt(ft);')
+MAX = ('_mm_max_ps(ctx->vu0_vf[', 'ps2_vmax(ctx->vu0_vf[')
+MINI = ('_mm_min_ps(ctx->vu0_vf[', 'ps2_vmini(ctx->vu0_vf[')
 RSQRT = re.compile(
     r'(    // 0x[0-9a-f]+: 0x(?P<word>[0-9a-f]{8})  vrsqrt[^\n]*\n(?:[^\n]*\n)??)'
     r'    \{ float ft = (?P<ft>[^;]+); ctx->vu0_q = \(ft > 0\.0f\) \? \(1\.0f / sqrtf\(ft\)\) : 0\.0f; \}\n')
@@ -19,7 +21,7 @@ def numerator(word):
 
 
 def patch_text(text):
-    for original, replacement in (VFTOI, VDIV, VSQRT):
+    for original, replacement in (VFTOI, VDIV, VSQRT, MAX, MINI):
         text = text.replace(original, replacement)
     return RSQRT.sub(lambda m: f'{m.group(1)}    {{ float fs = {numerator(int(m.group("word"), 16))}; '
                                f'float ft = {m.group("ft")}; ctx->vu0_q = ps2_vrsqrt(fs, ft); }}\n', text)
@@ -35,12 +37,13 @@ def main():
         if 'vu0_' not in original:
             continue
         patched = patch_text(original)
-        if '1.0f / sqrtf(ft)' in patched or '_mm_cvttps_epi32(src)' in patched:
+        if ('1.0f / sqrtf(ft)' in patched or '_mm_cvttps_epi32(src)' in patched
+                or '_mm_max_ps(ctx->vu0_vf' in patched or '_mm_min_ps(ctx->vu0_vf' in patched):
             raise ValueError(f'{path.name} has a VU0 conversion this script does not recognize')
         if patched != original:
             path.write_text(patched)
             changed += 1
-    print(f'Verified VU0 macro conversions and divides; updated {changed} translated files.')
+    print(f'Verified VU0 macro conversions, divides, MAX and MINI; updated {changed} translated files.')
 
 
 if __name__ == '__main__':

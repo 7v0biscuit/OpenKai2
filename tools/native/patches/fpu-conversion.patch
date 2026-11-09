@@ -1,6 +1,6 @@
 --- a/include/ps2_runtime_macros.h
 +++ b/include/ps2_runtime_macros.h
-@@ -853,7 +853,63 @@
+@@ -853,7 +853,81 @@
  #define FPU_FLOOR_W_S(a) ((int32_t)floorf((float)(a)))
  #define FPU_CVT_S_W(a) ((float)(int32_t)(a))
  #define FPU_CVT_S_L(a) ((float)(int64_t)(a))
@@ -61,6 +61,24 @@
 +    if (ft == 0.0f)
 +        return fs == 0.0f ? std::bit_cast<float>(0x7FFFFFFFu) : ps2_vu_maximum(std::bit_cast<uint32_t>(fs));
 +    return ps2_fdiv(fs, std::sqrt(std::fabs(ft)));
++}
++// MAX and MINI compare the raw sign-magnitude bits, so exponent-255 values
++// such as 0x7FFFFFFF are the largest numbers. SSE treats them as NaN and
++// returns the second operand instead.
++inline __m128i ps2_vu_order(__m128 value)
++{
++    const __m128i bits = _mm_castps_si128(value);
++    return _mm_xor_si128(bits, _mm_srli_epi32(_mm_srai_epi32(bits, 31), 1));
++}
++inline __m128 ps2_vmax(__m128 a, __m128 b)
++{
++    const __m128 aLarger = _mm_castsi128_ps(_mm_cmpgt_epi32(ps2_vu_order(a), ps2_vu_order(b)));
++    return _mm_or_ps(_mm_and_ps(aLarger, a), _mm_andnot_ps(aLarger, b));
++}
++inline __m128 ps2_vmini(__m128 a, __m128 b)
++{
++    const __m128 aSmaller = _mm_castsi128_ps(_mm_cmplt_epi32(ps2_vu_order(a), ps2_vu_order(b)));
++    return _mm_or_ps(_mm_and_ps(aSmaller, a), _mm_andnot_ps(aSmaller, b));
 +}
  #define FPU_CVT_L_S(a) ((int64_t)(float)(a))
  #define FPU_C_F_S(a, b) (0)

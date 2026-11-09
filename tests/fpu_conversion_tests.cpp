@@ -34,6 +34,20 @@ int main() {
                 "VFTOI did not truncate and saturate by sign");
         _mm_store_si128(reinterpret_cast<__m128i *>(lanes), ps2_vftoi(_mm_castsi128_ps(_mm_set1_epi32(0x7FFFFFFF))));
         require(lanes[0] == INT32_MAX, "VFTOI treated the VU maximum as a NaN");
+        {
+            alignas(16) uint32_t out[4];
+            const __m128 big = _mm_castsi128_ps(_mm_set1_epi32(0x7FFFFFFF)), one = _mm_set1_ps(1.0f), top = _mm_set1_ps(16777216.0f);
+            _mm_store_ps(reinterpret_cast<float *>(out), ps2_vmini(ps2_vmax(big, one), top));
+            require(out[0] == std::bit_cast<uint32_t>(16777216.0f), "VMAX or VMINI treated the VU maximum as a NaN");
+            _mm_store_ps(reinterpret_cast<float *>(out), ps2_vmax(_mm_setr_ps(-3.0f, 2.0f, -0.5f, bits(0xFFFFFFFFu)), _mm_setr_ps(-4.0f, 5.0f, 0.25f, -1.0f)));
+            require(out[0] == std::bit_cast<uint32_t>(-3.0f) && out[1] == std::bit_cast<uint32_t>(5.0f) &&
+                        out[2] == std::bit_cast<uint32_t>(0.25f) && out[3] == std::bit_cast<uint32_t>(-1.0f),
+                    "VMAX ordered negative or ordinary values wrongly");
+            _mm_store_ps(reinterpret_cast<float *>(out), ps2_vmini(_mm_setr_ps(-3.0f, 2.0f, -0.5f, bits(0xFFFFFFFFu)), _mm_setr_ps(-4.0f, 5.0f, 0.25f, -1.0f)));
+            require(out[0] == std::bit_cast<uint32_t>(-4.0f) && out[1] == std::bit_cast<uint32_t>(2.0f) &&
+                        out[2] == std::bit_cast<uint32_t>(-0.5f) && out[3] == 0xFFFFFFFFu,
+                    "VMINI ordered negative or ordinary values wrongly");
+        }
         require(ps2_vdiv(1.0f, 4.0f) == 0.25f, "VDIV changed an ordinary quotient");
         require(std::bit_cast<uint32_t>(ps2_vdiv(1.0f, 0.0f)) == 0x7F7FFFFFu &&
                 std::bit_cast<uint32_t>(ps2_vdiv(-1.0f, 0.0f)) == 0xFF7FFFFFu &&

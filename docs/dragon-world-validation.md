@@ -18,7 +18,7 @@ does not measure performance on a hardware Vulkan device.
 | Lose a Saibaman encounter | The game returns to the board and displays the reward overlay. |
 | Defeat Raditz | Combat exits, his board health reaches zero and the reward sequence opens. |
 | Defeat Nappa | Combat exits, his board health reaches zero and the reward sequence opens. |
-| Dialogue and ally confirmation labels | Text is missing; unresolved. |
+| Dialogue and ally confirmation labels | Fixed: story dialogue and the "Is this okay?" prompt show their text. |
 | Clear stage 1 and enter stage 2 | Passed on v0.1.84: after both bosses were defeated, Goku moved to the Goal and the snow stage opened. |
 | Complete stage 2 setup | Objective, ally selection and keyboard confirmation completed; board control returned. |
 | Complete stages 2–9 and the ending | Not yet verified. |
@@ -50,6 +50,9 @@ suppresses depth writes even when `ZBUF.ZMSK` is clear. Known-output checks cove
 512 combinations of framebuffer format, depth format, enable state, comparison,
 write mask and primitive type. Both OpenGL and Vulkan comparisons pass.
 
-This correction does not resolve the missing story text. Captured dialogue
-textures contain readable glyphs, but captures also include hidden text layers.
-The active text draws still need to be isolated before identifying a cause.
+The missing story text and Yes/No labels came from the VU0 MAX and MINI
+instructions. The game projects 2D text with z = 0, so its depth saturates to
+the VU's largest value, 0x7FFFFFFF, and is then clamped with MAX and MINI. On a
+PC that bit pattern is a NaN, and SSE's max and min returned the minimum
+depth, which put the text behind its own box. MAX and MINI now compare the raw
+sign-magnitude bits, as the VU does.

@@ -19,7 +19,19 @@ FTOI = ('    { __m128 src = ctx->vu0_vf[1]; src = _mm_mul_ps(src, _mm_set1_ps(1.
         '__m128i res_i = _mm_cvttps_epi32(src); __m128 res = _mm_castsi128_ps(res_i); }\n')
 
 
+MAXMIN = ('    { __m128 res = _mm_max_ps(ctx->vu0_vf[1], _mm_shuffle_ps(ctx->vu0_vf[20], ctx->vu0_vf[20], _MM_SHUFFLE(3,3,3,3))); }\n'
+          '    { __m128 res = _mm_min_ps(ctx->vu0_vf[1], _mm_shuffle_ps(ctx->vu0_vf[21], ctx->vu0_vf[21], _MM_SHUFFLE(3,3,3,3))); }\n')
+
+
 class VectorMacroPatch(unittest.TestCase):
+    def test_max_and_mini_use_vu_ordering(self):
+        patched = MACROS.patch_text(MAXMIN)
+        self.assertEqual(MACROS.patch_text(patched), patched)
+        self.assertIn('ps2_vmax(ctx->vu0_vf[1], ', patched)
+        self.assertIn('ps2_vmini(ctx->vu0_vf[1], ', patched)
+        self.assertNotIn('_mm_max_ps', patched)
+        self.assertNotIn('_mm_min_ps', patched)
+
     def test_conversions_and_divides_use_vu_helpers(self):
         patched = MACROS.patch_text(RSQRT + DIV + FTOI)
         self.assertEqual(MACROS.patch_text(patched), patched)
