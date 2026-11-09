@@ -106,34 +106,18 @@ void only_dragon_world_and_tournament() {
             "An invalid request was accepted");
 }
 
-void dragon_world_changes_the_fighter_before_it_loads() {
+void a_changed_fighter_is_loaded_fresh() {
     Guest guest;
-    uint8_t *player = guest.memory.data() + dragon_world_request + request_player_blocks;
-    uint8_t *cpu = player + request_block_bytes;
-    player[block_character] = 0;
-    player[block_port] = 0;
-    cpu[block_character] = 9;
-    cpu[block_port] = 0xff;
-    const std::vector<uint8_t> cpu_before(cpu, cpu + request_block_bytes);
-    Randomizer randomizer;
-    randomizer.enable(true, 77);
-    randomizer.observe(Mode::tournament);
-    require(randomizer.load_dragon_world(guest.memory.data(), guest.memory.size()) == 0u && player[block_character] == 0,
-            "The Dragon World loader changed a World Tournament fight");
-    randomizer.observe(Mode::dragon_world);
-    for (unsigned fight = 0; fight < 20; ++fight) {
-        require(randomizer.load_dragon_world(guest.memory.data(), guest.memory.size()) == 1u, "The Dragon World fighter was not randomized before loading");
-        const uint8_t id = player[block_character];
-        require(randomizer.load_dragon_world(guest.memory.data(), guest.memory.size()) == 0u && player[block_character] == id,
-                "The fighter changed again after its files were loaded");
-        require(randomizer.request_battle(guest.memory.data(), guest.memory.size(), dragon_world_request) == 0u && player[block_character] == id,
-                "The battle request picked a different fighter than the one loaded");
-        require(std::equal(cpu_before.begin(), cpu_before.end(), cpu), "The CPU fighter was changed");
-    }
-    require(randomizer.request_battle(guest.memory.data(), guest.memory.size(), dragon_world_request) == 0u,
-            "A retry without loading changed the fighter");
-    randomizer.observe(Mode::tournament);
-    require(randomizer.request_battle(guest.memory.data(), guest.memory.size(), request) == 1u, "World Tournament fights stopped being randomized");
+    guest.memory[battle_state + battle_keep_flag] = 1;
+    Randomizer off;
+    off.observe(Mode::dragon_world);
+    off.prepare(guest.memory.data(), guest.memory.size(), request);
+    require(guest.memory[battle_state + battle_keep_flag] == 1, "The battle was reloaded without a change");
+    Randomizer on;
+    on.enable(true, 11);
+    on.observe(Mode::dragon_world);
+    require(on.prepare(guest.memory.data(), guest.memory.size(), request) == 1u && guest.memory[battle_state + battle_keep_flag] == 0,
+            "A Dragon World fight kept the models loaded for the old character");
 }
 
 void modes_follow_the_screens() {
@@ -158,7 +142,7 @@ int main() {
     try {
         only_the_player_changes();
         only_dragon_world_and_tournament();
-        dragon_world_changes_the_fighter_before_it_loads();
+        a_changed_fighter_is_loaded_fresh();
         modes_follow_the_screens();
     } catch (const std::exception &error) {
         std::cerr << error.what() << '\n';

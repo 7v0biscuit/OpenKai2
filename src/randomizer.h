@@ -9,7 +9,7 @@
 namespace openkai2::randomizer {
 
 inline constexpr uint32_t battle_request_entry = 0x1d6cd0u;
-inline constexpr uint32_t dragon_world_loader_entry = 0x281700u, dragon_world_request = 0x699B00u;
+inline constexpr uint32_t battle_state = 0x3DFBE0u, battle_keep_flag = 0x19C8Fu;
 inline constexpr uint32_t request_player_blocks = 16u, request_block_bytes = 64u;
 inline constexpr uint32_t block_character = 16u, block_costume = 17u, block_port = 19u;
 inline constexpr uint32_t block_skill_count = 30u, block_skills = 32u, block_skill_slots = 7u;
@@ -29,8 +29,6 @@ class Randomizer {
     void observe(Mode mode) { mode_.store(mode, std::memory_order_relaxed); }
     Mode mode() const { return mode_.load(std::memory_order_relaxed); }
     unsigned prepare(uint8_t *memory, size_t bytes, uint32_t request);
-    unsigned load_dragon_world(uint8_t *memory, size_t bytes);
-    unsigned request_battle(uint8_t *memory, size_t bytes, uint32_t request);
     uint8_t last() const { return last_.load(std::memory_order_relaxed); }
     uint64_t changes() const { return changes_.load(std::memory_order_acquire); }
 
@@ -41,7 +39,6 @@ class Randomizer {
     uint64_t state_ = 0x9e3779b97f4a7c15ull;
     std::atomic<uint64_t> changes_{0};
     std::atomic<uint8_t> last_{0xff};
-    bool staged_ = false;
 };
 
 Randomizer &active();

@@ -60,7 +60,6 @@ void Randomizer::enable(bool on, uint64_t seed) {
     state_ = seed ? seed : 0x9e3779b97f4a7c15ull;
     last_.store(0xff);
     changes_.store(0);
-    staged_ = false;
 }
 
 uint8_t Randomizer::pick() {
@@ -103,23 +102,9 @@ unsigned Randomizer::prepare(uint8_t *memory, size_t bytes, uint32_t request) {
         changes_.fetch_add(1, std::memory_order_release);
         ++changed;
     }
+    if (changed && size_t(battle_state) + battle_keep_flag < bytes)
+        memory[battle_state + battle_keep_flag] = 0;
     return changed;
-}
-
-unsigned Randomizer::load_dragon_world(uint8_t *memory, size_t bytes) {
-    if (staged_ || mode() != Mode::dragon_world)
-        return 0;
-    const unsigned changed = prepare(memory, bytes, dragon_world_request);
-    staged_ = changed != 0;
-    return changed;
-}
-
-unsigned Randomizer::request_battle(uint8_t *memory, size_t bytes, uint32_t request) {
-    if ((request & 0x1FFFFFFu) == dragon_world_request) {
-        staged_ = false;
-        return 0;
-    }
-    return prepare(memory, bytes, request);
 }
 
 Randomizer &active() {
