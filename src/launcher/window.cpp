@@ -75,7 +75,7 @@ COLORREF buttonTop = RGB(255, 186, 70), buttonBottom = RGB(250, 126, 22), button
          buttonShine = RGB(255, 245, 214), buttonInk = RGB(36, 16, 4);
 COLORREF colorOf(Rgb c) { return RGB(c.r, c.g, c.b); }
 void apply_theme(unsigned choice, unsigned accent, const CustomColors &custom) {
-    const auto t = make_theme(choice, accent, custom);
+    const auto t = make_theme(choice, accent, custom, GetTickCount64());
     background = colorOf(t.background); sidebar = colorOf(t.sidebar); panel = colorOf(t.panel);
     field = colorOf(t.field); raised = colorOf(t.raised); hover = colorOf(t.hover); border = colorOf(t.border);
     ink = colorOf(t.ink); muted = colorOf(t.muted); faint = colorOf(t.faint);
@@ -633,6 +633,8 @@ struct Window {
         ~FrameBuffer() { release(); }
     } buffer;
     std::vector<uint32_t> ambient;
+    bool cycling = false;
+    unsigned long long ambientAt = 0;
     int paintedPage = -1;
     std::vector<int> paintedGlow;
     std::pair<int, int> paintedSize;
@@ -3660,6 +3662,33 @@ struct Window {
                         : L"Game running. Save tools unlock when you close it.";
         ShowWindow(hwnd, SW_MINIMIZE);
     }
+    void cycleTimer() {
+        const bool want = settings.launcherAccent == rgb_accent;
+        if (want != cycling) {
+            cycling = want;
+            if (want)
+                SetTimer(hwnd, 2, rgb_frame_ms, nullptr);
+            else
+                KillTimer(hwnd, 2);
+        }
+    }
+    void cycleFrame() {
+        if (!cycling || dropdownOpen() || IsIconic(hwnd))
+            return;
+        apply_theme(settings.launcherTheme, settings.launcherAccent, settings.launcherColors);
+        const auto now = GetTickCount64();
+        if (now - ambientAt >= 500u) {
+            ambientAt = now;
+            ambient.clear();
+        }
+        InvalidateRect(hwnd, nullptr, FALSE);
+        for (auto [id, control] : controls)
+            if ((GetWindowLongPtrW(control, GWL_STYLE) & BS_TYPEMASK) == BS_OWNERDRAW && IsWindowVisible(control)) {
+                wchar_t kind[16]{};
+                if (GetClassNameW(control, kind, 16) && _wcsicmp(kind, L"Button") == 0)
+                    InvalidateRect(control, nullptr, FALSE);
+            }
+    }
     void timer() {
         presence.enable(true);
         const char* pages[]={"Choosing a game","Setting up online play","Setting up a speedrun","Managing mods","Managing saves","Configuring settings","Checking for updates"};
@@ -3669,6 +3698,7 @@ struct Window {
             lastPresenceStatus=presence.status();InvalidateRect(hwnd,nullptr,FALSE);
         }
         onlineTick();
+        cycleTimer();
         for (const bool background : {false, true}) {
             auto &work = background ? updateTask : task;
             if (!work.valid() || work.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
@@ -5656,7 +5686,10 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
             self->command(LOWORD(wp), HIWORD(wp));
             return 0;
         case WM_TIMER:
-            self->timer();
+            if (wp == 2)
+                self->cycleFrame();
+            else
+                self->timer();
             return 0;
         case onlineChanged:
             self->refreshOnlineLists();
@@ -5736,6 +5769,7 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
             return 0;
         case WM_DESTROY:
             KillTimer(hwnd, 1);
+            KillTimer(hwnd, 2);
             self->removeTray();
             {
                 std::lock_guard lock(self->onlineShared->mutex);

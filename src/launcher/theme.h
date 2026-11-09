@@ -48,8 +48,25 @@ inline constexpr AccentChoice accents[] = {
     {L"Silver", {170, 176, 190}},   {L"Amber", {255, 170, 0}},   {L"Mint", {120, 230, 180}},  {L"Peach", {255, 180, 140}},
     {L"Lavender", {190, 160, 255}}, {L"Turquoise", {40, 210, 200}}, {L"Rose", {230, 90, 130}}, {L"Olive", {150, 170, 60}},
     {L"Navy", {60, 96, 200}},       {L"Crimson", {205, 36, 56}},  {L"Ice", {170, 220, 255}},   {L"Bronze", {205, 127, 50}},
+    {L"RGB (cycling)", {255, 64, 64}},
 };
 inline constexpr unsigned accent_count = sizeof(accents) / sizeof(accents[0]);
+inline constexpr unsigned rgb_accent = accent_count - 1u;
+inline constexpr unsigned rgb_cycle_ms = 60000u, rgb_frame_ms = 16u;
+
+constexpr Rgb cycling_accent(unsigned long long milliseconds) {
+    const unsigned position = unsigned(milliseconds % rgb_cycle_ms) * 1536u / rgb_cycle_ms;
+    const unsigned rise = position % 256u, fall = 255u - rise, low = 56u;
+    const auto level = [&](unsigned value) { return uint8_t(low + value * (255u - low) / 255u); };
+    switch (position / 256u) {
+    case 0: return {level(255), level(rise), level(0)};
+    case 1: return {level(fall), level(255), level(0)};
+    case 2: return {level(0), level(255), level(rise)};
+    case 3: return {level(0), level(fall), level(255)};
+    case 4: return {level(rise), level(0), level(255)};
+    default: return {level(255), level(0), level(fall)};
+    }
+}
 
 inline constexpr unsigned tab_count = 7;
 inline constexpr const wchar_t *tab_names[tab_count] = {L"Play", L"Online", L"Speedrun", L"Mods", L"Saves", L"Settings", L"Updates"};
@@ -122,13 +139,14 @@ constexpr void shade_main_buttons(Theme &out, Rgb base) {
     out.buttonShine = blend(out.buttonTop, Rgb{255, 245, 214}, 150);
 }
 
-constexpr Theme make_theme(unsigned theme, unsigned accent, const CustomColors &custom = no_custom_colors()) {
+constexpr Theme make_theme(unsigned theme, unsigned accent, const CustomColors &custom = no_custom_colors(),
+                           unsigned long long milliseconds = 0) {
     const unsigned index = std::min(theme, theme_count - 1u);
     const auto &t = themes[index];
     const bool own = !accent || accent >= accent_count;
     Theme out{};
     const Rgb white{255, 255, 255}, black{0, 0, 0};
-    out.accent = own ? t.accent : accents[accent].color;
+    out.accent = own ? t.accent : accent == rgb_accent ? cycling_accent(milliseconds) : accents[accent].color;
     out.background = t.background;
     out.sidebar = t.sidebar;
     out.panel = t.panel;

@@ -42,7 +42,8 @@ A message in the corner names your new character when a fight starts.
 - **Accent color:** the theme's own color, or Orange, Gold, Red, Pink, Purple,
   Blue, Cyan, Green, White, Teal, Lime, Magenta, Coral, Sky, Indigo, Silver,
   Amber, Mint, Peach, Lavender, Turquoise, Rose, Olive, Navy, Crimson, Ice or
-  Bronze for buttons and highlights.
+  Bronze for buttons and highlights. **RGB (cycling)** moves slowly through
+  every color, once round the color wheel per minute, redrawn at 60 FPS.
 - **Colors…:** recolor any part of the launcher with the Windows color picker:
   background, sidebar, panels, fields, buttons and their hover color, borders,
   the three text shades, accent, highlight, glow, main buttons and their text,

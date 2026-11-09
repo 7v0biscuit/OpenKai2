@@ -44,6 +44,22 @@ void word(std::vector<uint8_t> &b, size_t at, uint32_t v) {
 }
 int main() {
     try {
+        {
+            using namespace openkai2::launcher;
+            require(std::wstring(accents[rgb_accent].name) == L"RGB (cycling)", "The RGB accent is not the last accent");
+            const auto step = [](Rgb a, Rgb b) {
+                return std::max({std::abs(int(a.r) - int(b.r)), std::abs(int(a.g) - int(b.g)), std::abs(int(a.b) - int(b.b))});
+            };
+            int largest = 0;
+            for (unsigned long long ms = 0; ms <= rgb_cycle_ms; ms += rgb_frame_ms)
+                largest = std::max(largest, step(cycling_accent(ms), cycling_accent(ms + rgb_frame_ms)));
+            const auto start = cycling_accent(0), end = cycling_accent(rgb_cycle_ms - 1);
+            require(largest <= 1 && step(start, end) <= 1 && step(cycling_accent(0), cycling_accent(rgb_cycle_ms / 2)) > 150,
+                    "The RGB accent jumps between frames or does not go round the colors");
+            require(make_theme(0, rgb_accent, no_custom_colors(), 0).accent.r == start.r &&
+                        make_theme(0, rgb_accent, no_custom_colors(), rgb_cycle_ms / 3).accent.g > 200,
+                    "The RGB accent is not used by the theme");
+        }
         const auto root =
             fs::temp_directory_path() /
             ("openkai2-launcher-" +
