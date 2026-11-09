@@ -439,7 +439,13 @@ int main() {
         for (const auto &file : stageFiles)
             offsets.push_back(file.first);
         require(offsets == std::vector<uint32_t>{0x40, 0x44, 0x48, 0x4C, 0x50, 0x54, 0x58, 0x5C} &&
-                    stageFiles[0].second[4] == 1 && stageFiles[3].second.size() == 0x50 && get32(stageFiles[3].second.data() + 16) == 1 &&
+                    stageFiles[0].second[4] == 1 && get32(stageFiles[3].second.data() + 16) == budokai2_stage_effect_slots &&
+                    get32(stageFiles[3].second.data() + 24) == 0x20 + 16 * budokai2_stage_effect_slots &&
+                    get32(stageFiles[3].second.data() + 0x20 + 6 * 16 + 4) == 0 &&
+                    get32(stageFiles[3].second.data() + 0x20 + 7 * 16 + 4) == 32 &&
+                    get32(stageFiles[3].second.data() + 0x20 + 7 * 16 + 8) == 0xFFFFFFFFu &&
+                    stageFiles[3].second[get32(stageFiles[3].second.data() + 0x20 + 7 * 16) + 4] == 10 &&
+                    stageFiles[3].second[get32(stageFiles[3].second.data() + 0x20 + 17 * 16) + 4] == 10 &&
                     get32(stageFiles[3].second.data() + 0x24) == 32 && unloadable_pack_files(stageFiles[3].second).empty() &&
                     std::memcmp(stageFiles[3].second.data(), "#AMB", 4) == 0 && stageFiles[4].second[4] == 4 &&
                     get32(stageFiles[3].second.data() + get32(stageFiles[3].second.data() + 0x20) + 12) == 1 &&

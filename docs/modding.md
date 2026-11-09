@@ -347,9 +347,20 @@ animated stage objects (`#AMO` models, `#AMM` motions, `#AMC`, their own
 `#AMT` textures), `#MTA` files, and the stage's effect texture in the last
 slot. Budokai 2's stage packs hold up to 37 slots: the effect texture first,
 then `#AME` effects. Loaded as it was, a Budokai 3 pack froze the game
-(`0x231712`). The import tool now builds a Budokai 2 pack holding only the
-effect texture, so the stage loads and fights run on it, without its particle
-effects and animated objects. Confirmed in a fight on Budokai 3's Town.
+(`0x231712`). The import tool builds a Budokai 2 pack instead.
+
+Both games look stage effects up by a kind and the stage's area (the record's
+`0x60` word, which the code at `0x1B95F8` flips when a fight moves to the
+stage's other area). Budokai 2 reads slot `kind + 10 × area`, with kinds 5 to
+9 fixed (`0x1AEC30`, `0x1AEDA0`, `0x1AF100` to `0x1AF510`) and other kinds
+from move data (`0x1AEF20`); slots 1 to 4 are shock lines. Budokai 3 reads slot
+`kind + 128 × area`, and its kinds start 5 lower: Budokai 3 Island's slot 129
+(kind 1, area 1) is Budokai 2 Island's slot 6. So the built pack holds 25
+slots: the effect texture first, Budokai 3's kinds 1 to 9 of the first area
+in slots 6 to 14 and of the second area (or the first again) in slots 16 to
+24. The game skips the empty slots. Dust and impact effects show in fights on
+Budokai 3's Town. Animated objects (`#AMO`, `#AMM`) and Budokai 3's stage-wide
+effects (slots 100 and up) are left out.
 
 `#AME` itself is not the cause: Budokai 2's own stage packs hold
 them too. Every `#AMB` record is 16 bytes:

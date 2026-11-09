@@ -46,6 +46,7 @@ size_t remove_stage(const std::filesystem::path &mod, uint32_t slot);
 
 std::vector<std::pair<uint32_t, std::vector<uint8_t>>> budokai3_stage_files(SourceDisc &disc, const DiscStage &stage);
 
+inline constexpr uint32_t budokai2_stage_effect_slots = 25u, budokai3_stage_area_slots = 128u;
 inline constexpr const char *budokai2_pack_kinds[] = {"AMG", "AMT", "AMM", "AMO", "AMC", "AML", "AMP"};
 std::vector<std::string> unloadable_pack_files(const std::vector<uint8_t> &pack);
 std::vector<uint8_t> without_unloadable_files(const std::vector<uint8_t> &pack);

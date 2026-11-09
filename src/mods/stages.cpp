@@ -191,16 +191,36 @@ std::vector<uint8_t> budokai2_stage_effects(const std::vector<uint8_t> &pack) {
     }
     if (texture.empty())
         throw std::runtime_error("A Budokai 3 stage pack holds no effect texture");
-    std::vector<uint8_t> out(0x30, 0);
+    const auto effect = [&](uint32_t slot) -> std::vector<uint8_t> {
+        if (slot >= count)
+            return {};
+        const uint32_t at = get32(pack, records + slot * 16), size = get32(pack, records + slot * 16 + 4);
+        if (!size || at > pack.size() || size > pack.size() - at || std::memcmp(pack.data() + at, "#AME", 4) != 0)
+            return {};
+        return std::vector<uint8_t>(pack.begin() + at, pack.begin() + at + size);
+    };
+    std::vector<std::vector<uint8_t>> slots(budokai2_stage_effect_slots);
+    slots[0] = texture;
+    for (uint32_t kind = 1; kind <= 9; ++kind) {
+        slots[5 + kind] = effect(kind);
+        auto second = effect(budokai3_stage_area_slots + kind);
+        slots[15 + kind] = second.empty() ? slots[5 + kind] : std::move(second);
+    }
+    const uint32_t table = 0x20, start = table + uint32_t(slots.size()) * 16;
+    std::vector<uint8_t> out(start, 0);
     std::copy(pack.begin(), pack.begin() + 16, out.begin());
-    put32(out, 16, 1);
-    put32(out, 20, 0x20);
-    put32(out, 24, 0x30);
-    put32(out, 0x20, 0x30);
-    put32(out, 0x24, uint32_t(texture.size()));
-    put32(out, 0x28, 2);
-    out.insert(out.end(), texture.begin(), texture.end());
-    out.resize((out.size() + 15) / 16 * 16, 0);
+    put32(out, 16, uint32_t(slots.size()));
+    put32(out, 20, table);
+    for (uint32_t i = 0; i < slots.size(); ++i) {
+        if (slots[i].empty())
+            continue;
+        put32(out, table + i * 16, uint32_t(out.size()));
+        put32(out, table + i * 16 + 4, uint32_t(slots[i].size()));
+        put32(out, table + i * 16 + 8, i == 0 ? 2u : 0xFFFFFFFFu);
+        out.insert(out.end(), slots[i].begin(), slots[i].end());
+        out.resize((out.size() + 15) / 16 * 16, 0);
+    }
+    put32(out, 24, start);
     return out;
 }
 
@@ -212,6 +232,8 @@ std::vector<std::string> unloadable_pack_files(const std::vector<uint8_t> &pack)
     for (uint32_t i = 0; i < count; ++i) {
         const uint32_t at = get32(pack, records + i * 16), size = get32(pack, records + i * 16 + 4);
         if (!size || at + 4 > pack.size())
+            continue;
+        if (get32(pack, records + i * 16 + 8) == 0xFFFFFFFFu && std::memcmp(pack.data() + at, "#AME", 4) == 0)
             continue;
         const std::string mark(reinterpret_cast<const char *>(pack.data() + at), 4);
         const bool known = mark[0] == '#' && std::any_of(std::begin(budokai2_pack_kinds), std::end(budokai2_pack_kinds),
