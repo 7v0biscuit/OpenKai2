@@ -33,10 +33,11 @@ A message in the corner names your new character when a fight starts.
 
 ### Making the launcher your own
 
-- **Theme:** Ember (the original look), Ocean, Forest, Violet, Crimson,
-  Graphite, Saiyan Gold, Namek, Frieza, Midnight, Sakura, Ultra Instinct,
-  Super Saiyan Blue, Kaioken, Majin, Shenron, Ginyu Force, or the light themes
-  Daylight, Capsule Corp and Kami's Lookout. Each colors the background, panels, sidebar and buttons.
+- **Theme:** Ember (the original look), Super Saiyan Blue, Namek, Frieza,
+  Kaioken, Majin, Saiyan Gold, Graphite, Midnight (true black), or the light
+  themes Daylight and Capsule Corp. Each has its own background, panels, Play
+  banner and text colors, and also colors the title bar, scrollbars and
+  dropdown lists. Themes from older versions move to the closest one.
 - **Accent color:** the theme's own color, or Orange, Gold, Red, Pink, Purple,
   Blue, Cyan, Green, White, Teal, Lime, Magenta, Coral, Sky, Indigo, Silver,
   Amber, Mint, Peach, Lavender, Turquoise, Rose, Olive, Navy, Crimson, Ice or

@@ -169,6 +169,12 @@ int main() {
         }
         require(read_settings(root / "absent.ini").fps == 240, "Default frame rate cap is not 240 FPS");
         {
+            std::ofstream(root / "old-look.ini") << "version 1\nlauncher_look 18 2 1 3\n";
+            const auto old = read_settings(root / "old-look.ini");
+            require(old.launcherTheme == 10u && old.launcherAccent == 2u && old.startPage == 1u && old.lastPage == 3u,
+                    "A theme saved by an older version did not move to its replacement");
+        }
+        {
             using namespace openkai2::launcher;
             const auto ember = make_theme(0, 0);
             require(ember.background == Rgb{9, 11, 19} && ember.accent == Rgb{255, 136, 28} && ember.buttonTop == Rgb{255, 186, 70} &&
@@ -195,12 +201,29 @@ int main() {
                 require(color_role_count >= 20u && valid_custom_colors(custom), "Custom colors were refused");
                 unsigned theme = 0, accent = 0;
                 CustomColors pasted{};
-                require(parse_look_code(look_code(17, 22, custom), theme, accent, pasted) && theme == 17 && accent == 22 && pasted == custom,
+                require(parse_look_code(look_code(9, 22, custom), theme, accent, pasted) && theme == 9 && accent == 22 && pasted == custom,
                         "A copied launcher look did not paste back the same");
+                std::string old = look_code(0, 4, custom);
+                old.replace(old.find(" 2 0 4"), 6, " 1 15 4");
+                require(parse_look_code(old, theme, accent, pasted) && theme == 5 && accent == 4 && pasted == custom,
+                        "A look copied from an older version did not paste onto the matching theme");
                 require(!parse_look_code("OPENKAI2-LOOK 1 99 0", theme, accent, pasted) && !parse_look_code("hello", theme, accent, pasted) &&
                             !parse_look_code(look_code(0, 0, custom).substr(0, 30), theme, accent, pasted),
                         "A broken launcher look was accepted");
-                require(theme_count >= 20u && accent_count >= 27u, "Themes or accent colors are missing");
+                require(theme_count >= 10u && accent_count >= 27u, "Themes or accent colors are missing");
+                for (unsigned old = 0; old < 20u; ++old)
+                    require(legacy_theme(old) < theme_count, "An older theme has no replacement");
+                require(legacy_theme(0) == 0u && legacy_theme(13) == 1u && legacy_theme(18) == 10u, "Older themes map to the wrong replacement");
+                const auto distance = [](Rgb a, Rgb b) {
+                    const auto d = [](int x, int y) { return unsigned(x > y ? x - y : y - x); };
+                    return d(a.r, b.r) + d(a.g, b.g) + d(a.b, b.b);
+                };
+                for (unsigned a = 0; a < theme_count; ++a)
+                    for (unsigned b = a + 1; b < theme_count; ++b) {
+                        const auto x = make_theme(a, 0), y = make_theme(b, 0);
+                        require(distance(x.accent, y.accent) + distance(x.panel, y.panel) * 4u + distance(x.heroFrom, y.heroFrom) > 140u,
+                                "Two launcher themes look almost the same");
+                    }
                 custom[4] = 0x1000000;
                 require(!valid_custom_colors(custom), "An impossible color was accepted");
             }

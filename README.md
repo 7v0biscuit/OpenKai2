@@ -35,7 +35,7 @@ files.
 - **Save states:** F5 saves and F9 loads the whole console outside speedrun and online play.
 - **Randomizer:** a random character, with its own moves and skills, for every
   Dragon World and World Tournament fight. Works with speedruns and permadeath.
-- **Launcher:** twenty themes (including three light ones), twenty-seven accent
+- **Launcher:** eleven themes (including two light ones), twenty-seven accent
   colors, every color changeable on its own, color looks you can copy and share,
   tabs you can reorder or hide, an Updates page, and a choice of the page it
   opens on. See [Windows](docs/windows.md).

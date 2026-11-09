@@ -16,23 +16,25 @@ struct Rgb {
 
 struct ThemeChoice {
     const wchar_t *name;
-    float r, g, b;
-    Rgb accent;
+    Rgb background, sidebar, panel, accent, highlight, heroFrom, heroTo, bannerText;
     bool light;
 };
 inline constexpr ThemeChoice themes[] = {
-    {L"Ember", 0.47f, 0.58f, 1.0f, {255, 136, 28}, false},     {L"Ocean", 0.36f, 0.62f, 1.0f, {64, 156, 255}, false},
-    {L"Forest", 0.55f, 1.0f, 0.72f, {86, 200, 120}, false},    {L"Violet", 0.78f, 0.55f, 1.0f, {168, 112, 255}, false},
-    {L"Crimson", 1.0f, 0.5f, 0.62f, {236, 72, 84}, false},     {L"Graphite", 0.9f, 0.93f, 1.0f, {214, 218, 228}, false},
-    {L"Saiyan Gold", 1.0f, 0.82f, 0.5f, {255, 196, 40}, false}, {L"Namek", 0.45f, 1.0f, 0.85f, {70, 220, 170}, false},
-    {L"Frieza", 0.9f, 0.55f, 1.0f, {214, 90, 230}, false},     {L"Midnight", 0.3f, 0.42f, 1.0f, {70, 200, 255}, false},
-    {L"Sakura", 1.0f, 0.62f, 0.8f, {255, 120, 170}, false},    {L"Daylight", 0.95f, 0.97f, 1.0f, {232, 108, 18}, true},
-    {L"Ultra Instinct", 0.82f, 0.88f, 1.0f, {196, 212, 255}, false}, {L"Super Saiyan Blue", 0.32f, 0.72f, 1.0f, {40, 196, 255}, false},
-    {L"Kaioken", 1.0f, 0.42f, 0.38f, {255, 64, 52}, false},    {L"Majin", 1.0f, 0.55f, 0.85f, {255, 104, 188}, false},
-    {L"Shenron", 0.5f, 1.0f, 0.6f, {255, 208, 60}, false},     {L"Ginyu Force", 0.78f, 0.6f, 1.0f, {150, 92, 255}, false},
-    {L"Capsule Corp", 0.92f, 0.96f, 1.0f, {28, 118, 228}, true}, {L"Kami's Lookout", 1.0f, 0.97f, 0.9f, {40, 150, 100}, true},
+    {L"Ember", {9, 11, 19}, {12, 14, 24}, {17, 20, 33}, {255, 136, 28}, {255, 204, 86}, {64, 24, 8}, {15, 17, 31}, {206, 176, 150}, false},
+    {L"Super Saiyan Blue", {6, 13, 23}, {8, 17, 30}, {12, 25, 41}, {38, 196, 255}, {150, 232, 255}, {8, 58, 96}, {8, 17, 33}, {150, 198, 228}, false},
+    {L"Namek", {6, 16, 13}, {8, 21, 17}, {12, 30, 25}, {80, 212, 138}, {204, 240, 140}, {12, 66, 42}, {8, 21, 18}, {158, 212, 178}, false},
+    {L"Frieza", {13, 8, 21}, {17, 10, 28}, {26, 16, 41}, {192, 104, 255}, {255, 172, 240}, {66, 20, 92}, {18, 11, 30}, {204, 170, 230}, false},
+    {L"Kaioken", {19, 7, 8}, {25, 9, 11}, {36, 14, 16}, {255, 74, 58}, {255, 192, 120}, {104, 18, 12}, {26, 9, 12}, {236, 172, 160}, false},
+    {L"Majin", {20, 8, 16}, {26, 10, 21}, {37, 15, 30}, {255, 108, 188}, {255, 204, 232}, {96, 20, 68}, {26, 10, 22}, {236, 176, 212}, false},
+    {L"Saiyan Gold", {17, 13, 7}, {22, 17, 9}, {32, 25, 14}, {255, 194, 44}, {255, 232, 150}, {88, 60, 10}, {23, 18, 10}, {226, 200, 150}, false},
+    {L"Graphite", {15, 16, 18}, {19, 20, 23}, {27, 28, 32}, {222, 226, 234}, {255, 214, 120}, {60, 62, 70}, {21, 22, 25}, {190, 193, 202}, false},
+    {L"Midnight", {0, 0, 0}, {6, 7, 10}, {12, 13, 19}, {92, 142, 255}, {156, 204, 255}, {16, 32, 78}, {5, 6, 11}, {170, 182, 214}, false},
+    {L"Daylight", {241, 239, 235}, {229, 226, 220}, {252, 251, 249}, {226, 100, 16}, {164, 84, 8}, {128, 54, 12}, {40, 33, 29}, {238, 206, 172}, true},
+    {L"Capsule Corp", {232, 238, 246}, {219, 228, 240}, {250, 252, 255}, {28, 116, 226}, {18, 78, 168}, {18, 72, 156}, {22, 31, 52}, {190, 214, 246}, true},
 };
 inline constexpr unsigned theme_count = sizeof(themes) / sizeof(themes[0]);
+inline constexpr unsigned legacy_themes[] = {0, 1, 2, 3, 4, 7, 6, 2, 3, 8, 5, 9, 7, 1, 4, 5, 2, 3, 10, 9};
+constexpr unsigned legacy_theme(unsigned old) { return old < sizeof(legacy_themes) / sizeof(legacy_themes[0]) ? legacy_themes[old] : 0u; }
 
 struct AccentChoice {
     const wchar_t *name;
@@ -57,7 +59,7 @@ struct Theme {
     Rgb background, sidebar, panel, field, raised, hover, border, ink, muted, faint;
     Rgb accent, highlight, glow, heroFrom, heroTo;
     Rgb buttonTop, buttonBottom, buttonHotTop, buttonHotBottom, buttonPressedTop, buttonPressedBottom, buttonShine, buttonInk;
-    Rgb bannerTitle, bannerText, success, error, info, ball, ballStars, shadow;
+    Rgb bannerTitle, bannerText, success, error, info, ball, ballStars, shadow, bannerLabel;
 };
 
 struct ColorRole {
@@ -91,7 +93,7 @@ inline constexpr ColorRole color_roles[] = {
     {L"Dragon Ball stars", L"The stars on the ball", &Theme::ballStars},
 };
 inline constexpr unsigned color_role_count = sizeof(color_roles) / sizeof(color_roles[0]);
-inline constexpr unsigned main_button_role = 13;
+inline constexpr unsigned main_button_role = 13, highlight_role = 11;
 using CustomColors = std::array<int32_t, color_role_count>;
 constexpr CustomColors no_custom_colors() {
     CustomColors out{};
@@ -121,66 +123,61 @@ constexpr void shade_main_buttons(Theme &out, Rgb base) {
 }
 
 constexpr Theme make_theme(unsigned theme, unsigned accent, const CustomColors &custom = no_custom_colors()) {
-    const auto &t = themes[std::min(theme, theme_count - 1u)];
-    const auto tone = [&](float level, float grey) {
-        const float r = t.r + (1.0f - t.r) * grey, g = t.g + (1.0f - t.g) * grey, b = t.b + (1.0f - t.b) * grey;
-        return Rgb{channel(level * r), channel(level * g), channel(level * b)};
-    };
+    const unsigned index = std::min(theme, theme_count - 1u);
+    const auto &t = themes[index];
+    const bool own = !accent || accent >= accent_count;
     Theme out{};
     const Rgb white{255, 255, 255}, black{0, 0, 0};
-    out.accent = accent && accent < accent_count ? accents[accent].color : t.accent;
+    out.accent = own ? t.accent : accents[accent].color;
+    out.background = t.background;
+    out.sidebar = t.sidebar;
+    out.panel = t.panel;
     if (t.light) {
-        out.background = tone(238, 0.0f);
-        out.sidebar = tone(226, 0.0f);
-        out.panel = tone(250, 0.0f);
-        out.field = {255, 255, 255};
-        out.raised = tone(232, 0.0f);
-        out.hover = tone(216, 0.0f);
-        out.border = tone(204, 0.0f);
-        out.ink = {26, 28, 36};
-        out.muted = {84, 90, 108};
-        out.faint = {132, 138, 156};
-        out.highlight = blend(out.accent, black, 60);
-        out.heroFrom = blend(Rgb{20, 22, 30}, out.accent, 90);
-        out.heroTo = {32, 36, 52};
-        out.shadow = blend(out.background, white, 200);
+        out.field = white;
+        out.raised = blend(t.sidebar, black, 10);
+        out.hover = blend(blend(t.sidebar, black, 22), out.accent, 34);
+        out.border = blend(blend(t.sidebar, black, 34), out.accent, 18);
+        out.ink = {24, 26, 34};
+        out.muted = blend(Rgb{82, 88, 106}, t.accent, 24);
+        out.faint = blend(Rgb{134, 140, 158}, t.accent, 20);
+        out.highlight = own ? t.highlight : blend(out.accent, black, 70);
+        out.success = {22, 146, 88};
+        out.error = {198, 46, 40};
+        out.info = blend(Rgb{36, 92, 220}, t.accent, 40);
+        out.shadow = blend(t.background, white, 200);
     } else {
-        out.background = tone(19, 0.0f);
-        out.sidebar = tone(24, 0.0f);
-        out.panel = tone(33, 0.0f);
-        out.field = tone(42, 0.0f);
-        out.raised = tone(53, 0.0f);
-        out.hover = tone(69, 0.0f);
-        out.border = tone(61, 0.0f);
+        out.field = blend(blend(t.panel, white, 12), out.accent, 8);
+        out.raised = blend(blend(t.panel, white, 26), out.accent, 14);
+        out.hover = blend(blend(t.panel, white, 44), out.accent, 28);
+        out.border = blend(blend(t.panel, white, 32), out.accent, 30);
         out.ink = {242, 238, 230};
-        out.muted = tone(174, 0.7f);
-        out.faint = tone(117, 0.55f);
-        out.highlight = blend(out.accent, Rgb{255, 236, 170}, 120);
-        out.heroFrom = blend(black, out.accent, 64);
-        out.heroTo = tone(31, 0.0f);
-        out.shadow = {6, 7, 12};
+        out.muted = blend(Rgb{164, 168, 184}, t.accent, 28);
+        out.faint = blend(Rgb{98, 104, 124}, t.accent, 30);
+        out.highlight = own ? t.highlight : blend(out.accent, Rgb{255, 236, 170}, 120);
+        out.success = {98, 214, 152};
+        out.error = {255, 112, 102};
+        out.info = blend(Rgb{90, 130, 255}, t.accent, 50);
+        out.shadow = blend(t.background, black, 160);
     }
+    out.heroFrom = own ? t.heroFrom : blend(t.heroFrom, out.accent, 90);
+    out.heroTo = t.heroTo;
     out.glow = blend(out.accent, black, 20);
     shade_main_buttons(out, out.accent);
     out.buttonInk = luminance(out.accent) > 110u ? blend(out.accent, black, 220) : white;
-    out.bannerTitle = {255, 240, 222};
-    out.bannerText = {206, 176, 150};
-    out.success = t.light ? Rgb{24, 150, 90} : Rgb{98, 214, 152};
-    out.error = t.light ? Rgb{200, 50, 44} : Rgb{255, 112, 102};
-    out.info = {70, 110, 255};
+    out.bannerTitle = blend(Rgb{255, 246, 236}, t.bannerText, 40);
+    out.bannerText = t.bannerText;
     out.ball = {255, 145, 26};
     out.ballStars = {220, 40, 28};
-    if (std::min(theme, theme_count - 1u) == 0u) {
-        out.background = {9, 11, 19};
-        out.sidebar = {12, 14, 24};
-        out.panel = {17, 20, 33};
+    if (index == 0u) {
         out.field = {22, 26, 42};
         out.raised = {29, 34, 53};
         out.hover = {39, 45, 69};
         out.border = {35, 41, 61};
         out.muted = {148, 153, 174};
         out.faint = {86, 93, 117};
-        out.heroTo = {15, 17, 31};
+        out.bannerTitle = {255, 240, 222};
+        out.info = {70, 110, 255};
+        out.shadow = {6, 7, 12};
         if (accent <= 1u) {
             out.highlight = {255, 204, 86};
             out.glow = {255, 112, 24};
@@ -203,6 +200,7 @@ constexpr Theme make_theme(unsigned theme, unsigned accent, const CustomColors &
             shade_main_buttons(out, chosen);
         out.*(color_roles[role].member) = chosen;
     }
+    out.bannerLabel = t.light && custom[highlight_role] < 0 ? blend(out.accent, white, 150) : out.highlight;
     return out;
 }
 
@@ -214,7 +212,7 @@ constexpr bool valid_custom_colors(const CustomColors &custom) {
 }
 
 inline std::string look_code(unsigned theme, unsigned accent, const CustomColors &custom) {
-    std::string code = "OPENKAI2-LOOK 1 " + std::to_string(theme) + ' ' + std::to_string(accent);
+    std::string code = "OPENKAI2-LOOK 2 " + std::to_string(theme) + ' ' + std::to_string(accent);
     for (int32_t value : custom) {
         if (value < 0) {
             code += " -";
@@ -231,8 +229,14 @@ inline bool parse_look_code(const std::string &text, unsigned &theme, unsigned &
     std::istringstream in(text);
     std::string magic, version, value;
     unsigned chosenTheme = 0, chosenAccent = 0;
-    if (!(in >> magic >> version >> chosenTheme >> chosenAccent) || magic != "OPENKAI2-LOOK" || version != "1" ||
-        chosenTheme >= theme_count || chosenAccent >= accent_count)
+    if (!(in >> magic >> version >> chosenTheme >> chosenAccent) || magic != "OPENKAI2-LOOK" || (version != "1" && version != "2"))
+        return false;
+    if (version == "1") {
+        if (chosenTheme >= sizeof(legacy_themes) / sizeof(legacy_themes[0]))
+            return false;
+        chosenTheme = legacy_theme(chosenTheme);
+    }
+    if (chosenTheme >= theme_count || chosenAccent >= accent_count)
         return false;
     CustomColors colors = no_custom_colors();
     for (auto &color : colors) {

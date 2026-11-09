@@ -68,7 +68,7 @@ COLORREF red = RGB(255, 112, 102), green = RGB(98, 214, 152);
 COLORREF ember = RGB(255, 112, 24);
 COLORREF sky = RGB(70, 110, 255);
 COLORREF bannerTitle = RGB(255, 240, 222), bannerText = RGB(206, 176, 150), titleShadow = RGB(6, 7, 12);
-COLORREF ballColor = RGB(255, 145, 26), ballStars = RGB(220, 40, 28);
+COLORREF ballColor = RGB(255, 145, 26), ballStars = RGB(220, 40, 28), bannerLabel = RGB(255, 204, 86);
 COLORREF heroFrom = RGB(64, 24, 8), heroTo = RGB(15, 17, 31);
 COLORREF buttonTop = RGB(255, 186, 70), buttonBottom = RGB(250, 126, 22), buttonHotTop = RGB(255, 214, 110),
          buttonHotBottom = RGB(255, 150, 44), buttonPressedTop = RGB(236, 120, 22), buttonPressedBottom = RGB(214, 96, 14),
@@ -87,7 +87,7 @@ void apply_theme(unsigned choice, unsigned accent, const CustomColors &custom) {
     buttonShine = colorOf(t.buttonShine); buttonInk = colorOf(t.buttonInk);
     red = colorOf(t.error); green = colorOf(t.success); sky = colorOf(t.info);
     bannerTitle = colorOf(t.bannerTitle); bannerText = colorOf(t.bannerText); titleShadow = colorOf(t.shadow);
-    ballColor = colorOf(t.ball); ballStars = colorOf(t.ballStars);
+    ballColor = colorOf(t.ball); ballStars = colorOf(t.ballStars); bannerLabel = colorOf(t.bannerLabel);
 }
 
 constexpr int sidebarWidth = 220, contentLeft = 252, margin = 32;
@@ -1578,7 +1578,7 @@ struct Window {
         }, std::nullopt);
         buffer.frame.radial(hero, p(contentLeft), p(heroTop), p(260), ember, 34, p(18));
 
-        caps(dc, L"DRAGON BALL Z", contentLeft + 30, heroTop + 22, 300, gold);
+        caps(dc, L"DRAGON BALL Z", contentLeft + 30, heroTop + 22, 300, bannerLabel);
         lettering(dc, L"Budokai 2", p(contentLeft + 28), p(heroTop + 76), fonts.wordmark, bannerTitle,
                   mix(heroFrom, RGB(0, 0, 0), 180), p(2));
         int spec = contentLeft + 30;
@@ -1836,8 +1836,32 @@ struct Window {
             error = true;
         }
     }
+    void chrome() {
+        if (!hwnd)
+            return;
+        const bool light = themes[std::min(settings.launcherTheme, theme_count - 1u)].light;
+        if (auto module = LoadLibraryW(L"dwmapi.dll")) {
+            if (auto fn = reinterpret_cast<HRESULT(WINAPI *)(HWND, DWORD, LPCVOID, DWORD)>(
+                    GetProcAddress(module, "DwmSetWindowAttribute"))) {
+                BOOL dark = light ? FALSE : TRUE;
+                fn(hwnd, 20, &dark, sizeof(dark));
+                COLORREF caption = sidebar, captionText = ink, edge = border;
+                fn(hwnd, 35, &caption, sizeof(caption));
+                fn(hwnd, 36, &captionText, sizeof(captionText));
+                fn(hwnd, 34, &edge, sizeof(edge));
+            }
+            FreeLibrary(module);
+        }
+        if (auto module = LoadLibraryW(L"uxtheme.dll")) {
+            if (auto fn = reinterpret_cast<HRESULT(WINAPI *)(HWND, LPCWSTR, LPCWSTR)>(GetProcAddress(module, "SetWindowTheme")))
+                for (auto [id, control] : controls)
+                    fn(control, light ? L"Explorer" : L"DarkMode_Explorer", nullptr);
+            FreeLibrary(module);
+        }
+    }
     void restyle() {
         apply_theme(settings.launcherTheme, settings.launcherAccent, settings.launcherColors);
+        chrome();
         renderFrame();
         layout();
         RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_FRAME);
@@ -5821,22 +5845,7 @@ int run_window(const std::filesystem::path &initialIso) {
                                 width, height, nullptr, nullptr, type.hInstance, &state);
     if (!hwnd)
         throw std::runtime_error("Cannot open the launcher window");
-    if (auto module = LoadLibraryW(L"dwmapi.dll")) {
-        if (auto fn = reinterpret_cast<HRESULT(WINAPI *)(HWND, DWORD, LPCVOID, DWORD)>(
-                GetProcAddress(module, "DwmSetWindowAttribute"))) {
-            BOOL dark = TRUE;
-            fn(hwnd, 20, &dark, sizeof(dark));
-            COLORREF caption = sidebar;
-            fn(hwnd, 35, &caption, sizeof(caption));
-        }
-        FreeLibrary(module);
-    }
-    if (auto module = LoadLibraryW(L"uxtheme.dll")) {
-        if (auto fn = reinterpret_cast<HRESULT(WINAPI *)(HWND, LPCWSTR, LPCWSTR)>(GetProcAddress(module, "SetWindowTheme")))
-            for (auto [id, control] : state.controls)
-                fn(control, L"DarkMode_Explorer", nullptr);
-        FreeLibrary(module);
-    }
+    state.chrome();
     ShowWindow(hwnd, state.settings.windowMaximized ? SW_SHOWMAXIMIZED : SW_SHOW);
     DragAcceptFiles(hwnd, TRUE);
     UpdateWindow(hwnd);
