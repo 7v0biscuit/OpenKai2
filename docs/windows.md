@@ -25,7 +25,8 @@ and update preferences.
 
 **Randomizer: On** gives you a random character from the Budokai 2 roster for
 every fight in Dragon World and the World Tournament, with that character's own
-moves and skills. Every fight and every retry after a loss picks again, and the
+model, moves and skills. In Dragon World the story scene and the "Battle!"
+screen show the ally you chose, then the fight loads the random character. Every fight and every retry after a loss picks again, and the
 same character never comes twice in a row. Only your character changes: the
 CPU's character, skills and difficulty stay as the game set them. Dueling and
 Babidi's Spaceship are not affected, and the randomizer is off in online play.
