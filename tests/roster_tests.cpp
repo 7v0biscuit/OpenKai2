@@ -213,9 +213,77 @@ void shading_is_baked_into_the_textures() {
 }
 }
 
+Bytes motion_pack(const std::vector<std::string> &bones, const std::vector<uint32_t> &tracks) {
+    Bytes pack(0x30, 0);
+    std::memcpy(pack.data(), "#AMM", 4);
+    put32(pack, 16, 1);
+    put32(pack, 20, 0x20);
+    put32(pack, 24, uint32_t(bones.size()));
+    put32(pack, 0x20, 9);
+    put32(pack, 0x28, 0x3D);
+    put32(pack, 0x2C, 0x30);
+    const uint32_t header = uint32_t(bones.size()) * 8;
+    pack.resize(0x30 + header, 0);
+    for (size_t i = 0; i < tracks.size(); ++i) {
+        put32(pack, 0x30 + i * 8, uint32_t(pack.size()));
+        pack.insert(pack.end(), 16, uint8_t(tracks[i]));
+    }
+    put32(pack, 28, uint32_t(pack.size()));
+    for (const auto &name : bones) {
+        Bytes slot(32, 0);
+        std::memcpy(slot.data(), name.data(), name.size());
+        pack.insert(pack.end(), slot.begin(), slot.end());
+    }
+    return pack;
+}
+
+void budokai3_moves_are_merged() {
+    const auto shared = motion_pack({"XGOK_BODY", "GOK_ARM"}, {0x11, 0x22});
+    const auto own = motion_pack({"GNY_ARM", "XGNY_BODY", "GNY_SCOUT"}, {0x33, 0x44, 0x55});
+    const auto merged = merge_motions({shared, own});
+    const auto track = [&](uint32_t motion, uint32_t bone) {
+        const uint32_t at = get32(merged.data() + get32(merged.data() + 0x2C + motion * 16) + bone * 8);
+        return at ? merged[at] : 0;
+    };
+    require(get32(merged.data() + 16) == 2 && get32(merged.data() + 24) == 2 && track(0, 0) == 0x11 &&
+                track(0, 1) == 0x22 && track(1, 0) == 0x44 && track(1, 1) == 0x33 &&
+                std::memcmp(merged.data() + get32(merged.data() + 28), "XGOK_BODY", 9) == 0,
+            "Motions were not merged onto the model's bones by name");
+
+    const auto script = [](uint32_t index, uint32_t motion) {
+        Bytes b(0x20 + (index + 1) * 4, 0);
+        std::memcpy(b.data(), "#BSK", 4);
+        put32(b, 12, 4);
+        put32(b, 16, index + 1);
+        put32(b, 20, 0x20);
+        b.resize((b.size() + 15) / 16 * 16, 0);
+        put32(b, 0x20 + index * 4, uint32_t(b.size()));
+        Bytes record(48, 0);
+        put32(record, 0, motion);
+        put32(record, 40, 1);
+        put32(record, 44, uint32_t(b.size() + 48));
+        b.insert(b.end(), record.begin(), record.end());
+        put32(b, uint32_t(b.size()), 0);
+        b.resize(b.size() + 8, 0);
+        put32(b, uint32_t(b.size() - 8), 0x10005);
+        put32(b, uint32_t(b.size() - 4), uint32_t(b.size()));
+        b.insert(b.end(), 16, 0x7A);
+        put32(b, 28, uint32_t(b.size()));
+        b.insert(b.end(), 8, 0xEE);
+        return b;
+    };
+    const auto moves = merge_move_scripts(script(0, 5), script(2, 3u << 16 | 4), 100);
+    const auto record = [&](uint32_t index) { return moves.data() + get32(moves.data() + 0x20 + index * 4); };
+    require(get32(moves.data() + 12) == 3 && get32(moves.data() + 16) == 3 && get32(record(0)) == (1u << 16 | 5) &&
+                get32(record(2)) == (1u << 16 | 104) && get32(moves.data() + 0x20 + 4) == 0 &&
+                moves[get32(moves.data() + get32(record(2) + 44) + 4)] == 0x7A && moves.back() == 0xEE,
+            "Budokai 3 move scripts were not merged into one Budokai 2 script");
+}
+
 int main() {
     try {
         shading_is_baked_into_the_textures();
+        budokai3_moves_are_merged();
         const auto root = fs::temp_directory_path() / "openkai2-roster-tests";
         fs::remove_all(root);
         fs::create_directories(root);

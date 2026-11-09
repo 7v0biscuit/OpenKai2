@@ -90,9 +90,29 @@ What is known about converting Budokai 3 movesets:
   entries both Goku files use have the same flags and command types, and 53
   more match one to three entries away.
 
-A conversion has to merge Budokai 3's shared and own scripts into one, put
-both motion sets into the character's bank 1, renumber the motions, and line
-up the entries that moved.
+**Force a new character with its Budokai 3 moves (experimental)**, under
+**On the select screen** with a Budokai 3 model chosen, does this conversion:
+
+- Motions: a motion pack (`#AMM`) starts with its count, a table of 16-byte
+  entries (the last word is the motion's offset), the bone count at `0x18`
+  and, at `0x1C`, the offset of a list of 32-byte bone names. Each motion
+  starts with 8 bytes per bone: offsets from the pack's start to that bone's
+  tracks. The shared and the character's own motions are joined into one
+  pack in the model's bone order, matched by bone name without its prefix
+  (`GOK_LARM1` and `GNY_LARM1` are the same bone); bones a motion lacks stay
+  still, and every offset is moved to the motion's new place.
+- Move script: the shared and own entries are merged (the character's own
+  win), marked version 3, and their motions point at bank 1: shared motion
+  `n` stays `n`, own motion `n` becomes `n` plus the shared count. The
+  character's 0x6A00-byte block of settings at the end is kept.
+- Files: the character's `#AMC`, `#BCM` and `#SPX` file and its move file are
+  found next to its first costume model, and the new character's fields
+  `0x1D8` (moves) and `0x1B4` (motions) point at the converted files. The
+  wearer's second motion pack is kept.
+
+Checked in a fight with Budokai 3 Goku: he stands, walks, dashes, jumps and
+fights in his Budokai 3 animations. Entry numbers that moved between the games
+are not lined up yet, so some buttons do another move.
 
 ### Stages and capsules
 
@@ -207,7 +227,7 @@ and the two games' differ.
 |------------|-----------|---------|-----------|----------------|
 | Characters | Yes       | Not yet | Textures  | Not yet        |
 | Stages     | Listed    | Not yet | Listed    | Not yet        |
-| Movesets   | Yes       | Not yet | Not yet   | Not yet        |
+| Movesets   | Yes       | Not yet | Experimental | Not yet     |
 | Capsules   | Not yet   | Not yet | Not yet   | Not yet        |
 
 Each game keeps its characters, stages, movesets and capsules in tables in its

@@ -739,4 +739,227 @@ std::vector<uint8_t> model_version(SourceDisc &budokai3, size_t entry, SourceDis
     }
 }
 
+
+namespace {
+std::vector<uint8_t> amb_of(const std::vector<std::vector<uint8_t>> &files, const std::vector<uint32_t> &kinds) {
+    std::vector<uint8_t> out(0x20 + 16 * files.size(), 0);
+    std::memcpy(out.data(), "#AMB", 4);
+    write32(out, 4, 0x20);
+    write32(out, 12, 3);
+    write32(out, 16, uint32_t(files.size()));
+    write32(out, 20, 0x20);
+    for (size_t i = 0; i < files.size(); ++i) {
+        out.resize((out.size() + 63) / 64 * 64, 0);
+        if (i == 0)
+            write32(out, 24, uint32_t(out.size()));
+        write32(out, 0x20 + i * 16, uint32_t(out.size()));
+        write32(out, 0x24 + i * 16, uint32_t(files[i].size()));
+        write32(out, 0x28 + i * 16, kinds[i]);
+        out.insert(out.end(), files[i].begin(), files[i].end());
+    }
+    out.resize((out.size() + 15) / 16 * 16, 0);
+    return out;
+}
+std::vector<uint8_t> amb_part(const std::vector<uint8_t> &pack, uint32_t index) {
+    const uint32_t records = read32(pack, 20);
+    if (pack.size() < 32 || std::memcmp(pack.data(), "#AMB", 4) != 0 || index >= read32(pack, 16))
+        return {};
+    const uint32_t at = read32(pack, records + index * 16), size = read32(pack, records + index * 16 + 4);
+    if (!size || at > pack.size() || size > pack.size() - at)
+        return {};
+    return std::vector<uint8_t>(pack.begin() + at, pack.begin() + at + size);
+}
+std::vector<std::string> bone_keys(const std::vector<uint8_t> &motions) {
+    std::vector<std::string> keys;
+    const uint32_t table = read32(motions, 28), count = read32(motions, 24);
+    for (uint32_t i = 0; i < count && size_t(table) + (i + 1) * 32 <= motions.size(); ++i) {
+        std::string name(reinterpret_cast<const char *>(motions.data() + table + i * 32), 32);
+        name = name.substr(0, name.find('\0'));
+        if (!name.empty() && name[0] == 'X')
+            name.erase(0, 1);
+        if (const auto cut = name.find('_'); cut != std::string::npos)
+            name.erase(0, cut + 1);
+        keys.push_back(name);
+    }
+    return keys;
+}
+}
+
+std::vector<uint8_t> merge_motions(const std::vector<std::vector<uint8_t>> &packs) {
+    if (packs.empty() || packs.front().size() < 32)
+        throw std::runtime_error("No motions to merge");
+    const auto &skeleton = packs.front();
+    const auto target = bone_keys(skeleton);
+    const uint32_t bones = uint32_t(target.size());
+    struct Motion {
+        std::array<uint8_t, 16> entry{};
+        std::vector<uint8_t> data;
+        uint32_t source = 0, own = 0;
+        std::vector<int> mapping;
+    };
+    std::vector<Motion> motions;
+    for (const auto &pack : packs) {
+        const auto keys = bone_keys(pack);
+        std::vector<int> mapping;
+        for (const auto &key : target) {
+            const auto found = std::find(keys.begin(), keys.end(), key);
+            mapping.push_back(found == keys.end() ? -1 : int(found - keys.begin()));
+        }
+        const uint32_t count = read32(pack, 16), table = read32(pack, 20), end = read32(pack, 28);
+        if (end > pack.size() || size_t(table) + size_t(count) * 16 > pack.size())
+            throw std::runtime_error("A motion pack runs past its end");
+        std::vector<uint32_t> starts;
+        for (uint32_t i = 0; i < count; ++i)
+            starts.push_back(read32(pack, table + i * 16 + 12));
+        for (uint32_t i = 0; i < count; ++i) {
+            uint32_t stop = end;
+            for (const auto other : starts)
+                if (other > starts[i] && other < stop)
+                    stop = other;
+            if (starts[i] > stop || stop > pack.size())
+                throw std::runtime_error("A motion runs past its pack");
+            Motion motion;
+            std::copy(pack.begin() + table + i * 16, pack.begin() + table + i * 16 + 16, motion.entry.begin());
+            motion.data.assign(pack.begin() + starts[i], pack.begin() + stop);
+            motion.source = starts[i];
+            motion.own = read32(pack, 24);
+            motion.mapping = mapping;
+            motions.push_back(std::move(motion));
+        }
+    }
+    std::vector<uint8_t> out(0x20 + motions.size() * 16, 0);
+    std::memcpy(out.data(), "#AMM", 4);
+    write32(out, 4, 0x20);
+    write32(out, 12, 2);
+    write32(out, 16, uint32_t(motions.size()));
+    write32(out, 20, 0x20);
+    write32(out, 24, bones);
+    for (size_t i = 0; i < motions.size(); ++i) {
+        auto &motion = motions[i];
+        out.resize((out.size() + 15) / 16 * 16, 0);
+        const uint32_t placed = uint32_t(out.size()), ownBytes = motion.own * 8, header = bones * 8;
+        if (motion.data.size() < ownBytes)
+            throw std::runtime_error("A motion is shorter than its bone table");
+        std::vector<uint8_t> head(header, 0);
+        for (uint32_t bone = 0; bone < bones; ++bone) {
+            if (motion.mapping[bone] < 0)
+                continue;
+            for (uint32_t half = 0; half < 8; half += 4) {
+                const uint32_t pointer = read32(motion.data, size_t(motion.mapping[bone]) * 8 + half);
+                if (pointer)
+                    write32(head, bone * 8 + half, placed + header + (pointer - motion.source - ownBytes));
+            }
+        }
+        std::copy(motion.entry.begin(), motion.entry.begin() + 12, out.begin() + 0x20 + i * 16);
+        write32(out, 0x2C + i * 16, placed);
+        out.insert(out.end(), head.begin(), head.end());
+        out.insert(out.end(), motion.data.begin() + ownBytes, motion.data.end());
+    }
+    out.resize((out.size() + 15) / 16 * 16, 0);
+    write32(out, 28, uint32_t(out.size()));
+    out.insert(out.end(), skeleton.begin() + read32(skeleton, 28), skeleton.end());
+    return out;
+}
+
+std::vector<uint8_t> merge_move_scripts(const std::vector<uint8_t> &shared, const std::vector<uint8_t> &own,
+                                        uint32_t sharedMotions) {
+    struct Entry {
+        std::vector<uint8_t> record;
+        std::vector<std::pair<uint32_t, std::vector<uint8_t>>> commands;
+    };
+    std::map<uint32_t, Entry> entries;
+    for (const auto *script : {&shared, &own}) {
+        const auto &b = *script;
+        if (b.size() < 32 || std::memcmp(b.data(), "#BSK", 4) != 0)
+            throw std::runtime_error("A move script is not a #BSK");
+        const uint32_t count = read32(b, 16);
+        for (uint32_t i = 0; i < count && 0x20 + (i + 1) * 4 <= b.size(); ++i) {
+            const uint32_t at = read32(b, 0x20 + i * 4);
+            if (!at || size_t(at) + 48 > b.size())
+                continue;
+            Entry entry;
+            entry.record.assign(b.begin() + at, b.begin() + at + 48);
+            const uint32_t commands = read32(entry.record, 40), list = read32(entry.record, 44);
+            for (uint32_t k = 0; k < commands && size_t(list) + (k + 1) * 8 <= b.size(); ++k) {
+                const uint32_t head = read32(b, list + k * 8), data = read32(b, list + k * 8 + 4);
+                const size_t bytes = size_t(head >> 16) * 16;
+                if (size_t(data) + bytes > b.size())
+                    throw std::runtime_error("A move command runs past its script");
+                entry.commands.push_back({head, std::vector<uint8_t>(b.begin() + data, b.begin() + data + bytes)});
+            }
+            const uint32_t motion = read32(entry.record, 0), bank = motion >> 16, index = motion & 0xFFFFu;
+            if (script == &shared && bank == 0)
+                write32(entry.record, 0, 1u << 16 | index);
+            else if (script == &own && bank == 3)
+                write32(entry.record, 0, 1u << 16 | (sharedMotions + index));
+            else if (script == &own && bank == 0)
+                write32(entry.record, 0, 1u << 16 | index);
+            entries[i] = std::move(entry);
+        }
+    }
+    const uint32_t count = std::max(read32(shared, 16), read32(own, 16));
+    size_t commandCount = 0;
+    for (const auto &[index, entry] : entries)
+        commandCount += entry.commands.size();
+    const uint32_t records = uint32_t((0x20 + count * 4 + 15) / 16 * 16);
+    const uint32_t lists = records + uint32_t(entries.size()) * 48;
+    const uint32_t payloads = uint32_t((lists + commandCount * 8 + 15) / 16 * 16);
+    std::vector<uint8_t> out(payloads, 0);
+    std::memcpy(out.data(), "#BSK", 4);
+    write32(out, 4, 0x20);
+    write32(out, 12, 3);
+    write32(out, 16, count);
+    write32(out, 20, 0x20);
+    write32(out, 24, read32(own, 24));
+    uint32_t record = records, list = lists;
+    for (auto &[index, entry] : entries) {
+        write32(out, 0x20 + index * 4, record);
+        write32(entry.record, 44, list);
+        std::copy(entry.record.begin(), entry.record.end(), out.begin() + record);
+        record += 48;
+        for (const auto &[head, data] : entry.commands) {
+            write32(out, list, head);
+            write32(out, list + 4, uint32_t(out.size()));
+            out.insert(out.end(), data.begin(), data.end());
+            list += 8;
+        }
+    }
+    out.resize((out.size() + 15) / 16 * 16, 0);
+    write32(out, 28, uint32_t(out.size()));
+    const uint32_t tail = read32(own, 28);
+    if (tail <= own.size())
+        out.insert(out.end(), own.begin() + tail, own.end());
+    return out;
+}
+
+std::optional<Budokai3Moveset> budokai3_moveset(SourceDisc &budokai3, size_t model, SourceDisc &game,
+                                                size_t ownMotions) {
+    const auto &entries = budokai3.entries(roster_archive);
+    std::optional<size_t> scriptEntry, effectsEntry;
+    for (size_t entry = model > 8 ? model - 8 : 0; entry < model && entry < entries.size(); ++entry) {
+        const auto first = amb_part(budokai3.read_entry(roster_archive, entry), 0);
+        if (first.size() >= 16 && std::memcmp(first.data(), "#BSK", 4) == 0 && read32(first, 12) == 4)
+            scriptEntry = entry;
+        else if (first.size() >= 4 && std::memcmp(first.data(), "#AMC", 4) == 0)
+            effectsEntry = entry;
+    }
+    if (!scriptEntry || !effectsEntry)
+        return std::nullopt;
+    const auto shared = budokai3.read_entry(roster_archive, budokai3_shared_moves);
+    const auto own = budokai3.read_entry(roster_archive, *scriptEntry);
+    const auto effects = budokai3.read_entry(roster_archive, *effectsEntry);
+    const auto sharedMotions = amb_part(shared, 0), ownMotionsPack = amb_part(own, 1);
+    const auto sharedScript = amb_part(shared, 4), ownScript = amb_part(own, 0);
+    if (sharedMotions.empty() || ownMotionsPack.empty() || sharedScript.empty() || ownScript.empty())
+        return std::nullopt;
+    const auto extra = amb_part(game.read_entry(roster_archive, ownMotions), 1);
+    Budokai3Moveset moveset;
+    moveset.motions = amb_of({merge_motions({sharedMotions, ownMotionsPack}), extra}, {3, 3});
+    moveset.moves = amb_of({amb_part(effects, 0), amb_part(effects, 2),
+                            merge_move_scripts(sharedScript, ownScript, read32(sharedMotions, 16)),
+                            amb_part(effects, 3)},
+                           {5, 0xFFFFFFFFu, 0xFFFFFFFFu, 8});
+    return moveset;
+}
+
 }

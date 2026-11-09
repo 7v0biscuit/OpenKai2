@@ -42,6 +42,17 @@ std::vector<size_t> draw_records(const std::vector<uint8_t> &model);
 std::string model_materials(SourceDisc &disc, size_t entry);
 
 void bake_budokai3_shading(std::vector<uint8_t> &model);
+
+inline constexpr size_t budokai3_shared_moves = 165u;
+inline constexpr uint32_t moves_field = 0x1D8u, motions_field = 0x1B4u;
+struct Budokai3Moveset {
+    std::vector<uint8_t> moves, motions;
+};
+std::vector<uint8_t> merge_motions(const std::vector<std::vector<uint8_t>> &packs);
+std::vector<uint8_t> merge_move_scripts(const std::vector<uint8_t> &shared, const std::vector<uint8_t> &own,
+                                        uint32_t sharedMotions);
+std::optional<Budokai3Moveset> budokai3_moveset(SourceDisc &budokai3, size_t model, SourceDisc &game,
+                                                size_t ownMotions);
 std::vector<uint8_t> model_for_budokai2(SourceDisc &disc, size_t entry);
 
 enum class ModelVersion {

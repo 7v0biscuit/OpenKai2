@@ -2089,7 +2089,7 @@ struct Window {
             const bool models = sourceRoster->models;
             caps(dc, models ? L"1   CHOOSE A MODEL" : movesView ? L"1   CHOOSE WHOSE MOVES" : L"1   CHOOSE A CHARACTER",
                  contentLeft + 20, 278, half - 200, orange);
-            caps(dc, models && selected(SpotMode) == forceModel ? L"2   CHOOSE WHOSE MOVES IT USES"
+            caps(dc, models && forcing() ? L"2   CHOOSE WHOSE MOVES IT USES"
                  : movesView ? L"2   CHOOSE WHOSE BODY"
                  : models ? L"2   CHOOSE WHO WEARS IT"
                  : selected(SpotMode) == 1 ? L"2   CHOOSE WHOSE PORTRAIT THE NEW SPOT USES"
@@ -2237,8 +2237,11 @@ struct Window {
                 return L"That spot is empty. Choose a spot with a character to wear the model.";
             if (selected(SpotMode) == forceModel)
                 return L"A new character with its own spot: the whole Budokai 3 " + wide(character->name) +
-                       L" model with " + wide(occupant->name) + L"'s moves. Budokai 3 bodies still show black in "
-                       L"Budokai 2, and the moves may not suit the body. " + into;
+                       L" model with " + wide(occupant->name) + L"'s moves. The moves may not suit the body. " + into;
+            if (selected(SpotMode) == forceWithMoves)
+                return L"A new character with its own spot: the whole Budokai 3 " + wide(character->name) +
+                       L" model with its Budokai 3 animations and moves, converted for Budokai 2, on " +
+                       wide(occupant->name) + L"'s record. Experimental: some buttons may do a different move. " + into;
             if (const auto why = modelMismatch(*character, *occupant))
                 return *why;
             const auto wearer = L"A new " + wide(occupant->name) + L" wearing the Budokai 3 " + wide(character->name) +
@@ -3068,12 +3071,13 @@ struct Window {
         spotModes();
         refreshEnabled();
     }
-    static constexpr int compareVersions = 2, forceModel = 3;
+    static constexpr int compareVersions = 2, forceModel = 3, forceWithMoves = 4;
+    bool forcing() const { return selected(SpotMode) == forceModel || selected(SpotMode) == forceWithMoves; }
     void spotModes() {
         const bool models = characterView && sourceRoster->models;
         const auto list = controls[SpotMode];
         const auto count = SendMessageW(list, CB_GETCOUNT, 0, 0);
-        if ((count == 4) == models)
+        if ((count == 5) == models)
             return;
         const auto keep = std::min<LRESULT>(SendMessageW(list, CB_GETCURSEL, 0, 0), 1);
         SendMessageW(list, CB_RESETCONTENT, 0, 0);
@@ -3081,6 +3085,7 @@ struct Window {
         if (models) {
             modes.push_back(L"Compare 4 versions (test)");
             modes.push_back(L"Force a new character");
+            modes.push_back(L"Force a new character with its Budokai 3 moves (experimental)");
         }
         for (const auto *mode : modes)
             SendMessageW(list, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(mode));
@@ -3266,7 +3271,7 @@ struct Window {
             return true;
         const auto *model = sourceCharacter();
         const auto *wearer = gameRoster ? gameRoster->find(gameRoster->grid[spot]) : nullptr;
-        if (model && wearer && selected(SpotMode) == forceModel)
+        if (model && wearer && forcing())
             return gameRoster->shapes.count(wearer->id) != 0;
         return model && wearer && !modelMismatch(*model, *wearer);
     }
@@ -3274,7 +3279,7 @@ struct Window {
         const auto *wearer = gameRoster->find(gameRoster->grid[size_t(pick)]);
         if (!wearer)
             throw std::runtime_error("That spot is empty; choose a spot with a character to wear the model");
-        const bool force = selected(SpotMode) == forceModel;
+        const bool force = forcing(), ownMoves = selected(SpotMode) == forceWithMoves;
         if (const auto why = modelMismatch(model, *wearer); why && !force)
             throw std::runtime_error(utf8(*why));
         if (mods::costume_fields(*game, *wearer).empty())
@@ -3315,6 +3320,12 @@ struct Window {
         const auto entry = model.files.front().second;
         const auto costumes = mods::costume_fields(*game, *wearer);
         const auto own = costumes.front().second;
+        size_t wearerMotions = 0;
+        for (const auto &[offset, file] : wearer->files)
+            if (offset == mods::motions_field)
+                wearerMotions = file;
+        if (ownMoves && !wearerMotions)
+            throw std::runtime_error(utf8(wide(wearer->name)) + " has no motions file to take the Budokai 3 moves' place");
         std::vector<mods::ImportTarget> targets;
         for (const auto &[version, letter] : versions) {
             mods::ImportTarget target;
@@ -3332,7 +3343,8 @@ struct Window {
             ids += (i ? L", " : L"") + (compare ? wide(versions[i].second) + L" = " : std::wstring()) +
                    std::to_wstring(added[i].slot);
         const auto summary = (force ? L"Added the whole " + wide(model.name) + L" model as a new character with " +
-                                          wide(wearer->name) + L"'s moves"
+                                          (ownMoves ? std::wstring(L"its own Budokai 3 moves (experimental)")
+                                                    : wide(wearer->name) + L"'s moves")
                                     : L"Added " + wide(wearer->name) + L" with " + wide(model.name) + L"'s textures") +
                              (compare ? L" in four versions, sharing spot " + std::to_wstring(pick + 1) +
                                             L"; press R2 there to go through them"
@@ -3341,8 +3353,23 @@ struct Window {
                              L" (character ID" + (compare ? L"s " : L" ") + ids + L").";
         const auto mod = importMod(model.name);
         startModJob(Job::importMod, L"Importing…",
-                    [disc = source, game = game, entry, own, versions, targets, mod, added, costumes,
-                     summary](const std::shared_ptr<Progress> &progress) {
+                    [disc = source, game = game, entry, own, versions, targets, mod, added, costumes, summary, ownMoves,
+                     wearerMotions, stem](const std::shared_ptr<Progress> &progress) {
+                        std::vector<std::pair<uint32_t, std::string>> moveFields;
+                        if (ownMoves) {
+                            report(progress, L"Converting the Budokai 3 moves", 0, 1);
+                            const auto moveset = mods::budokai3_moveset(*disc, entry, *game, wearerMotions);
+                            if (!moveset)
+                                throw std::runtime_error("This Budokai 3 model has no move script next to it to convert");
+                            for (const auto &[field, bytes, label] :
+                                 {std::tuple{mods::moves_field, &moveset->moves, "moves"},
+                                  std::tuple{mods::motions_field, &moveset->motions, "motions"}}) {
+                                mods::ImportTarget target = targets.front();
+                                target.name = stem + "_" + std::to_string(entry) + "_" + label + ".bin";
+                                moveFields.push_back(
+                                    {field, "add:" + mods::import_bytes(mod, target, *bytes).filename().string()});
+                            }
+                        }
                         for (size_t i = 0; i < versions.size(); ++i) {
                             report(progress, L"Importing the model", i, versions.size());
                             const auto bytes = mods::model_version(*disc, entry, *game, own, versions[i].first);
@@ -3350,6 +3377,7 @@ struct Window {
                             std::vector<std::pair<uint32_t, std::string>> fields;
                             for (const auto &costume : costumes)
                                 fields.push_back({costume.first, "add:" + written});
+                            fields.insert(fields.end(), moveFields.begin(), moveFields.end());
                             mods::append_roster(mod, added[i], fields);
                         }
                         report(progress, L"Importing the model", versions.size(), versions.size());
