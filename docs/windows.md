@@ -132,11 +132,13 @@ release's `SHA256SUMS.txt`.
 
 Disc reads follow the timing of a PS2 DVD drive: 30 ms short seeks, 100 ms full
 seeks and a constant-angular-velocity transfer rate from about 1.65x DVD speed at
-the hub to 4x at the edge of the layer. The time is measured in emulated IOP
-cycles, so loads take as many game frames as on a console regardless of host
-disk speed, which keeps load-inclusive runs comparable. The first read logs
-`[cdvd:timing] mode=ps2`. Developers can set `OPENKAI2_DISC_TIMING=instant` to
-restore immediate reads.
+the hub to 4x at the edge of the layer. This covers the game's own reads
+(`sceCdRead`, `sceCdSeek` and `sceCdSync` on the EE), which is where Budokai 2
+loads its data, as well as reads made by IOP modules. The time is counted in
+game fields, so loads take as many frames as on a console regardless of host
+disk speed, which keeps load-inclusive runs comparable. The log shows
+`[cdvd:timing] game reads take PS2 drive time` at startup. Developers can set
+`OPENKAI2_DISC_TIMING=instant` to restore immediate reads.
 
 ## Controls and saving
 

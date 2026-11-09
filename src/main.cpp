@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "cpu_difficulty.h"
 #include "randomizer.h"
+#include "ee_disc_timing.h"
 #include "discord_presence.h"
 #include "host_audio.h"
 #include "disc_image.h"
@@ -57,6 +58,33 @@ PS2Runtime::RecompiledFunction originalAiInitializer = nullptr;
 void initializeBattleAi(uint8_t *memory, R5900Context *context, PS2Runtime *runtime) {
     openkai2::cpu::prepare_installed_ai(memory, PS2_RAM_SIZE);
     originalAiInitializer(memory, context, runtime);
+}
+openkai2::EeDiscClock eeDisc;
+PS2Runtime::RecompiledFunction originalCdRead = nullptr, originalCdSeek = nullptr, originalCdSync = nullptr;
+constexpr uint32_t cd_read_entry = 0x117bf0u, cd_seek_entry = 0x117dd0u, cd_sync_entry = 0x1171e0u;
+void timedCdRead(uint8_t *memory, R5900Context *context, PS2Runtime *runtime) {
+    const uint32_t lsn = getRegU32(context, 4), sectors = getRegU32(context, 5);
+    originalCdRead(memory, context, runtime);
+    if (getRegU32(context, 2) == 1u)
+        eeDisc.read(runtime->eeScheduler().currentVSyncTick(), lsn, sectors);
+}
+void timedCdSeek(uint8_t *memory, R5900Context *context, PS2Runtime *runtime) {
+    const uint32_t lsn = getRegU32(context, 4);
+    originalCdSeek(memory, context, runtime);
+    if (getRegU32(context, 2) == 1u)
+        eeDisc.seek(runtime->eeScheduler().currentVSyncTick(), lsn);
+}
+void timedCdSync(uint8_t *memory, R5900Context *context, PS2Runtime *runtime) {
+    const uint64_t tick = runtime->eeScheduler().currentVSyncTick();
+    if (!eeDisc.busy(tick)) {
+        originalCdSync(memory, context, runtime);
+        return;
+    }
+    if (getRegU32(context, 4) & 1u) {
+        setReturnS32(context, 1);
+        return;
+    }
+    runtime->eeScheduler().waitVSync(eeDisc.ready() - 1u, 0);
 }
 PS2Runtime::RecompiledFunction originalBattleRequest = nullptr;
 void requestBattle(uint8_t *memory, R5900Context *context, PS2Runtime *runtime) {
@@ -345,6 +373,25 @@ int main(int argc, char* argv[]) {
             throw std::runtime_error("Cannot bind the battle AI initializer");
         const bool randomize=preferences.randomizer && !online.enabled;
         openkai2::randomizer::active().enable(randomize,uint64_t(std::chrono::steady_clock::now().time_since_epoch().count()));
+        {
+            const char *discMode = std::getenv("OPENKAI2_DISC_TIMING");
+            eeDisc.enable(!(discMode && std::string(discMode) == "instant"));
+            originalCdRead = runtime.lookupFunction(cd_read_entry);
+            originalCdSeek = runtime.lookupFunction(cd_seek_entry);
+            originalCdSync = runtime.lookupFunction(cd_sync_entry);
+            if (!originalCdRead || !originalCdSeek || !originalCdSync || !runtime.replaceFunction(cd_read_entry, timedCdRead) ||
+                !runtime.replaceFunction(cd_seek_entry, timedCdSeek) || !runtime.replaceFunction(cd_sync_entry, timedCdSync))
+                throw std::runtime_error("Cannot bind the disc reads");
+            std::cout << "[cdvd:timing] game reads " << (eeDisc.enabled() ? "take PS2 drive time (4x DVD CAV, 30/100 ms seeks)" : "are instant") << std::endl;
+        }
+        struct RestoreDiscReads {
+            PS2Runtime& runtime;
+            ~RestoreDiscReads() {
+                if (originalCdRead) runtime.replaceFunction(cd_read_entry, originalCdRead);
+                if (originalCdSeek) runtime.replaceFunction(cd_seek_entry, originalCdSeek);
+                if (originalCdSync) runtime.replaceFunction(cd_sync_entry, originalCdSync);
+            }
+        } restoreDiscReads{runtime};
         originalBattleRequest = runtime.lookupFunction(openkai2::randomizer::battle_request_entry);
         struct RestoreBattleRequest {
             PS2Runtime& runtime;
