@@ -468,6 +468,96 @@ std::vector<size_t> draw_records(const std::vector<uint8_t> &model) {
     return records;
 }
 
+namespace {
+void write32(std::vector<uint8_t> &bytes, size_t at, uint32_t value) {
+    for (unsigned i = 0; i < 4; ++i)
+        bytes[at + i] = uint8_t(value >> (8 * i));
+}
+uint32_t brightness(uint32_t color) {
+    return (77u * (color & 0xFFu) + 150u * (color >> 8 & 0xFFu) + 29u * (color >> 16 & 0xFFu)) >> 8;
+}
+}
+
+void bake_budokai3_shading(std::vector<uint8_t> &model) {
+    const uint32_t records = read32(model, 20), pack = read32(model, records + 16), packSize = read32(model, records + 20);
+    if (pack > model.size() || packSize > model.size() - pack || packSize < 32)
+        return;
+    const uint32_t count = std::min<uint32_t>(read32(model, pack + 16), 64), table = read32(model, pack + 20);
+    struct Block {
+        size_t at = 0, size = 0;
+    };
+    const auto block = [&](size_t header, size_t field) {
+        const size_t at = size_t(pack) + read32(model, header + field), size = read32(model, header + field + 4);
+        const bool sent = size % 16 == 0 && at + 32 <= model.size() &&
+                          read32(model, at + 12) == (0x50000000u | uint32_t(size / 16 + 1));
+        const Block found{sent ? at + 32 : at, size};
+        return found.at + found.size <= size_t(pack) + packSize ? found : Block{};
+    };
+    const auto header = [&](uint32_t texture) -> size_t {
+        if (texture >= count || table + (texture + 1) * 4 > packSize)
+            return 0;
+        const size_t at = size_t(pack) + read32(model, pack + table + texture * 4);
+        return at + 48 <= size_t(pack) + packSize ? at : 0;
+    };
+    std::map<uint32_t, std::map<uint32_t, size_t>> uses;
+    for (const auto record : material_records(model, true))
+        ++uses[read32(model, record + 8)][read32(model, record + 12)];
+    std::map<uint32_t, uint32_t> lit;
+    for (const auto &[texture, ramps] : uses)
+        for (const auto &[ramp, times] : ramps) {
+            const size_t at = header(ramp);
+            if (lit.count(ramp) || !at || !(read32(model, at + 4) & 0x80000000u) || read32(model, at + 8) != 0x13u)
+                continue;
+            const auto pixels = block(at, 20), palette = block(at, 36);
+            if (!pixels.size || palette.size != 1024)
+                continue;
+            std::array<size_t, 256> seen{};
+            for (size_t k = 0; k < pixels.size; ++k)
+                ++seen[model[pixels.at + k]];
+            const auto colour = [&](unsigned index) {
+                return read32(model, palette.at + ((index & ~24u) | ((index & 8u) << 1) | ((index & 16u) >> 1)) * 4);
+            };
+            bool opaque = true;
+            for (unsigned k = 0; k < 256; ++k)
+                opaque &= !seen[k] || colour(k) >> 24 >= 0x80u;
+            if (opaque)
+                lit[ramp] = colour(unsigned(std::max_element(seen.begin(), seen.end()) - seen.begin()));
+        }
+    for (const auto &[texture, ramps] : uses) {
+        uint32_t ramp = 0;
+        size_t most = 0;
+        for (const auto &[candidate, times] : ramps)
+            if (lit.count(candidate) && times > most) {
+                ramp = candidate;
+                most = times;
+            }
+        const size_t at = header(texture);
+        if (!most || !at || lit.count(texture))
+            continue;
+        const auto palette = block(at, 36);
+        const uint32_t tint = lit[ramp];
+        for (size_t k = 0; k + 4 <= palette.size; k += 4) {
+            const uint32_t color = read32(model, palette.at + k);
+            if (color >> 24 >= 0x80u)
+                continue;
+            uint32_t baked = color & 0xFF000000u;
+            for (unsigned shift = 0; shift < 24; shift += 8)
+                baked |= uint32_t(std::max(0, int(color >> shift & 0xFFu) - int(tint >> shift & 0xFFu))) << shift;
+            write32(model, palette.at + k, baked);
+        }
+    }
+    for (const auto &[ramp, tint] : lit) {
+        const auto palette = block(header(ramp), 36);
+        const int base = int(brightness(tint));
+        for (size_t k = 0; k + 4 <= palette.size; k += 4) {
+            const int shade = int(brightness(read32(model, palette.at + k))) - base;
+            write32(model, palette.at + k,
+                    shade >= 0 ? uint32_t(std::min(shade * 128 / 160, 0x40)) << 24
+                               : uint32_t(std::min(-shade * 128 / 255, 0x40)) << 24 | 0x00FFFFFFu);
+        }
+    }
+}
+
 std::vector<uint8_t> model_for_budokai2(SourceDisc &disc, size_t entry) {
     const auto range = disc.range(roster_archive, entry);
     const auto parts = model_parts(disc, range);
@@ -479,6 +569,7 @@ std::vector<uint8_t> model_for_budokai2(SourceDisc &disc, size_t entry) {
         bytes[version] = 1;
     for (const auto record : material_records(bytes, false))
         bytes[record + 1] |= uint8_t(budokai2_material_flag >> 8);
+    bake_budokai3_shading(bytes);
     return bytes;
 }
 

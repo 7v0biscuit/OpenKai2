@@ -41,6 +41,7 @@ inline constexpr uint32_t budokai2_draw_flag = 0x20u;
 std::vector<size_t> draw_records(const std::vector<uint8_t> &model);
 std::string model_materials(SourceDisc &disc, size_t entry);
 
+void bake_budokai3_shading(std::vector<uint8_t> &model);
 std::vector<uint8_t> model_for_budokai2(SourceDisc &disc, size_t entry);
 
 enum class ModelVersion {

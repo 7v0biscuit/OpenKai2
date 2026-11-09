@@ -81,9 +81,8 @@ with the `DATA_CMN.AFS` entries each uses. They cannot be imported yet (see
 
 With a Budokai 3 USA disc (SLUS-20998) as the source, the list on the left
 holds Budokai 3's character models, one row per form or costume, such as
-"Goku, model 3". Budokai 2 draws Budokai 3 meshes all black, so the tool
-brings over a model's textures and puts them on a Budokai 2 character's own
-body:
+"Goku, model 3". The tool brings over a model's textures and puts them on a
+Budokai 2 character's own body:
 
 1. **Choose a model** on the left.
 2. On the right, **choose who wears it**. The new character is a copy of that
@@ -119,6 +118,25 @@ clear (`0x01B5`), and Budokai 2 drew those meshes black. Forced imports set
 the flag in every Budokai 3 material record. The texture numbers follow the
 model's own texture pack, which a forced import keeps. The disc report lists
 Krillin's and Supreme Kai's material records in both games.
+
+#### Shading colours
+
+Each material names a texture and a shading texture, a 64 by 64 ramp the
+game looks up by the surface's angle to the light. Budokai 2's ramps are black
+or white with only the transparency changing: they darken or lighten the
+texture under them. Budokai 3's are solid colours taken off the texture under
+them, so its skin textures are white and a blue ramp turns them tan. Budokai 2
+painted those solid colours over the body, which drew Budokai 3 characters
+black, grey, white or blue.
+
+Every Budokai 3 import now converts the ramps. For each ramp, the colour most
+of it uses is taken off the colours of the textures drawn with it, except the
+colours the shading skips (marked by full transparency, such as eye whites and
+lines). The ramp then becomes Budokai 2's kind: black where it was darker than
+that colour, white where it was lighter, at a transparency that matches the
+difference. Ramps that already vary only in transparency, as in Budokai 2's
+own models, are left alone. Characters imported with an earlier version keep
+the old colours until they are imported again.
 
 #### Comparing versions
 

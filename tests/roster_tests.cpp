@@ -158,10 +158,64 @@ Bytes costume_model(uint32_t parts, uint32_t textures, bool twist = false, const
     }
     return model;
 }
+
+void shading_is_baked_into_the_textures() {
+    Bytes model(0xC0 + 0x590, 0);
+    put32(model, 20, 0x20);
+    put32(model, 0x20, 0x40);
+    put32(model, 0x24, 0x80);
+    put32(model, 0x30, 0xC0);
+    put32(model, 0x34, 0x590);
+    put32(model, 0x40 + 32, 1);
+    put32(model, 0x40 + 48, 0x40);
+    put32(model, 0x80, 0x21B5);
+    put32(model, 0x84, 0x29BD);
+    put32(model, 0x8C, 1);
+    const uint32_t pack = 0xC0;
+    put32(model, pack + 16, 2);
+    put32(model, pack + 20, 0x20);
+    put32(model, pack + 0x20, 0x30);
+    put32(model, pack + 0x24, 0x60);
+    const uint32_t texture[] = {0, 0x21, 0x14, 0, 0, 0x100, 16, 1, 0, 0x110, 64, 0};
+    const uint32_t ramp[] = {1, 0x80000001, 0x13, 0, 0, 0x150, 64, 1, 0, 0x190, 1024, 0};
+    for (uint32_t i = 0; i < 12; ++i) {
+        put32(model, pack + 0x30 + i * 4, texture[i]);
+        put32(model, pack + 0x60 + i * 4, ramp[i]);
+    }
+    put32(model, pack + 0x110, 0x00808080);
+    put32(model, pack + 0x114, 0x80FFFFFF);
+    for (uint32_t i = 0; i < 64; ++i)
+        model[pack + 0x150 + i] = i < 48 ? 0x18 : 0;
+    put32(model, pack + 0x190 + 0x18 * 4, 0x80202020);
+    put32(model, pack + 0x190, 0x80000000);
+    for (uint32_t i = 1; i < 256; ++i)
+        if (i != 0x18)
+            put32(model, pack + 0x190 + i * 4, 0x80404040);
+    const auto budokai2 = [&] {
+        auto kept = model;
+        for (uint32_t i = 0; i < 256; ++i)
+            put32(kept, pack + 0x190 + i * 4, 0x1A000000);
+        return kept;
+    }();
+    auto baked = model;
+    bake_budokai3_shading(baked);
+    require(get32(baked.data() + pack + 0x110) == 0x00606060 && get32(baked.data() + pack + 0x114) == 0x80FFFFFF,
+            "The ramp's main colour was not taken off the texture, or a part the shading skips was changed");
+    require(get32(baked.data() + pack + 0x190 + 0x18 * 4) == 0 &&
+                get32(baked.data() + pack + 0x190) == 0x10FFFFFFu &&
+                get32(baked.data() + pack + 0x190 + 4) == 0x19000000u,
+            "The Budokai 3 ramp was not turned into Budokai 2 shading");
+    auto again = baked;
+    bake_budokai3_shading(again);
+    auto untouched = budokai2;
+    bake_budokai3_shading(untouched);
+    require(again == baked && untouched == budokai2, "Shading was baked twice, or a Budokai 2 model was changed");
+}
 }
 
 int main() {
     try {
+        shading_is_baked_into_the_textures();
         const auto root = fs::temp_directory_path() / "openkai2-roster-tests";
         fs::remove_all(root);
         fs::create_directories(root);

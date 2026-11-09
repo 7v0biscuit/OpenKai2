@@ -11,7 +11,6 @@ playtesting.
 | --- | --- |
 | Frame-rate drops and uneven frame pacing on the snow stage | The current performance issue is limited to this stage. |
 | 4x internal resolution below 60 FPS on busy stages | At 4x the graphics card draws sixteen times the pixels of native resolution. On an RTX 4060 the snow stage runs at about 45 to 50 FPS at 4x; 2x or 3x keeps 60 FPS. |
-| Imported Budokai 3 characters render black or blue | Unresolved. |
 | Imported Budokai 3 stages lack particle effects | Unresolved. |
 
 The [Dragon World validation record](dragon-world-validation.md) separates
