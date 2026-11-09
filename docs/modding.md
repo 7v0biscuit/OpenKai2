@@ -69,7 +69,30 @@ character with one character's moves and another's body:
 
 When the two characters' skeletons differ, the sentence beside **Import** says
 so: the moves may move the body oddly. Budokai 3 and Infinite World movesets
-are a newer file version than Budokai 2 reads and are not converted.
+are a newer file version than Budokai 2 reads and are not converted yet.
+
+What is known about converting Budokai 3 movesets:
+
+- A move script (`#BSK`) is a table of entries, each a 48-byte record: a
+  motion as `bank << 16 | motion`, flags, then a command count and offset.
+  Commands are 8 bytes: `size << 16 | type` (types 0 to 7, the same in both
+  games) and an offset to `size` 16-byte items. Budokai 2 uses version 3
+  (Goku: 1,336 entries); Budokai 3 version 4 (about 2,000), with the same
+  record and command layout and mostly identical items.
+- Budokai 2 keeps a character's whole move script in one file (Goku's
+  `DATA_CMN` 173, with `#AMC`, `#BCM` and `#SPX`), its own motions in another
+  (175), and reads motions from bank 1 (its own, 0 to 165 for Goku) and bank 0
+  (shared by everyone).
+- Budokai 3 splits it: `DATA_CMN` 165 holds the moves every character shares
+  (359 motions and a `#BSK` of 2,172 entries) and each character's file holds
+  only its own (Goku: 262, motions in bank 3, 0 to 94).
+- Entry numbers mostly mean the same action in both games: 139 of the 302
+  entries both Goku files use have the same flags and command types, and 53
+  more match one to three entries away.
+
+A conversion has to merge Budokai 3's shared and own scripts into one, put
+both motion sets into the character's bank 1, renumber the motions, and line
+up the entries that moved.
 
 ### Stages and capsules
 
