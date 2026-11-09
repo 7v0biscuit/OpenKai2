@@ -10,6 +10,10 @@ VU1, sound, and timers. Loading one puts the game back exactly where it was.
 
 A short message shows when the state is saved or loaded.
 
+**Load state** on the launcher's Play page starts the game and loads slot 1 as
+soon as the game is running. If the state cannot load yet (for example while
+the opening movie plays), it tries again every second for up to 30 seconds.
+
 States are taken between frames, when every game thread is waiting. When you
 press a key, the state is saved or loaded within a frame or two.
 

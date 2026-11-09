@@ -18,9 +18,10 @@ struct ThemeChoice {
     const wchar_t *name;
     Rgb background, sidebar, panel, accent, highlight, heroFrom, heroTo, bannerText;
     bool light;
+    unsigned banner = 0;
 };
 inline constexpr ThemeChoice themes[] = {
-    {L"Ember", {9, 11, 19}, {12, 14, 24}, {17, 20, 33}, {255, 136, 28}, {255, 204, 86}, {64, 24, 8}, {15, 17, 31}, {206, 176, 150}, false},
+    {L"Ember", {20, 22, 29}, {24, 27, 35}, {29, 33, 43}, {255, 136, 28}, {255, 204, 86}, {64, 24, 8}, {24, 26, 36}, {206, 176, 150}, false},
     {L"Super Saiyan Blue", {6, 13, 23}, {8, 17, 30}, {12, 25, 41}, {38, 196, 255}, {150, 232, 255}, {8, 58, 96}, {8, 17, 33}, {150, 198, 228}, false},
     {L"Namek", {6, 16, 13}, {8, 21, 17}, {12, 30, 25}, {80, 212, 138}, {204, 240, 140}, {12, 66, 42}, {8, 21, 18}, {158, 212, 178}, false},
     {L"Frieza", {13, 8, 21}, {17, 10, 28}, {26, 16, 41}, {192, 104, 255}, {255, 172, 240}, {66, 20, 92}, {18, 11, 30}, {204, 170, 230}, false},
@@ -31,8 +32,14 @@ inline constexpr ThemeChoice themes[] = {
     {L"Midnight", {0, 0, 0}, {6, 7, 10}, {12, 13, 19}, {92, 142, 255}, {156, 204, 255}, {16, 32, 78}, {5, 6, 11}, {170, 182, 214}, false},
     {L"Daylight", {241, 239, 235}, {229, 226, 220}, {252, 251, 249}, {226, 100, 16}, {164, 84, 8}, {128, 54, 12}, {40, 33, 29}, {238, 206, 172}, true},
     {L"Capsule Corp", {232, 238, 246}, {219, 228, 240}, {250, 252, 255}, {28, 116, 226}, {18, 78, 168}, {18, 72, 156}, {22, 31, 52}, {190, 214, 246}, true},
+    {L"Capsule", {243, 246, 250}, {232, 238, 246}, {255, 255, 255}, {47, 111, 220}, {24, 74, 160}, {14, 34, 74}, {31, 79, 156}, {214, 228, 250}, true, 1},
+    {L"Dragon Balls", {20, 16, 25}, {27, 21, 33}, {38, 29, 45}, {240, 163, 90}, {255, 210, 138}, {20, 16, 25}, {58, 42, 60}, {230, 206, 186}, false, 2},
+    {L"Dragon Radar", {12, 27, 19}, {15, 33, 23}, {21, 45, 31}, {123, 224, 143}, {255, 210, 90}, {13, 26, 18}, {47, 106, 62}, {176, 220, 190}, false, 3},
+    {L"Ki", {26, 18, 14}, {32, 22, 16}, {44, 30, 20}, {255, 201, 74}, {255, 243, 196}, {20, 13, 10}, {58, 36, 16}, {232, 210, 170}, false, 4},
+    {L"Scouter", {30, 12, 17}, {38, 15, 21}, {52, 21, 29}, {255, 111, 97}, {255, 179, 168}, {27, 11, 16}, {91, 31, 42}, {236, 190, 184}, false, 5},
 };
 inline constexpr unsigned theme_count = sizeof(themes) / sizeof(themes[0]);
+inline constexpr unsigned banner_picture_count = 5u;
 inline constexpr unsigned legacy_themes[] = {0, 1, 2, 3, 4, 7, 6, 2, 3, 8, 5, 9, 7, 1, 4, 5, 2, 3, 10, 9};
 constexpr unsigned legacy_theme(unsigned old) { return old < sizeof(legacy_themes) / sizeof(legacy_themes[0]) ? legacy_themes[old] : 0u; }
 
@@ -77,6 +84,7 @@ struct Theme {
     Rgb accent, highlight, glow, heroFrom, heroTo;
     Rgb buttonTop, buttonBottom, buttonHotTop, buttonHotBottom, buttonPressedTop, buttonPressedBottom, buttonShine, buttonInk;
     Rgb bannerTitle, bannerText, success, error, info, ball, ballStars, shadow, bannerLabel;
+    unsigned banner = 0;
 };
 
 struct ColorRole {
@@ -184,18 +192,21 @@ constexpr Theme make_theme(unsigned theme, unsigned accent, const CustomColors &
     out.buttonInk = luminance(out.accent) > 110u ? blend(out.accent, black, 220) : white;
     out.bannerTitle = blend(Rgb{255, 246, 236}, t.bannerText, 40);
     out.bannerText = t.bannerText;
+    out.banner = t.banner;
+    if (t.banner && !t.light)
+        out.info = blend(out.info, out.accent, 150);
     out.ball = {255, 145, 26};
     out.ballStars = {220, 40, 28};
     if (index == 0u) {
-        out.field = {22, 26, 42};
-        out.raised = {29, 34, 53};
-        out.hover = {39, 45, 69};
-        out.border = {35, 41, 61};
-        out.muted = {148, 153, 174};
-        out.faint = {86, 93, 117};
+        out.field = {34, 38, 50};
+        out.raised = {40, 45, 58};
+        out.hover = {50, 56, 72};
+        out.border = {44, 49, 62};
+        out.muted = {163, 169, 184};
+        out.faint = {115, 122, 140};
         out.bannerTitle = {255, 240, 222};
-        out.info = {70, 110, 255};
-        out.shadow = {6, 7, 12};
+        out.info = {98, 128, 220};
+        out.shadow = {12, 13, 18};
         if (accent <= 1u) {
             out.highlight = {255, 204, 86};
             out.glow = {255, 112, 24};

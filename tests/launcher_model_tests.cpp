@@ -193,7 +193,7 @@ int main() {
         {
             using namespace openkai2::launcher;
             const auto ember = make_theme(0, 0);
-            require(ember.background == Rgb{9, 11, 19} && ember.accent == Rgb{255, 136, 28} && ember.buttonTop == Rgb{255, 186, 70} &&
+            require(ember.background == Rgb{20, 22, 29} && ember.accent == Rgb{255, 136, 28} && ember.buttonTop == Rgb{255, 186, 70} &&
                         ember.buttonInk == Rgb{36, 16, 4},
                     "The default theme changed the original launcher colors");
             for (unsigned theme = 0; theme < theme_count; ++theme)

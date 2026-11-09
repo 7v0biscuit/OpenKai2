@@ -171,6 +171,7 @@ int main(int argc, char* argv[]) {
         std::string fpsLimit=displayEnvironment ? displayEnvironment : std::to_string(preferences.fps);
         std::filesystem::path image;
         openkai2::netplay::Arguments online;
+        unsigned loadState=0;
 #ifdef _WIN32
         int count=0;
         auto arguments=CommandLineToArgvW(GetCommandLineW(),&count);
@@ -184,6 +185,9 @@ int main(int argc, char* argv[]) {
             }else if(i->rfind(L"--fps-limit=",0u)==0u){
                 const auto value=i->substr(12u);
                 fpsLimit=std::string(value.begin(),value.end());
+                i=positional.erase(i);
+            }else if(i->rfind(L"--load-state=",0u)==0u){
+                loadState=unsigned(std::wcstoul(i->c_str()+13,nullptr,10));
                 i=positional.erase(i);
             }else if(i->rfind(L"--netplay",0u)==0u){
                 const int bytes=WideCharToMultiByte(CP_UTF8,0,i->c_str(),int(i->size()),nullptr,0,nullptr,nullptr);
@@ -212,6 +216,8 @@ int main(int argc, char* argv[]) {
             if(argument.rfind("--renderer=",0u)==0u)renderer=argument.substr(11u);
             else if(argument.rfind("--fps-limit=",0u)==0u)
                 fpsLimit=argument.substr(12u);
+            else if(argument.rfind("--load-state=",0u)==0u)
+                loadState=unsigned(std::strtoul(argument.c_str()+13,nullptr,10));
             else if(openkai2::netplay::parse_argument(argument,online)){}
             else positional.push_back(argument);
         }
@@ -271,6 +277,7 @@ int main(int argc, char* argv[]) {
             overlay.category=category;
             overlay.permadeath=speedrun && !run::tournament(category) && preferences.permadeath;
             overlay.fps_counter=preferences.fpsCounter;
+            overlay.load_state=speedrun || online.enabled ? 0u : loadState;
             if (const char* menu=std::getenv("OPENKAI2_MAIN_MENU"); menu && *menu=='1') {
                 overlay.skip_to_menu=true;
 #ifdef _WIN32

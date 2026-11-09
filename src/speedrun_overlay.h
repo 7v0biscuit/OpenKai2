@@ -16,6 +16,7 @@ struct OverlayOptions {
     bool fps_counter = false;
     bool randomizer = false;
     bool skip_to_menu = false;
+    unsigned load_state = 0;
     unsigned items = 0, corner = 0, size = 1, background = 1, split_rows = 5;
     unsigned cpu = 0, decimals = 2, margin = 1, shape = 0;
     std::string title;

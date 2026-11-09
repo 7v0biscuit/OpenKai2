@@ -9,6 +9,18 @@ function(openkai2_add_launcher_ui project_root enable_tests)
         COMMAND "${CMAKE_COMMAND}" -DFONT=${font} -DOUTPUT=${font_source}
             -P "${project_root}/tools/native/embed-font.cmake"
         DEPENDS "${font}" "${project_root}/tools/native/embed-font.cmake" VERBATIM)
+    set(banner_dir "${project_root}/src/launcher/banners")
+    set(banner_names capsule balls radar ki scouter)
+    set(banner_files "")
+    foreach(name IN LISTS banner_names)
+        list(APPEND banner_files "${banner_dir}/${name}.jpg")
+    endforeach()
+    string(REPLACE ";" "," banner_list "${banner_names}")
+    set(banner_source "${CMAKE_CURRENT_BINARY_DIR}/openkai2_launcher_banners.cpp")
+    add_custom_command(OUTPUT "${banner_source}"
+        COMMAND "${CMAKE_COMMAND}" -DDIR=${banner_dir} -DNAMES=${banner_list} -DOUTPUT=${banner_source}
+            -P "${project_root}/tools/native/embed-banners.cmake"
+        DEPENDS ${banner_files} "${project_root}/tools/native/embed-banners.cmake" VERBATIM)
     add_library(openkai2_launcher_ui STATIC
         "${project_root}/src/launcher/window.cpp"
         "${project_root}/src/launcher/update_windows.cpp"
@@ -21,11 +33,12 @@ function(openkai2_add_launcher_ui project_root enable_tests)
         "${project_root}/src/nat.cpp"
         "${project_root}/src/dev_identity.cpp"
         "${project_root}/src/ed25519.cpp"
-        "${font_source}")
+        "${font_source}"
+        "${banner_source}")
     target_include_directories(openkai2_launcher_ui PRIVATE "${project_root}/src")
     target_compile_features(openkai2_launcher_ui PUBLIC cxx_std_17)
     target_link_libraries(openkai2_launcher_ui PUBLIC openkai2_launcher_model openkai2_discord_presence openkai2_speedrun
-        comdlg32 shell32 ole32 uuid gdi32 winhttp ws2_32)
+        comdlg32 shell32 ole32 uuid gdi32 windowscodecs winhttp ws2_32)
     if(MSVC)
         target_compile_options(openkai2_launcher_ui PRIVATE /utf-8)
     endif()

@@ -7,7 +7,10 @@ story sequences. Progression, performance and complete matches need validation.
 
 The launcher has seven pages: **Play**, **Online**, **Speedrun**, **Mods**,
 **Saves**, **Settings** and **Updates** (Ctrl+1 to Ctrl+7, in the order shown in
-the sidebar). See [Online play](online.md) and
+the sidebar). The sidebar groups them under **Game** (Play, Online, Speedrun)
+and **Library** (Mods, Saves, Settings, Updates); Online shows how many friends
+are online and Mods how many mods are on. Friends sit in their own box below the
+tabs, with a green dot for each friend who is online. See [Online play](online.md) and
 [Speedrun mode](speedrun.md). **Settings** groups display mode, resolution, aspect ratio,
 frame rate cap and VSync; CPU difficulty, HD textures, music, the FPS
 counter and the randomizer (**Game**, see below); renderer, anti-aliasing (FXAA, FXAA High or FXAA Ultra),
@@ -34,11 +37,21 @@ A message in the corner names your new character when a fight starts.
 
 ### Making the launcher your own
 
-- **Theme:** Ember (the original look), Super Saiyan Blue, Namek, Frieza,
-  Kaioken, Majin, Saiyan Gold, Graphite, Midnight (true black), or the light
-  themes Daylight and Capsule Corp. Each has its own background, panels, Play
-  banner and text colors, and also colors the title bar, scrollbars and
-  dropdown lists. Themes from older versions move to the closest one.
+- **Theme:** Ember (the original look, on soft charcoal), Super Saiyan Blue,
+  Namek, Frieza, Kaioken, Majin, Saiyan Gold, Graphite, Midnight (true black),
+  or the light themes Daylight and Capsule Corp. Each has its own background,
+  panels, Play banner and text colors, and also colors the title bar,
+  scrollbars and dropdown lists. Themes from older versions move to the
+  closest one.
+- **Picture themes:** five themes put a drawn picture in the Play banner and
+  color the whole launcher to match it. **Capsule** (the only light one) shows
+  a Capsule Corp. blueprint of a dome and a capsule with measurements and a
+  title block, with a blue accent. **Dragon Balls** shows the seven Dragon
+  Balls in an arc across a night sky, with an orange accent. **Dragon Radar**
+  shows the radar screen with its grid, range rings, sweep and two blips, with
+  a green Play button. **Ki** shows a rising golden aura, with a gold Play
+  button. **Scouter** shows a scouter lens with a targeting reticle and a
+  power-level reading, with a coral-red accent.
 - **Accent color:** the theme's own color, or Orange, Gold, Red, Pink, Purple,
   Blue, Cyan, Green, White, Teal, Lime, Magenta, Coral, Sky, Indigo, Silver,
   Amber, Mint, Peach, Lavender, Turquoise, Rose, Olive, Navy, Crimson, Ice or
@@ -165,13 +178,20 @@ and the scope of validation.
 ## Desktop launcher
 
 Double-click any Windows package to open the launcher. **Choose ISO** opens the
-Windows file picker. Verification runs in the background; **Play** becomes
-available after the supported executable and every disc file have been checked.
+Windows file picker (it reads **Change…** once a disc is chosen). Verification
+runs in the background; **Play** becomes available after the supported
+executable and every disc file have been checked, and the disc card shows
+**Verified** with **Verify again** beside it. **Load state** starts the game and
+loads save-state slot 1 as soon as the game is running; it is available when
+slot 1 has a state and speedrun mode is off, and the banner shows when that
+state was saved. A strip under the tiles lists what is new in this version, and
+**Release notes** opens them on GitHub.
 The verified ISO path is remembered for the next session. The ISO remains
 required, including when a verified cache already exists.
 
-The launcher uses owner-drawn Windows controls, Segoe UI and a dark navy
-palette with orange and gold accents.
+The launcher uses owner-drawn Windows controls with Segoe UI for all text and
+line icons for every tab and tile. The comic lettering is kept for the OpenKai2
+logo only.
 
 **Settings** saves the renderer, frame-rate limit, window resolution,
 windowed/borderless mode, aspect ratio, VSync, FXAA, texture filtering, and spatial upscaling.

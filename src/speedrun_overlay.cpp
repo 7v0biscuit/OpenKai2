@@ -93,6 +93,43 @@ void load_slot(unsigned slot) {
     });
 }
 
+struct AutoLoad {
+    std::atomic<int> state{0};
+    unsigned tries = 0;
+    uint64_t next = 120;
+};
+AutoLoad &auto_load() {
+    static AutoLoad value;
+    return value;
+}
+
+void load_on_start(unsigned slot, uint64_t fields) {
+    auto &load = auto_load();
+    if (load.state != 0 || fields < load.next || openkai2::machine_state_pending())
+        return;
+    std::ifstream in(openkai2::machine_state_file(slot), std::ios::binary);
+    const std::vector<uint8_t> file((std::istreambuf_iterator<char>(in)), {});
+    std::vector<uint8_t> body;
+    std::string problem;
+    if (!in.is_open() || !openkai2::unwrap_machine_state(file, body, problem)) {
+        toast(in.is_open() ? "Cannot load slot " + std::to_string(slot) + ": " + problem : "Slot " + std::to_string(slot) + " is empty");
+        load.state = 2;
+        return;
+    }
+    load.state = 1;
+    ++load.tries;
+    load.next = fields + 60;
+    openkai2::request_machine_load(std::move(body), [slot](openkai2::MachineStateResult result) {
+        auto &load = auto_load();
+        std::cout << "[state] start load slot " << slot << " try " << load.tries << (result.ok ? " ok" : " refused: " + result.message) << std::endl;
+        if (result.ok)
+            toast("State loaded from slot " + std::to_string(slot));
+        else if (load.tries >= 30)
+            toast("Could not load state: " + result.message);
+        load.state = result.ok || load.tries >= 30 ? 2 : 0;
+    });
+}
+
 struct MenuState {
     enum class Return { idle, pending, done, failed };
     std::mutex mutex;
@@ -732,6 +769,8 @@ void draw(PS2Runtime &runtime, void *) {
         else if (IsKeyPressed(KEY_F9))
             load_slot(1);
     }
+    if (overlay->options.load_state && !overlay->speedrun && !session)
+        load_on_start(overlay->options.load_state, fields);
     if (!overlay->speedrun && !session && IsKeyPressed(KEY_F6)) {
         unsigned level = 0;
         if (openkai2::cpu::cycle(level))
