@@ -40,6 +40,8 @@ files.
   slow RGB cycle, every color changeable on its own, color looks you can copy
   and share, tabs you can reorder or hide, Load state from the Play page, an
   Updates page, and a choice of the page it opens on. See [Windows](docs/windows.md).
+- **Controls:** rebind every PS2 button to a key, an alternate key and a controller
+  button in the Controls tab. Works with Xbox, PlayStation and most other controllers.
 - **Audio:** volume, and an option to turn off only the music while voices and
   sound effects keep playing.
 - **CPU difficulty:** Z1 to Z6 levels above Very Hard, set in the launcher or
