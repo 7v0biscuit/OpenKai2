@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="832" height="232" viewBox="0 0 832 232">
+<defs>
+<filter id="riso" x="-5%" y="-5%" width="110%" height="110%"><feTurbulence type="fractalNoise" baseFrequency="1.1" numOctaves="1" seed="171" result="n"/><feColorMatrix in="n" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  -7 0 0 0 5.2" result="m"/><feComposite in="SourceGraphic" in2="m" operator="in" result="s"/><feTurbulence type="fractalNoise" baseFrequency="0.05" numOctaves="2" seed="172" result="w"/><feDisplacementMap in="s" in2="w" scale="3"/></filter>
+<filter id="rough" x="-5%" y="-5%" width="110%" height="110%"><feTurbulence type="fractalNoise" baseFrequency="0.06" numOctaves="3" seed="173"/><feDisplacementMap in="SourceGraphic" scale="3.2"/></filter>
+<filter id="brush" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency="0.02 0.3" numOctaves="2" seed="174" result="t"/><feDisplacementMap in="SourceGraphic" in2="t" scale="7"/></filter>
+<filter id="paper" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="0.7" numOctaves="3" seed="175"/><feColorMatrix values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 .14 -.05"/></filter>
+<filter id="grit" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="176"/><feColorMatrix values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 .25 -.08"/></filter>
+<linearGradient id="fade" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#160b22" stop-opacity=".94"/><stop offset=".44" stop-color="#160b22" stop-opacity=".28"/><stop offset=".58" stop-color="#160b22" stop-opacity="0"/></linearGradient>
+<pattern id="bgd" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(20)"><circle cx="3.0" cy="3.0" r="1.7" fill="#24123a"/></pattern><pattern id="hm" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(25)"><circle cx="2.5" cy="2.5" r="1.4" fill="#2a0f44"/></pattern>
+</defs>
+<rect width="832" height="232" fill="#160b22"/>
+
+<g filter="url(#brush)"><path d="M500 232 C 486 150 540 40 650 20 C 742 4 832 26 832 26 L 832 232 Z" fill="url(#bgd)" opacity=".9"/></g>
+<g filter="url(#riso)"><circle cx="680" cy="104" r="120" fill="#2c1440" opacity=".85"/><circle cx="680" cy="104" r="92" fill="#3a1c56" opacity=".85"/></g>
+<g filter="url(#riso)" transform="translate(2.4 2)"><path d="M630 196 L 730 196 L 716 170 L 644 170 Z" fill="#c8902c"/><path d="M620 196 L 740 196 L 740 210 L 620 210 Z" fill="#8a5a18"/></g>
+<g filter="url(#rough)"><path d="M630 196 L 730 196 L 716 170 L 644 170 Z" fill="none" stroke="#140a1c" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/><path d="M620 196 L 740 196 L 740 210 L 620 210 Z" fill="none" stroke="#140a1c" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/><path d="M650 176 C 670 182 690 182 710 176" fill="none" stroke="#f0c86a" stroke-width="2.4"/></g>
+<g filter="url(#riso)" transform="translate(2.6 2)"><circle cx="680" cy="110" r="64" fill="#5a2a86"/><circle cx="680" cy="110" r="64" fill="url(#hm)" opacity=".6"/><circle cx="672" cy="102" r="44" fill="#7fe08a" opacity=".55"/></g>
+<g filter="url(#brush)"><path d="M650 96 C 676 70 716 82 712 112 C 708 140 666 140 664 116 C 662 98 690 96 692 112" fill="none" stroke="#d8ffd0" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/><path d="M634 128 C 650 150 690 156 716 136" fill="none" stroke="#b98cff" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/></g>
+<g filter="url(#rough)"><circle cx="680" cy="110" r="64" fill="none" stroke="#140a1c" stroke-width="2.8"/><path d="M638 78 C 650 60 672 52 694 54" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round" opacity=".85"/><circle cx="706" cy="64" r="3" fill="#fff"/></g>
+<g filter="url(#rough)" stroke="#9cff9a" stroke-width="2" stroke-linecap="round" fill="none" opacity=".85"><path d="M584 60 l 10 8 l -6 4 l 10 8"/><path d="M780 70 l -10 8 l 6 4 l -10 8"/><path d="M790 150 l -12 4 l 4 6 l -12 4"/><path d="M572 150 l 12 4 l -4 6 l 12 4"/></g>
+<path d="M612 34 Q 613.2 38.8 618 40 Q 613.2 41.2 612 46 Q 610.8 41.2 606 40 Q 610.8 38.8 612 34 Z" fill="#e8ffe0"/><path d="M760 31 Q 761.0 35.0 765 36 Q 761.0 37.0 760 41 Q 759.0 37.0 755 36 Q 759.0 35.0 760 31 Z" fill="#e8ffe0"/><path d="M820 115 Q 821.0 119.0 825 120 Q 821.0 121.0 820 125 Q 819.0 121.0 815 120 Q 819.0 119.0 820 115 Z" fill="#e8ffe0"/><path d="M560 106 Q 560.8 109.2 564 110 Q 560.8 110.8 560 114 Q 559.2 110.8 556 110 Q 559.2 109.2 560 106 Z" fill="#e8ffe0"/><path d="M800 192 Q 800.8 195.2 804 196 Q 800.8 196.8 800 200 Q 799.2 196.8 796 196 Q 799.2 195.2 800 192 Z" fill="#e8ffe0"/>
+<text x="470" y="58" font-family="Permanent Marker" font-size="22" fill="#b6ff9e" opacity=".9" transform="rotate(-7 470 58)">Paparapa!</text>
+<text x="420" y="214" font-family="Gochi Hand" font-size="16" fill="#d8c4ff" opacity=".85" transform="rotate(-4 420 214)">watch the fight from the ball</text>
+<rect width="832" height="232" filter="url(#paper)"/>
+<rect width="832" height="232" filter="url(#grit)"/>
+<rect width="832" height="232" fill="url(#fade)"/>
+</svg>

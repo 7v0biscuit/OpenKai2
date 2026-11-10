@@ -189,7 +189,11 @@ int main() {
             std::ofstream(root / "old-style.ini") << "version 1\nlauncher_style 6 0 0 2\n";
             std::ofstream(root / "old-accent.ini") << "version 1\nlauncher_theme 2 28 0 0\n";
             require(read_settings(root / "old-accent.ini").launcherAccent == openkai2::launcher::rgb_accent, "The RGB accent did not survive the accent cleanup");
-            require(read_settings(root / "old-style.ini").launcherTheme == 3u, "A retired theme did not move to the closest picture theme");
+            require(read_settings(root / "old-style.ini").launcherTheme == 8u, "A retired theme did not move to the closest picture theme");
+            std::ofstream(root / "ki.ini") << "version 1\nlauncher_scheme 3 0 0 0\n";
+            require(read_settings(root / "ki.ini").launcherTheme == 8u, "The Ki theme did not move to Majin Vegeta");
+            std::ofstream(root / "scouter.ini") << "version 1\nlauncher_scheme 4 0 0 0\n";
+            require(read_settings(root / "scouter.ini").launcherTheme == 3u, "Scouter moved when the theme list changed");
             const auto old = read_settings(root / "old-look.ini");
             require(old.launcherTheme == 1u && old.launcherAccent == 2u && old.startPage == 1u && old.lastPage == 3u,
                     "A theme saved by an older version did not move to its replacement");
@@ -225,13 +229,13 @@ int main() {
                 require(parse_look_code(look_code(4, 9, custom), theme, accent, pasted) && theme == 4 && accent == 9 && pasted == custom,
                         "A copied launcher look did not paste back the same");
                 std::string old = look_code(0, 4, custom);
-                old.replace(old.find(" 4 0 4"), 6, " 1 15 4");
-                require(parse_look_code(old, theme, accent, pasted) && theme == 4 && accent == 4 && pasted == custom,
+                old.replace(old.find(" 5 0 4"), 6, " 1 15 4");
+                require(parse_look_code(old, theme, accent, pasted) && theme == 3 && accent == 4 && pasted == custom,
                         "A look copied from an older version did not paste onto the matching theme");
                 require(!parse_look_code("OPENKAI2-LOOK 1 99 0", theme, accent, pasted) && !parse_look_code("hello", theme, accent, pasted) &&
                             !parse_look_code(look_code(0, 0, custom).substr(0, 30), theme, accent, pasted),
                         "A broken launcher look was accepted");
-                require(theme_count == 5u && accent_count == 11u, "Themes or accent colors are missing");
+                require(theme_count == 13u && accent_count == 11u, "Themes or accent colors are missing");
                 for (unsigned old = 0; old < 29u; ++old)
                     require(retired_accent(old) < accent_count, "A retired accent color has no replacement");
                 require(retired_accent(28) == rgb_accent && retired_accent(25) == 3u && retired_accent(17) == 2u,
@@ -245,7 +249,7 @@ int main() {
                 for (unsigned old = 0; old < 20u; ++old)
                     require(retired_theme(legacy_theme(old)) < theme_count, "An older theme has no replacement");
                 for (unsigned old = 0; old < 16u; ++old)
-                    require(retired_theme(old) < theme_count, "A retired theme has no replacement");
+                    require(picture_theme(retired_theme(old)) < theme_count, "A retired theme has no replacement");
                 require(legacy_theme(0) == 0u && legacy_theme(13) == 1u && legacy_theme(18) == 10u, "Older themes map to the wrong replacement");
                 const auto distance = [](Rgb a, Rgb b) {
                     const auto d = [](int x, int y) { return unsigned(x > y ? x - y : y - x); };

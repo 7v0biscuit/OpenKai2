@@ -24,15 +24,25 @@ inline constexpr ThemeChoice themes[] = {
     {L"Dragon Balls", {20, 16, 25}, {27, 21, 33}, {38, 29, 45}, {240, 163, 90}, {255, 210, 138}, {20, 16, 25}, {58, 42, 60}, {230, 206, 186}, false, 2},
     {L"Capsule", {243, 246, 250}, {232, 238, 246}, {255, 255, 255}, {47, 111, 220}, {24, 74, 160}, {14, 34, 74}, {31, 79, 156}, {214, 228, 250}, true, 1},
     {L"Dragon Radar", {12, 27, 19}, {15, 33, 23}, {21, 45, 31}, {123, 224, 143}, {255, 210, 90}, {13, 26, 18}, {47, 106, 62}, {176, 220, 190}, false, 3},
-    {L"Ki", {26, 18, 14}, {32, 22, 16}, {44, 30, 20}, {255, 201, 74}, {255, 243, 196}, {20, 13, 10}, {58, 36, 16}, {232, 210, 170}, false, 4},
-    {L"Scouter", {30, 12, 17}, {38, 15, 21}, {52, 21, 29}, {255, 111, 97}, {255, 179, 168}, {27, 11, 16}, {91, 31, 42}, {236, 190, 184}, false, 5},
+    {L"Scouter", {30, 12, 17}, {38, 15, 21}, {52, 21, 29}, {255, 111, 97}, {255, 179, 168}, {27, 11, 16}, {91, 31, 42}, {236, 190, 184}, false, 4},
+    {L"Budokai Black", {10, 10, 11}, {14, 14, 16}, {21, 21, 24}, {236, 234, 228}, {224, 64, 46}, {12, 12, 14}, {30, 30, 34}, {205, 203, 198}, false, 5},
+    {L"Budokai Black (board)", {10, 10, 11}, {14, 14, 16}, {21, 21, 24}, {224, 64, 46}, {236, 234, 228}, {12, 12, 14}, {30, 30, 34}, {205, 203, 198}, false, 6},
+    {L"Majin Buu", {34, 16, 29}, {42, 20, 36}, {58, 28, 50}, {255, 140, 198}, {255, 210, 90}, {26, 12, 22}, {92, 39, 73}, {245, 200, 225}, false, 7},
+    {L"Babidi", {22, 11, 34}, {28, 14, 42}, {40, 20, 60}, {140, 230, 120}, {255, 200, 90}, {18, 9, 28}, {58, 28, 86}, {214, 196, 255}, false, 8},
+    {L"Majin Vegeta", {20, 10, 7}, {26, 13, 9}, {38, 19, 13}, {255, 196, 58}, {214, 58, 42}, {16, 8, 5}, {58, 14, 14}, {240, 200, 160}, false, 9},
+    {L"Saiyan Pod", {18, 14, 34}, {23, 18, 42}, {33, 27, 58}, {180, 150, 255}, {255, 140, 140}, {14, 11, 26}, {52, 40, 92}, {205, 195, 240}, false, 10},
+    {L"Spirit Bomb", {11, 19, 48}, {14, 24, 58}, {21, 34, 76}, {124, 196, 255}, {220, 240, 255}, {9, 14, 36}, {30, 60, 110}, {180, 210, 245}, false, 11},
+    {L"Flying Nimbus", {34, 20, 44}, {42, 25, 52}, {58, 36, 66}, {255, 183, 77}, {255, 230, 170}, {26, 16, 32}, {120, 62, 58}, {245, 210, 180}, false, 12},
+    {L"Potara", {11, 34, 36}, {14, 41, 43}, {20, 55, 57}, {77, 208, 200}, {255, 214, 90}, {9, 26, 28}, {28, 84, 86}, {175, 225, 220}, false, 13},
 };
 inline constexpr unsigned theme_count = sizeof(themes) / sizeof(themes[0]);
-inline constexpr unsigned banner_picture_count = 5u;
+inline constexpr unsigned banner_picture_count = 13u;
 inline constexpr unsigned legacy_themes[] = {0, 1, 2, 3, 4, 7, 6, 2, 3, 8, 5, 9, 7, 1, 4, 5, 2, 3, 10, 9};
 constexpr unsigned legacy_theme(unsigned old) { return old < sizeof(legacy_themes) / sizeof(legacy_themes[0]) ? legacy_themes[old] : 0u; }
 inline constexpr unsigned retired_themes[] = {0, 1, 2, 0, 4, 4, 3, 0, 0, 1, 1, 1, 0, 2, 3, 4};
 constexpr unsigned retired_theme(unsigned old) { return old < sizeof(retired_themes) / sizeof(retired_themes[0]) ? retired_themes[old] : 0u; }
+inline constexpr unsigned picture_themes[] = {0, 1, 2, 8, 3};
+constexpr unsigned picture_theme(unsigned old) { return old < sizeof(picture_themes) / sizeof(picture_themes[0]) ? picture_themes[old] : 0u; }
 
 struct AccentChoice {
     const wchar_t *name;
@@ -205,7 +215,7 @@ constexpr bool valid_custom_colors(const CustomColors &custom) {
 }
 
 inline std::string look_code(unsigned theme, unsigned accent, const CustomColors &custom) {
-    std::string code = "OPENKAI2-LOOK 4 " + std::to_string(theme) + ' ' + std::to_string(accent);
+    std::string code = "OPENKAI2-LOOK 5 " + std::to_string(theme) + ' ' + std::to_string(accent);
     for (int32_t value : custom) {
         if (value < 0) {
             code += " -";
@@ -222,7 +232,7 @@ inline bool parse_look_code(const std::string &text, unsigned &theme, unsigned &
     std::istringstream in(text);
     std::string magic, version, value;
     unsigned chosenTheme = 0, chosenAccent = 0;
-    if (!(in >> magic >> version >> chosenTheme >> chosenAccent) || magic != "OPENKAI2-LOOK" || (version != "1" && version != "2" && version != "3" && version != "4"))
+    if (!(in >> magic >> version >> chosenTheme >> chosenAccent) || magic != "OPENKAI2-LOOK" || (version != "1" && version != "2" && version != "3" && version != "4" && version != "5"))
         return false;
     if (version == "1") {
         if (chosenTheme >= sizeof(legacy_themes) / sizeof(legacy_themes[0]))
@@ -233,7 +243,12 @@ inline bool parse_look_code(const std::string &text, unsigned &theme, unsigned &
             return false;
         chosenTheme = retired_theme(chosenTheme);
     }
-    if (version != "4") {
+    if (version != "5") {
+        if (chosenTheme >= sizeof(picture_themes) / sizeof(picture_themes[0]))
+            return false;
+        chosenTheme = picture_theme(chosenTheme);
+    }
+    if (version != "4" && version != "5") {
         if (chosenAccent >= sizeof(retired_accents) / sizeof(retired_accents[0]))
             return false;
         chosenAccent = retired_accent(chosenAccent);

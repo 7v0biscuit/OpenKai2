@@ -35,11 +35,11 @@ files.
 - **Save states:** F5 saves and F9 loads the whole console outside speedrun and online play.
 - **Randomizer:** a random character, with its own moves and skills, for every
   Dragon World and World Tournament fight. Works with speedruns and permadeath.
-- **Launcher:** five hand-drawn picture themes (Dragon Balls, Capsule, Dragon
-  Radar, Ki and Scouter), ten accent colors plus a slow RGB cycle, every color
-  changeable on its own, color looks you can copy and share, tabs you can
-  reorder or hide, Load state from the Play page, an Updates page, and a choice
-  of the page it opens on. See [Windows](docs/windows.md).
+- **Launcher:** thirteen hand-printed picture themes (including an all-black
+  Budokai theme, Majin Buu, Babidi and Majin Vegeta), ten accent colors plus a
+  slow RGB cycle, every color changeable on its own, color looks you can copy
+  and share, tabs you can reorder or hide, Load state from the Play page, an
+  Updates page, and a choice of the page it opens on. See [Windows](docs/windows.md).
 - **Audio:** volume, and an option to turn off only the music while voices and
   sound effects keep playing.
 - **CPU difficulty:** Z1 to Z6 levels above Very Hard, set in the launcher or

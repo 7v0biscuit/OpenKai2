@@ -37,18 +37,30 @@ A message in the corner names your new character when a fight starts.
 
 ### Making the launcher your own
 
-- **Theme:** five picture themes. Each puts a drawn picture in the Play banner
-  and colors the whole launcher to match it, including the title bar,
-  scrollbars and dropdown lists. **Dragon Balls** (the default) shows the seven
-  Dragon Balls in an arc across a night sky, with an orange accent.
-  **Capsule** (the only light one) shows a Capsule Corp. blueprint of a dome
-  and a capsule with measurements and a title block, with a blue accent.
-  **Dragon Radar** shows the radar screen with its grid, range rings, sweep and
-  two blips, with a green Play button. **Ki** shows a rising golden aura, with
-  a gold Play button. **Scouter** shows a scouter lens with a targeting reticle
-  and a power-level reading, with a coral-red accent. Themes from older
-  versions move to the closest one: orange, purple and grey themes to Dragon
-  Balls, blue and light themes to Capsule, green to Dragon Radar, gold to Ki,
+- **Theme:** thirteen hand-printed picture themes. Each puts a drawn picture in
+  the Play banner and colors the whole launcher to match it, including the
+  title bar, scrollbars and dropdown lists.
+  - **Dragon Balls** (the default): the seven Dragon Balls on a night sky, orange accent.
+  - **Capsule** (the only light one): a Capsule Corp. blueprint of a dome and a
+    capsule with measurements and a title block, blue accent.
+  - **Dragon Radar**: the radar with its grid, sweep and two blips, green Play button.
+  - **Scouter**: a scouter lens with a reticle and a power-level reading, coral-red accent.
+  - **Budokai Black**: "武道会" in white brush lettering over a red ink sun with a
+    red "二" seal, on an all-black launcher with a white Play button.
+  - **Budokai Black (board)**: a hand-drawn Dragon World board with a capsule
+    and a Dragon Ball, all black with a red Play button.
+  - **Majin Buu**: a pink candy beam turning things into candy, pink accent.
+  - **Babidi**: a crystal ball swirling with magic, purple with a green Play button.
+  - **Majin Vegeta**: a dark golden aura crackling with lightning, black and
+    crimson with a gold Play button.
+  - **Saiyan Pod**: an attack pod streaking in over a planet, violet accent.
+  - **Spirit Bomb**: a huge glowing sphere gathering energy, sky-blue accent.
+  - **Flying Nimbus**: the golden cloud racing across a sunset, amber accent.
+  - **Potara**: the two gold earrings joined by a glowing arc, teal accent.
+
+  Themes from older versions move to the closest one: orange, purple and grey
+  themes to Dragon Balls, blue and light themes to Capsule, green to Dragon
+  Radar, gold (including the Ki theme, removed in v0.1.102) to Majin Vegeta,
   and red and pink to Scouter.
 - **Accent color:** the theme's own color, or Orange, Gold, Red, Pink, Purple,
   Blue, Cyan, Green or White for buttons and highlights. **RGB (cycling)**

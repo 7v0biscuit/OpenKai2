@@ -10,7 +10,7 @@ function(openkai2_add_launcher_ui project_root enable_tests)
             -P "${project_root}/tools/native/embed-font.cmake"
         DEPENDS "${font}" "${project_root}/tools/native/embed-font.cmake" VERBATIM)
     set(banner_dir "${project_root}/src/launcher/banners")
-    set(banner_names capsule balls radar ki scouter)
+    set(banner_names capsule balls radar scouter budokai_black budokai_board majin_buu babidi majin_vegeta saiyan_pod spirit_bomb nimbus potara)
     set(banner_files "")
     foreach(name IN LISTS banner_names)
         list(APPEND banner_files "${banner_dir}/${name}.jpg")
