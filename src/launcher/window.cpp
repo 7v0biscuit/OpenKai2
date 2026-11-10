@@ -248,6 +248,7 @@ enum Id {
     CloseColors,
     OpenColors,
     RandomizerMode,
+    LoadTimes,
     SpeedrunRandomizer,
     ColorCopy,
     ColorPaste,
@@ -1291,6 +1292,7 @@ struct Window {
         }
         combo(StartPage, {L"Play", L"Last page used"}, int(std::min(settings.startPage, 1u)));
         combo(RandomizerMode, {L"Off", L"On"}, settings.randomizer ? 1 : 0);
+        combo(LoadTimes, {L"Fastest (this PC)", L"Accurate (PS2)"}, settings.ps2LoadTimes ? 1 : 0);
         combo(SpeedrunRandomizer, {L"Off", L"On"}, settings.randomizer ? 1 : 0);
         list(TabList, L"Tabs", 40, false);
         list(ColorList, L"Colors", 36, false);
@@ -1407,6 +1409,8 @@ struct Window {
         EnableWindow(controls[ImportSelected], modding && picked);
         EnableWindow(controls[Resolution], settings.windowMode == 0);
         EnableWindow(controls[Permadeath], settings.speedrun != 0 && !speedrun::tournament(speedrun::Category(settings.speedrun)));
+        EnableWindow(controls[LoadTimes], settings.speedrun == 0);
+        SendMessageW(controls[LoadTimes], CB_SETCURSEL, settings.speedrun || settings.ps2LoadTimes ? 1 : 0, 0);
         for (int id : {UpdateChannel, AutomaticUpdates, CheckUpdates, InstallUpdate})
             EnableWindow(controls[id], !updating() &&
                          (id != InstallUpdate || (!busy() && !running() &&
@@ -1634,6 +1638,7 @@ struct Window {
             position(Music, grid.x(2), grid.field(gameTop, 0), grid.column, grid.controlHeight);
             position(FpsCounter, grid.x(0), grid.field(gameTop, 1), grid.column, grid.controlHeight);
             position(RandomizerMode, grid.x(1), grid.field(gameTop, 1), grid.column, grid.controlHeight);
+            position(LoadTimes, grid.x(2), grid.field(gameTop, 1), grid.column, grid.controlHeight);
             position(TextureFolder, right - 20 - 170, gameTop + (grid.header - 28) / 2, 170, 28);
             position(LauncherTheme, grid.x(0), grid.field(updatesTop, 0), grid.column, grid.controlHeight);
             position(LauncherAccent, grid.x(1), grid.field(updatesTop, 0), grid.column, grid.controlHeight);
@@ -2662,6 +2667,7 @@ struct Window {
         label(gameTop, 0, 2, L"MUSIC");
         label(gameTop, 1, 0, L"FPS COUNTER");
         label(gameTop, 1, 1, L"RANDOMIZER");
+        label(gameTop, 1, 2, settings.speedrun ? L"PS2 LOAD TIMES (SPEEDRUN: ACCURATE)" : L"PS2 LOAD TIMES");
 
         section(updatesTop, 1, L"Launcher", L"Colors, tab order and the page the launcher opens on", muted);
         label(updatesTop, 0, 0, L"THEME");
@@ -5339,6 +5345,13 @@ struct Window {
             const size_t slot = size_t(id - ShortcutFirst);
             if (slot < shown.size())
                 command(PlayTab + shown[slot], BN_CLICKED);
+            return;
+        }
+        if (id == LoadTimes && notification == CBN_SELCHANGE) {
+            settings.ps2LoadTimes = selected(LoadTimes) == 1;
+            saveLauncherLook(settings.ps2LoadTimes ? L"Load times match a real PS2 drive."
+                                                   : L"Loading as fast as this PC allows. Speedrun mode always uses PS2 load times.");
+            InvalidateRect(hwnd, nullptr, FALSE);
             return;
         }
         if ((id == RandomizerMode || id == SpeedrunRandomizer) && notification == CBN_SELCHANGE) {

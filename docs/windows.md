@@ -161,8 +161,14 @@ the hub to 4x at the edge of the layer. This covers the game's own reads
 loads its data, as well as reads made by IOP modules. The time is counted in
 game fields, so loads take as many frames as on a console regardless of host
 disk speed, which keeps load-inclusive runs comparable. The log shows
-`[cdvd:timing] game reads take PS2 drive time` at startup. Developers can set
-`OPENKAI2_DISC_TIMING=instant` to restore immediate reads.
+`[cdvd:timing] game reads take PS2 drive time` at startup.
+
+**Settings > Game > PS2 load times** chooses between **Accurate (PS2)**, the
+default described above, and **Fastest (this PC)**, which reads the disc as
+fast as your PC can so loading screens pass almost instantly. Speedrun mode
+always uses PS2 load times so every run is timed the same; the choice is
+greyed out while a speedrun category is selected. Developers can also set
+`OPENKAI2_DISC_TIMING=instant` for immediate reads.
 
 ## Controls and saving
 

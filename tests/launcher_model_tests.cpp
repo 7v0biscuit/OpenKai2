@@ -109,6 +109,7 @@ int main() {
         s.overlayMargin = 2;
         s.overlayShape = 1;
         s.randomizer = true;
+        s.ps2LoadTimes = false;
         s.launcherTheme = 3;
         s.launcherAccent = 7;
         s.startPage = 1;
@@ -141,7 +142,7 @@ int main() {
                     read.importIso == s.importIso && read.windowLeft == -1200 && read.windowTop == 40 &&
                     read.windowWidth == 1180 && read.windowHeight == 760 && read.windowMaximized &&
                     read.speedrun == 2 && read.permadeath && read.fpsCounter && read.overlayItems == (0x5u | openkai2::speedrun::overlay_required) &&
-                    read.overlayCorner == 3 && read.overlaySize == 3 && read.overlayBackground == 4 && read.overlayMargin == 2 && read.overlayShape == 1 && read.randomizer && read.launcherTheme == 3 && read.launcherAccent == 7 && read.startPage == 1 && read.lastPage == 4 &&
+                    read.overlayCorner == 3 && read.overlaySize == 3 && read.overlayBackground == 4 && read.overlayMargin == 2 && read.overlayShape == 1 && read.randomizer && !read.ps2LoadTimes && read.launcherTheme == 3 && read.launcherAccent == 7 && read.startPage == 1 && read.lastPage == 4 &&
                     read.tabOrder == s.tabOrder && read.hiddenTabs == s.hiddenTabs && read.launcherColors == s.launcherColors &&
                     read.overlayTitle == "My \"Any%\" run" && read.overlaySplitNames == "Raditz, Nappa ,Vegeta" &&
                     read.overlaySplits == 3 && read.onlineName == "Son Goku" &&

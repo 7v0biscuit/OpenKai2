@@ -147,6 +147,8 @@ Settings read_settings(const std::filesystem::path &file) {
             row >> s.fpsCounter;
         else if (key == "randomizer")
             row >> s.randomizer;
+        else if (key == "ps2_load_times")
+            row >> s.ps2LoadTimes;
         else if (key == "overlay")
         {
             row >> s.overlayItems >> s.overlayCorner >> s.overlaySize >> s.overlayBackground >> s.overlaySplits;
@@ -234,7 +236,7 @@ void write_settings(const std::filesystem::path &file, const Settings &s) {
     for (int32_t value : s.launcherColors)
         out << ' ' << value;
     out << "\nspeedrun " << s.speedrun << ' ' << s.permadeath
-        << "\nrandomizer " << s.randomizer << "\nfps_counter " << s.fpsCounter << "\noverlay " << s.overlayItems << ' ' << s.overlayCorner << ' '
+        << "\nrandomizer " << s.randomizer << "\nps2_load_times " << s.ps2LoadTimes << "\nfps_counter " << s.fpsCounter << "\noverlay " << s.overlayItems << ' ' << s.overlayCorner << ' '
         << s.overlaySize << ' ' << s.overlayBackground << ' ' << s.overlaySplits << "\noverlay_style "
         << s.overlayColors[0] << ' ' << s.overlayColors[1] << ' ' << s.overlayColors[2] << ' ' << s.overlayColors[3] << ' '
         << s.overlayDecimals << "\noverlay_custom " << s.overlayMargin << ' ' << s.overlayShape << ' '

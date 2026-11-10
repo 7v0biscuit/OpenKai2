@@ -382,14 +382,14 @@ int main(int argc, char* argv[]) {
         openkai2::randomizer::active().enable(randomize,uint64_t(std::chrono::steady_clock::now().time_since_epoch().count()));
         {
             const char *discMode = std::getenv("OPENKAI2_DISC_TIMING");
-            eeDisc.enable(!(discMode && std::string(discMode) == "instant"));
+            eeDisc.enable(!(discMode && std::string(discMode) == "instant") && (preferences.ps2LoadTimes || speedrun));
             originalCdRead = runtime.lookupFunction(cd_read_entry);
             originalCdSeek = runtime.lookupFunction(cd_seek_entry);
             originalCdSync = runtime.lookupFunction(cd_sync_entry);
             if (!originalCdRead || !originalCdSeek || !originalCdSync || !runtime.replaceFunction(cd_read_entry, timedCdRead) ||
                 !runtime.replaceFunction(cd_seek_entry, timedCdSeek) || !runtime.replaceFunction(cd_sync_entry, timedCdSync))
                 throw std::runtime_error("Cannot bind the disc reads");
-            std::cout << "[cdvd:timing] game reads " << (eeDisc.enabled() ? "take PS2 drive time (4x DVD CAV, 30/100 ms seeks)" : "are instant") << std::endl;
+            std::cout << "[cdvd:timing] game reads " << (eeDisc.enabled() ? (preferences.ps2LoadTimes ? "take PS2 drive time (4x DVD CAV, 30/100 ms seeks)" : "take PS2 drive time because speedrun mode requires it") : "are as fast as this PC allows") << std::endl;
         }
         struct RestoreDiscReads {
             PS2Runtime& runtime;
