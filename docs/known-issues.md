@@ -23,14 +23,21 @@ the earlier progression failure has not reproduced on the tested route.
 
 Background music remains a known problem:
 
-- Music can sound thin, flat or distorted.
 - Tracks may stop after a fight or fail to resume when returning to character
   selection.
 - Sound effects generally fare better, but occasional glitches or crackling
   remain reported.
-- When the game runs below full speed, audio is stretched to match and can
-  drop out briefly as it adjusts. Keeping 60 FPS (for example a lower internal
+- After a long hitch (more than about a tenth of a second) the music fades out
+  briefly and comes back where it left off.
+- When the game runs below about 94% speed, audio is time-stretched to match,
+  which can blur the music. Keeping 60 FPS (for example a lower internal
   resolution) avoids this.
+
+Fixed in v0.1.101: when the game ran slightly below full speed (around 57 to
+59 FPS), music switched to time stretching and parts of it played a second
+time with pops at the joins. Small slowdowns are now absorbed by nudging the
+playback rate by up to 5%, the switch back from stretching continues from the
+exact matching point, and a dropout no longer throws away the buffered music.
 
 Music quality and track dropouts are under investigation, including playback
 across scene changes.

@@ -59,12 +59,51 @@ void continuous(double rate, bool bursty) {
     require(std::abs(pitch - 440) < 5, "Time stretching changed pitch");
     require(minTempo > rate * .7, "Playback tempo collapsed");
 }
+void neverRepeats(double rate) {
+    StereoAudioQueue queue;
+    auto playback = std::make_unique<StretchedPlayback>();
+    size_t position = 0, backwards = 0, pulls = 0, stretched = 0;
+    uint32_t random = 7;
+    double frame = 0, nextFrame = 0, nextPull = 0;
+    float previous = 0;
+    while (nextPull < 80.0) {
+        if (nextFrame <= nextPull) {
+            random = random * 1664525u + 1013904223u;
+            frame += 1.0 / 60.0 / rate;
+            nextFrame = frame + (double(random >> 8) / (1u << 24) - .5) * .016;
+            std::vector<int16_t> data(800 * 2);
+            for (size_t i = 0; i < 800; ++i, ++position)
+                data[i * 2] = data[i * 2 + 1] = int16_t(position % 16384u);
+            require(queue.push(data) == 800, "Audio producer overflowed");
+            continue;
+        }
+        nextPull += .02;
+        std::vector<float> out(960 * 2);
+        playback->render(queue, out);
+        if (++pulls <= 500)
+            continue;
+        stretched += playback->stretching();
+        for (size_t i = 0; i < 960; ++i) {
+            const float value = out[i * 2];
+            if (value < previous - 1e-4f && previous < .45f && value > .05f)
+                ++backwards;
+            previous = value;
+        }
+    }
+    std::cout << "rate=" << rate << " jittered backwards=" << backwards << " stretched=" << stretched
+              << " underruns=" << playback->underruns() << '\n';
+    require(stretched == 0, "A game running close to full speed was time-stretched, which doubles the music");
+    require(backwards == 0, "Music played part of itself a second time");
+    require(playback->underruns() == 0, "Steady game audio ran dry");
+}
 }
 int main() {
     try {
         for (double rate : {.4, .7, .93, 1.0})
             continuous(rate, false);
         continuous(.93, true);
+        for (double rate : {1.0, .99, .98, .97, .96})
+            neverRepeats(rate);
         auto s = std::make_unique<Stream>();
         s->feed(StretchedPlayback::prefill + 512);
         for (unsigned step = 0; step < 80; ++step) {

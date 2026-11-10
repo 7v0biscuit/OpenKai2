@@ -17,8 +17,8 @@ class StretchedPlayback {
     static constexpr unsigned target = 6144u, prefill = target + window + search * 2u;
     static constexpr double slowest = 0.25, fastest = 1.1;
     static constexpr double startBelow = 0.6, reserve = 0.45;
-    static constexpr unsigned averaged = 48u, settledCalls = 48u, crossfade = 384u;
-    static constexpr double drift = 0.012, deadband = 0.4, shortfall = 0.25, starving = 0.2, overfull = 4.0, slowSource = 0.985, recovered = 0.99;
+    static constexpr unsigned averaged = 48u, settledCalls = 48u, crossfade = 384u, match = 1024u;
+    static constexpr double drift = 0.05, deadband = 0.4, shortfall = 0.0, overfull = 4.0, slowGame = 0.94, recovered = 0.99;
 
     StretchedPlayback() {
         stretch_.setSampleRate(48000);
@@ -52,6 +52,12 @@ class StretchedPlayback {
         if (!wasPlaying) {
             startupInput_ += received;
             startupOutput_ += requested;
+        }
+        if (!playing_ && starved_ && available() >= prefill) {
+            starved_ = false;
+            playing_ = true;
+            fadeIn_ = hop;
+            intervalInput_ = intervalOutput_ = longInput_ = longOutput_ = 0;
         }
         if (!playing_ && available() >= prefill) {
             bool slow = false;
@@ -107,7 +113,7 @@ class StretchedPlayback {
             const double excess = average_ > 1.0 + deadband   ? average_ - 1.0 - deadband
                                   : average_ < 1.0 - shortfall ? average_ - 1.0 + shortfall
                                                                : 0.0;
-            const double step = std::clamp(1.0 + 0.08 * excess, 1.0 - drift, 1.0 + drift);
+            const double step = std::clamp(1.0 + 0.12 * excess, 1.0 - drift, 1.0 + drift);
             const size_t frames = input_.size() / 2u;
             size_t count = 0;
             while (count < wanted) {
@@ -164,7 +170,7 @@ class StretchedPlayback {
         recent_ = fillAt_ == 1u ? fill : recent_ + (fill - recent_) * 0.2;
         average_ = average;
         if (!stretched_) {
-            const bool falling = fill < starving || (recent_ < startBelow && average < 0.75 && rate_ < slowSource);
+            const bool falling = recent_ < startBelow && average < 0.75 && rate_ < slowGame;
             if (!falling)
                 return;
             stretched_ = true;
@@ -184,23 +190,22 @@ class StretchedPlayback {
     }
     double wantedSpeed(double fill) const { return std::clamp(rate_ * (1.0 + 0.6 * (fill - 1.0)), slowest, fastest); }
     void leave() {
-        const size_t pending = stretch_.numUnprocessedSamples() + crossfade;
         tail_.resize(size_t(stretch_.numSamples()) * 2u);
         tail_.resize(size_t(stretch_.receiveSamples(tail_.data(), stretch_.numSamples())) * 2u);
-        const size_t held = fed_.size() / 2u;
-        const size_t back = std::min(held, pending + crossfade);
-        std::vector<float> resume(fed_.end() - back * 2u, fed_.end());
-        const size_t blend = std::min({size_t(crossfade), tail_.size() / 2u, back});
-        const size_t from = tail_.size() / 2u - blend;
+        const size_t held = fed_.size() / 2u, played = tail_.size() / 2u;
+        size_t resume = held > stretch_.numUnprocessedSamples() ? held - stretch_.numUnprocessedSamples() : 0u;
+        if (played >= match && held >= match * 2u)
+            resume = bestResume(resume);
+        const size_t blend = std::min<size_t>({crossfade, played, resume});
         for (size_t i = 0; i < blend; ++i) {
             const float in = float(i + 1u) / float(blend + 1u);
+            const size_t at = played - blend + i, from = resume - blend + i;
             for (unsigned channel = 0; channel < 2u; ++channel)
-                tail_[(from + i) * 2u + channel] =
-                    tail_[(from + i) * 2u + channel] * (1.0f - in) + resume[i * 2u + channel] * in;
+                tail_[at * 2u + channel] = tail_[at * 2u + channel] * (1.0f - in) + fed_[from * 2u + channel] * in;
         }
         input_.erase(input_.begin(), input_.begin() + read_ * 2u);
         read_ = 0;
-        input_.insert(input_.begin(), resume.begin() + blend * 2u, resume.end());
+        input_.insert(input_.begin(), fed_.begin() + resume * 2u, fed_.end());
         phase_ = 0.0;
         stretch_.clear();
         stretch_.setTempo(1.0);
@@ -209,6 +214,33 @@ class StretchedPlayback {
         speed_ = 1.0;
         settled_ = 0;
         fillAt_ = 0;
+    }
+    size_t bestResume(size_t guess) const {
+        const size_t held = fed_.size() / 2u, played = tail_.size() / 2u;
+        const float *ending = tail_.data() + (played - match) * 2u;
+        const size_t lowest = match, highest = held;
+        const size_t from = guess > 6144u + lowest ? guess - 6144u : lowest, to = std::min(highest, guess + 2048u);
+        double best = -1.0;
+        size_t chosen = std::clamp(guess, lowest, highest);
+        double energy = 0.0;
+        for (size_t i = 0; i < match * 2u; ++i)
+            energy += double(ending[i]) * ending[i];
+        if (energy < 1.0e-6)
+            return chosen;
+        for (size_t end = from; end <= to; ++end) {
+            const float *candidate = fed_.data() + (end - match) * 2u;
+            double dot = 0.0, power = 0.0;
+            for (size_t i = 0; i < match * 2u; i += 4u) {
+                dot += double(ending[i]) * candidate[i] + double(ending[i + 1u]) * candidate[i + 1u];
+                power += double(candidate[i]) * candidate[i] + double(candidate[i + 1u]) * candidate[i + 1u];
+            }
+            const double score = power > 0.0 ? dot / std::sqrt(power) : -1.0;
+            if (score > best) {
+                best = score;
+                chosen = end;
+            }
+        }
+        return chosen;
     }
     static float cubic(float p0, float p1, float p2, float p3, float t) {
         const float a = -0.5f * p0 + 1.5f * p1 - 1.5f * p2 + 0.5f * p3, b = p0 - 2.5f * p1 + 2.0f * p2 - 0.5f * p3,
@@ -289,7 +321,7 @@ class StretchedPlayback {
         read_ = 0;
         phase_ = 0.0;
         average_ = 1.0;
-        playing_ = stretched_ = false;
+        playing_ = stretched_ = starved_ = false;
         speed_ = rate_ = shortRate_ = 1.0;
         startupInput_ = startupOutput_ = 0;
         intervalInput_ = intervalOutput_ = longInput_ = longOutput_ = 0;
@@ -298,9 +330,8 @@ class StretchedPlayback {
     void underrun(std::span<float> remaining) {
         underruns_.fetch_add(1u, std::memory_order_relaxed);
         silent_.fetch_add(remaining.size() / 2u, std::memory_order_relaxed);
-        const double rate = rate_;
-        clearStream();
-        resumeRate_ = rate;
+        playing_ = false;
+        starved_ = true;
         fadeLeft_ = hop;
         fade(remaining);
     }
@@ -308,7 +339,7 @@ class StretchedPlayback {
     std::vector<int32_t> raw_;
     std::vector<float> input_, processed_, tail_, fed_;
     size_t read_ = 0;
-    bool playing_ = false, stretched_ = false;
+    bool playing_ = false, stretched_ = false, starved_ = false;
     double speed_ = 1.0, rate_ = 1.0, shortRate_ = 1.0;
     uint64_t intervalInput_ = 0, intervalOutput_ = 0, longInput_ = 0, longOutput_ = 0;
     uint64_t startupInput_ = 0, startupOutput_ = 0;
