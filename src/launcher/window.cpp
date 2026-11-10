@@ -98,7 +98,13 @@ constexpr int sidebarWidth = 220, contentLeft = 252, margin = 32;
 constexpr int heroTop = 124, heroBottom = 316, discTop = 332, discBottom = 420;
 constexpr int tilesTop = 436, tilesBottom = 516, newsTop = 528, newsBottom = 572, keysTop = 592;
 constexpr int speedrunTop = 112, splitsTop = 284, speedrunRulesTop = 526;
-constexpr int onlineProfileTop = 112, onlineHostTop = 228, onlineListsTop = 400;
+constexpr int onlineProfileTop = 112, onlineHostTop = 228, onlineHostBottom = 332, onlineListsTop = 344;
+struct HostRow {
+    int column;
+    explicit HostRow(int contentWidth) : column((contentWidth - 40 - 4 * 12) / 5) {}
+    int x(int index) const { return contentLeft + 20 + index * (column + 12); }
+    static constexpr int label = onlineHostTop + 44, field = onlineHostTop + 62;
+};
 constexpr UINT onlineChanged = WM_APP + 30, onlineNotice = WM_APP + 31;
 
 enum Id {
@@ -810,6 +816,8 @@ struct Window {
         bool invite = true;
         online::Invite inviteMessage;
         online::FriendMessage friendMessage;
+        std::chrono::steady_clock::time_point at = std::chrono::steady_clock::now();
+        const std::string &sender() const { return invite ? inviteMessage.from_id : friendMessage.from_id; }
     };
     struct OnlineShared {
         std::mutex mutex;
@@ -825,7 +833,19 @@ struct Window {
     std::string connectedProfile, onlineProblem;
     std::vector<online::Room> roomRows;
     std::vector<std::pair<std::string, std::string>> playerRows, friendRows;
+    std::map<std::string, int> roomPings;
+    std::vector<online::Player> playerDetails;
+    std::vector<std::string> friendStatus;
     std::set<std::string> requestedFriends;
+    struct NameCheck {
+        std::mutex mutex;
+        bool done = false;
+        std::optional<online::NameState> state;
+        std::string name;
+        crypto::Seed seed{};
+        std::chrono::steady_clock::time_point started;
+    };
+    std::shared_ptr<NameCheck> nameCheck;
     std::string hostingRoom, hostingToken, pendingInvitee;
     std::chrono::steady_clock::time_point inviteDeadline{};
     bool trayAdded = false, wasRunning = false;
@@ -953,6 +973,72 @@ struct Window {
         GetTextExtentPoint32W(dc, value.c_str(), int(value.size()), &size);
         SelectObject(dc, old);
         return unscale(size.cx);
+    }
+    static COLORREF avatarTone(const std::string &key) {
+        static const COLORREF tones[] = {RGB(226, 118, 58), RGB(214, 170, 64), RGB(206, 86, 86),  RGB(84, 174, 124),
+                                         RGB(74, 142, 214), RGB(150, 106, 214), RGB(212, 104, 160), RGB(64, 170, 180)};
+        uint32_t hash = 2166136261u;
+        for (unsigned char c : key)
+            hash = (hash ^ c) * 16777619u;
+        return tones[hash % 8u];
+    }
+    static std::wstring initials(const std::wstring &name) {
+        std::wstring out;
+        bool start = true;
+        for (wchar_t c : name) {
+            if (iswalnum(c)) {
+                if (start && out.size() < 2)
+                    out.push_back(wchar_t(towupper(c)));
+                start = false;
+            } else
+                start = true;
+        }
+        return out.empty() ? std::wstring(L"?") : out;
+    }
+    void avatar(HDC dc, int cx, int cy, int radius, const std::wstring &name, const std::string &key, COLORREF ring,
+                int presence = -1, bool dim = false) {
+        const COLORREF tone = dim ? mix(avatarTone(key), panel, 150) : avatarTone(key);
+        ellipse(dc, cx, cy, radius + std::max(1, radius / 8), ring);
+        ellipse(dc, cx, cy, radius, tone);
+        auto old = SelectObject(dc, radius >= p(18) ? fonts.strong : fonts.label);
+        SetBkMode(dc, TRANSPARENT);
+        SetTextColor(dc, dim ? mix(RGB(255, 255, 255), panel, 110) : RGB(255, 255, 255));
+        const auto letters = initials(name);
+        RECT r{cx - radius, cy - radius, cx + radius + 1, cy + radius + 1};
+        DrawTextW(dc, letters.c_str(), int(letters.size()), &r, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        SelectObject(dc, old);
+        if (presence >= 0) {
+            const int dot = std::max(p(3), radius * 3 / 10), x = cx + radius * 7 / 10, y = cy + radius * 7 / 10;
+            ellipse(dc, x, y, dot + std::max(1, p(2)), ring);
+            ellipse(dc, x, y, dot, presence == 2 ? gold : presence == 1 ? green : faint);
+        }
+    }
+    void avatarGlyph(HDC dc, RECT r, int kind, COLORREF color) {
+        auto old = SelectObject(dc, kind == 0 ? fonts.label : fonts.strong);
+        SetBkMode(dc, TRANSPARENT);
+        SetTextColor(dc, color);
+        const wchar_t *glyph = kind == 0 ? L"VS" : L"+";
+        DrawTextW(dc, glyph, -1, &r, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        SelectObject(dc, old);
+    }
+    void tag(HDC dc, int right, int cy, const std::wstring &value, COLORREF tone, bool solid = false) {
+        auto old = SelectObject(dc, fonts.label);
+        SIZE size{};
+        GetTextExtentPoint32W(dc, value.c_str(), int(value.size()), &size);
+        const RECT pill{right - size.cx - p(14), cy - p(9), right, cy + p(9)};
+        box(dc, pill, solid ? tone : mix(panel, tone, 46), solid ? tone : mix(panel, tone, 90), 6);
+        SetBkMode(dc, TRANSPARENT);
+        SetTextColor(dc, solid ? buttonInk : mix(tone, ink, 90));
+        RECT text = pill;
+        DrawTextW(dc, value.c_str(), int(value.size()), &text, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        SelectObject(dc, old);
+    }
+    int tagWidth(HDC dc, const std::wstring &value) {
+        auto old = SelectObject(dc, fonts.label);
+        SIZE size{};
+        GetTextExtentPoint32W(dc, value.c_str(), int(value.size()), &size);
+        SelectObject(dc, old);
+        return size.cx + p(14);
     }
     int cut(int radius) const { return std::max(2, p(radius) * 3 / 5); }
     void box(HDC dc, RECT rect, COLORREF color, COLORREF outline = border, int radius = 10) {
@@ -1222,7 +1308,7 @@ struct Window {
         combo(Permadeath, {L"Off", L"On"}, settings.permadeath && !speedrun::tournament(speedrun::Category(settings.speedrun)) ? 1 : 0);
         combo(FpsCounter, {L"Off", L"On"}, settings.fpsCounter ? 1 : 0);
         {
-            std::vector<std::wstring> delays{L"Auto (from ping)"};
+            std::vector<std::wstring> delays{L"Auto"};
             for (unsigned d = 1; d <= 8; ++d)
                 delays.push_back(std::to_wstring(d) + (d == 1 ? L" frame" : L" frames"));
             combo(OnlineDelay, delays, int(settings.onlineDelay));
@@ -1322,9 +1408,9 @@ struct Window {
         edit(OnlinePassword, L"No password");
         edit(OnlineLobby, L"Server address");
         edit(JoinPassword, L"Only for locked rooms");
-        list(RoomList, L"Rooms", 34, false);
-        list(PlayerList, L"Players", 34, false);
-        list(FriendList, L"Friends", 32, false);
+        list(RoomList, L"Rooms", 50, false);
+        list(PlayerList, L"Players", 50, false);
+        list(FriendList, L"Friends", 44, false);
         onlineShared->window = hwnd;
         SetWindowTextW(controls[OnlinePort], std::to_wstring(settings.onlinePort).c_str());
         SetWindowTextW(controls[OnlineAddress], wide(settings.onlineAddress).c_str());
@@ -1364,7 +1450,9 @@ struct Window {
         SetWindowTextW(controls[HostGame], room && roomHost ? L"Close room" : L"Host room");
         SetWindowTextW(controls[JoinRoom], room && !roomHost && !directJoin ? L"Cancel" : L"Join room");
         SetWindowTextW(controls[JoinGame], room && !roomHost && directJoin ? L"Cancel" : L"Join address");
-        EnableWindow(controls[ProfileRemove], !settings.onlineProfiles.empty());
+        EnableWindow(controls[ProfileRemove], !settings.onlineProfiles.empty() && !nameCheck);
+        EnableWindow(controls[ProfileAdd], !nameCheck);
+        SetWindowTextW(controls[ProfileAdd], nameCheck ? L"Checking\u2026" : L"Add");
         const bool online = directory && directory->connected();
         EnableWindow(controls[InvitePlayer], online && disc.has_value() && !busy());
         EnableWindow(controls[AddFriend], online);
@@ -1434,7 +1522,7 @@ struct Window {
             place(PlayTab + i, 12, std::max(top, sideTop), sidebarWidth - 24, tabHeight, top >= 0);
         }
         if (!friendRows.empty())
-            position(FriendList, 18, friendsTop() + 36, sidebarWidth - 36, std::max(32, h - 70 - friendsTop() - 36));
+            position(FriendList, 18, friendsTop() + 36, sidebarWidth - 36, std::max(44, h - 90 - friendsTop() - 36));
         if (hasNotice()) {
             position(NoticeDecline, contentLeft + content - 96, 64, 96, 30);
             position(NoticeAccept, contentLeft + content - 96 - 10 - 96, 64, 96, 30);
@@ -1509,27 +1597,34 @@ struct Window {
                      std::max(28, h - 58 - rulesTop - 54));
         } else if (page == onlinePage) {
             const Grid grid(content);
-            const int half = (grid.column - 10) / 2, bottom = h - 64;
-            position(OnlineProfile, grid.x(0), Grid::field(onlineProfileTop, 0), grid.column, 34);
-            position(OnlineName, grid.x(1), Grid::field(onlineProfileTop, 0) + 6, grid.column, 22);
-            position(ProfileAdd, grid.x(2), Grid::field(onlineProfileTop, 0), half, 34);
-            position(ProfileRemove, grid.x(2) + half + 10, Grid::field(onlineProfileTop, 0), half, 34);
-            position(OnlineRoom, grid.x(0), Grid::field(onlineHostTop, 0) + 6, grid.column, 22);
-            position(OnlinePassword, grid.x(1), Grid::field(onlineHostTop, 0) + 6, grid.column, 22);
-            position(OnlineDelay, grid.x(0), Grid::field(onlineHostTop, 1), grid.column, 34);
-            position(OnlineListed, grid.x(1), Grid::field(onlineHostTop, 1), grid.column, 34);
-            position(HostGame, grid.x(2), Grid::field(onlineHostTop, 1), grid.column, 36);
+            const int bottom = h - 64;
+            const int profileRow = Grid::field(onlineProfileTop - 20, 0), action = 84;
+            position(OnlineProfile, grid.x(1), profileRow, grid.column - action - 8, 34);
+            position(ProfileRemove, grid.x(1) + grid.column - action, profileRow, action, 34);
+            position(OnlineName, grid.x(2), profileRow + 6, grid.column - action - 8, 22);
+            position(ProfileAdd, grid.x(2) + grid.column - action, profileRow, action, 34);
+            const HostRow host(content);
+            position(OnlineRoom, host.x(0), HostRow::field + 6, host.column, 22);
+            position(OnlinePassword, host.x(1), HostRow::field + 6, host.column, 22);
+            position(OnlineDelay, host.x(2), HostRow::field, host.column, 34);
+            position(OnlineListed, host.x(3), HostRow::field, host.column, 34);
+            position(HostGame, host.x(4), HostRow::field, host.column, 36);
             const int split = contentLeft + (content * 62) / 100, roomsRight = split - 6, playersLeft = split + 6;
             const int listTop = onlineListsTop + 44;
             position(RefreshRooms, roomsRight - 20 - 100, onlineListsTop + 8, 100, 30);
-            position(RoomList, contentLeft + 20, listTop, roomsRight - contentLeft - 40, std::max(34, bottom - 100 - listTop));
+            position(RoomList, contentLeft + 20, listTop, roomsRight - contentLeft - 40, std::max(50, bottom - 110 - listTop));
             const int fieldWidth = (roomsRight - contentLeft - 40 - 10) / 2;
-            position(JoinPassword, contentLeft + 20, bottom - 88, fieldWidth, 22);
-            position(JoinRoom, contentLeft + 30 + fieldWidth, bottom - 94, fieldWidth, 34);
+            if (selectedRoomLocked()) {
+                position(JoinPassword, contentLeft + 20, bottom - 88, fieldWidth, 22);
+                position(JoinRoom, contentLeft + 30 + fieldWidth, bottom - 94, fieldWidth, 34);
+            } else {
+                position(JoinRoom, contentLeft + 20, bottom - 94, roomsRight - contentLeft - 40, 34);
+                conceal(JoinPassword);
+            }
             position(OnlineAddress, contentLeft + 20, bottom - 42, fieldWidth, 22);
             position(JoinGame, contentLeft + 30 + fieldWidth, bottom - 48, fieldWidth, 34);
             const int playersWidth = contentLeft + content - playersLeft - 40;
-            position(PlayerList, playersLeft + 20, listTop, playersWidth, std::max(34, bottom - 54 - listTop));
+            position(PlayerList, playersLeft + 20, listTop, playersWidth, std::max(50, bottom - 60 - listTop));
             position(InvitePlayer, playersLeft + 20, bottom - 48, (playersWidth - 10) / 2, 34);
             position(AddFriend, playersLeft + 30 + (playersWidth - 10) / 2, bottom - 48, (playersWidth - 10) / 2, 34);
             if (roomRows.empty())
@@ -1705,6 +1800,8 @@ struct Window {
         panelBox(dc, 12, friends, sidebarWidth - 12, bottom);
         caps(dc, L"FRIENDS", 26, friends + 14, sidebarWidth - 52);
         if (!friendRows.empty()) {
+            text(dc, L"Double-click to invite or join", 26, bottom - 26, sidebarWidth - 52, 16, fonts.caption, faint,
+                 DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
             const int online = onlineFriendCount();
             const auto count = std::to_wstring(online) + L" online";
             const int width = measure(dc, count, fonts.caption);
@@ -1732,13 +1829,39 @@ struct Window {
             L"Choose the order of the tabs in the sidebar and hide the ones you do not use.",
             L"Every color in the launcher."};
         text(dc, titles[page], contentLeft, 28, content - 200, 40, fonts.title, ink, DT_LEFT | DT_SINGLELINE | DT_NOPREFIX);
-        if (hasNotice()) {
-            const auto message = noticeText();
-            const int width = std::min(content - 220, measure(dc, message, fonts.caption) + 40);
-            const int left = contentLeft + content - 96 - 10 - 96 - 14 - width;
-            panelBox(dc, left, 60, contentLeft + content + 6, 98);
-            ellipse(dc, p(left + 14), p(79), p(4), orange);
-            text(dc, message, left + 26, 70, width - 30, 18, fonts.caption, ink,
+        if (const auto notice = noticeView()) {
+            const COLORREF tone = notice->invite ? orange : sky;
+            const std::wstring kind = notice->invite ? L"INVITE" : L"FRIEND REQUEST";
+            const std::wstring more = notice->waiting ? L"+" + std::to_wstring(notice->waiting) + L" more" : std::wstring();
+            const int nameWidth = measure(dc, notice->name, fonts.strong);
+            const int width = std::clamp(std::max(nameWidth + 8 + measure(dc, notice->detail, fonts.caption),
+                                                  measure(dc, kind + L"   " + notice->age, fonts.label) + 90) + 64,
+                                         260, content - 260);
+            const int left = contentLeft + content - 96 - 10 - 96 - 14 - width, top = 58, bottom = 100;
+            box(dc, {p(left), p(top), p(contentLeft + content + 6), p(bottom)}, mix(panel, tone, 22), mix(panel, tone, 110), 12);
+            fill(dc, {p(left) + cut(12), p(top) + 1, p(contentLeft + content + 6) - 2, p(top) + 2}, mix(panel, tone, 70));
+            const RECT tile{p(left + 10), p(top + 7), p(left + 38), p(top + 35)};
+            box(dc, tile, mix(panel, tone, 70), tone, 8);
+            avatarGlyph(dc, tile, notice->invite ? 0 : 1, ink);
+            caps(dc, kind, left + 48, top + 6, 120, tone);
+            const int kindWidth = measure(dc, kind, fonts.label) + int(kind.size());
+            text(dc, notice->age, left + 48 + kindWidth + 10, top + 5, 90, 16, fonts.caption, muted,
+                 DT_LEFT | DT_SINGLELINE | DT_NOPREFIX);
+            if (!notice->verified) {
+                const int x = left + 48 + kindWidth + 10 + measure(dc, notice->age, fonts.caption) + 10;
+                caps(dc, L"UNVERIFIED NAME", x, top + 6, 140, red);
+            }
+            if (!more.empty()) {
+                const int moreWidth = measure(dc, more, fonts.caption) + 14;
+                const RECT pill{p(contentLeft + content - 96 - 10 - 96 - 14 - moreWidth - 8), p(top + 5),
+                                p(contentLeft + content - 96 - 10 - 96 - 14 - 8), p(top + 21)};
+                box(dc, pill, mix(panel, tone, 50), mix(panel, tone, 50), 6);
+                text(dc, more, unscale(pill.left), top + 4, moreWidth, 18, fonts.caption, ink,
+                     DT_CENTER | DT_SINGLELINE | DT_NOPREFIX);
+            }
+            text(dc, notice->name, left + 48, top + 20, nameWidth + 2, 20, fonts.strong, ink,
+                 DT_LEFT | DT_SINGLELINE | DT_NOPREFIX);
+            text(dc, notice->detail, left + 48 + nameWidth + 8, top + 22, width - 60 - nameWidth - 8, 18, fonts.caption, muted,
                  DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
         } else
             text(dc, subtitles[page], contentLeft, 72, content, 20, fonts.caption, muted,
@@ -2562,10 +2685,19 @@ struct Window {
         const int right = contentLeft + content;
         const Grid grid(content);
         auto section = [&](int left, int top, int edge, int bottom, const wchar_t *title, const std::wstring &note,
-                           int noteRight = 0) {
+                           int noteRight = 0, size_t count = 0) {
             panelBox(dc, left, top, edge, bottom);
             text(dc, title, left + 20, top + 12, 200, 22, fonts.strong);
-            text(dc, note, left + 140, top + 14, (noteRight ? noteRight : edge - 20) - left - 140, 18, fonts.caption, muted,
+            int noteLeft = left + 20 + measure(dc, title, fonts.strong) + 12;
+            if (count) {
+                const auto number = std::to_wstring(count);
+                const int width = std::max(22, measure(dc, number, fonts.caption) + 12);
+                box(dc, {p(noteLeft), p(top + 14), p(noteLeft + width), p(top + 32)}, mix(panel, orange, 40), mix(panel, orange, 40), 6);
+                text(dc, number, noteLeft, top + 14, width, 18, fonts.caption, ink, DT_CENTER | DT_SINGLELINE | DT_NOPREFIX);
+                noteLeft += width + 12;
+            }
+            noteLeft = std::max(noteLeft, left + 140);
+            text(dc, note, noteLeft, top + 14, (noteRight ? noteRight : edge - 20) - noteLeft, 18, fonts.caption, muted,
                  DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
         };
         auto label = [&](int top, int row, int column, const wchar_t *value) {
@@ -2573,49 +2705,93 @@ struct Window {
         };
         const bool taken = directory && directory->connected() && directory->name_taken();
         const bool online = directory && directory->connected() && !taken;
-        const std::wstring service = taken ? std::wstring(L"Name taken")
-                                     : online ? L"Online \u00b7 " + std::to_wstring(playerCount()) + L" players"
+        const auto profile = activeProfile();
+        const int friendsOnline = onlineFriendCount();
+        const std::wstring service = taken ? std::wstring(L"Name taken by another player")
+                                     : online ? (playerCount() <= 1 ? std::wstring(L"Online \u00b7 nobody else yet")
+                                                                   : L"Online \u00b7 " + std::to_wstring(playerCount() - 1) +
+                                                                         (playerCount() == 2 ? L" other player" : L" other players"))
                                      : connecting.valid() ? std::wstring(L"Connecting\u2026")
-                                     : settings.onlineProfiles.empty() ? std::wstring(L"Add a profile to go online")
+                                     : !profile ? std::wstring(L"Add a profile to go online")
                                      : L"Offline" + (onlineProblem.empty() ? std::wstring() : L": " + wide(onlineProblem));
-        section(contentLeft, onlineProfileTop, right, onlineProfileTop + 104, L"Profile",
-                settings.onlineProfiles.empty() ? L"Names are unique across OpenKai2. Yours is shown to other players."
-                : directory && directory->name_taken() ? L"This name belongs to another profile. Add a new profile with a unique name."
-                                                : L"Names are unique across OpenKai2. Yours is shown to other players.");
-        const int dotX = right - 20 - measure(dc, service, fonts.caption);
-        ellipse(dc, p(dotX - 12), p(onlineProfileTop + 23), p(4),
-                taken ? red : online ? green : connecting.valid() ? gold : faint);
-        text(dc, service, dotX, onlineProfileTop + 14, right - dotX - 16, 18, fonts.caption, taken ? red : online ? ink : muted,
+        const COLORREF serviceTone = taken ? red : online ? green : connecting.valid() ? gold : faint;
+        panelBox(dc, contentLeft, onlineProfileTop, right, onlineProfileTop + 104);
+        const int cx = contentLeft + 20 + 30, cy = onlineProfileTop + 52;
+        if (profile) {
+            buffer.frame.halo({p(cx), p(cy), p(cx + 1), p(cy + 1)}, 0, p(40), avatarTone(profile->id), online ? 60 : 24);
+            avatar(dc, p(cx), p(cy), p(30), wide(profile->name), profile->id, panel, online ? 1 : connecting.valid() ? 2 : 0);
+        } else {
+            ellipse(dc, p(cx), p(cy), p(30), mix(panel, border, 160));
+            ellipse(dc, p(cx), p(cy), p(28), field);
+            text(dc, L"?", cx - 30, cy - 15, 60, 30, fonts.brand, faint, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        }
+        const int nameLeft = cx + 30 + 16, identity = grid.x(1) - 16 - nameLeft;
+        caps(dc, L"YOUR PROFILE", nameLeft, onlineProfileTop + 20, identity);
+        text(dc, profile ? wide(profile->name) : std::wstring(L"No profile yet"), nameLeft, onlineProfileTop + 36, identity, 26,
+             fonts.brand, profile ? ink : muted, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        ellipse(dc, p(nameLeft + 4), p(onlineProfileTop + 74), p(3), serviceTone);
+        text(dc, service, nameLeft + 14, onlineProfileTop + 65, identity - 14, 18, fonts.caption, taken ? red : online ? ink : muted,
              DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
-        label(onlineProfileTop, 0, 0, L"PROFILE");
-        label(onlineProfileTop, 0, 1, L"NEW PROFILE");
-        section(contentLeft, onlineHostTop, right, onlineHostTop + 160, L"Host a room",
-                L"You are player 1. Your router's port is opened automatically when it allows it.");
-        label(onlineHostTop, 0, 0, L"ROOM NAME (OPTIONAL)");
-        label(onlineHostTop, 0, 1, L"PASSWORD (OPTIONAL)");
-        label(onlineHostTop, 0, 2, L"CONNECTION");
-        text(dc, L"Port and router are set up for you.", grid.x(2), Grid::field(onlineHostTop, 0) + 8, grid.column, 18,
-             fonts.caption, muted, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
-        label(onlineHostTop, 1, 0, L"INPUT DELAY");
-        label(onlineHostTop, 1, 1, L"WHO CAN SEE IT");
+        if (profile) {
+            const std::wstring circle = std::to_wstring(friendRows.size()) + (friendRows.size() == 1 ? L" friend" : L" friends") +
+                                        (friendsOnline ? L" \u00b7 " + std::to_wstring(friendsOnline) + L" online" : std::wstring());
+            text(dc, circle, nameLeft, onlineProfileTop + 83, identity, 18, fonts.caption, muted,
+                 DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        }
+        fill(dc, {p(grid.x(1) - 9), p(onlineProfileTop + 20), p(grid.x(1) - 8), p(onlineProfileTop + 84)}, mix(panel, border, 160));
+        label(onlineProfileTop - 20, 0, 1, settings.onlineProfiles.size() > 1 ? L"SWITCH PROFILE" : L"PROFILE");
+        label(onlineProfileTop - 20, 0, 2, L"NEW PROFILE");
+        if (taken || !profile)
+            text(dc, taken ? L"Pick another name: this one belongs to another player."
+                       : L"Names are unique across OpenKai2.",
+             grid.x(1), onlineProfileTop + 80, grid.x(2) + grid.column - grid.x(1), 18, fonts.caption, taken ? red : faint,
+             DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+
+        const bool hosting = room && roomHost;
+        const std::wstring hostNote = hosting ? L"Your room is open. Invite a player, or wait for someone to join."
+                                      : online ? L"You are player 1. Your router's port is opened for you when it allows it."
+                                               : L"Go online with a profile to host a room.";
+        section(contentLeft, onlineHostTop, right, onlineHostBottom, L"Host a room", hostNote);
+        {
+            const HostRow host(content);
+            const wchar_t *labels[] = {L"ROOM NAME", L"PASSWORD", L"INPUT DELAY", L"WHO CAN SEE IT"};
+            for (int i = 0; i < 4; ++i)
+                caps(dc, labels[i], host.x(i), HostRow::label, host.column);
+            ellipse(dc, p(host.x(4) + 4), p(HostRow::label + 7), p(3), hosting ? green : online ? orange : faint);
+            caps(dc, hosting ? L"HOSTING NOW" : online ? L"READY TO HOST" : L"OFFLINE", host.x(4) + 14, HostRow::label,
+                 host.column - 14, hosting ? green : muted);
+        }
         const int split = contentLeft + (content * 62) / 100, bottom = h - 64 + 6;
-        const std::wstring roomNote = roomRows.empty() ? std::wstring(L"Updates live. Same version and disc needed.")
-                                      : std::to_wstring(roomRows.size()) + (roomRows.size() == 1 ? L" open room" : L" open rooms") +
-                                            L". Double-click one to join.";
-        section(contentLeft, onlineListsTop, split - 6, bottom, L"Rooms", roomNote,
-                split - 6 - 20 - 100 - 12);
+        const size_t openRooms = size_t(std::count_if(roomRows.begin(), roomRows.end(), [](const online::Room &room) {
+            return room.version == application_version;
+        }));
+        const std::wstring roomNote = openRooms < roomRows.size()
+                                          ? std::to_wstring(roomRows.size() - openRooms) + L" need another version"
+                                          : std::wstring();
+        section(contentLeft, onlineListsTop, split - 6, bottom, L"Rooms", roomNote, split - 6 - 20 - 100 - 12, roomRows.size());
         section(split + 6, onlineListsTop, right, bottom, L"Players",
-                playerRows.empty() ? std::wstring(L"Friends are in the sidebar")
-                                   : std::to_wstring(playerRows.size()) + L" online \u00b7 friends are in the sidebar");
+                std::wstring(), 0, playerRows.size());
         const int listTop = onlineListsTop + 44;
+        auto empty = [&](int left, int edge, int listBottom, const std::wstring &headline, const std::wstring &hint, bool icon) {
+            const int mid = (listTop + listBottom) / 2 - 12, centre = (left + edge) / 2;
+            const RECT ring{p(centre - 18), p(mid - 44), p(centre + 18), p(mid - 8)};
+            box(dc, ring, mix(panel, border, 60), mix(panel, border, 160), 10);
+            avatarGlyph(dc, ring, icon ? 0 : 1, faint);
+            text(dc, headline, left + 20, mid, edge - left - 40, 20, fonts.strong, muted, DT_CENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+            text(dc, hint, left + 20, mid + 22, edge - left - 40, 18, fonts.caption, faint, DT_CENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        };
         if (roomRows.empty())
-            text(dc, !online ? L"Rooms appear here when you are online." : L"No open rooms right now. Host one, or invite a player.",
-                 contentLeft + 20, listTop + 8, split - 6 - contentLeft - 40, 18, fonts.caption, muted,
-                 DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+            empty(contentLeft, split - 6, bottom - 110, online ? L"No open rooms" : L"You are offline",
+                  online ? L"Host one above, or invite a player." : L"Rooms appear here when you are online.", true);
         if (playerRows.empty())
-            text(dc, !online ? L"Players appear here when you are online." : L"Nobody else is online yet.", split + 26,
-                 listTop + 8, right - split - 46, 18, fonts.caption, muted,
-                 DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+            empty(split + 6, right, bottom - 60,
+                  !online ? L"You are offline" : friendsOnline ? L"Only your friends are here" : L"Nobody else is here",
+                  !online         ? L"Players appear here when you are online."
+                  : friendsOnline ? L"Find them in the sidebar."
+                                  : L"Players appear as soon as they open OpenKai2.",
+                  false);
+        const int joinTop = bottom - 6 - 103;
+        fill(dc, {p(contentLeft + 20), p(joinTop), p(split - 6 - 20), p(joinTop) + 1}, mix(panel, border, 160));
     }
     void paintSettings(HDC dc, int content) {
         const int right = contentLeft + content;
@@ -2968,7 +3144,8 @@ struct Window {
                 navigationIcon(dc, id, r, chosen ? orange : hot ? muted : faint);
                 textRect.left = r.left + p(48);
                 DrawTextW(dc, text, -1, &textRect, DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_NOPREFIX);
-                const int count = id == OnlineTab ? onlineFriendCount() : id == ModsTab ? enabledModCount() : 0;
+                const int notices = id == OnlineTab ? noticeCount() : 0;
+                const int count = notices ? notices : id == OnlineTab ? onlineFriendCount() : id == ModsTab ? enabledModCount() : 0;
                 if (count > 0) {
                     const auto number = std::to_wstring(count);
                     SelectObject(dc, fonts.caption);
@@ -2976,8 +3153,9 @@ struct Window {
                     GetTextExtentPoint32W(dc, number.c_str(), int(number.size()), &extent);
                     const int width = std::max(int(extent.cx) + p(12), p(22)), height = p(18);
                     const RECT pill{r.right - p(10) - width, (r.top + r.bottom - height) / 2, r.right - p(10), (r.top + r.bottom + height) / 2};
-                    box(dc, pill, mix(sidebar, ink, chosen ? 40 : 24), mix(sidebar, ink, chosen ? 40 : 24), 6);
-                    SetTextColor(dc, chosen ? ink : muted);
+                    const COLORREF pillTone = notices ? orange : mix(sidebar, ink, chosen ? 40 : 24);
+                    box(dc, pill, pillTone, pillTone, 6);
+                    SetTextColor(dc, notices ? buttonInk : chosen ? ink : muted);
                     RECT numberRect = pill;
                     DrawTextW(dc, number.c_str(), -1, &numberRect, DT_SINGLELINE | DT_VCENTER | DT_CENTER | DT_NOPREFIX);
                 }
@@ -3021,6 +3199,8 @@ struct Window {
             fill(dc, r, mix(base, orange, 26));
             fill(dc, {r.left, r.top + p(list ? 8 : 6), r.left + p(3), r.bottom - p(list ? 8 : 6)}, orange);
         }
+        if (item.itemID != UINT(-1) && drawOnlineRow(dc, item, r, chosen, base))
+            return;
         std::wstring value;
         if (item.itemID != UINT(-1)) {
             const UINT getLength = list ? LB_GETTEXTLEN : CB_GETLBTEXTLEN, getText = list ? LB_GETTEXT : CB_GETLBTEXT;
@@ -3091,6 +3271,125 @@ struct Window {
             r.left += size.cx + p(i == 0 ? 22 : 18);
         }
         SelectObject(dc, old);
+    }
+    bool selectedRoomLocked() const {
+        const auto found = controls.find(RoomList);
+        if (found == controls.end())
+            return false;
+        const auto row = SendMessageW(found->second, LB_GETCURSEL, 0, 0);
+        return row >= 0 && size_t(row) < roomRows.size() && roomRows[size_t(row)].locked;
+    }
+    std::optional<size_t> roomHostedBy(const std::string &name) const {
+        for (size_t i = 0; i < roomRows.size(); ++i)
+            if (roomRows[i].host == name && roomRows[i].version == application_version)
+                return i;
+        return std::nullopt;
+    }
+    std::wstring hostingLine(const std::string &name) const {
+        const auto found = roomHostedBy(name);
+        if (!found)
+            return {};
+        const auto &hosted = roomRows[*found];
+        return std::wstring(L"Hosting ") +
+               (hosted.name.empty() ? std::wstring(L"a room") : wide(hosted.name)) + (hosted.locked ? L" \u00b7 password" : L"");
+    }
+    static std::wstring statusLabel(const std::string &status) {
+        if (status.empty())
+            return L"Online";
+        auto out = wide(status);
+        out[0] = wchar_t(towupper(out[0]));
+        return out;
+    }
+    bool drawOnlineRow(HDC dc, const DRAWITEMSTRUCT &item, RECT r, bool chosen, COLORREF base) {
+        const size_t row = item.itemID;
+        const bool rooms = item.hwndItem == controls[RoomList], players = item.hwndItem == controls[PlayerList],
+                   friends = item.hwndItem == controls[FriendList];
+        if (!(rooms && row < roomRows.size()) && !(players && row < playerDetails.size()) &&
+            !(friends && row < friendRows.size() && row < friendStatus.size()))
+            return false;
+        const COLORREF ring = chosen ? mix(base, orange, 26) : base;
+        if (row > 0)
+            fill(dc, {r.left + p(12), r.top, r.right - p(12), r.top + 1}, mix(base, border, 160));
+        const int cy = (r.top + r.bottom) / 2;
+        const int radius = p(friends ? 13 : 15), textLeft = r.left + p(friends ? 12 : 14) + 2 * radius + p(friends ? 10 : 12);
+        int right = r.right - p(12);
+        std::wstring title, line;
+        COLORREF titleColor = ink;
+        auto old = SelectObject(dc, fonts.body);
+        SetBkMode(dc, TRANSPARENT);
+        if (rooms) {
+            const auto &room = roomRows[row];
+            const bool same = room.version == application_version;
+            title = wide(room.name.empty() ? room.host + "'s room" : room.name);
+            line = L"Hosted by " + wide(room.host);
+            titleColor = same ? ink : muted;
+            avatar(dc, r.left + p(14) + radius, cy, radius, wide(room.host), room.host, ring, -1, !same);
+            if (!same) {
+                const auto value = L"V" + wide(room.version);
+                tag(dc, right, cy, value, red);
+                right -= tagWidth(dc, value) + p(6);
+            } else {
+                const auto found = roomPings.find(room.id);
+                const std::wstring value = found == roomPings.end() ? std::wstring(L"CHECKING")
+                                           : found->second < 0      ? std::wstring(L"RELAY")
+                                                                    : std::to_wstring(found->second) + L" MS";
+                const COLORREF tone = found == roomPings.end() || found->second < 0 ? muted
+                                      : found->second < 80                         ? green
+                                      : found->second < 160                        ? gold
+                                                                                   : red;
+                tag(dc, right, cy, value, tone);
+                right -= tagWidth(dc, value) + p(6);
+            }
+            if (room.locked) {
+                tag(dc, right, cy, L"PASSWORD", gold);
+                right -= tagWidth(dc, L"PASSWORD") + p(6);
+            }
+            if (room.id == hostingRoom) {
+                tag(dc, right, cy, L"YOURS", orange, true);
+                right -= tagWidth(dc, L"YOURS") + p(6);
+            }
+        } else if (players) {
+            const auto &player = playerDetails[row];
+            const bool busy = player.status == "in a match" || player.status == "hosting" || player.status == "joining";
+            title = wide(player.name);
+            line = statusLabel(player.status);
+            if (const auto hosted = hostingLine(player.name); !hosted.empty())
+                line = hosted;
+            avatar(dc, r.left + p(14) + radius, cy, radius, title, player.id, ring, busy ? 2 : 1);
+            if (player.version != application_version) {
+                const auto value = L"V" + wide(player.version);
+                tag(dc, right, cy, value, red);
+                right -= tagWidth(dc, value) + p(6);
+            }
+            if (player.impostor) {
+                tag(dc, right, cy, L"UNVERIFIED", red);
+                right -= tagWidth(dc, L"UNVERIFIED") + p(6);
+            }
+            if (requestedFriends.count(player.id)) {
+                tag(dc, right, cy, L"REQUESTED", sky);
+                right -= tagWidth(dc, L"REQUESTED") + p(6);
+            }
+        } else {
+            const auto &status = friendStatus[row];
+            const bool on = !status.empty();
+            const bool busy = status == "in a match" || status == "hosting" || status == "joining";
+            title = wide(friendRows[row].second);
+            line = on ? statusLabel(status) : L"Offline";
+            if (const auto hosted = hostingLine(friendRows[row].second); on && !hosted.empty())
+                line = hosted;
+            titleColor = on ? ink : muted;
+            avatar(dc, r.left + p(12) + radius, cy, radius, title, friendRows[row].first, ring, on ? (busy ? 2 : 1) : 0, !on);
+        }
+        SetTextColor(dc, titleColor);
+        SelectObject(dc, friends ? fonts.body : fonts.strong);
+        RECT top{textLeft, r.top + p(friends ? 5 : 6), right - p(6), cy + p(friends ? 2 : 3)};
+        DrawTextW(dc, title.c_str(), int(title.size()), &top, DT_SINGLELINE | DT_BOTTOM | DT_END_ELLIPSIS | DT_NOPREFIX);
+        SelectObject(dc, fonts.caption);
+        SetTextColor(dc, titleColor == ink ? mix(muted, ink, 60) : muted);
+        RECT bottom{textLeft, cy + p(2), right - p(6), r.bottom - p(4)};
+        DrawTextW(dc, line.c_str(), int(line.size()), &bottom, DT_SINGLELINE | DT_TOP | DT_END_ELLIPSIS | DT_NOPREFIX);
+        SelectObject(dc, old);
+        return true;
     }
     void refreshBackups() {
         savedGames = disc ? list_card_saves(card()) : std::vector<std::string>{};
@@ -4378,30 +4677,73 @@ struct Window {
                 error = true;
                 return;
             }
+            if (nameCheck)
+                return;
             const auto seed = online::new_seed();
             const auto owner = online::make_profile(seed, name).id;
             status = L"Checking that " + wide(name) + L" is free\u2026";
             error = false;
+            auto check = std::make_shared<NameCheck>();
+            check->name = name;
+            check->seed = seed;
+            check->started = std::chrono::steady_clock::now();
+            nameCheck = check;
+            std::thread([check, owner, server = settings.onlineLobby, window = hwnd] {
+                std::string problem;
+                const auto state = online::lookup_name(server, check->name, owner, problem);
+                {
+                    std::lock_guard lock(check->mutex);
+                    check->state = state;
+                    check->done = true;
+                }
+                PostMessageW(window, onlineChanged, 0, 0);
+            }).detach();
+            refreshEnabled();
             InvalidateRect(hwnd, nullptr, FALSE);
-            UpdateWindow(hwnd);
-            const auto previous = SetCursor(LoadCursor(nullptr, IDC_WAIT));
-            std::string problem;
-            const auto state = online::lookup_name(settings.onlineLobby, name, owner, problem);
-            SetCursor(previous);
-            if (!state) {
-                status = L"Could not check the name. Profile names are unique, so connect to the internet and try again.";
-                error = true;
-                return;
-            }
-            if (*state == online::NameState::taken) {
-                status = wide(name) + L" is already used by another OpenKai2 profile. Profile names must be unique.";
-                error = true;
-                return;
-            }
-            next.onlineProfiles.push_back(name);
-            next.onlineKeys.resize(next.onlineProfiles.size() - 1);
-            next.onlineKeys.push_back(crypto::to_hex(seed.data(), seed.size()));
+            return;
         }
+        useProfile(next, name);
+    }
+    void finishNameCheck() {
+        if (!nameCheck)
+            return;
+        auto check = nameCheck;
+        bool done = false;
+        std::optional<online::NameState> state;
+        {
+            std::lock_guard lock(check->mutex);
+            done = check->done;
+            state = check->state;
+        }
+        if (!done && std::chrono::steady_clock::now() - check->started < std::chrono::seconds(12))
+            return;
+        nameCheck.reset();
+        refreshEnabled();
+        InvalidateRect(hwnd, nullptr, FALSE);
+        if (!state) {
+            status = L"Could not reach the online service to check the name. Connect to the internet and try again.";
+            error = true;
+            return;
+        }
+        if (*state == online::NameState::taken) {
+            status = wide(check->name) + L" is already used by another OpenKai2 profile. Profile names must be unique.";
+            error = true;
+            return;
+        }
+        Settings next = settings;
+        const auto key = online::name_key(check->name);
+        if (std::any_of(next.onlineProfiles.begin(), next.onlineProfiles.end(),
+                        [&](const std::string &existing) { return online::name_key(existing) == key; })) {
+            status = L"You already have a profile with that name.";
+            error = true;
+            return;
+        }
+        next.onlineProfiles.push_back(check->name);
+        next.onlineKeys.resize(next.onlineProfiles.size() - 1);
+        next.onlineKeys.push_back(crypto::to_hex(check->seed.data(), check->seed.size()));
+        useProfile(next, check->name);
+    }
+    void useProfile(Settings &next, const std::string &name) {
         next.onlineName = name;
         write_settings(settings_path(), next);
         settings = std::move(next);
@@ -4487,15 +4829,26 @@ struct Window {
             });
             opened->on_invite([shared](const online::Invite &invite) {
                 std::lock_guard lock(shared->mutex);
-                if (shared->notices.size() < 20)
-                    shared->notices.push_back({true, invite, {}});
+                auto &queue = shared->notices;
+                queue.erase(std::remove_if(queue.begin(), queue.end(),
+                                           [&](const Notice &old) { return old.invite && old.sender() == invite.from_id; }),
+                            queue.end());
+                if (queue.size() < 20)
+                    queue.push_back({true, invite, {}});
                 if (shared->window)
                     PostMessageW(shared->window, onlineNotice, 0, 0);
             });
             opened->on_friend([shared](const online::FriendMessage &message) {
                 std::lock_guard lock(shared->mutex);
-                if (shared->notices.size() < 40)
-                    shared->notices.push_back({false, {}, message});
+                auto &queue = shared->notices;
+                queue.erase(std::remove_if(queue.begin(), queue.end(),
+                                           [&](const Notice &old) {
+                                               return !old.invite && old.sender() == message.from_id &&
+                                                      old.friendMessage.kind == message.kind;
+                                           }),
+                            queue.end());
+                if (queue.size() < 40)
+                    queue.push_back({false, {}, message});
                 if (shared->window)
                     PostMessageW(shared->window, onlineNotice, 0, 0);
             });
@@ -4556,6 +4909,15 @@ struct Window {
                 }).detach();
             }
         }
+        roomPings = pings;
+        std::stable_sort(roomRows.begin(), roomRows.end(), [&](const online::Room &a, const online::Room &b) {
+            auto rank = [&](const online::Room &room) {
+                const auto found = pings.find(room.id);
+                const int ping = found == pings.end() ? 5000 : found->second < 0 ? 4000 : found->second;
+                return std::tuple(room.version != application_version, room.id != hostingRoom, ping);
+            };
+            return rank(a) < rank(b);
+        });
         SendMessageW(controls[RoomList], WM_SETREDRAW, FALSE, 0);
         SendMessageW(controls[RoomList], LB_RESETCONTENT, 0, 0);
         int roomSelection = -1;
@@ -4593,7 +4955,17 @@ struct Window {
         std::vector<size_t> order(friendRows.size());
         for (size_t i = 0; i < order.size(); ++i)
             order[i] = i;
-        std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) { return friendLabels[a].first > friendLabels[b].first; });
+        auto folded = [](const std::string &name) {
+            std::string out = name;
+            for (auto &c : out)
+                c = char(std::tolower(static_cast<unsigned char>(c)));
+            return out;
+        };
+        std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) {
+            if (friendLabels[a].first != friendLabels[b].first)
+                return friendLabels[a].first > friendLabels[b].first;
+            return folded(friendRows[a].second) < folded(friendRows[b].second);
+        });
         {
             auto rows = friendRows;
             auto texts = friendLabels;
@@ -4601,6 +4973,11 @@ struct Window {
                 friendRows[i] = rows[order[i]];
                 friendLabels[i] = texts[order[i]];
             }
+        }
+        friendStatus.clear();
+        for (const auto &row : friendRows) {
+            const auto found = std::find_if(players.begin(), players.end(), [&](const auto &player) { return player.id == row.first; });
+            friendStatus.push_back(found == players.end() ? std::string() : found->status.empty() ? std::string("online") : found->status);
         }
         SendMessageW(controls[FriendList], WM_SETREDRAW, FALSE, 0);
         SendMessageW(controls[FriendList], LB_RESETCONTENT, 0, 0);
@@ -4611,9 +4988,19 @@ struct Window {
                 SendMessageW(controls[FriendList], LB_SETCURSEL, WPARAM(i), 0);
         }
         SendMessageW(controls[FriendList], WM_SETREDRAW, TRUE, 0);
-        for (const auto &player : players) {
+        playerDetails.clear();
+        auto others = players;
+        std::stable_sort(others.begin(), others.end(), [&](const online::Player &a, const online::Player &b) {
+            if ((a.version == application_version) != (b.version == application_version))
+                return a.version == application_version;
+            if (a.impostor != b.impostor)
+                return b.impostor;
+            return folded(a.name) < folded(b.name);
+        });
+        for (const auto &player : others) {
             if (isFriend(player.id))
                 continue;
+            playerDetails.push_back(player);
             playerRows.emplace_back(player.id, player.name);
             labels.push_back(wide(player.name) + (player.impostor ? L" (name not verified)" : L"") + L" · " + wide(player.status) +
                              (player.version == application_version ? L"" : L" · version " + wide(player.version)));
@@ -4643,24 +5030,51 @@ struct Window {
         const auto chosen = SendMessageW(controls.at(FriendList), LB_GETCURSEL, 0, 0);
         return chosen >= 0 && size_t(chosen) < friendRows.size() ? friendRows[size_t(chosen)].first : std::string();
     }
+    int noticeCount() const {
+        std::lock_guard lock(onlineShared->mutex);
+        return int(onlineShared->notices.size());
+    }
     bool hasNotice() const {
         std::lock_guard lock(onlineShared->mutex);
         return !onlineShared->notices.empty();
     }
-    std::wstring noticeText() const {
+    struct NoticeView {
+        bool invite = false, verified = false, friendly = false;
+        std::wstring name, detail, age;
+        std::string id;
+        size_t waiting = 0;
+    };
+    static std::wstring ageText(std::chrono::steady_clock::time_point at) {
+        const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - at).count();
+        if (seconds < 60)
+            return L"just now";
+        if (seconds < 3600)
+            return std::to_wstring(seconds / 60) + L" min ago";
+        return std::to_wstring(seconds / 3600) + L" h ago";
+    }
+    std::optional<NoticeView> noticeView() const {
         std::lock_guard lock(onlineShared->mutex);
         if (onlineShared->notices.empty())
-            return {};
+            return std::nullopt;
         const auto &notice = onlineShared->notices.front();
-        auto who = [&](const std::string &id, const std::string &name) {
-            const bool verified = directory && directory->name_state(name, id) == online::NameState::mine;
-            return wide(name) + (verified ? L"" : L" (name not verified)");
-        };
-        if (notice.invite)
-            return who(notice.inviteMessage.from_id, notice.inviteMessage.from_name) + L" invited you to play";
-        if (notice.friendMessage.kind == online::FriendKind::request)
-            return who(notice.friendMessage.from_id, notice.friendMessage.from_name) + L" sent you a friend request";
-        return {};
+        NoticeView view;
+        view.invite = notice.invite;
+        view.id = notice.sender();
+        const auto &name = notice.invite ? notice.inviteMessage.from_name : notice.friendMessage.from_name;
+        view.name = wide(name);
+        view.verified = directory && directory->name_state(name, view.id) == online::NameState::mine;
+        view.friendly = isFriend(view.id);
+        view.age = ageText(notice.at);
+        view.waiting = onlineShared->notices.size() - 1;
+        if (notice.invite) {
+            const auto room = directory ? directory->room(notice.inviteMessage.room_id) : std::nullopt;
+            view.detail = !room ? std::wstring(L"invited you to a room that has closed")
+                          : room->version != application_version ? L"invited you, but uses OpenKai2 " + wide(room->version)
+                          : room->name.empty() ? std::wstring(L"invited you to play versus")
+                                               : L"invited you to " + wide(room->name);
+        } else
+            view.detail = L"wants to be your friend";
+        return view;
     }
     void notify(const std::wstring &title, const std::wstring &message) {
         NOTIFYICONDATAW data{};
@@ -4732,6 +5146,7 @@ struct Window {
             notify(alerts.back().first, alerts.back().second);
         refreshOnlineLists();
         layout();
+        InvalidateRect(controls[OnlineTab], nullptr, FALSE);
     }
     void answerNotice(bool accept) {
         Notice notice;
@@ -4772,6 +5187,7 @@ struct Window {
         }
         refreshOnlineLists();
         layout();
+        InvalidateRect(controls[OnlineTab], nullptr, FALSE);
     }
     void toggleFriend() {
         const auto id = selectedPlayerId();
@@ -4780,8 +5196,11 @@ struct Window {
             error = true;
             return;
         }
-        const auto found = std::find_if(playerRows.begin(), playerRows.end(), [&](const auto &row) { return row.first == id; });
-        const std::string name = found == playerRows.end() ? std::string() : found->second;
+        std::string name;
+        for (const auto *rows : {&playerRows, &friendRows})
+            for (const auto &row : *rows)
+                if (name.empty() && row.first == id)
+                    name = row.second;
         if (isFriend(id)) {
             setFriend(id, name, false);
             directory->send_friend(id, online::FriendKind::remove);
@@ -4824,6 +5243,7 @@ struct Window {
         status = L"Starting your room. " + wide(player->name) + L" is invited as soon as it opens.";
     }
     void onlineTick() {
+        finishNameCheck();
         ensureOnline();
         roomTick();
         const bool runningNow = running();
@@ -5207,13 +5627,28 @@ struct Window {
             toggleFriend();
             return;
         }
+        if (id == RoomList && notification == LBN_SELCHANGE) {
+            layout();
+            InvalidateRect(hwnd, nullptr, FALSE);
+            if (selectedRoomLocked())
+                SetFocus(controls[JoinPassword]);
+            return;
+        }
         if ((id == PlayerList || id == FriendList) && notification == LBN_SELCHANGE) {
             SendMessageW(controls[id == PlayerList ? FriendList : PlayerList], LB_SETCURSEL, WPARAM(-1), 0);
             SetWindowTextW(controls[AddFriend], isFriend(selectedPlayerId()) ? L"Remove friend" : L"Add friend");
             return;
         }
         if (id == FriendList && notification == LBN_DBLCLK) {
-            if (disc)
+            const auto chosen = SendMessageW(controls[FriendList], LB_GETCURSEL, 0, 0);
+            const auto hosted = chosen >= 0 && size_t(chosen) < friendRows.size() && directory &&
+                                        directory->player(friendRows[size_t(chosen)].first)
+                                    ? roomHostedBy(friendRows[size_t(chosen)].second)
+                                    : std::nullopt;
+            if (disc && hosted && !room) {
+                SendMessageW(controls[RoomList], LB_SETCURSEL, WPARAM(*hosted), 0);
+                joinRoom();
+            } else if (disc)
                 invitePlayer();
             else
                 status = L"Choose your Budokai 2 ISO first.", error = true;
@@ -6042,6 +6477,7 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
                 self->timer();
             return 0;
         case onlineChanged:
+            self->finishNameCheck();
             self->refreshOnlineLists();
             self->refreshEnabled();
             return 0;
