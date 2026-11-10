@@ -39,17 +39,14 @@ struct AccentChoice {
     Rgb color;
 };
 inline constexpr AccentChoice accents[] = {
-    {L"Theme color", {0, 0, 0}},    {L"Orange", {255, 136, 28}}, {L"Gold", {246, 196, 64}},   {L"Red", {236, 72, 84}},
-    {L"Pink", {244, 110, 190}},     {L"Purple", {168, 112, 255}}, {L"Blue", {64, 156, 255}},  {L"Cyan", {52, 206, 220}},
-    {L"Green", {86, 200, 120}},     {L"White", {226, 230, 238}}, {L"Teal", {40, 190, 170}},   {L"Lime", {170, 220, 60}},
-    {L"Magenta", {220, 70, 200}},   {L"Coral", {255, 120, 90}},  {L"Sky", {110, 190, 255}},   {L"Indigo", {100, 110, 240}},
-    {L"Silver", {170, 176, 190}},   {L"Amber", {255, 170, 0}},   {L"Mint", {120, 230, 180}},  {L"Peach", {255, 180, 140}},
-    {L"Lavender", {190, 160, 255}}, {L"Turquoise", {40, 210, 200}}, {L"Rose", {230, 90, 130}}, {L"Olive", {150, 170, 60}},
-    {L"Navy", {60, 96, 200}},       {L"Crimson", {205, 36, 56}},  {L"Ice", {170, 220, 255}},   {L"Bronze", {205, 127, 50}},
-    {L"RGB (cycling)", {255, 64, 64}},
+    {L"Theme color", {0, 0, 0}}, {L"Orange", {255, 136, 28}}, {L"Gold", {246, 196, 64}}, {L"Red", {236, 72, 84}},
+    {L"Pink", {244, 110, 190}},  {L"Purple", {168, 112, 255}}, {L"Blue", {64, 156, 255}}, {L"Cyan", {52, 206, 220}},
+    {L"Green", {86, 200, 120}},  {L"White", {226, 230, 238}}, {L"RGB (cycling)", {255, 64, 64}},
 };
 inline constexpr unsigned accent_count = sizeof(accents) / sizeof(accents[0]);
 inline constexpr unsigned rgb_accent = accent_count - 1u;
+inline constexpr unsigned retired_accents[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 7, 8, 4, 3, 6, 5, 9, 2, 8, 1, 5, 7, 4, 8, 6, 3, 7, 1, 10};
+constexpr unsigned retired_accent(unsigned old) { return old < sizeof(retired_accents) / sizeof(retired_accents[0]) ? retired_accents[old] : 0u; }
 inline constexpr unsigned rgb_cycle_ms = 60000u, rgb_frame_ms = 16u;
 
 constexpr Rgb cycling_accent(unsigned long long milliseconds) {
@@ -208,7 +205,7 @@ constexpr bool valid_custom_colors(const CustomColors &custom) {
 }
 
 inline std::string look_code(unsigned theme, unsigned accent, const CustomColors &custom) {
-    std::string code = "OPENKAI2-LOOK 3 " + std::to_string(theme) + ' ' + std::to_string(accent);
+    std::string code = "OPENKAI2-LOOK 4 " + std::to_string(theme) + ' ' + std::to_string(accent);
     for (int32_t value : custom) {
         if (value < 0) {
             code += " -";
@@ -225,7 +222,7 @@ inline bool parse_look_code(const std::string &text, unsigned &theme, unsigned &
     std::istringstream in(text);
     std::string magic, version, value;
     unsigned chosenTheme = 0, chosenAccent = 0;
-    if (!(in >> magic >> version >> chosenTheme >> chosenAccent) || magic != "OPENKAI2-LOOK" || (version != "1" && version != "2" && version != "3"))
+    if (!(in >> magic >> version >> chosenTheme >> chosenAccent) || magic != "OPENKAI2-LOOK" || (version != "1" && version != "2" && version != "3" && version != "4"))
         return false;
     if (version == "1") {
         if (chosenTheme >= sizeof(legacy_themes) / sizeof(legacy_themes[0]))
@@ -235,6 +232,11 @@ inline bool parse_look_code(const std::string &text, unsigned &theme, unsigned &
         if (chosenTheme >= sizeof(retired_themes) / sizeof(retired_themes[0]))
             return false;
         chosenTheme = retired_theme(chosenTheme);
+    }
+    if (version != "4") {
+        if (chosenAccent >= sizeof(retired_accents) / sizeof(retired_accents[0]))
+            return false;
+        chosenAccent = retired_accent(chosenAccent);
     }
     if (chosenTheme >= theme_count || chosenAccent >= accent_count)
         return false;

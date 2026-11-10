@@ -1,8 +1,7 @@
 # Development status
 
 OpenKai2 boots the USA game ISO and runs the intro, menus, versus fights and
-Dragon World. Current playtesting reaches roughly 60 FPS through most of the
-game. The snow stage still has frame-rate drops and uneven pacing.
+Dragon World. Current playtesting reaches roughly 60 FPS through the game.
 
 Dragon World is playable in current playtesting. The stage 1 Goal transition
 has passed through entry into stage 2, ally selection and return to board
@@ -16,11 +15,11 @@ distortion is resolved.
 
 ## Current priorities
 
-1. Improve snow-stage rendering throughput and overall frame pacing.
-2. Improve music quality and prevent tracks stopping after fights or scene
+1. Improve music quality and prevent tracks stopping after fights or scene
    changes.
-3. Restore missing dialogue and confirmation text.
-4. Extend Dragon World validation through all nine stages, saving, loading
+2. Match Budokai 3 moveset buttons to the right moves, and import moving stage
+   objects and capsules.
+3. Extend Dragon World validation through all nine stages, saving, loading
    and the ending.
 
 ## Runtime

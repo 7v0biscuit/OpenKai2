@@ -187,6 +187,8 @@ int main() {
         {
             std::ofstream(root / "old-look.ini") << "version 1\nlauncher_look 18 2 1 3\n";
             std::ofstream(root / "old-style.ini") << "version 1\nlauncher_style 6 0 0 2\n";
+            std::ofstream(root / "old-accent.ini") << "version 1\nlauncher_theme 2 28 0 0\n";
+            require(read_settings(root / "old-accent.ini").launcherAccent == openkai2::launcher::rgb_accent, "The RGB accent did not survive the accent cleanup");
             require(read_settings(root / "old-style.ini").launcherTheme == 3u, "A retired theme did not move to the closest picture theme");
             const auto old = read_settings(root / "old-look.ini");
             require(old.launcherTheme == 1u && old.launcherAccent == 2u && old.startPage == 1u && old.lastPage == 3u,
@@ -220,16 +222,26 @@ int main() {
                 require(color_role_count >= 20u && valid_custom_colors(custom), "Custom colors were refused");
                 unsigned theme = 0, accent = 0;
                 CustomColors pasted{};
-                require(parse_look_code(look_code(4, 22, custom), theme, accent, pasted) && theme == 4 && accent == 22 && pasted == custom,
+                require(parse_look_code(look_code(4, 9, custom), theme, accent, pasted) && theme == 4 && accent == 9 && pasted == custom,
                         "A copied launcher look did not paste back the same");
                 std::string old = look_code(0, 4, custom);
-                old.replace(old.find(" 3 0 4"), 6, " 1 15 4");
+                old.replace(old.find(" 4 0 4"), 6, " 1 15 4");
                 require(parse_look_code(old, theme, accent, pasted) && theme == 4 && accent == 4 && pasted == custom,
                         "A look copied from an older version did not paste onto the matching theme");
                 require(!parse_look_code("OPENKAI2-LOOK 1 99 0", theme, accent, pasted) && !parse_look_code("hello", theme, accent, pasted) &&
                             !parse_look_code(look_code(0, 0, custom).substr(0, 30), theme, accent, pasted),
                         "A broken launcher look was accepted");
-                require(theme_count == 5u && accent_count >= 27u, "Themes or accent colors are missing");
+                require(theme_count == 5u && accent_count == 11u, "Themes or accent colors are missing");
+                for (unsigned old = 0; old < 29u; ++old)
+                    require(retired_accent(old) < accent_count, "A retired accent color has no replacement");
+                require(retired_accent(28) == rgb_accent && retired_accent(25) == 3u && retired_accent(17) == 2u,
+                        "A retired accent color moved to the wrong replacement");
+                for (unsigned a = 1; a + 1 < accent_count; ++a)
+                    for (unsigned b = a + 1; b + 1 < accent_count; ++b) {
+                        const auto d = [](int x, int y) { return unsigned(x > y ? x - y : y - x); };
+                        const Rgb x = accents[a].color, y = accents[b].color;
+                        require(d(x.r, y.r) + d(x.g, y.g) + d(x.b, y.b) > 90u, "Two accent colors look almost the same");
+                    }
                 for (unsigned old = 0; old < 20u; ++old)
                     require(retired_theme(legacy_theme(old)) < theme_count, "An older theme has no replacement");
                 for (unsigned old = 0; old < 16u; ++old)

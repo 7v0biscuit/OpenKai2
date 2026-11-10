@@ -35,10 +35,11 @@ files.
 - **Save states:** F5 saves and F9 loads the whole console outside speedrun and online play.
 - **Randomizer:** a random character, with its own moves and skills, for every
   Dragon World and World Tournament fight. Works with speedruns and permadeath.
-- **Launcher:** eleven themes (including two light ones), twenty-seven accent
-  colors, every color changeable on its own, color looks you can copy and share,
-  tabs you can reorder or hide, an Updates page, and a choice of the page it
-  opens on. See [Windows](docs/windows.md).
+- **Launcher:** five hand-drawn picture themes (Dragon Balls, Capsule, Dragon
+  Radar, Ki and Scouter), ten accent colors plus a slow RGB cycle, every color
+  changeable on its own, color looks you can copy and share, tabs you can
+  reorder or hide, Load state from the Play page, an Updates page, and a choice
+  of the page it opens on. See [Windows](docs/windows.md).
 - **Audio:** volume, and an option to turn off only the music while voices and
   sound effects keep playing.
 - **CPU difficulty:** Z1 to Z6 levels above Very Hard, set in the launcher or
@@ -54,14 +55,12 @@ files.
 
 ## Known issues
 
-- **Dragon World dialogue:** the speech text and the ally Yes/No text do not
-  appear, making some prompts difficult to use.
 - **Music:** background music can sound thin or distorted and may cut out
   after a fight or when returning to character selection.
-- **Snow stage:** frame-rate drops and uneven frame pacing remain an issue.
-  Most gameplay outside this stage runs at roughly 60 FPS.
-- **Imported Budokai 3 characters** look black or blue.
-- **Imported Budokai 3 stages** load without their particle effects.
+- **Imported Budokai 3 stages** bring their fight effects but not their moving
+  stage objects.
+- **Budokai 3 movesets** (experimental): the character animates, but buttons
+  may not yet trigger the right moves.
 
 See the [known-issues record](docs/known-issues.md) for current status,
 workarounds and issues awaiting retesting.

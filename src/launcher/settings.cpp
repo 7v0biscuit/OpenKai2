@@ -108,14 +108,15 @@ Settings read_settings(const std::filesystem::path &file) {
             row >> std::quoted(s.renderer);
         else if (key == "launcher_window")
             row >> s.windowLeft >> s.windowTop >> s.windowWidth >> s.windowHeight >> s.windowMaximized;
-        else if (key == "launcher_look") {
+        else if (key == "launcher_look" || key == "launcher_style" || key == "launcher_theme" || key == "launcher_scheme") {
             row >> s.launcherTheme >> s.launcherAccent >> s.startPage >> s.lastPage;
-            s.launcherTheme = retired_theme(legacy_theme(s.launcherTheme));
-        } else if (key == "launcher_style") {
-            row >> s.launcherTheme >> s.launcherAccent >> s.startPage >> s.lastPage;
-            s.launcherTheme = retired_theme(s.launcherTheme);
-        } else if (key == "launcher_theme")
-            row >> s.launcherTheme >> s.launcherAccent >> s.startPage >> s.lastPage;
+            if (key == "launcher_look")
+                s.launcherTheme = legacy_theme(s.launcherTheme);
+            if (key == "launcher_look" || key == "launcher_style")
+                s.launcherTheme = retired_theme(s.launcherTheme);
+            if (key != "launcher_scheme")
+                s.launcherAccent = retired_accent(s.launcherAccent);
+        }
         else if (key == "launcher_colors") {
             for (unsigned role = 0; role < color_role_count; ++role) {
                 int32_t value = -1;
@@ -225,7 +226,7 @@ void write_settings(const std::filesystem::path &file, const Settings &s) {
         << "\nupdate_channel " << s.updateChannel << "\nrenderer " << std::quoted(s.renderer)
         << "\ndiscord_presence " << s.discordPresence << "\nimport_iso " << std::quoted(path_utf8(s.importIso))
         << "\nlauncher_window " << s.windowLeft << ' ' << s.windowTop << ' ' << s.windowWidth << ' '
-        << s.windowHeight << ' ' << s.windowMaximized << "\nlauncher_theme " << s.launcherTheme << ' ' << s.launcherAccent << ' ' << s.startPage << ' ' << s.lastPage
+        << s.windowHeight << ' ' << s.windowMaximized << "\nlauncher_scheme " << s.launcherTheme << ' ' << s.launcherAccent << ' ' << s.startPage << ' ' << s.lastPage
         << "\nlauncher_tabs " << s.tabOrder[0] << ' ' << s.tabOrder[1] << ' ' << s.tabOrder[2] << ' ' << s.tabOrder[3] << ' '
         << s.tabOrder[4] << ' ' << s.tabOrder[5] << ' ' << s.tabOrder[6] << ' ' << s.hiddenTabs << "\nlauncher_colors";
     for (int32_t value : s.launcherColors)

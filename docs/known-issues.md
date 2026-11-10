@@ -1,16 +1,14 @@
 # Known issues
 
 OpenKai2 runs the intro, menus, fights and Dragon World. Current work focuses on
-music playback and performance on the snow stage.
-Most gameplay outside the snow stage runs at roughly 60 FPS in current
-playtesting.
+music playback. Gameplay runs at roughly 60 FPS in current playtesting.
 
 ## Gameplay and graphics
 
 | Issue | Current status |
 | --- | --- |
-| Frame-rate drops and uneven frame pacing on the snow stage | The current performance issue is limited to this stage. |
-| 4x internal resolution below 60 FPS on busy stages | At 4x the graphics card draws sixteen times the pixels of native resolution. On an RTX 4060 the snow stage runs at about 45 to 50 FPS at 4x; 2x or 3x keeps 60 FPS. |
+| 4x internal resolution below 60 FPS on busy stages | At 4x the graphics card draws sixteen times the pixels of native resolution. On slower cards use 2x or 3x to keep 60 FPS. |
+| Budokai 3 movesets (experimental) | A forced character with its Budokai 3 moves animates, but buttons may not yet trigger the right moves. |
 | Imported Budokai 3 stages lack animated objects and stage-wide effects | Fight effects such as dust and impacts are imported; moving stage objects are not yet. |
 
 The [Dragon World validation record](dragon-world-validation.md) separates
