@@ -186,16 +186,19 @@ int main() {
         require(read_settings(root / "absent.ini").fps == 240, "Default frame rate cap is not 240 FPS");
         {
             std::ofstream(root / "old-look.ini") << "version 1\nlauncher_look 18 2 1 3\n";
+            std::ofstream(root / "old-style.ini") << "version 1\nlauncher_style 6 0 0 2\n";
+            require(read_settings(root / "old-style.ini").launcherTheme == 3u, "A retired theme did not move to the closest picture theme");
             const auto old = read_settings(root / "old-look.ini");
-            require(old.launcherTheme == 10u && old.launcherAccent == 2u && old.startPage == 1u && old.lastPage == 3u,
+            require(old.launcherTheme == 1u && old.launcherAccent == 2u && old.startPage == 1u && old.lastPage == 3u,
                     "A theme saved by an older version did not move to its replacement");
         }
         {
             using namespace openkai2::launcher;
-            const auto ember = make_theme(0, 0);
-            require(ember.background == Rgb{20, 22, 29} && ember.accent == Rgb{255, 136, 28} && ember.buttonTop == Rgb{255, 186, 70} &&
-                        ember.buttonInk == Rgb{36, 16, 4},
-                    "The default theme changed the original launcher colors");
+            const auto first = make_theme(0, 0);
+            require(first.background == Rgb{20, 16, 25} && first.accent == Rgb{240, 163, 90} && first.banner == 2u,
+                    "The default theme is not Dragon Balls");
+            for (unsigned theme = 0; theme < theme_count; ++theme)
+                require(themes[theme].banner >= 1u && themes[theme].banner <= banner_picture_count, "A theme has no picture");
             for (unsigned theme = 0; theme < theme_count; ++theme)
                 for (unsigned accent = 0; accent < accent_count; ++accent) {
                     const auto look = make_theme(theme, accent);
@@ -217,18 +220,20 @@ int main() {
                 require(color_role_count >= 20u && valid_custom_colors(custom), "Custom colors were refused");
                 unsigned theme = 0, accent = 0;
                 CustomColors pasted{};
-                require(parse_look_code(look_code(9, 22, custom), theme, accent, pasted) && theme == 9 && accent == 22 && pasted == custom,
+                require(parse_look_code(look_code(4, 22, custom), theme, accent, pasted) && theme == 4 && accent == 22 && pasted == custom,
                         "A copied launcher look did not paste back the same");
                 std::string old = look_code(0, 4, custom);
-                old.replace(old.find(" 2 0 4"), 6, " 1 15 4");
-                require(parse_look_code(old, theme, accent, pasted) && theme == 5 && accent == 4 && pasted == custom,
+                old.replace(old.find(" 3 0 4"), 6, " 1 15 4");
+                require(parse_look_code(old, theme, accent, pasted) && theme == 4 && accent == 4 && pasted == custom,
                         "A look copied from an older version did not paste onto the matching theme");
                 require(!parse_look_code("OPENKAI2-LOOK 1 99 0", theme, accent, pasted) && !parse_look_code("hello", theme, accent, pasted) &&
                             !parse_look_code(look_code(0, 0, custom).substr(0, 30), theme, accent, pasted),
                         "A broken launcher look was accepted");
-                require(theme_count >= 10u && accent_count >= 27u, "Themes or accent colors are missing");
+                require(theme_count == 5u && accent_count >= 27u, "Themes or accent colors are missing");
                 for (unsigned old = 0; old < 20u; ++old)
-                    require(legacy_theme(old) < theme_count, "An older theme has no replacement");
+                    require(retired_theme(legacy_theme(old)) < theme_count, "An older theme has no replacement");
+                for (unsigned old = 0; old < 16u; ++old)
+                    require(retired_theme(old) < theme_count, "A retired theme has no replacement");
                 require(legacy_theme(0) == 0u && legacy_theme(13) == 1u && legacy_theme(18) == 10u, "Older themes map to the wrong replacement");
                 const auto distance = [](Rgb a, Rgb b) {
                     const auto d = [](int x, int y) { return unsigned(x > y ? x - y : y - x); };

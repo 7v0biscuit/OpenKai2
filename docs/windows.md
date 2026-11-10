@@ -37,21 +37,19 @@ A message in the corner names your new character when a fight starts.
 
 ### Making the launcher your own
 
-- **Theme:** Ember (the original look, on soft charcoal), Super Saiyan Blue,
-  Namek, Frieza, Kaioken, Majin, Saiyan Gold, Graphite, Midnight (true black),
-  or the light themes Daylight and Capsule Corp. Each has its own background,
-  panels, Play banner and text colors, and also colors the title bar,
-  scrollbars and dropdown lists. Themes from older versions move to the
-  closest one.
-- **Picture themes:** five themes put a drawn picture in the Play banner and
-  color the whole launcher to match it. **Capsule** (the only light one) shows
-  a Capsule Corp. blueprint of a dome and a capsule with measurements and a
-  title block, with a blue accent. **Dragon Balls** shows the seven Dragon
-  Balls in an arc across a night sky, with an orange accent. **Dragon Radar**
-  shows the radar screen with its grid, range rings, sweep and two blips, with
-  a green Play button. **Ki** shows a rising golden aura, with a gold Play
-  button. **Scouter** shows a scouter lens with a targeting reticle and a
-  power-level reading, with a coral-red accent.
+- **Theme:** five picture themes. Each puts a drawn picture in the Play banner
+  and colors the whole launcher to match it, including the title bar,
+  scrollbars and dropdown lists. **Dragon Balls** (the default) shows the seven
+  Dragon Balls in an arc across a night sky, with an orange accent.
+  **Capsule** (the only light one) shows a Capsule Corp. blueprint of a dome
+  and a capsule with measurements and a title block, with a blue accent.
+  **Dragon Radar** shows the radar screen with its grid, range rings, sweep and
+  two blips, with a green Play button. **Ki** shows a rising golden aura, with
+  a gold Play button. **Scouter** shows a scouter lens with a targeting reticle
+  and a power-level reading, with a coral-red accent. Themes from older
+  versions move to the closest one: orange, purple and grey themes to Dragon
+  Balls, blue and light themes to Capsule, green to Dragon Radar, gold to Ki,
+  and red and pink to Scouter.
 - **Accent color:** the theme's own color, or Orange, Gold, Red, Pink, Purple,
   Blue, Cyan, Green, White, Teal, Lime, Magenta, Coral, Sky, Indigo, Silver,
   Amber, Mint, Peach, Lavender, Turquoise, Rose, Olive, Navy, Crimson, Ice or
