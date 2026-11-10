@@ -31,10 +31,12 @@ tag is removed, and other players' games check the key's signature too.
 The launcher connects to the online service on its own. The **Rooms** list and
 the **Players** list update live; there is nothing to refresh.
 
-- **Join a room:** pick it and press **Join room**, or double-click it. Rooms
-  with a password need it typed in the box below the list. The list shows each
-  room's ping; "via relay" means the host can't be reached directly, and the
-  match will go through the online service instead.
+- **Join a room:** pick it and press **Join room**, or double-click it. When the
+  room has a password, a password box appears below the list. Each room shows
+  its ping in green, yellow or red; **RELAY** means the host can't be reached
+  directly, and the match will go through the online service instead. Rooms on
+  your version with the lowest ping are listed first, and rooms that need
+  another OpenKai2 version show it in red.
 - **Join by address:** type the host's address and press **Join address**. Add
   `:port` only if the host's room shows a port other than 7350.
 - **Keyboard:** Enter in the password box joins the selected room, Enter in the
@@ -66,12 +68,19 @@ tried first.
 
 - **Add friend:** pick a player and press **Add friend**. They get a notification
   and can accept. A request sent while they are offline waits until they come
-  online. Friends are listed in the sidebar on every page, online ones first,
-  with their status. Pick a friend there to invite or remove them, or
-  double-click to invite.
+  online. Friends are listed in the sidebar on every page, online ones first.
+  A green dot means online, yellow means in a match or hosting, and grey means
+  offline. A friend who is hosting shows the room's name; double-click them to
+  join it. Double-click any other friend to invite them, or pick a friend to
+  remove them.
 - **Invite:** pick a player and press **Invite**. Your room opens and the invite
   is sent. The invited player gets a Windows notification and an **Accept** /
-  **Decline** banner, and joins without needing the room password.
+  **Decline** card at the top of the launcher, and joins without needing the
+  room password.
+- **Notifications:** the card shows who sent the invite or friend request, how
+  long ago, which room, and how many more are waiting. Repeat invites from the
+  same player are merged into one. The **Online** tab shows how many are
+  waiting.
 
 ## In the match
 
