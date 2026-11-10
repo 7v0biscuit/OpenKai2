@@ -39,6 +39,7 @@ void validate_settings(const Settings &s) {
 }
 Settings read_settings(const std::filesystem::path &file) {
     Settings s;
+    bool tabLayout = false;
     std::ifstream in(file);
     if (!in) {
         if (std::filesystem::exists(file))
@@ -147,6 +148,11 @@ Settings read_settings(const std::filesystem::path &file) {
             for (auto &value : target)
                 row >> value;
         }
+        else if (key == "launcher_tab_layout") {
+            unsigned layout = 0;
+            row >> layout;
+            tabLayout = layout >= 2u;
+        }
         else if (key == "speedrun")
             row >> s.speedrun >> s.permadeath;
         else if (key == "fps_counter")
@@ -214,6 +220,15 @@ Settings read_settings(const std::filesystem::path &file) {
     }
     if (!version)
         throw std::runtime_error("Missing settings version");
+    if (!tabLayout) {
+        auto &order = s.tabOrder;
+        const auto controls = std::find(order.begin(), order.end(), 7u);
+        if (controls != order.end()) {
+            std::rotate(controls, controls + 1, order.end());
+            const auto before = std::find_if(order.begin(), order.end() - 1, [](unsigned tab) { return tab == 5u || tab == 6u; });
+            std::rotate(before, order.end() - 1, order.end());
+        }
+    }
     validate_settings(s);
     if (s.hdTextures && s.internalScale == 1)
         s.internalScale = 2;
@@ -240,7 +255,7 @@ void write_settings(const std::filesystem::path &file, const Settings &s) {
         << "\nlauncher_tabs";
     for (unsigned tab : s.tabOrder)
         out << ' ' << tab;
-    out << ' ' << s.hiddenTabs << "\nlauncher_colors";
+    out << ' ' << s.hiddenTabs << "\nlauncher_tab_layout 2\nlauncher_colors";
     for (int32_t value : s.launcherColors)
         out << ' ' << value;
     out << "\nspeedrun " << s.speedrun << ' ' << s.permadeath

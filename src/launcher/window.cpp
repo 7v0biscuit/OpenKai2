@@ -1878,8 +1878,13 @@ struct Window {
             L"Pick what the in-game overlay shows. Splits, deltas and best times are tracked for you.",
             L"Choose the order of the tabs in the sidebar and hide the ones you do not use.",
             L"Every color in the launcher."};
-        if (page != 0)
-            text(dc, titles[page], contentLeft, 28, content - 200, 40, fonts.title, ink, DT_LEFT | DT_SINGLELINE | DT_NOPREFIX);
+        if (page != 0) {
+            const RECT tile{p(contentLeft), p(30), p(contentLeft + 38), p(68)};
+            box(dc, tile, mix(panel, orange, 30), mix(panel, orange, 90), 10);
+            buffer.frame.halo(tile, cut(10), p(10), orange, 40);
+            navigationIcon(dc, PlayTab + navigationPage(), {tile.left - p(7), tile.top, tile.right, tile.bottom}, orange);
+            text(dc, titles[page], contentLeft + 52, 28, content - 252, 40, fonts.title, ink, DT_LEFT | DT_SINGLELINE | DT_NOPREFIX);
+        }
         if (const auto notice = noticeView()) {
             const COLORREF tone = notice->invite ? orange : sky;
             const std::wstring kind = notice->invite ? L"INVITE" : L"FRIEND REQUEST";
@@ -1915,7 +1920,7 @@ struct Window {
             text(dc, notice->detail, left + 48 + nameWidth + 8, top + 22, width - 60 - nameWidth - 8, 18, fonts.caption, muted,
                  DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
         } else
-            text(dc, subtitles[page], contentLeft, 72, content, 20, fonts.caption, muted,
+            text(dc, subtitles[page], contentLeft + 52, 72, content - 52, 20, fonts.caption, muted,
                  DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
         const auto label = stateLabel();
         const int labelWidth = measure(dc, label, fonts.caption), left = w - margin - labelWidth - 12;
@@ -6226,7 +6231,7 @@ struct Window {
             const auto row = SendMessageW(controls[TabList], LB_GETCURSEL, 0, 0);
             std::wstring message;
             if (id == TabDefaults) {
-                settings.tabOrder = {0, 1, 2, 3, 4, 5, 6};
+                settings.tabOrder = default_tab_order;
                 settings.hiddenTabs = 0;
                 message = L"Tabs restored to their original order.";
             } else if (row < 0 || row >= LRESULT(tab_count)) {

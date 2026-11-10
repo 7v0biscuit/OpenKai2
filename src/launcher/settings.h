@@ -56,7 +56,7 @@ struct Settings {
     std::string onlineRoom, onlinePassword, onlineLobby;
     bool onlineListed = true;
     unsigned launcherTheme = 0, launcherAccent = 0, startPage = 0, lastPage = 0;
-    std::array<unsigned, tab_count> tabOrder{0, 1, 2, 3, 4, 5, 6, 7};
+    std::array<unsigned, tab_count> tabOrder = default_tab_order;
     unsigned hiddenTabs = 0;
     CustomColors launcherColors = no_custom_colors();
 };

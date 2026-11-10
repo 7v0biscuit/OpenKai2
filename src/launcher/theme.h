@@ -76,6 +76,7 @@ constexpr Rgb cycling_accent(unsigned long long milliseconds) {
 inline constexpr unsigned tab_count = 8;
 inline constexpr const wchar_t *tab_names[tab_count] = {L"Play", L"Online", L"Speedrun", L"Mods", L"Saves", L"Settings", L"Updates", L"Controls"};
 inline constexpr unsigned fixed_tabs = (1u << 0u) | (1u << 5u);
+inline constexpr std::array<unsigned, tab_count> default_tab_order{0, 1, 2, 3, 4, 7, 5, 6};
 
 struct Theme {
     Rgb background, sidebar, panel, field, raised, hover, border, ink, muted, faint;

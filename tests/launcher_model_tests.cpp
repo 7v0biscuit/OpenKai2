@@ -273,15 +273,24 @@ int main() {
                 old << "version 1\nlauncher_tabs 5 0 3 1 2 4 4\n";
             }
             const auto upgraded = read_settings(root / "old-tabs.ini");
-            require(upgraded.tabOrder == std::array<unsigned, tab_count>{5, 0, 3, 1, 2, 4, 6, 7} && upgraded.hiddenTabs == 4u,
+            require(upgraded.tabOrder == std::array<unsigned, tab_count>{7, 5, 0, 3, 1, 2, 4, 6} && upgraded.hiddenTabs == 4u,
                     "A tab order saved before the Updates tab did not load");
             {
                 std::ofstream old(root / "seven-tabs.ini");
                 old << "version 1\nlauncher_tabs 6 0 3 1 2 4 5 2\n";
             }
             const auto seven = read_settings(root / "seven-tabs.ini");
-            require(seven.tabOrder == std::array<unsigned, tab_count>{6, 0, 3, 1, 2, 4, 5, 7} && seven.hiddenTabs == 2u,
+            require(seven.tabOrder == std::array<unsigned, tab_count>{7, 6, 0, 3, 1, 2, 4, 5} && seven.hiddenTabs == 2u,
                     "A tab order saved before the Controls tab did not load");
+            {
+                std::ofstream old(root / "controls-last.ini");
+                old << "version 1\nlauncher_tabs 0 1 2 3 4 5 6 7 0\n";
+            }
+            require(read_settings(root / "controls-last.ini").tabOrder == default_tab_order,
+                    "Controls was not moved ahead of Settings and Updates");
+            require(Settings{}.tabOrder == default_tab_order && default_tab_order[5] == 7u && default_tab_order[6] == 5u &&
+                        default_tab_order[7] == 6u,
+                    "The System tabs are not ordered Controls, Settings, Updates");
             {
                 Settings bound;
                 bound.controls.keys[openkai2::input::Cross] = 74;
