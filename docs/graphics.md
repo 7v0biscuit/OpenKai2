@@ -25,6 +25,19 @@ native resolution as well, so effects that read back the picture, videos and
 anything the game copies with the CPU stay at native sharpness. Higher choices
 need more graphics power and graphics memory; 4x uses about 400 MB.
 
+The chosen resolution is a maximum. When the graphics card cannot keep up and
+the game starts falling behind 60 FPS (the card is busy more than 85% of the
+time and more than a tenth of frames are late, for two seconds in a row), the
+game lowers the internal resolution by one step, down to Native if needed.
+When the card has had plenty of headroom for 15 seconds, it goes back up one
+step, but not sooner than 20 seconds after a step down; if a step up has to be
+undone within 30 seconds, it waits twice as long before trying again, up to
+five minutes. Each change is written to `startup.log` as
+`[renderer] internal_resolution lowered to 2x to keep 60 FPS` or
+`[renderer] internal_resolution raised to 3x`. Frame drops caused by the CPU
+rather than the graphics card do not change the resolution, since lowering it
+would not help.
+
 `startup.log` reports `[renderer] internal_resolution=2x enabled` at start, and
 every 600 frames a `[renderer:hires]` line counts frames shown at the higher
 resolution (`frames_scaled`) and frames that fell back to native

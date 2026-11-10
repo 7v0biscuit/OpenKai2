@@ -7,7 +7,7 @@ music playback. Gameplay runs at roughly 60 FPS in current playtesting.
 
 | Issue | Current status |
 | --- | --- |
-| 4x internal resolution below 60 FPS on busy stages | At 4x the graphics card draws sixteen times the pixels of native resolution. On slower cards use 2x or 3x to keep 60 FPS. |
+| High internal resolution on slower graphics cards | At 4x the graphics card draws sixteen times the pixels of native resolution. When it cannot keep 60 FPS, the game now lowers the internal resolution a step at a time and raises it again when there is headroom; frame drops caused by the CPU are not affected. |
 | Budokai 3 movesets (experimental) | A forced character with its Budokai 3 moves animates, but buttons may not yet trigger the right moves. |
 | Imported Budokai 3 stages lack animated objects and stage-wide effects | Fight effects such as dust and impacts are imported; moving stage objects are not yet. |
 

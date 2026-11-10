@@ -6,6 +6,7 @@
 #include "hd_textures.h"
 #include "runtime/gs/gs_cpu_backend.h"
 #include "work_timings.h"
+#include "simulation_pacing.h"
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -126,9 +127,33 @@ struct GpuRasterBackend::Impl {
     std::array<uint32_t,12> footprintKey{};int covered[4]{};bool footprintValid=false;
     struct Shadow{uint32_t base=0,width=0,psm=0;bool used=false,valid=false;uint64_t touched=0;Pages pages,stale;};
     static constexpr unsigned shadowWidth=1024u,shadowHeight=512u,colorSlots=6u,depthSlots=3u;
-    unsigned scale=1u;bool hires=false,batchDepth=false;uint64_t shadowClock=0;
+    unsigned scale=1u,maxScale=1u;bool hires=false,batchDepth=false;uint64_t shadowClock=0;
+    struct Load{std::chrono::steady_clock::time_point at{};uint64_t busy=0,fields=0,late=0;unsigned overloaded=0,relaxed=0;
+        std::chrono::steady_clock::time_point holdUntil{},raised{};std::chrono::seconds hold{20};} load;
+    void adapt(){
+        const auto now=std::chrono::steady_clock::now();
+        const uint64_t busy=runtime_work_total_ns(RuntimeWork::gpuDevice),fields=field_lateness.fields.load(std::memory_order_relaxed),
+            late=field_lateness.late.load(std::memory_order_relaxed);
+        if(load.at==std::chrono::steady_clock::time_point{}){load.at=now;load.busy=busy;load.fields=fields;load.late=late;return;}
+        const auto window=now-load.at;
+        if(window<std::chrono::seconds(1))return;
+        const double seconds=std::chrono::duration<double>(window).count();
+        const double used=double(busy-load.busy)/1e9/seconds;
+        const double counted=double(fields-load.fields),behind=counted>0.0 ? double(late-load.late)/counted : 0.0;
+        load.at=now;load.busy=busy;load.fields=fields;load.late=late;
+        load.overloaded=used>0.85 && behind>0.1 ? load.overloaded+1u : 0u;
+        load.relaxed=used<0.55 && behind<0.02 ? load.relaxed+1u : 0u;
+        if(load.overloaded>=2u && scale>1u){
+            if(now-load.raised<std::chrono::seconds(30))load.hold=std::min(load.hold*2,std::chrono::seconds(300));
+            --scale;dropShadows();load.overloaded=load.relaxed=0u;load.holdUntil=now+load.hold;
+            std::cout<<"[renderer] internal_resolution lowered to "<<scale<<"x to keep 60 FPS (graphics card busy "<<int(used*100.0)<<"%, "<<int(behind*100.0)<<"% of frames late)"<<std::endl;
+        }else if(load.relaxed>=15u && scale<maxScale && now>=load.holdUntil){
+            ++scale;dropShadows();load.overloaded=load.relaxed=0u;load.raised=now;
+            std::cout<<"[renderer] internal_resolution raised to "<<scale<<"x (graphics card busy "<<int(used*100.0)<<"%)"<<std::endl;
+        }
+    }
     std::array<Shadow,colorSlots> colorShadows{};std::array<Shadow,depthSlots> depthShadows{};
-    size_t slotWords()const{return size_t(shadowWidth*scale)*size_t(shadowHeight*scale);}
+    size_t slotWords()const{return size_t(shadowWidth*maxScale)*size_t(shadowHeight*maxScale);}
     static constexpr size_t hdWords=24u<<20u,hdLargest=4u<<20u;
     size_t hdCapacity=0;
     struct HdSlot{uint32_t offset=0,width=0,height=0;};
@@ -240,7 +265,7 @@ struct GpuRasterBackend::Impl {
         if(resources)return true;
         device=gpu::current_device();if(!device)return false;
         try{
-            resources=std::make_shared<Resources>();scale=std::clamp(graphics_settings().internalScale,1u,4u);
+            resources=std::make_shared<Resources>();scale=maxScale=std::clamp(graphics_settings().internalScale,1u,4u);
             bool supported=false;size_t capacity=0;const unsigned hdMode=scale>1u ? graphics_settings().hdTextures : 0u;
             device->invoke([r=resources,&supported,&capacity,words=slotWords(),scaled=scale>1u,extra=hdMode ? hdWords : 0u](gpu::Host& host){
                 r->compute=host.create();r->compute->create(gpu::address_tables());
@@ -601,6 +626,7 @@ PresentationFrame GpuRasterBackend::Present(const GSPresentationRequest& request
         const Pages pages=presentationPages(request),dirty=m->gpuDirty&pages;m->cpuFrame=false;
         if(!m->resources || (!dirty.any() && !m->hires))return m->cpu.Present(request);
         m->submit();
+        if(m->hires)m->adapt();
         if(m->hires){
             const unsigned enabled=unsigned(request.pmode&3u),mode=unsigned(request.smode2&3u);
             if(!(enabled==1u || enabled==2u) || mode==1u)++m->nativeWhy[0];
