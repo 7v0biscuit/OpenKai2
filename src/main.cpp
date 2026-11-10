@@ -165,6 +165,7 @@ int main(int argc, char* argv[]) {
         try { preferences=openkai2::launcher::read_settings(openkai2::launcher::settings_path()); }
         catch(const std::exception& e) {std::cerr<<"[settings] "<<e.what()<<"; using defaults\n";}
         openkai2::set_host_audio_options({preferences.audio, preferences.volume});
+        openkai2::input::set_active(preferences.controls);
         const auto rendererEnvironment=std::getenv("OPENKAI2_RENDERER");
         std::string renderer=rendererEnvironment ? rendererEnvironment : preferences.renderer;
         const auto displayEnvironment=std::getenv("OPENKAI2_FPS_LIMIT");

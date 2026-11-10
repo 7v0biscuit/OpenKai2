@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <string>
 #include <vector>
+#include "input_bindings.h"
 #include "speedrun_items.h"
 #include "launcher/theme.h"
 
@@ -35,6 +36,7 @@ struct Settings {
     bool fpsCounter = false;
     bool randomizer = false;
     bool ps2LoadTimes = true;
+    input::Bindings controls;
     unsigned overlayItems = speedrun::overlay_defaults;
     unsigned overlayCorner = 0, overlaySize = 1, overlayBackground = 1, overlaySplits = 1;
     std::array<unsigned, speedrun::overlay_color_roles> overlayColors{0, 2, 3, 4};
@@ -54,7 +56,7 @@ struct Settings {
     std::string onlineRoom, onlinePassword, onlineLobby;
     bool onlineListed = true;
     unsigned launcherTheme = 0, launcherAccent = 0, startPage = 0, lastPage = 0;
-    std::array<unsigned, tab_count> tabOrder{0, 1, 2, 3, 4, 5, 6};
+    std::array<unsigned, tab_count> tabOrder{0, 1, 2, 3, 4, 5, 6, 7};
     unsigned hiddenTabs = 0;
     CustomColors launcherColors = no_custom_colors();
 };

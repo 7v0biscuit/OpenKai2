@@ -34,6 +34,8 @@ void validate_settings(const Settings &s) {
     if (s.launcherTheme >= theme_count || s.launcherAccent >= accent_count || s.startPage > 1 || s.lastPage >= tab_count ||
         !valid_tab_order(s.tabOrder, s.hiddenTabs) || !valid_custom_colors(s.launcherColors))
         throw std::runtime_error("Invalid launcher appearance settings");
+    if (!input::valid(s.controls))
+        throw std::runtime_error("Invalid control bindings");
 }
 Settings read_settings(const std::filesystem::path &file) {
     Settings s;
@@ -133,13 +135,17 @@ Settings read_settings(const std::filesystem::path &file) {
             for (unsigned value = 0; row >> value;)
                 values.push_back(value);
             row.clear();
-            if (values.size() == tab_count) {
-                values.insert(values.end() - 1, tab_count - 1u);
-            }
+            while (values.size() >= 2u && values.size() < tab_count + 1u)
+                values.insert(values.end() - 1, unsigned(values.size() - 1u));
             if (values.size() != tab_count + 1u)
                 throw std::runtime_error("Invalid settings value: " + key);
             std::copy(values.begin(), values.begin() + tab_count, s.tabOrder.begin());
             s.hiddenTabs = values.back();
+        }
+        else if (key == "controls_keys" || key == "controls_alternate" || key == "controls_pad") {
+            auto &target = key == "controls_keys" ? s.controls.keys : key == "controls_alternate" ? s.controls.alternate : s.controls.pad;
+            for (auto &value : target)
+                row >> value;
         }
         else if (key == "speedrun")
             row >> s.speedrun >> s.permadeath;
@@ -231,12 +237,21 @@ void write_settings(const std::filesystem::path &file, const Settings &s) {
         << "\ndiscord_presence " << s.discordPresence << "\nimport_iso " << std::quoted(path_utf8(s.importIso))
         << "\nlauncher_window " << s.windowLeft << ' ' << s.windowTop << ' ' << s.windowWidth << ' '
         << s.windowHeight << ' ' << s.windowMaximized << "\nlauncher_skin " << s.launcherTheme << ' ' << s.launcherAccent << ' ' << s.startPage << ' ' << s.lastPage
-        << "\nlauncher_tabs " << s.tabOrder[0] << ' ' << s.tabOrder[1] << ' ' << s.tabOrder[2] << ' ' << s.tabOrder[3] << ' '
-        << s.tabOrder[4] << ' ' << s.tabOrder[5] << ' ' << s.tabOrder[6] << ' ' << s.hiddenTabs << "\nlauncher_colors";
+        << "\nlauncher_tabs";
+    for (unsigned tab : s.tabOrder)
+        out << ' ' << tab;
+    out << ' ' << s.hiddenTabs << "\nlauncher_colors";
     for (int32_t value : s.launcherColors)
         out << ' ' << value;
     out << "\nspeedrun " << s.speedrun << ' ' << s.permadeath
-        << "\nrandomizer " << s.randomizer << "\nps2_load_times " << s.ps2LoadTimes << "\nfps_counter " << s.fpsCounter << "\noverlay " << s.overlayItems << ' ' << s.overlayCorner << ' '
+        << "\nrandomizer " << s.randomizer << "\nps2_load_times " << s.ps2LoadTimes;
+    for (const auto &[name, values] : {std::pair{"controls_keys", &s.controls.keys}, {"controls_alternate", &s.controls.alternate},
+                                       {"controls_pad", &s.controls.pad}}) {
+        out << '\n' << name;
+        for (int value : *values)
+            out << ' ' << value;
+    }
+    out << "\nfps_counter " << s.fpsCounter << "\noverlay " << s.overlayItems << ' ' << s.overlayCorner << ' '
         << s.overlaySize << ' ' << s.overlayBackground << ' ' << s.overlaySplits << "\noverlay_style "
         << s.overlayColors[0] << ' ' << s.overlayColors[1] << ' ' << s.overlayColors[2] << ' ' << s.overlayColors[3] << ' '
         << s.overlayDecimals << "\noverlay_custom " << s.overlayMargin << ' ' << s.overlayShape << ' '

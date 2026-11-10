@@ -172,8 +172,19 @@ greyed out while a speedrun category is selected. Developers can also set
 
 ## Controls and saving
 
-Use arrows or WASD to move, **X or Space for Cross/confirm**, **V for Triangle/back**,
-C for Circle, and Enter for Start. A compatible gamepad uses its lower face button for Cross.
+By default, arrows or WASD move, **X or Space is Cross/confirm**, **V is Triangle/back**,
+C is Circle, and Enter is Start. A gamepad's lower face button is Cross.
+
+To change them, open the **Controls** tab. Every PS2 button has a key, an
+alternate key and a controller button. Click a key box and press the new key;
+right-click a box to clear it. Pick the controller button from its list. A key
+or controller button can only do one thing, so giving it to a new PS2 button
+takes it off the old one. **Reset to defaults** restores the bindings above.
+Bindings apply the next time the game starts. Player 1 uses the keyboard and the
+first controller, and player 2 uses the second controller. Xbox, PlayStation and
+most other controllers share the same layout. F1 to F12 and Ctrl stay reserved
+for OpenKai2 shortcuts such as save states.
+
 Enter does not replace Cross in confirmation dialogs. Short taps are retained
 until the game polls input, including when game frames are slow. Keyboard input
 remains available when a controller is connected.

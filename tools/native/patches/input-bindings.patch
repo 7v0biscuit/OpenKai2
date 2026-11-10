@@ -1,0 +1,18 @@
+--- a/runtime/ps2_pad.cpp
++++ b/runtime/ps2_pad.cpp
+@@ -1,5 +1,6 @@
+ #include "runtime/ps2_pad.h"
+ #include "host_input.h"
++#include "input_bindings.h"
+ #include "ps2_host_backend.h"
+ #include <atomic>
+ #include <cstring>
+@@ -152,7 +153,7 @@
+ void poll_host_input() {
+     for (int port=0;port<2;++port) {
+         auto value=LatchedPadState::neutral();
+-        sampleHostPad(port,value.data(),value.size());
++        openkai2::input::sample(port,value.data());
+         publish_host_input(port,value);
+     }
+ }

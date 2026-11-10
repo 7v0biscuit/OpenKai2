@@ -114,7 +114,7 @@ int main() {
         s.launcherAccent = 7;
         s.startPage = 1;
         s.lastPage = 4;
-        s.tabOrder = {5, 0, 3, 6, 1, 2, 4};
+        s.tabOrder = {5, 0, 3, 6, 7, 1, 2, 4};
         s.hiddenTabs = (1u << 1u) | (1u << 4u);
         s.launcherColors[0] = 0x0a0b0c;
         s.launcherColors[22] = 0xff00ff;
@@ -265,16 +265,42 @@ int main() {
                 custom[4] = 0x1000000;
                 require(!valid_custom_colors(custom), "An impossible color was accepted");
             }
-            require(valid_tab_order({5, 0, 3, 6, 1, 2, 4}, (1u << 2u) | (1u << 6u)) && !valid_tab_order({0, 0, 1, 2, 3, 4, 5}, 0u) &&
-                        !valid_tab_order({0, 1, 2, 3, 4, 5, 6}, 1u) && !valid_tab_order({0, 1, 2, 3, 4, 5, 6}, 1u << 5u),
+            require(valid_tab_order({5, 0, 3, 6, 1, 2, 4, 7}, (1u << 2u) | (1u << 6u)) && !valid_tab_order({0, 0, 1, 2, 3, 4, 5, 6}, 0u) &&
+                        !valid_tab_order({0, 1, 2, 3, 4, 5, 6, 7}, 1u) && !valid_tab_order({0, 1, 2, 3, 4, 5, 6, 7}, 1u << 5u),
                     "Tab order validation accepted a broken order or a hidden Play or Settings tab");
             {
                 std::ofstream old(root / "old-tabs.ini");
                 old << "version 1\nlauncher_tabs 5 0 3 1 2 4 4\n";
             }
             const auto upgraded = read_settings(root / "old-tabs.ini");
-            require(upgraded.tabOrder == std::array<unsigned, tab_count>{5, 0, 3, 1, 2, 4, 6} && upgraded.hiddenTabs == 4u,
+            require(upgraded.tabOrder == std::array<unsigned, tab_count>{5, 0, 3, 1, 2, 4, 6, 7} && upgraded.hiddenTabs == 4u,
                     "A tab order saved before the Updates tab did not load");
+            {
+                std::ofstream old(root / "seven-tabs.ini");
+                old << "version 1\nlauncher_tabs 6 0 3 1 2 4 5 2\n";
+            }
+            const auto seven = read_settings(root / "seven-tabs.ini");
+            require(seven.tabOrder == std::array<unsigned, tab_count>{6, 0, 3, 1, 2, 4, 5, 7} && seven.hiddenTabs == 2u,
+                    "A tab order saved before the Controls tab did not load");
+            {
+                Settings bound;
+                bound.controls.keys[openkai2::input::Cross] = 74;
+                bound.controls.alternate[openkai2::input::L1] = 49;
+                bound.controls.pad[openkai2::input::Start] = 13;
+                write_settings(root / "bound.ini", bound);
+                const auto loaded = read_settings(root / "bound.ini");
+                require(loaded.controls == bound.controls, "Control bindings did not survive a restart");
+                require(read_settings(root / "old-tabs.ini").controls == openkai2::input::Bindings{},
+                        "Settings without bindings did not use the default controls");
+                Settings reserved;
+                reserved.controls.keys[openkai2::input::Cross] = 294;
+                bool refusedKey = false;
+                try { write_settings(root / "reserved.ini", reserved); } catch (const std::exception &) { refusedKey = true; }
+                require(refusedKey, "A function key used by OpenKai2 was accepted as a game binding");
+                require(openkai2::input::key_from_virtual('J', false) == 74 && openkai2::input::key_from_virtual(0x0D, true) == 335 &&
+                            openkai2::input::key_name(340) == "Left Shift",
+                        "Keyboard keys were not translated for the game");
+            }
             Settings broken;
             broken.hiddenTabs = 1u;
             bool refused = false;

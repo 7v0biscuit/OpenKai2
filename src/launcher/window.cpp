@@ -95,8 +95,8 @@ void apply_theme(unsigned choice, unsigned accent, const CustomColors &custom) {
 }
 
 constexpr int sidebarWidth = 220, contentLeft = 252, margin = 32;
-constexpr int heroTop = 124, heroBottom = 316, discTop = 332, discBottom = 420;
-constexpr int tilesTop = 436, tilesBottom = 516, newsTop = 528, newsBottom = 572, keysTop = 592;
+constexpr int heroTop = 24, heroBottom = 324, discTop = 344, discBottom = 432;
+constexpr int tilesTop = 450, tilesBottom = 540, newsTop = 558, newsBottom = 604;
 constexpr int speedrunTop = 112, splitsTop = 284, speedrunRulesTop = 526;
 constexpr int onlineProfileTop = 112, onlineHostTop = 228, onlineHostBottom = 332, onlineListsTop = 344;
 struct HostRow {
@@ -115,6 +115,7 @@ enum Id {
     SavesTab,
     SettingsTab,
     UpdatesTab,
+    ControlsTab,
     ChooseIso = 110,
     VerifyIso,
     Play,
@@ -259,11 +260,18 @@ enum Id {
     ColorCopy,
     ColorPaste,
     ColorSurprise,
-    OpenLogs
+    OpenLogs,
+    ControlsReset = 400,
+    ControlKey = 410,
+    ControlAlternate = 430,
+    ControlPad = 450
 };
 constexpr int tabStep = 42, tabHeight = 38, sideTop = 92, groupLabel = 24, groupGap = 14;
-constexpr int pageCount = 7, onlinePage = 1, speedrunPage = 2, modsPage = 3, savesPage = 4, settingsPage = 5, updatesPage = 6,
-              importPage = 7, overlayPage = 8, tabsPage = 9, colorsPage = 10;
+constexpr int pageCount = 8, onlinePage = 1, speedrunPage = 2, modsPage = 3, savesPage = 4, settingsPage = 5, updatesPage = 6,
+              controlsPage = 7, importPage = 8, overlayPage = 9, tabsPage = 10, colorsPage = 11;
+constexpr UINT controlKeyMessage = WM_APP + 40, controlClearMessage = WM_APP + 41;
+constexpr std::array<int, 17> padChoices{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17};
+constexpr int controlsTop = 112, controlRowTop = 196, controlRowStep = 38;
 constexpr std::array<unsigned, 4> audioVolumes{100u, 75u, 50u, 25u};
 int audioChoice(const Settings &settings) {
     if (!settings.audio)
@@ -846,6 +854,7 @@ struct Window {
         std::chrono::steady_clock::time_point started;
     };
     std::shared_ptr<NameCheck> nameCheck;
+    int capturing = -1;
     std::string hostingRoom, hostingToken, pendingInvitee;
     std::chrono::steady_clock::time_point inviteDeadline{};
     bool trayAdded = false, wasRunning = false;
@@ -863,28 +872,23 @@ struct Window {
         return shown;
     }
     struct SideLayout {
-        int gameLabel = -1, libraryLabel = -1, end = sideTop;
+        int gameLabel = -1, libraryLabel = -1, systemLabel = -1, end = sideTop;
         std::map<int, int> tops;
     };
+    static int sideGroup(int tab) { return tab < modsPage ? 0 : tab < settingsPage ? 1 : 2; }
     SideLayout sideLayout() const {
         SideLayout out;
         auto shown = visibleTabs();
-        std::stable_partition(shown.begin(), shown.end(), [](int tab) { return tab < modsPage; });
-        int y = sideTop;
-        bool library = false, any = false;
+        std::stable_sort(shown.begin(), shown.end(), [](int a, int b) { return sideGroup(a) < sideGroup(b); });
+        int y = sideTop, group = -1;
         for (int tab : shown) {
-            if (!any && tab < modsPage) {
-                out.gameLabel = y;
-                y += groupLabel;
-            }
-            if (tab >= modsPage && !library) {
-                library = true;
-                if (any)
+            if (sideGroup(tab) != group) {
+                if (group >= 0)
                     y += groupGap;
-                out.libraryLabel = y;
+                group = sideGroup(tab);
+                (group == 0 ? out.gameLabel : group == 1 ? out.libraryLabel : out.systemLabel) = y;
                 y += groupLabel;
             }
-            any = true;
             out.tops[tab] = y;
             y += tabStep;
         }
@@ -932,7 +936,8 @@ struct Window {
         for (auto [id, control] : controls)
             if ((id >= Renderer && id <= Music) || id == UpdateChannel || id == AutomaticUpdates ||
                 id == SaveListKind || id == TargetMod || id == SpotMode ||
-                (id >= SpeedrunMode && id <= FpsCounter) || (id >= OverlayCorner && id <= OverlaySplits) || (id >= OverlayText && id <= SpeedrunCpu) || id == OnlineDelay || id == OnlineProfile || id == OnlineListed)
+                (id >= SpeedrunMode && id <= FpsCounter) || (id >= OverlayCorner && id <= OverlaySplits) || (id >= OverlayText && id <= SpeedrunCpu) || id == OnlineDelay || id == OnlineProfile || id == OnlineListed ||
+                (id >= ControlPad && id < ControlPad + int(input::button_count)))
                 if (SendMessageW(control, CB_GETDROPPEDSTATE, 0, 0)) return true;
         return false;
     }
@@ -1220,6 +1225,8 @@ struct Window {
                                                           {CloseImporter, L"Back to mods"},
                                                           {SettingsTab, L"Settings"},
                                                           {UpdatesTab, L"Updates"},
+                                                          {ControlsTab, L"Controls"},
+                                                          {ControlsReset, L"Reset to defaults"},
                                                           {OnlineTab, L"Online"},
                                                           {SpeedrunTab, L"Speedrun"},
                                                           {HostGame, L"Host room"},
@@ -1385,6 +1392,17 @@ struct Window {
         combo(StartPage, {L"Play", L"Last page used"}, int(std::min(settings.startPage, 1u)));
         combo(RandomizerMode, {L"Off", L"On"}, settings.randomizer ? 1 : 0);
         combo(LoadTimes, {L"Fastest (this PC)", L"Accurate (PS2)"}, settings.ps2LoadTimes ? 1 : 0);
+        {
+            std::vector<std::wstring> padNames;
+            for (int code : padChoices)
+                padNames.push_back(wide(input::pad_button_names[size_t(code)]));
+            for (unsigned i = 0; i < input::button_count; ++i) {
+                button(ControlKey + int(i), L"");
+                button(ControlAlternate + int(i), L"");
+                combo(ControlPad + int(i), padNames, 0);
+            }
+            refreshControls();
+        }
         combo(SpeedrunRandomizer, {L"Off", L"On"}, settings.randomizer ? 1 : 0);
         list(TabList, L"Tabs", 40, false);
         list(ColorList, L"Colors", 36, false);
@@ -1516,7 +1534,7 @@ struct Window {
         GetClientRect(hwnd, &rect);
         const int w = unscale(rect.right), h = unscale(rect.bottom);
         const int content = w - contentLeft - margin, right = contentLeft + content;
-        std::vector<int> order{PlayTab, OnlineTab, SpeedrunTab, ModsTab, SavesTab, SettingsTab, UpdatesTab};
+        std::vector<int> order{PlayTab, OnlineTab, SpeedrunTab, ModsTab, SavesTab, SettingsTab, UpdatesTab, ControlsTab};
         std::map<int, Placement> plan;
         planning = &plan;
         auto position = [&](int id, int x, int y, int width, int height) {
@@ -1534,8 +1552,8 @@ struct Window {
             position(NoticeAccept, contentLeft + content - 96 - 10 - 96, 64, 96, 30);
         }
         if (page == 0) {
-            position(Play, contentLeft + 28, heroBottom - 70, 150, 44);
-            position(LoadState, contentLeft + 28 + 150 + 10, heroBottom - 70, 116, 44);
+            position(Play, contentLeft + 28, heroBottom - 74, 176, 48);
+            position(LoadState, contentLeft + 28 + 176 + 12, heroBottom - 70, 116, 40);
             position(VerifyIso, right - 20 - 120, discTop + 26, 120, 36);
             position(ChooseIso, right - 20 - 120 - 10 - 110, discTop + 26, 110, 36);
             position(ReleaseNotes, right - 12 - 126, newsTop + 8, 126, 28);
@@ -1678,6 +1696,15 @@ struct Window {
             position(ColorSurprise, side, 380, buttonWidth, 34);
             position(ColorCopy, side, 424, buttonWidth, 34);
             position(ColorPaste, side, 468, buttonWidth, 34);
+        } else if (page == controlsPage) {
+            const int column = (content - 40 - 24) / 2, pad = 132, key = (column - 104 - pad - 12) / 2;
+            position(ControlsReset, right - 20 - 160, controlsTop + 10, 160, 30);
+            for (unsigned i = 0; i < input::button_count; ++i) {
+                const int x = contentLeft + 20 + int(i / 8u) * (column + 24) + 104, y = controlRowTop + int(i % 8u) * controlRowStep;
+                position(ControlKey + int(i), x, y, key, 30);
+                position(ControlAlternate + int(i), x + key + 6, y, key, 30);
+                position(ControlPad + int(i), x + 2 * key + 12, y - 2, column - 104 - 2 * key - 12, 34);
+            }
         } else if (page == tabsPage) {
             const int panelBottom = h - 64, listWidth = std::min(420, content - 40 - 180);
             position(CloseTabs, right - 20 - 150, 136, 150, 34);
@@ -1795,11 +1822,14 @@ struct Window {
             caps(dc, L"GAME", 24, side.gameLabel + 6, sidebarWidth - 48);
         if (side.libraryLabel >= 0)
             caps(dc, L"LIBRARY", 24, side.libraryLabel + 6, sidebarWidth - 48);
+        if (side.systemLabel >= 0)
+            caps(dc, L"SYSTEM", 24, side.systemLabel + 6, sidebarWidth - 48);
         const int top = tabTop(navigationPage());
         if (top >= 0) {
             const RECT row{p(12), p(top), p(sidebarWidth - 12), p(top + tabHeight)};
             box(dc, row, mix(sidebar, orange, 34), mix(sidebar, orange, 34), 8);
             fill(dc, {row.left + p(6), row.top + p(12), row.left + p(8), row.bottom - p(12)}, orange);
+            buffer.frame.halo({row.left + p(6), row.top + p(12), row.left + p(8), row.bottom - p(12)}, 0, p(10), orange, 90);
         }
 
         const int friends = friendsTop(), bottom = std::max(friends + 90, h - 62);
@@ -1834,7 +1864,7 @@ struct Window {
              fonts.caption, connected ? green : faint, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
     }
     void paintHeader(HDC dc, int w, int content) {
-        const wchar_t *titles[] = {L"Play", L"Online", L"Speedrun", L"Mods", L"Saves", L"Settings", L"Updates", L"Import tool", L"Speedrun overlay", L"Arrange tabs", L"Colors"};
+        const wchar_t *titles[] = {L"Play", L"Online", L"Speedrun", L"Mods", L"Saves", L"Settings", L"Updates", L"Controls", L"Import tool", L"Speedrun overlay", L"Arrange tabs", L"Colors"};
         const wchar_t *subtitles[] = {
             L"",
             L"Play versus with friends and other players over the internet.",
@@ -1843,11 +1873,13 @@ struct Window {
             L"Import, back up and restore your memory card.",
             L"Saved automatically. Game settings apply at the next launch.",
             L"New versions of OpenKai2, how they are found and when they install.",
+            L"Keyboard and controller bindings for Budokai 2. They apply the next time the game starts.",
             L"Add characters, stages and movesets from other Dragon Ball Z games. Nothing in Budokai 2 is removed.",
             L"Pick what the in-game overlay shows. Splits, deltas and best times are tracked for you.",
             L"Choose the order of the tabs in the sidebar and hide the ones you do not use.",
             L"Every color in the launcher."};
-        text(dc, titles[page], contentLeft, 28, content - 200, 40, fonts.title, ink, DT_LEFT | DT_SINGLELINE | DT_NOPREFIX);
+        if (page != 0)
+            text(dc, titles[page], contentLeft, 28, content - 200, 40, fonts.title, ink, DT_LEFT | DT_SINGLELINE | DT_NOPREFIX);
         if (const auto notice = noticeView()) {
             const COLORREF tone = notice->invite ? orange : sky;
             const std::wstring kind = notice->invite ? L"INVITE" : L"FRIEND REQUEST";
@@ -1891,7 +1923,8 @@ struct Window {
         ellipse(dc, p(left - 12), p(47), p(3), stateColor());
         buffer.frame.halo({p(left - 12), p(47), p(left - 11), p(48)}, 0, p(9), stateColor(), 90);
         text(dc, label, left, 38, labelWidth + 4, 20, fonts.caption, muted, DT_LEFT | DT_SINGLELINE | DT_NOPREFIX);
-        rule(dc, contentLeft, 104, content);
+        if (page != 0)
+            rule(dc, contentLeft, 104, content);
     }
     void rule(HDC dc, int x, int y, int width) {
         const int steps = 24;
@@ -2009,10 +2042,13 @@ struct Window {
             headline = L"No disc selected";
             detail = L"Choose your USA ISO below to get started.";
         }
-        const int statusLeft = contentLeft + 28 + 150 + 10 + 116 + 18, statusWidth = std::max(150, content - (statusLeft - contentLeft) - 24);
-        text(dc, headline, statusLeft, heroBottom - (detail.empty() ? 59 : 68), statusWidth, 22, fonts.strong, bannerTitle,
+        const int statusLeft = contentLeft + 30, statusWidth = 176 + 12 + 116;
+        const COLORREF readiness = running() ? gold : busy() ? gold : error && !disc ? red : disc ? green : muted;
+        ellipse(dc, p(statusLeft + 4), p(heroTop + 138), p(4), readiness);
+        buffer.frame.halo({p(statusLeft + 4), p(heroTop + 138), p(statusLeft + 5), p(heroTop + 139)}, 0, p(10), readiness, 90);
+        text(dc, headline, statusLeft + 16, heroTop + 127, statusWidth - 16, 22, fonts.brand, bannerTitle,
              DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
-        text(dc, detail, statusLeft, heroBottom - 46, statusWidth, 20, fonts.caption,
+        text(dc, detail, statusLeft + 16, heroTop + 151, statusWidth - 16, 20, fonts.caption,
              mix(bannerText, RGB(255, 255, 255), 50), DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
 
         panelBox(dc, contentLeft, discTop, right, discBottom);
@@ -2078,16 +2114,16 @@ struct Window {
                  DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
         }
         panelBox(dc, contentLeft, newsTop, right, newsBottom);
-        iconTile(dc, 4, contentLeft + 12, newsTop + 8, 28);
-        caps(dc, L"WHAT'S NEW", contentLeft + 52, newsTop + 15, 110);
-        text(dc, application_highlights, contentLeft + 52 + 100, newsTop + 12, content - 52 - 100 - 150, 20, fonts.caption, ink,
-             DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
-        caps(dc, L"KEYBOARD", contentLeft, keysTop + 6, 90);
-        int x = contentLeft + 84;
-        for (auto [key, action] : std::vector<std::pair<std::wstring, std::wstring>>{
-                 {L"WASD", L"Move"}, {L"X", L"Confirm"}, {L"V", L"Back"}, {L"Enter", L"Start"}})
-            if (x < right - 60)
-                x = keycap(dc, x, keysTop, key, action);
+        fill(dc, {p(contentLeft) + 1, p(newsTop + 10), p(contentLeft) + p(3), p(newsBottom - 10)}, orange);
+        iconTile(dc, 4, contentLeft + 14, newsTop + 8, 28);
+        caps(dc, L"PATCH NOTES", contentLeft + 54, newsTop + 15, 110, orange);
+        const std::wstring release = L"V" + wide(application_version);
+        const int pillLeft = contentLeft + 54 + measure(dc, L"PATCH NOTES", fonts.label) + 11 + 10;
+        const int pillWidth = measure(dc, release, fonts.label) + int(release.size()) + 14;
+        box(dc, {p(pillLeft), p(newsTop + 13), p(pillLeft + pillWidth), p(newsTop + 31)}, mix(panel, orange, 40), mix(panel, orange, 90), 6);
+        caps(dc, release, pillLeft + 7, newsTop + 15, pillWidth, ink);
+        text(dc, application_highlights, pillLeft + pillWidth + 14, newsTop + 12, right - 150 - (pillLeft + pillWidth + 14), 20,
+             fonts.body, ink, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
     }
     void paintSaves(HDC dc, int h, int content) {
         const int right = contentLeft + content, panelBottom = h - 64;
@@ -3004,9 +3040,12 @@ struct Window {
             std::copy(ambient.begin(), ambient.end(), buffer.frame.pixels);
         }
         paintSidebar(memory, h);
-        paintHeader(memory, w, content);
-        if (page == 0)
+        if (page != 0)
+            paintHeader(memory, w, content);
+        if (page == 0) {
             paintPlay(memory, content);
+            paintHeader(memory, w, content);
+        }
         else if (page == savesPage)
             paintSaves(memory, h, content);
         else if (page == modsPage)
@@ -3021,6 +3060,8 @@ struct Window {
             paintColors(memory, h, content);
         else if (page == updatesPage)
             paintUpdates(memory, h, content);
+        else if (page == controlsPage)
+            paintControls(memory, h, content);
         else if (page == onlinePage)
             paintOnline(memory, h, content);
         else if (page == speedrunPage)
@@ -3059,6 +3100,11 @@ struct Window {
              fonts.caption, error ? red : muted, DT_LEFT | DT_END_ELLIPSIS | DT_SINGLELINE | DT_NOPREFIX);
         const int task[] = {TaskCharacters, TaskStages, TaskMovesets, TaskCapsules};
         std::vector<int> glowing;
+        if (page == 0 && disc && !running() && !busy())
+            if (const auto r = controlRect(Play); r && IsWindowEnabled(controls.at(Play))) {
+                buffer.frame.halo(*r, cut(10), p(22), orange, 110);
+                glowing.push_back(Play);
+            }
         for (int id : {int(ImportSelected), task[int(importTask)]})
             if (const auto r = controlRect(id); r && IsWindowEnabled(controls.at(id))) {
                 buffer.frame.halo(*r, cut(10), p(14), ember, 80);
@@ -3067,7 +3113,7 @@ struct Window {
         return glowing;
     }
     COLORREF surface(int id, const RECT &r) const {
-        if (id >= PlayTab && id <= UpdatesTab)
+        if (id >= PlayTab && id <= ControlsTab)
             return sidebar;
         if (id == Play) {
             const int width = std::max(1, p(contentWidth()));
@@ -3105,6 +3151,14 @@ struct Window {
             LineTo(dc, left + size / 2, top + p(6));
             MoveToEx(dc, left + size / 2 - p(3), top, nullptr);
             LineTo(dc, left + size / 2 + p(3), top);
+        } else if (id == ControlsTab) {
+            RoundRect(dc, left, top + p(3), left + size + 1, top + size - p(2), p(8), p(8));
+            MoveToEx(dc, left + p(5), top + p(6), nullptr);
+            LineTo(dc, left + p(5), top + p(11));
+            MoveToEx(dc, left + p(3), top + p(8) + 1, nullptr);
+            LineTo(dc, left + p(8), top + p(8) + 1);
+            Ellipse(dc, left + size - p(6), top + p(6), left + size - p(3), top + p(9));
+            Ellipse(dc, left + size - p(9), top + p(9), left + size - p(6), top + p(12));
         } else if (id == UpdatesTab) {
             MoveToEx(dc, left + size / 2, top, nullptr);
             LineTo(dc, left + size / 2, top + size - p(5));
@@ -3141,7 +3195,7 @@ struct Window {
             Canvas canvas(item.hDC, r);
             dc = canvas.dc;
             const int id = int(item.CtlID);
-            const bool navigation = id >= PlayTab && id <= UpdatesTab;
+            const bool navigation = id >= PlayTab && id <= ControlsTab;
             const bool chosen = navigation && id == PlayTab + navigationPage();
             const bool primary = id == Play;
             const bool taskChoice = (id == TaskCharacters && importTask == Task::characters) ||
@@ -3428,6 +3482,182 @@ struct Window {
         DrawTextW(dc, line.c_str(), int(line.size()), &bottom, DT_SINGLELINE | DT_TOP | DT_END_ELLIPSIS | DT_NOPREFIX);
         SelectObject(dc, old);
         return true;
+    }
+    void controlGlyph(HDC dc, unsigned index, int x, int y) {
+        const RECT tile{p(x), p(y), p(x + 30), p(y + 30)};
+        box(dc, tile, mix(panel, field, 200), mix(panel, border, 160), 8);
+        const int cx = p(x + 15), cy = p(y + 15), r = p(7);
+        auto pen = [&](COLORREF color) { return CreatePen(PS_SOLID, std::max(1, p(2)), color); };
+        auto shape = [&](COLORREF color, auto draw) {
+            auto stroke = pen(color);
+            auto oldPen = SelectObject(dc, stroke);
+            auto oldBrush = SelectObject(dc, GetStockObject(NULL_BRUSH));
+            draw();
+            SelectObject(dc, oldBrush);
+            SelectObject(dc, oldPen);
+            DeleteObject(stroke);
+        };
+        if (index == input::Cross)
+            shape(RGB(120, 160, 240), [&] {
+                MoveToEx(dc, cx - r, cy - r, nullptr); LineTo(dc, cx + r + 1, cy + r + 1);
+                MoveToEx(dc, cx + r, cy - r, nullptr); LineTo(dc, cx - r - 1, cy + r + 1);
+            });
+        else if (index == input::Circle)
+            shape(RGB(236, 98, 98), [&] { Ellipse(dc, cx - r, cy - r, cx + r + 1, cy + r + 1); });
+        else if (index == input::Square)
+            shape(RGB(232, 130, 196), [&] { Rectangle(dc, cx - r + 1, cy - r + 1, cx + r, cy + r); });
+        else if (index == input::Triangle)
+            shape(RGB(96, 206, 160), [&] {
+                POINT points[] = {{cx, cy - r}, {cx + r, cy + r - p(1)}, {cx - r, cy + r - p(1)}, {cx, cy - r}};
+                Polyline(dc, points, 4);
+            });
+        else if (index <= input::Right) {
+            const wchar_t *arrows[] = {L"↑", L"↓", L"←", L"→"};
+            text(dc, arrows[index], x, y, 30, 30, fonts.strong, ink, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        } else {
+            const wchar_t *labels[] = {L"L1", L"R1", L"L2", L"R2", L"ST", L"SE", L"L3", L"R3"};
+            text(dc, labels[index - input::L1], x, y, 30, 30, fonts.label, ink, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        }
+    }
+    void paintControls(HDC dc, int h, int content) {
+        const int right = contentLeft + content, column = (content - 40 - 24) / 2, pad = 132, key = (column - 104 - pad - 12) / 2;
+        const int bindingsBottom = controlRowTop + 8 * controlRowStep + 6;
+        panelBox(dc, contentLeft, controlsTop, right, bindingsBottom);
+        heading(dc, L"Bindings", contentLeft + 20, controlsTop + 12, 200);
+        text(dc, capturing >= 0 ? L"Press the new key now. Click the same box again to cancel."
+                                : L"Click a key box, then press a key. Right-click a box to clear it.",
+             contentLeft + 120, controlsTop + 14, content - 120 - 200, 18, fonts.caption, capturing >= 0 ? orange : muted,
+             DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        const wchar_t *names[] = {L"Up", L"Down", L"Left", L"Right", L"Cross", L"Circle", L"Square", L"Triangle",
+                                  L"L1", L"R1", L"L2", L"R2", L"Start", L"Select", L"L3", L"R3"};
+        for (int half = 0; half < 2; ++half) {
+            const int x = contentLeft + 20 + half * (column + 24);
+            caps(dc, L"BUTTON", x, controlRowTop - 24, 100);
+            caps(dc, L"KEY", x + 104, controlRowTop - 24, key);
+            caps(dc, L"ALT KEY", x + 104 + key + 6, controlRowTop - 24, key);
+            caps(dc, L"CONTROLLER", x + 104 + 2 * key + 12, controlRowTop - 24, pad);
+        }
+        fill(dc, {p(contentLeft + 20 + column + 11), p(controlRowTop - 6), p(contentLeft + 20 + column + 12),
+                  p(controlRowTop + 8 * controlRowStep - 6)}, mix(panel, border, 160));
+        for (unsigned i = 0; i < input::button_count; ++i) {
+            const int x = contentLeft + 20 + int(i / 8u) * (column + 24), y = controlRowTop + int(i % 8u) * controlRowStep;
+            if (i % 8u)
+                fill(dc, {p(x), p(y - 4), p(x + column), p(y - 4) + 1}, mix(panel, border, 90));
+            controlGlyph(dc, i, x, y);
+            text(dc, names[i], x + 38, y + 5, 62, 20, fonts.body, ink, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        }
+        const int notesTop = bindingsBottom + 14, notesBottom = std::max(notesTop + 96, h - 64);
+        panelBox(dc, contentLeft, notesTop, right, notesBottom);
+        heading(dc, L"In game", contentLeft + 20, notesTop + 12, 200);
+        text(dc, L"Player 1 uses the keyboard and the first controller. Player 2 uses the second controller.",
+             contentLeft + 20, notesTop + 40, content - 40, 18, fonts.caption, muted, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        text(dc, L"Xbox, PlayStation and most other controllers use the same layout. F1 to F12 and Ctrl stay reserved for OpenKai2 shortcuts.",
+             contentLeft + 20, notesTop + 60, content - 40, 18, fonts.caption, muted, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+    }
+    void refreshControls() {
+        for (unsigned i = 0; i < input::button_count; ++i) {
+            for (int set = 0; set < 2; ++set) {
+                const int id = (set ? ControlAlternate : ControlKey) + int(i), slot = set * int(input::button_count) + int(i);
+                const int value = set ? settings.controls.alternate[i] : settings.controls.keys[i];
+                const auto label = capturing == slot ? std::wstring(L"Press a key…") : wide(input::key_name(value));
+                if (const auto found = controls.find(id); found != controls.end()) {
+                    SetWindowTextW(found->second, label.c_str());
+                    InvalidateRect(found->second, nullptr, FALSE);
+                }
+            }
+            if (const auto found = controls.find(ControlPad + int(i)); found != controls.end()) {
+                const auto code = std::find(padChoices.begin(), padChoices.end(), settings.controls.pad[i]);
+                SendMessageW(found->second, CB_SETCURSEL, WPARAM(code == padChoices.end() ? 0 : code - padChoices.begin()), 0);
+            }
+        }
+        InvalidateRect(hwnd, nullptr, FALSE);
+    }
+    bool saveControls(const input::Bindings &bindings, const std::wstring &message) {
+        Settings next = settings;
+        next.controls = bindings;
+        try {
+            write_settings(settings_path(), next);
+        } catch (const std::exception &e) {
+            status = L"Could not save the controls: " + wide(e.what());
+            error = true;
+            refreshControls();
+            return false;
+        }
+        settings = std::move(next);
+        status = message;
+        error = false;
+        refreshControls();
+        return true;
+    }
+    void beginCapture(int slot) {
+        capturing = capturing == slot ? -1 : slot;
+        status = capturing >= 0 ? L"Press a key for " + wide(input::button_names[size_t(slot % int(input::button_count))]) + L"."
+                                : std::wstring(L"Binding unchanged.");
+        error = false;
+        refreshControls();
+    }
+    bool captureKey(WPARAM wp, LPARAM lp) {
+        if (capturing < 0 || page != controlsPage)
+            return false;
+        const bool extended = ((lp >> 24) & 1) != 0;
+        unsigned code = unsigned(wp);
+        if (code == VK_SHIFT)
+            code = MapVirtualKeyW(unsigned((lp >> 16) & 0xFF), MAPVK_VSC_TO_VK_EX);
+        if (code == VK_MENU)
+            code = extended ? VK_RMENU : VK_LMENU;
+        const int key = input::key_from_virtual(code, extended);
+        if (key == input::no_input || !input::valid_key(key)) {
+            status = L"That key is reserved for OpenKai2 or can't be read by the game. Try another.";
+            error = true;
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return true;
+        }
+        const int slot = capturing;
+        capturing = -1;
+        auto next = settings.controls;
+        const unsigned index = unsigned(slot) % input::button_count;
+        std::wstring moved;
+        for (unsigned i = 0; i < input::button_count; ++i)
+            for (auto *set : {&next.keys, &next.alternate})
+                if ((*set)[i] == key && !(i == index && set == (slot < int(input::button_count) ? &next.keys : &next.alternate))) {
+                    (*set)[i] = input::no_input;
+                    moved = wide(input::button_names[i]);
+                }
+        (slot < int(input::button_count) ? next.keys : next.alternate)[index] = key;
+        saveControls(next, wide(input::key_name(key)) + L" is now " + wide(input::button_names[index]) +
+                               (moved.empty() || moved == wide(input::button_names[index]) ? L"." : L", and no longer " + moved + L"."));
+        return true;
+    }
+    bool clearControl(int id) {
+        if (page != controlsPage)
+            return false;
+        const bool primary = id >= ControlKey && id < ControlKey + int(input::button_count);
+        const bool alternate = id >= ControlAlternate && id < ControlAlternate + int(input::button_count);
+        if (!primary && !alternate)
+            return false;
+        const unsigned index = unsigned(id - (primary ? ControlKey : ControlAlternate));
+        capturing = -1;
+        auto next = settings.controls;
+        (primary ? next.keys : next.alternate)[index] = input::no_input;
+        saveControls(next, wide(input::button_names[index]) + (primary ? L" key cleared." : L" alternate key cleared."));
+        return true;
+    }
+    void choosePadButton(unsigned index) {
+        const int choice = selected(ControlPad + int(index));
+        if (choice < 0 || size_t(choice) >= padChoices.size())
+            return;
+        const int code = padChoices[size_t(choice)];
+        auto next = settings.controls;
+        std::wstring moved;
+        if (code != input::no_input)
+            for (unsigned i = 0; i < input::button_count; ++i)
+                if (i != index && next.pad[i] == code) {
+                    next.pad[i] = input::no_input;
+                    moved = wide(input::button_names[i]);
+                }
+        next.pad[index] = code;
+        saveControls(next, wide(input::pad_button_names[size_t(code)]) + L" is now " + wide(input::button_names[index]) +
+                               (moved.empty() ? L"." : L", and no longer " + moved + L"."));
     }
     void refreshBackups() {
         savedGames = disc ? list_card_saves(card()) : std::vector<std::string>{};
@@ -4363,7 +4593,7 @@ struct Window {
     }
     void timer() {
         presence.enable(true);
-        const char* pages[]={"Choosing a game","Setting up online play","Setting up a speedrun","Managing mods","Managing saves","Configuring settings","Checking for updates"};
+        const char* pages[]={"Choosing a game","Setting up online play","Setting up a speedrun","Managing mods","Managing saves","Configuring settings","Checking for updates","Changing controls"};
         const int shown=std::clamp(navigationPage(),0,int(std::size(pages))-1);
         presence.update(running()?"Playing Budokai 2":"In launcher",running()?"In game":page==importPage?"Importing mods":pages[shown]);
         if(presence.status()!=lastPresenceStatus && !dropdownOpen()) {
@@ -5527,11 +5757,30 @@ struct Window {
         }
         if (picking)
             return;
-        if (id >= PlayTab && id <= UpdatesTab) {
+        if (id >= ControlKey && id < ControlKey + int(input::button_count) && notification == BN_CLICKED) {
+            beginCapture(id - ControlKey);
+            return;
+        }
+        if (id >= ControlAlternate && id < ControlAlternate + int(input::button_count) && notification == BN_CLICKED) {
+            beginCapture(int(input::button_count) + id - ControlAlternate);
+            return;
+        }
+        if (id >= ControlPad && id < ControlPad + int(input::button_count) && notification == CBN_SELCHANGE) {
+            capturing = -1;
+            choosePadButton(unsigned(id - ControlPad));
+            return;
+        }
+        if (id == ControlsReset && notification == BN_CLICKED) {
+            capturing = -1;
+            saveControls(input::Bindings{}, L"Controls reset to the defaults.");
+            return;
+        }
+        if (id >= PlayTab && id <= ControlsTab) {
             if (page == id - PlayTab) {
                 SetFocus(controls[id]);
                 return;
             }
+            capturing = -1;
             page = id - PlayTab;
             if (settings.startPage && settings.lastPage != unsigned(page)) {
                 settings.lastPage = unsigned(page);
@@ -6514,6 +6763,10 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
             else
                 self->timer();
             return 0;
+        case controlKeyMessage:
+            return self->captureKey(wp, lp) ? 1 : 0;
+        case controlClearMessage:
+            return self->clearControl(int(wp)) ? 1 : 0;
         case onlineChanged:
             self->finishNameCheck();
             self->refreshOnlineLists();
@@ -6725,6 +6978,12 @@ int run_window(const std::filesystem::path &initialIso) {
     } shortcutCleanup{accelerators};
     MSG message{};
     while (GetMessageW(&message, nullptr, 0, 0) > 0) {
+        if ((message.message == WM_KEYDOWN || message.message == WM_SYSKEYDOWN) &&
+            SendMessageW(hwnd, controlKeyMessage, message.wParam, message.lParam))
+            continue;
+        if (message.message == WM_RBUTTONUP && message.hwnd != hwnd &&
+            SendMessageW(hwnd, controlClearMessage, WPARAM(GetDlgCtrlID(message.hwnd)), 0))
+            continue;
         if (!(accelerators && TranslateAcceleratorW(hwnd, accelerators, &message)) &&
             !IsDialogMessageW(hwnd, &message)) {
             TranslateMessage(&message);

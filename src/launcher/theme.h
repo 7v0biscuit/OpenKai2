@@ -73,8 +73,8 @@ constexpr Rgb cycling_accent(unsigned long long milliseconds) {
     }
 }
 
-inline constexpr unsigned tab_count = 7;
-inline constexpr const wchar_t *tab_names[tab_count] = {L"Play", L"Online", L"Speedrun", L"Mods", L"Saves", L"Settings", L"Updates"};
+inline constexpr unsigned tab_count = 8;
+inline constexpr const wchar_t *tab_names[tab_count] = {L"Play", L"Online", L"Speedrun", L"Mods", L"Saves", L"Settings", L"Updates", L"Controls"};
 inline constexpr unsigned fixed_tabs = (1u << 0u) | (1u << 5u);
 
 struct Theme {

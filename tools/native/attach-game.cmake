@@ -412,6 +412,7 @@ function(openkai2_attach_generated_sources)
     target_include_directories(ps2_runtime BEFORE PRIVATE "${overlay_dir}" "${overlay_dir}/runtime")
     target_include_directories(ps2_runtime PRIVATE "${CMAKE_SOURCE_DIR}/ps2xRuntime/src/lib/Kernel/Stubs")
     target_link_libraries(ps2_runtime PRIVATE openkai2_disc)
+    target_sources(ps2_runtime PRIVATE "${project_root}/src/input_bindings.cpp")
     add_library(openkai2_thread_checks STATIC "${project_root}/src/thread_checks.cpp")
     target_sources(openkai2_thread_checks PRIVATE "${project_root}/src/save_checks.cpp"
         "${project_root}/src/host_input_checks.cpp" "${project_root}/src/frame_presenter_checks.cpp"
