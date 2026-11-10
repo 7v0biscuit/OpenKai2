@@ -21,10 +21,13 @@ the earlier progression failure has not reproduced on the tested route.
 
 ## Audio
 
-Background music remains a known problem:
+Music plays in full quality (48 kHz stereo, mixed from the game's own sound
+chip output), but two problems remain:
 
-- Tracks may stop after a fight or fail to resume when returning to character
-  selection.
+- Music pops now and then, starting a few seconds after the main menu loads
+  and continuing at random moments.
+- Music may fail to load after a fight, or fail to resume when returning to
+  character selection.
 - Sound effects generally fare better, but occasional glitches or crackling
   remain reported.
 - After a long hitch (more than about a tenth of a second) the music fades out
@@ -39,8 +42,9 @@ time with pops at the joins. Small slowdowns are now absorbed by nudging the
 playback rate by up to 5%, the switch back from stretching continues from the
 exact matching point, and a dropout no longer throws away the buffered music.
 
-Music quality and track dropouts are under investigation, including playback
-across scene changes.
+The pops and the music failing to load after fights are under investigation.
+Since v0.2.0, `startup.log` ends with an `[audio:device]` line that shows
+whether the sound card had to wait; including it with a report helps.
 
 As a temporary workaround, set **Music** to **Off** in the launcher. This
 silences music tracks while retaining voices, sound effects and video audio.

@@ -44,8 +44,9 @@ PCSX2's SPU2 core mirrors the console's register writes and transfers and mixes
 voices, sound effects and music at 48 kHz. Host output includes volume control
 and time stretching for slow frames.
 
-Music still needs work: tracks can sound thin or distorted and may stop after
-a fight or when returning to character selection. Occasional sound-effect
+Music plays in full quality but still pops now and then, starting a few
+seconds after the main menu loads, and may fail to load after a fight or when
+returning to character selection. Occasional sound-effect
 glitches are also reported. Offline mixer and buffer checks pass, but scene
 transitions still need in-game testing.
 

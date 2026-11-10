@@ -55,8 +55,8 @@ files.
 
 ## Known issues
 
-- **Music:** background music can sound thin or distorted and may cut out
-  after a fight or when returning to character selection.
+- **Music:** music plays in full quality, but it pops now and then (starting
+  a few seconds after the main menu loads) and may fail to load after a fight.
 - **Imported Budokai 3 stages** bring their fight effects but not their moving
   stage objects.
 - **Budokai 3 movesets** (experimental): the character animates, but buttons
