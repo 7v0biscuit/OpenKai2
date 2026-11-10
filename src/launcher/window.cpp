@@ -1040,6 +1040,11 @@ struct Window {
         SelectObject(dc, old);
         return size.cx + p(14);
     }
+    void heading(HDC dc, const std::wstring &value, int x, int y, int w) {
+        fill(dc, {p(x - 20), p(y + 4), p(x - 17), p(y + 18)}, orange);
+        buffer.frame.halo({p(x - 20), p(y + 4), p(x - 17), p(y + 18)}, 0, p(6), orange, 50);
+        text(dc, value, x, y, w, 22, fonts.strong, ink, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+    }
     int cut(int radius) const { return std::max(2, p(radius) * 3 / 5); }
     void box(HDC dc, RECT rect, COLORREF color, COLORREF outline = border, int radius = 10) {
         SetDCBrushColor(dc, color);
@@ -1054,6 +1059,7 @@ struct Window {
         SelectObject(dc, oldPen);
     }
     void panelBox(HDC dc, int left, int top, int right, int bottom) {
+        fill(dc, {p(left) + cut(12), p(bottom), p(right) - 2, p(bottom) + p(2)}, mix(background, RGB(0, 0, 0), 120));
         box(dc, {p(left), p(top), p(right), p(bottom)}, panel, mix(panel, border, 150), 12);
         fill(dc, {p(left) + cut(12) + 1, p(top) + 1, p(right) - 2, p(top) + 2}, mix(panel, ink, 16));
     }
@@ -1796,7 +1802,7 @@ struct Window {
             fill(dc, {row.left + p(6), row.top + p(12), row.left + p(8), row.bottom - p(12)}, orange);
         }
 
-        const int friends = friendsTop(), bottom = std::max(friends + 90, h - 56);
+        const int friends = friendsTop(), bottom = std::max(friends + 90, h - 62);
         panelBox(dc, 12, friends, sidebarWidth - 12, bottom);
         caps(dc, L"FRIENDS", 26, friends + 14, sidebarWidth - 52);
         if (!friendRows.empty()) {
@@ -1812,7 +1818,20 @@ struct Window {
         } else
             text(dc, activeProfile() ? L"Add friends from the Players list on the Online page." : L"Add a profile on the Online page to make friends.",
                  26, friends + 38, sidebarWidth - 52, 40, fonts.caption, muted, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
-        text(dc, L"v" + wide(application_version), 24, h - 38, sidebarWidth - 48, 18, fonts.caption, faint);
+        const auto profile = activeProfile();
+        const bool connected = directory && directory->connected() && !directory->name_taken();
+        const int cy = h - 30;
+        if (profile)
+            avatar(dc, p(34), p(cy), p(14), wide(profile->name), profile->id, sidebar, connected ? 1 : 0);
+        else {
+            ellipse(dc, p(34), p(cy), p(15), mix(sidebar, border, 160));
+            ellipse(dc, p(34), p(cy), p(14), mix(sidebar, field, 200));
+            text(dc, L"?", 20, cy - 10, 28, 20, fonts.strong, faint, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        }
+        text(dc, profile ? wide(profile->name) : std::wstring(L"Guest"), 58, cy - 18, sidebarWidth - 70, 20, fonts.strong,
+             profile ? ink : muted, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        text(dc, profile ? (connected ? L"Online" : L"Offline") : L"No online profile", 58, cy + 1, sidebarWidth - 70, 18,
+             fonts.caption, connected ? green : faint, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
     }
     void paintHeader(HDC dc, int w, int content) {
         const wchar_t *titles[] = {L"Play", L"Online", L"Speedrun", L"Mods", L"Saves", L"Settings", L"Updates", L"Import tool", L"Speedrun overlay", L"Arrange tabs", L"Colors"};
@@ -1867,7 +1886,8 @@ struct Window {
             text(dc, subtitles[page], contentLeft, 72, content, 20, fonts.caption, muted,
                  DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
         const auto label = stateLabel();
-        const int labelWidth = measure(dc, label, fonts.caption), left = w - margin - labelWidth;
+        const int labelWidth = measure(dc, label, fonts.caption), left = w - margin - labelWidth - 12;
+        box(dc, {p(left - 24), p(34), p(w - margin), p(60)}, mix(background, stateColor(), 18), mix(background, stateColor(), 60), 8);
         ellipse(dc, p(left - 12), p(47), p(3), stateColor());
         buffer.frame.halo({p(left - 12), p(47), p(left - 11), p(48)}, 0, p(9), stateColor(), 90);
         text(dc, label, left, 38, labelWidth + 4, 20, fonts.caption, muted, DT_LEFT | DT_SINGLELINE | DT_NOPREFIX);
@@ -2072,18 +2092,18 @@ struct Window {
     void paintSaves(HDC dc, int h, int content) {
         const int right = contentLeft + content, panelBottom = h - 64;
         panelBox(dc, contentLeft, 124, right, 194);
-        text(dc, L"Automatic backups", contentLeft + 20, 138, content - 220, 22, fonts.strong);
+        heading(dc, L"Automatic backups", contentLeft + 20, 138, content - 220);
         text(dc, L"Copies your memory card before and after every game session.", contentLeft + 20, 160,
              content - 220, 18, fonts.caption, muted, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
 
         panelBox(dc, contentLeft, 206, right, 322);
-        text(dc, L"Save tools", contentLeft + 20, 218, content - 40, 22, fonts.strong);
+        heading(dc, L"Save tools", contentLeft + 20, 218, content - 40);
         text(dc, L"Manage your memory card and unlocks. Every change is backed up first.",
              contentLeft + 20, 290, content - 40, 18, fonts.caption, muted,
              DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
 
         panelBox(dc, contentLeft, 334, right, panelBottom);
-        text(dc, gameSaveList() ? L"Memory card" : L"Backup history", contentLeft + 20, 348, content - 390, 22, fonts.strong);
+        heading(dc, gameSaveList() ? L"Memory card" : L"Backup history", contentLeft + 20, 348, content - 390);
         if (disc)
             text(dc, std::to_wstring(gameSaveList() ? savedGames.size() : backups.size()) +
                  (gameSaveList() ? L" saves" : L" backups"),
@@ -2116,12 +2136,12 @@ struct Window {
     void paintMods(HDC dc, int h, int content) {
         const int right = contentLeft + content, panelBottom = h - 64;
         panelBox(dc, contentLeft, 124, right, 196);
-        text(dc, L"Mods folder", contentLeft + 20, 136, content - 360, 22, fonts.strong);
+        heading(dc, L"Mods folder", contentLeft + 20, 136, content - 360);
         text(dc, mods::default_mods_directory().make_preferred().wstring(), contentLeft + 20, 160, content - 360, 18,
              fonts.caption, muted, DT_LEFT | DT_SINGLELINE | DT_PATH_ELLIPSIS | DT_NOPREFIX);
         panelBox(dc, contentLeft, 208, right, panelBottom);
         const int half = (content - 52) / 2, contentsLeft = contentLeft + 32 + half;
-        text(dc, L"Load order", contentLeft + 20, 220, 120, 22, fonts.strong);
+        heading(dc, L"Load order", contentLeft + 20, 220, 120);
         text(dc, L"Top to bottom. Later mods win.", contentLeft + 130, 223, half - 110,
              18, fonts.caption, muted, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
         if (!modList.empty()) {
@@ -2291,14 +2311,14 @@ struct Window {
                 message = updateProgress->text;
         }
         panelBox(dc, contentLeft, 124, right, 212);
-        text(dc, L"OpenKai2 v" + wide(application_version), contentLeft + 20, 136, content - 200, 24, fonts.strong);
+        heading(dc, L"OpenKai2 v" + wide(application_version), contentLeft + 20, 136, content - 200);
         text(dc, release ? L"Version " + wide(release->version) + L" is available." : std::wstring(L"You have this version installed."),
              contentLeft + 20, 162, content - 200, 18, fonts.caption, release ? gold : muted, DT_LEFT | DT_SINGLELINE | DT_NOPREFIX);
         text(dc, message, contentLeft + 20, 184, content - 200, 18, fonts.caption, updateError ? red : muted,
              DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
         const Grid grid(content);
         panelBox(dc, contentLeft, 224, right, 372);
-        text(dc, L"Preferences", contentLeft + 20, 236, content - 40, 22, fonts.strong);
+        heading(dc, L"Preferences", contentLeft + 20, 236, content - 40);
         caps(dc, L"UPDATE CHANNEL", grid.x(0), Grid::label(236, 0), grid.column);
         caps(dc, L"AUTOMATIC UPDATES", grid.x(1), Grid::label(236, 0), grid.column);
         caps(dc, L"MANUAL CHECK", grid.x(2), Grid::label(236, 0), grid.column);
@@ -2306,7 +2326,7 @@ struct Window {
                                         : L"Stable: only versions marked stable.",
              grid.x(0), 344, content - 40, 18, fonts.caption, muted, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
         panelBox(dc, contentLeft, 384, right, std::min(h - 64, 518));
-        text(dc, L"How updates install", contentLeft + 20, 396, content - 40, 22, fonts.strong);
+        heading(dc, L"How updates install", contentLeft + 20, 396, content - 40);
         text(dc, L"With automatic updates on, the launcher looks for a new version between game sessions. A found update downloads, "
                  L"is checked against its published SHA-256, and installs after the game closes; your settings, saves and mods are kept. "
                  L"If GitHub is busy, the launcher tries again a few times.",
@@ -2334,8 +2354,8 @@ struct Window {
     void paintColors(HDC dc, int h, int content) {
         const int right = contentLeft + content, panelBottom = h - 64;
         panelBox(dc, contentLeft, 124, right, 196);
-        text(dc, std::wstring(L"Theme ") + themes[std::min(settings.launcherTheme, theme_count - 1u)].name,
-             contentLeft + 20, 136, content - 200, 22, fonts.strong);
+        heading(dc, std::wstring(L"Theme ") + themes[std::min(settings.launcherTheme, theme_count - 1u)].name,
+                contentLeft + 20, 136, content - 200);
         text(dc, L"Double-click a part to recolor it.", contentLeft + 20, 160, content - 200, 18, fonts.caption, muted,
              DT_LEFT | DT_SINGLELINE | DT_NOPREFIX);
         panelBox(dc, contentLeft, 208, right, panelBottom);
@@ -2349,7 +2369,7 @@ struct Window {
     void paintTabs(HDC dc, int h, int content) {
         const int right = contentLeft + content, panelBottom = h - 64;
         panelBox(dc, contentLeft, 124, right, 196);
-        text(dc, L"Your sidebar", contentLeft + 20, 136, content - 200, 22, fonts.strong);
+        heading(dc, L"Your sidebar", contentLeft + 20, 136, content - 200);
         text(dc, L"Pick a tab, then move it up or down or hide it. Ctrl+1 to Ctrl+7 follow the order shown. "
                  L"Play and Settings are always shown.",
              contentLeft + 20, 160, content - 200, 32, fonts.caption, muted, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
@@ -2360,7 +2380,7 @@ struct Window {
         const int right = contentLeft + content, panelBottom = h - 64, half = (content - 52) / 2;
         const int side = contentLeft + 32 + half, column = (content - 52 - half - 12) / 2;
         panelBox(dc, contentLeft, 124, right, 196);
-        text(dc, L"Tracked automatically", contentLeft + 20, 136, content - 200, 22, fonts.strong);
+        heading(dc, L"Tracked automatically", contentLeft + 20, 136, content - 200);
         text(dc, L"Splits happen on each battle won. Your best run, best segments and every attempt are saved after each run. "
                  L"In game: F7 hides the overlay, F8 resets.",
              contentLeft + 20, 160, content - 200, 32, fonts.caption, muted, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
@@ -2687,7 +2707,7 @@ struct Window {
         auto section = [&](int left, int top, int edge, int bottom, const wchar_t *title, const std::wstring &note,
                            int noteRight = 0, size_t count = 0) {
             panelBox(dc, left, top, edge, bottom);
-            text(dc, title, left + 20, top + 12, 200, 22, fonts.strong);
+            heading(dc, title, left + 20, top + 12, 200);
             int noteLeft = left + 20 + measure(dc, title, fonts.strong) + 12;
             if (count) {
                 const auto number = std::to_wstring(count);
@@ -2802,7 +2822,7 @@ struct Window {
                   gameTop = grid.gameTop, updatesTop = grid.updatesTop;
         auto section = [&](int top, int rows, const wchar_t *title, const std::wstring &note, COLORREF tone) {
             panelBox(dc, contentLeft, top, right, grid.bottom(top, rows));
-            text(dc, title, contentLeft + 20, top + 12, 200, 22, fonts.strong);
+            heading(dc, title, contentLeft + 20, top + 12, 200);
             const int actions = top == updatesTop ? 270 : top == gameTop ? 190 : 0;
             text(dc, note, contentLeft + 120, top + 14, content - 140 - actions, 18,
                  fonts.caption, tone, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
@@ -2857,7 +2877,7 @@ struct Window {
         const int rulesTop = compact ? 496 : speedrunRulesTop;
         const int splitBottom = rulesTop - 12;
         panelBox(dc, contentLeft, speedrunTop, right, speedrunTop + 160);
-        text(dc, L"Run", contentLeft + 20, speedrunTop + 12, 200, 22, fonts.strong);
+        heading(dc, L"Run", contentLeft + 20, speedrunTop + 12, 200);
         text(dc, settings.speedrun ? (speedrun::tournament(speedrun::Category(settings.speedrun)) ? L"F9 starts; F10 splits; F11 finishes. F8 resets." : L"Mods are off while a category is chosen. F7 hides the overlay; F8 resets.")
                                    : L"Choose a category to time runs.",
              contentLeft + 120, speedrunTop + 14, content - 324, 28, fonts.caption, muted,
@@ -2941,7 +2961,7 @@ struct Window {
             }
         }
         panelBox(dc, contentLeft, rulesTop, right, h - 58);
-        text(dc, L"How runs are timed", contentLeft + 20, rulesTop + 12, content - 40, 22, fonts.strong);
+        heading(dc, L"How runs are timed", contentLeft + 20, rulesTop + 12, content - 40);
     }
     void paint() {
         PAINTSTRUCT ps{};
@@ -3008,16 +3028,34 @@ struct Window {
         else
             paintSettings(memory, content);
         const int footer = h - 34;
-        rule(memory, contentLeft, footer - 12, content);
+        fill(memory, {p(contentLeft), p(footer - 12), p(contentLeft + content), p(footer - 12) + 1}, mix(background, border, 200));
         std::wstring message = status;
         if (busy()) {
             const auto current = progressText();
             if (!current.empty())
                 message = current;
         }
-        if (error)
-            ellipse(memory, p(contentLeft + 4), p(footer + 9), p(3), red);
-        text(memory, message, contentLeft + (error ? 14 : 0), footer, content - (error ? 14 : 0), 20,
+        const bool connected = directory && directory->connected() && !directory->name_taken();
+        const std::wstring build = L"v" + wide(application_version);
+        const std::wstring link = connected ? std::wstring(L"Online") : activeProfile() ? std::wstring(L"Offline") : std::wstring();
+        const int buildWidth = measure(memory, build, fonts.caption), linkWidth = link.empty() ? 0 : measure(memory, link, fonts.caption);
+        const int right = contentLeft + content;
+        text(memory, build, right - buildWidth, footer, buildWidth + 2, 20, fonts.caption, faint,
+             DT_LEFT | DT_SINGLELINE | DT_NOPREFIX);
+        int used = buildWidth + 18;
+        if (!link.empty()) {
+            const int x = right - used - linkWidth;
+            ellipse(memory, p(x - 10), p(footer + 9), p(3), connected ? green : faint);
+            text(memory, link, x, footer, linkWidth + 2, 20, fonts.caption, connected ? muted : faint,
+                 DT_LEFT | DT_SINGLELINE | DT_NOPREFIX);
+            used += linkWidth + 14;
+            fill(memory, {p(right - buildWidth - 10), p(footer + 4), p(right - buildWidth - 9), p(footer + 15)}, border);
+        }
+        const COLORREF tone = error ? red : busy() ? orange : green;
+        ellipse(memory, p(contentLeft + 4), p(footer + 9), p(3), tone);
+        if (busy())
+            buffer.frame.halo({p(contentLeft + 4), p(footer + 9), p(contentLeft + 5), p(footer + 10)}, 0, p(8), orange, 80);
+        text(memory, message, contentLeft + 14, footer, content - 14 - used - 16, 20,
              fonts.caption, error ? red : muted, DT_LEFT | DT_END_ELLIPSIS | DT_SINGLELINE | DT_NOPREFIX);
         const int task[] = {TaskCharacters, TaskStages, TaskMovesets, TaskCapsules};
         std::vector<int> glowing;
