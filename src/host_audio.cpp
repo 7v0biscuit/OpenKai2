@@ -131,6 +131,7 @@ void stop_host_audio(const void *owner) {
         return;
     active.store(nullptr, std::memory_order_release);
     if (ownDevice) {
+        std::cerr << "[audio:device] " << audio_device_report() << '\n';
         close_audio_device();
         ownDevice = false;
     } else {
