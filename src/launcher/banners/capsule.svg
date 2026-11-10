@@ -1,21 +1,43 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="832" height="232" viewBox="0 0 832 232">
 <defs>
-<pattern id="g1" width="10" height="10" patternUnits="userSpaceOnUse"><path d="M10 0H0V10" fill="none" stroke="#fff" stroke-opacity=".07"/></pattern>
-<pattern id="g2" width="50" height="50" patternUnits="userSpaceOnUse"><path d="M50 0H0V50" fill="none" stroke="#fff" stroke-opacity=".14"/></pattern>
-<radialGradient id="glow" cx=".7" cy=".45" r=".7"><stop offset="0" stop-color="#3d7ad6"/><stop offset="1" stop-color="#1f4f9c"/></radialGradient>
-<linearGradient id="fade" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#173c7a" stop-opacity=".65"/><stop offset=".45" stop-color="#173c7a" stop-opacity=".1"/><stop offset=".6" stop-color="#173c7a" stop-opacity="0"/></linearGradient>
-<marker id="ar" viewBox="0 0 8 8" refX="4" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0L8 4L0 8z" fill="#eaf2ff"/></marker></defs>
-<rect width="832" height="232" fill="url(#glow)"/><rect width="832" height="232" fill="url(#g1)"/><rect width="832" height="232" fill="url(#g2)"/>
-<g fill="none" stroke="#eaf2ff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-<path d="M470 176 h150"/><path d="M482 176 v-28 a63 52 0 0 1 126 0 v28"/><path d="M482 148 h126" stroke-opacity=".5" stroke-dasharray="4 4"/>
-<rect x="530" y="150" width="30" height="26" rx="2"/><path d="M500 140 h14 M576 140 h14" stroke-opacity=".7"/><circle cx="545" cy="112" r="7"/>
+<filter id="riso" x="-5%" y="-5%" width="110%" height="110%"><feTurbulence type="fractalNoise" baseFrequency="1.1" numOctaves="1" seed="41" result="n"/><feColorMatrix in="n" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  -7 0 0 0 5.2" result="m"/><feComposite in="SourceGraphic" in2="m" operator="in" result="s"/><feTurbulence type="fractalNoise" baseFrequency="0.05" numOctaves="2" seed="42" result="w"/><feDisplacementMap in="s" in2="w" scale="3"/></filter>
+<filter id="rough" x="-5%" y="-5%" width="110%" height="110%"><feTurbulence type="fractalNoise" baseFrequency="0.06" numOctaves="3" seed="43"/><feDisplacementMap in="SourceGraphic" scale="3.2"/></filter>
+<filter id="brush" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency="0.02 0.3" numOctaves="2" seed="44" result="t"/><feDisplacementMap in="SourceGraphic" in2="t" scale="7"/></filter>
+<filter id="paper" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="0.7" numOctaves="3" seed="45"/><feColorMatrix values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 .14 -.05"/></filter>
+<filter id="grit" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="46"/><feColorMatrix values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 .25 -.08"/></filter>
+<linearGradient id="fade" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#173c7a" stop-opacity=".94"/><stop offset=".44" stop-color="#173c7a" stop-opacity=".28"/><stop offset=".58" stop-color="#173c7a" stop-opacity="0"/></linearGradient>
+<pattern id="g1" width="12" height="12" patternUnits="userSpaceOnUse"><path d="M12 0H0V12" fill="none" stroke="#eef4ff" stroke-opacity=".08"/></pattern>
+<pattern id="g2" width="60" height="60" patternUnits="userSpaceOnUse"><path d="M60 0H0V60" fill="none" stroke="#eef4ff" stroke-opacity=".16"/></pattern>
+<marker id="ar" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 1 L 9 5 L 0 9" fill="none" stroke="#eef4ff" stroke-width="1.6"/></marker>
+<pattern id="hb" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(30)"><circle cx="2.0" cy="2.0" r="1" fill="#16407e"/></pattern>
+</defs>
+<rect width="832" height="232" fill="#173c7a"/>
+<rect width="832" height="232" fill="#1f4f9a"/>
+<rect width="832" height="232" fill="url(#hb)" opacity=".35"/>
+<g filter="url(#rough)"><rect width="832" height="232" fill="url(#g1)"/><rect width="832" height="232" fill="url(#g2)"/></g>
+<g filter="url(#rough)" fill="none" stroke="#eef4ff" stroke-linecap="round" stroke-linejoin="round">
+<path d="M486 182 H 640" stroke-width="2.2"/><path d="M482 184 H 644" stroke-width=".8" opacity=".6"/>
+<path d="M500 182 V 150 C 500 106 536 80 563 80 C 590 80 626 106 626 150 V 182" stroke-width="2"/>
+<path d="M503 180 V 152 C 503 110 538 84 563 84" stroke-width=".7" opacity=".5"/>
+<path d="M500 150 H 626" stroke-width="1" stroke-dasharray="5 4" opacity=".7"/>
+<rect x="548" y="150" width="30" height="32" rx="2" stroke-width="1.8"/><path d="M563 150 v 32" stroke-width=".8" opacity=".6"/>
+<circle cx="563" cy="112" r="11" stroke-width="1.8"/><path d="M557 112 h 12 M 563 106 v 12" stroke-width="1" opacity=".7"/>
+<path d="M514 134 h 18 M 594 134 h 18" stroke-width="1.6" opacity=".8"/>
+<g stroke-width="1.6"><rect x="690" y="74" width="110" height="42" rx="21"/><path d="M745 74 v 42"/><circle cx="712" cy="95" r="7"/><path d="M760 85 h 26 M 760 95 h 26 M 760 105 h 18" opacity=".7"/></g>
+<path d="M710 95 h 4" stroke-width="1"/>
+<path d="M486 200 H 640" stroke-width="1.1" marker-start="url(#ar)" marker-end="url(#ar)" opacity=".85"/>
+<path d="M486 190 v 16 M 640 190 v 16" stroke-width=".8" opacity=".6"/>
+<path d="M690 130 H 800" stroke-width="1.1" marker-start="url(#ar)" marker-end="url(#ar)" opacity=".85"/>
+<path d="M650 96 C 664 84 676 86 686 92" stroke-width="1.2" stroke-dasharray="3 4"/>
+<g transform="translate(652 156)" stroke-width="1.3"><rect width="170" height="56"/><path d="M0 19 h 170 M 0 37 h 170 M 118 19 v 37" opacity=".6"/></g></g>
+<g font-family="Inter" font-weight="800" fill="#eef4ff" letter-spacing="1.3"><text x="563" y="216" font-size="9" text-anchor="middle" opacity=".85">12.4 m</text><text x="745" y="144" font-size="8.5" text-anchor="middle" opacity=".85">CAPSULE · 1 : 4</text>
+<text x="660" y="170" font-size="8.5">CAPSULE CORP.</text><text x="660" y="188" font-size="7.5" opacity=".75">OPENKAI2 · REL. 99</text><text x="778" y="188" font-size="7.5" opacity=".75">1 : 50</text><text x="660" y="206" font-size="7.5" opacity=".75">DRAWN 11 / 2026</text><text x="778" y="206" font-size="7.5" opacity=".75">1 / 1</text></g>
+<text x="590" y="62" font-family="Gochi Hand" font-size="15" fill="#eef4ff" opacity=".85" transform="rotate(-4 590 62)">dome</text>
+<g filter="url(#rough)"><ellipse cx="712" cy="95" rx="16" ry="14" fill="none" stroke="#ff5a4a" stroke-width="2"/>
+<path d="M726 86 C 736 70 744 60 752 56" fill="none" stroke="#ff5a4a" stroke-width="1.6" stroke-linecap="round"/></g>
+<text x="740" y="50" font-family="Gochi Hand" font-size="14" fill="#ff5a4a" transform="rotate(-3 740 50)">push here</text>
 
-<rect x="680" y="72" width="104" height="40" rx="20"/><path d="M732 72 v40"/><circle cx="700" cy="92" r="6"/><path d="M748 82 h22 M748 92 h22 M748 102 h14" stroke-opacity=".6"/>
-<path d="M470 196 H612" marker-start="url(#ar)" marker-end="url(#ar)" stroke-width="1.1" stroke-opacity=".85"/>
-<path d="M680 128 H784" marker-start="url(#ar)" marker-end="url(#ar)" stroke-width="1.1" stroke-opacity=".85"/>
-<path d="M632 92 Q 660 80 676 88" stroke-dasharray="3 4" stroke-opacity=".7"/></g>
-<g fill="#eaf2ff" font-family="Inter" font-weight="600" letter-spacing="1.2"><text x="541" y="212" font-size="9.5" text-anchor="middle" fill-opacity=".85">12.4 m</text><text x="732" y="142" font-size="9.5" text-anchor="middle" fill-opacity=".85">CAPSULE · 1 : 4</text><text x="594" y="70" font-size="9" fill-opacity=".7">DOME</text></g>
-<g transform="translate(640 160)"><rect width="176" height="58" fill="none" stroke="#eaf2ff" stroke-opacity=".75" stroke-width="1.2"/><path d="M0 20 h176 M0 39 h176 M122 20 v38" stroke="#eaf2ff" stroke-opacity=".45"/>
-<g fill="#eaf2ff" font-family="Inter" font-size="8.5" font-weight="700" letter-spacing="1.2"><text x="8" y="14" fill-opacity=".95">CAPSULE CORP.</text><text x="8" y="33" fill-opacity=".75">OPENKAI2 · REL. 98</text><text x="130" y="33" fill-opacity=".75">1 : 50</text><text x="8" y="52" fill-opacity=".75">DRAWN 11 / 2026</text><text x="130" y="52" fill-opacity=".75">1 / 1</text></g></g>
+<rect width="832" height="232" filter="url(#paper)"/>
+<rect width="832" height="232" filter="url(#grit)"/>
 <rect width="832" height="232" fill="url(#fade)"/>
 </svg>
