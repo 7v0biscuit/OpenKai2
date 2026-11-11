@@ -1,59 +1,53 @@
 # Known issues
 
-OpenKai2 runs the intro, menus, fights and Dragon World. Current work focuses on
-music playback. Gameplay runs at roughly 60 FPS in current playtesting.
+The game has been verified through completion in playtesting. Dragon World has
+been beaten through all nine stages and the ending. Music playback and mod
+tools are the remaining active issue areas.
 
-## Gameplay and graphics
+## Music playback
 
-| Issue | Current status |
-| --- | --- |
-| High internal resolution on slower graphics cards | At 4x the graphics card draws sixteen times the pixels of native resolution. When it cannot keep 60 FPS, the game now lowers the internal resolution a step at a time and raises it again when there is headroom; frame drops caused by the CPU are not affected. |
-| Budokai 3 movesets (experimental) | A forced character with its Budokai 3 moves animates, but buttons may not yet trigger the right moves. |
-| Imported Budokai 3 stages lack animated objects and stage-wide effects | Fight effects such as dust and impacts are imported; moving stage objects are not yet. |
+Music is mixed at 48 kHz stereo from the game's sound chip output. The remaining
+problems concern playback consistency:
 
-The [Dragon World validation record](dragon-world-validation.md) separates
-completed checks from the remaining stage-completion work.
-
-Previously reported distortion of character limbs, hair and accessories is
-resolved and is no longer an active issue.
-The stage 1 Goal transition has also passed testing through entry into stage 2;
-the earlier progression failure has not reproduced on the tested route.
-
-## Audio
-
-Music plays in full quality (48 kHz stereo, mixed from the game's own sound
-chip output), but two problems remain:
-
-- Music pops now and then, starting a few seconds after the main menu loads
-  and continuing at random moments.
-- Music may fail to load after a fight, or fail to resume when returning to
+- Music can pop intermittently, starting a few seconds after the main menu
+  loads.
+- A track may fail to load after a fight or fail to resume when returning to
   character selection.
-- Sound effects generally fare better, but occasional glitches or crackling
-  remain reported.
-- After a long hitch (more than about a tenth of a second) the music fades out
-  briefly and comes back where it left off.
-- When the game runs below about 94% speed, audio is time-stretched to match,
-  which can blur the music. Keeping 60 FPS (for example a lower internal
-  resolution) avoids this.
+- A long frame hitch can briefly interrupt the music. At substantially reduced
+  game speed, time stretching can affect its clarity.
 
-Fixed in v0.1.101: when the game ran slightly below full speed (around 57 to
-59 FPS), music switched to time stretching and parts of it played a second
-time with pops at the joins. Small slowdowns are now absorbed by nudging the
-playback rate by up to 5%, the switch back from stretching continues from the
-exact matching point, and a dropout no longer throws away the buffered music.
-
-The pops and the music failing to load after fights are under investigation.
-Since v0.2.0, `startup.log` ends with an `[audio:device]` line that shows
-whether the sound card had to wait; including it with a report helps.
+The pops and missing tracks remain under investigation. Since v0.2.0,
+`startup.log` ends with an `[audio:device]` line showing whether the output
+buffer ran short; include it when reporting a problem.
 
 As a temporary workaround, set **Music** to **Off** in the launcher. This
 silences music tracks while retaining voices, sound effects and video audio.
+
+## Mod tools
+
+| Issue | Current status |
+| --- | --- |
+| Budokai 3 movesets | Experimental. Imported characters animate, but buttons may not trigger the correct moves. |
+| Imported Budokai 3 stages | Fight effects such as dust and impacts are imported. Moving stage objects and some stage-wide effects are not yet supported. |
+
+See [Modding](modding.md) for the supported import workflow and current limits.
+
+## Gameplay verification
+
+Full Dragon World completion has been reported in playtesting. Earlier
+progression, dialogue and animation reports are no longer listed as active
+issues. The [validation record](dragon-world-validation.md) documents this
+completion status alongside the targeted checks and automated regressions.
+
+For graphics configuration, including internal resolution and automatic
+resolution scaling, see [Graphics](graphics.md).
 
 ## Reporting a problem
 
 Attach `startup.log` from `%LOCALAPPDATA%\OpenKai2\logs` and describe the mode,
 the action immediately before the problem, and whether the window closes or
 remains open. For music problems, include where playback stopped and whether
-voices and sound effects continued. Include `launcher.log` for launcher issues.
+voices and sound effects continued. Include `launcher.log` for launcher or
+import-tool issues.
 
 Report problems through [GitHub Issues](https://github.com/7v0biscuit/OpenKai2/issues/new/choose).

@@ -18,13 +18,16 @@ files.
 [Modding](docs/modding.md) ·
 [Report an issue](https://github.com/7v0biscuit/OpenKai2/issues/new/choose)
 
-> **Early development.** Releases are pre-releases. The game runs, but it is not
-> yet a finished, bug-free port. See [Known issues](#known-issues).
+> **Gameplay verified through completion.** Dragon World has been beaten in
+> playtesting, including all nine stages and the ending. Current work focuses
+> on music playback and mod tools. Releases remain pre-releases while these
+> issues are resolved. See [Known issues](#known-issues).
 
 ## What works
 
-- **The game:** intro, menus, versus fights, and Dragon World with its board and
-  fights. Music, voices and sound effects play.
+- **The game:** intro, menus, versus fights, and Dragon World through all nine
+  stages and the ending. Voices and sound effects play; remaining music issues
+  are listed below.
 - **Graphics:** GPU rendering (OpenGL 4.3 or Vulkan) with a CPU fallback, internal
   resolution up to 4x, HD textures (upscaled from your disc or from texture packs),
   window sizes up to 4K, 16:9, three FXAA levels, and several upscalers including AMD FSR 1.
@@ -35,11 +38,9 @@ files.
 - **Save states:** F5 saves and F9 loads the whole console outside speedrun and online play.
 - **Randomizer:** a random character, with its own moves and skills, for every
   Dragon World and World Tournament fight. Works with speedruns and permadeath.
-- **Launcher:** thirteen hand-printed picture themes (including an all-black
-  Budokai theme, Majin Buu, Babidi and Majin Vegeta), ten accent colors plus a
-  slow RGB cycle, every color changeable on its own, color looks you can copy
-  and share, tabs you can reorder or hide, Load state from the Play page, an
-  Updates page, and a choice of the page it opens on. See [Windows](docs/windows.md).
+- **Launcher:** bottom navigation with reorderable tabs, thirteen picture themes,
+  custom colors, local profile appearance, ISO verification, saves and backups,
+  automatic updates and Discord activity. See [Windows](docs/windows.md).
 - **Controls:** rebind every PS2 button to a key, an alternate key and a controller
   button in the Controls tab. Works with Xbox, PlayStation and most other controllers.
 - **Audio:** volume, and an option to turn off only the music while voices and
@@ -48,12 +49,12 @@ files.
   with F6 in game. See [docs/cpu-difficulty.md](docs/cpu-difficulty.md).
 - **Speedrun mode:** Dragon World and World Tournament category profiles, automatic
   story and Tournament timing, splits, Z1 to Z6 variants, permadeath
-  and checksummed session logs.
+  and checksummed session logs. Custom split names and your own PNG, JPEG or
+  animated GIF icons are supported; PS2 time and verification labels stay fixed.
 - **Mods:** add characters, movesets and stages from other Dragon Ball PS2 games
   without changing your ISO.
 - **Saves:** import, back up and restore memory card saves, with an optional
   unlock-all. Select individual saves or backups in the launcher to restore or delete.
-- **Launcher:** automatic updates, Discord activity, and the settings above.
 
 ## Known issues
 
@@ -64,8 +65,10 @@ files.
 - **Budokai 3 movesets** (experimental): the character animates, but buttons
   may not yet trigger the right moves.
 
-See the [known-issues record](docs/known-issues.md) for current status,
-workarounds and issues awaiting retesting.
+Music playback and mod tools are the remaining active issue areas. See the
+[known-issues record](docs/known-issues.md) for details and workarounds, and the
+[Dragon World validation record](docs/dragon-world-validation.md) for completion
+status and regression coverage.
 
 ## Getting started
 

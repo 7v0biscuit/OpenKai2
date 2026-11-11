@@ -132,8 +132,24 @@ int main() {
         s.onlineKeys = {std::string(64, 'a'), std::string(64, 'b')};
         s.onlineVisibility = 1;
         s.onlineFriends = {{std::string(64, 'a'), std::string(64, 'c'), "Krillin \"K\""}};
+        s.profileStyles={{std::string(64,'a'),"SG","Local only",3},{std::string(64,'b'),"V","Second profile",7}};
+        s.splitStyles={{"any.txt",0,"Raditz",std::string(64,'c')+".gif","My image.gif"},{"tournament-novice.txt",0,"First round",{},{} }};
         write_settings(root / "settings.ini", s);
         auto read = read_settings(root / "settings.ini");
+        require(read.profileStyles.size()==2 && read.profileStyles[0].id==std::string(64,'a') &&
+                    read.profileStyles[0].initials=="SG" && read.profileStyles[0].tagline=="Local only" &&
+                    read.profileStyles[0].accent==3 && read.profileStyles[1].accent==7,"Profile appearance did not round-trip independently");
+        require(read.splitStyles.size()==2 && read.splitStyles[0].run=="any.txt" && read.splitStyles[0].name=="Raditz" &&
+                read.splitStyles[0].image==std::string(64,'c')+".gif" && read.splitStyles[1].name=="First round","Split appearances did not round-trip by category");
+        const auto splitLook=split_appearance(read,"any.txt",root/"images");
+        require(splitLook.names.size()>=1 && splitLook.names[0]=="Raditz" && splitLook.images[0]==root/"images"/(std::string(64,'c')+".gif"),"Runtime split appearance did not match the selected category");
+        require(split_appearance(read,"tournament-novice.txt",root/"images").names[0]=="First round","Runtime split names leaked between categories");
+        auto invalidSplit=s;invalidSplit.splitStyles[0].image="../file.png";rejects([&]{validate_settings(invalidSplit);});
+        invalidSplit=s;invalidSplit.splitStyles.push_back(invalidSplit.splitStyles[0]);rejects([&]{validate_settings(invalidSplit);});
+        invalidSplit=s;invalidSplit.splitStyles[0].index=256;rejects([&]{validate_settings(invalidSplit);});
+        auto invalidStyle=s;invalidStyle.profileStyles.push_back(invalidStyle.profileStyles[0]);rejects([&]{validate_settings(invalidStyle);});
+        invalidStyle=s;invalidStyle.profileStyles[0].tagline="two\nlines";rejects([&]{validate_settings(invalidStyle);});
+        invalidStyle=s;invalidStyle.profileStyles[0].accent=accent_count;rejects([&]{validate_settings(invalidStyle);});
         require(read.iso == s.iso && read.fps == 144 && read.width == 2560 && read.height == 1440 &&
                     read.windowMode == 1 && read.antialiasing == 1 && read.textureFilter == 2 &&
                     read.upscaler == 3 && read.aspect == 1 && !read.vsync && !read.autoBackups &&

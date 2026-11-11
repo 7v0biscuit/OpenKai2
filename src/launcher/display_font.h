@@ -3,6 +3,8 @@
 #include <cstddef>
 
 namespace openkai2::launcher {
+extern const unsigned char ui_font[];
+extern const std::size_t ui_font_size;
 extern const unsigned char display_font[];
 extern const std::size_t display_font_size;
 }

@@ -68,7 +68,7 @@ tried first.
 
 - **Add friend:** pick a player and press **Add friend**. They get a notification
   and can accept. A request sent while they are offline waits until they come
-  online. Friends are listed in the sidebar on every page, online ones first.
+  online. Friends are listed in quick access on Play, online ones first.
   A green dot means online, yellow means in a match or hosting, and grey means
   offline. A friend who is hosting shows the room's name; double-click them to
   join it. Double-click any other friend to invite them, or pick a friend to
@@ -107,3 +107,14 @@ can see it. Use **Not listed** to avoid that.
 To use your own service instead, run `OpenKai2Lobby --port=1883` (built from
 source) or any MQTT broker, and set `online_room ... "<host>:<port>"` in
 `settings.ini`. Everyone who should see each other must use the same service.
+
+## Profile appearance
+
+Use **Profile** in the launcher's header, or **Customize profile** on Play, to
+choose avatar initials, an accent and a short tagline. Appearance is saved
+separately for each profile on this PC. It does not change the public profile
+name, ID or private key, and is not sent to other players.
+
+**Copy profile ID** copies the public ID for sharing. **Use defaults** resets
+appearance without deleting the profile or its friends. If no profile exists,
+the Profile action opens the Online page to create one.

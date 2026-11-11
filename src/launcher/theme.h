@@ -92,7 +92,7 @@ struct ColorRole {
 };
 inline constexpr ColorRole color_roles[] = {
     {L"Background", L"Behind every page", &Theme::background},
-    {L"Sidebar", L"The tab column on the left", &Theme::sidebar},
+    {L"Navigation", L"Header, dock and navigation buttons", &Theme::sidebar},
     {L"Panels", L"Boxes that hold each group of settings", &Theme::panel},
     {L"Fields", L"Dropdowns, lists and text boxes", &Theme::field},
     {L"Buttons", L"Ordinary buttons", &Theme::raised},
@@ -109,7 +109,7 @@ inline constexpr ColorRole color_roles[] = {
     {L"Banner left", L"Left side of the Play banner", &Theme::heroFrom},
     {L"Banner right", L"Right side of the Play banner", &Theme::heroTo},
     {L"Banner title", L"The Budokai 2 title on Play", &Theme::bannerTitle},
-    {L"Banner details", L"Console, region and ID on Play", &Theme::bannerText},
+    {L"Banner details", L"Disc status and details on Play", &Theme::bannerText},
     {L"Success", L"Online, verified and finished states", &Theme::success},
     {L"Errors", L"Problems and warnings", &Theme::error},
     {L"Links", L"Information marks", &Theme::info},

@@ -21,6 +21,7 @@ struct OverlayOptions {
     unsigned cpu = 0, decimals = 2, margin = 1, shape = 0;
     std::string title;
     std::vector<std::string> split_names;
+    std::vector<std::filesystem::path> split_images;
     std::array<std::array<unsigned char, 3>, 4> colors{{{245, 245, 240}, {105, 210, 120}, {232, 102, 88}, {250, 196, 70}}};
     std::filesystem::path logs;
     std::filesystem::path splits;

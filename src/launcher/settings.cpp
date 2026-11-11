@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "launcher/settings.h"
 #include "speedrun.h"
+#include "speedrun_images.h"
 #include "disc_image.h"
 #include "launcher/paths.h"
 #include <algorithm>
+#include <cctype>
+#include <set>
 #include <fstream>
 #include <iomanip>
 #include <sstream>
@@ -13,6 +16,28 @@
 #endif
 
 namespace openkai2::launcher {
+SplitAppearance split_appearance(const Settings& settings, const std::string& run, const std::filesystem::path& image_directory) {
+    SplitAppearance result;
+    size_t start = 0;
+    while (start <= settings.overlaySplitNames.size() && result.names.size() < 256) {
+        const auto end = settings.overlaySplitNames.find(',', start);
+        const auto name = settings.overlaySplitNames.substr(start, end == std::string::npos ? end : end-start);
+        const auto first = name.find_first_not_of(" \t"), last = name.find_last_not_of(" \t");
+        result.names.push_back(first == std::string::npos ? std::string() : name.substr(first,last-first+1));
+        if (end == std::string::npos) break;
+        start = end + 1;
+    }
+    while (!result.names.empty() && result.names.back().empty()) result.names.pop_back();
+    for (const auto& style : settings.splitStyles) {
+        if (style.run != run || style.index >= 256 || !speedrun::valid_image_file(style.image)) continue;
+        if (result.names.size() <= style.index) result.names.resize(style.index+1);
+        if (result.images.size() <= style.index) result.images.resize(style.index+1);
+        result.names[style.index] = style.name;
+        result.images[style.index] = style.image.empty() ? std::filesystem::path() : image_directory/style.image;
+    }
+    return result;
+}
+
 std::filesystem::path textures_directory() {
     return default_cache_directory().parent_path() / "textures";
 }
@@ -34,6 +59,26 @@ void validate_settings(const Settings &s) {
     if (s.launcherTheme >= theme_count || s.launcherAccent >= accent_count || s.startPage > 1 || s.lastPage >= tab_count ||
         !valid_tab_order(s.tabOrder, s.hiddenTabs) || !valid_custom_colors(s.launcherColors))
         throw std::runtime_error("Invalid launcher appearance settings");
+    std::set<std::string> profileIds;
+    if (s.profileStyles.size() > 32) throw std::runtime_error("Too many profile appearances");
+    for (const auto& style : s.profileStyles) {
+        if (style.id.size()!=64 || !std::all_of(style.id.begin(),style.id.end(),[](unsigned char c){return std::isxdigit(c)!=0;}) ||
+            !profileIds.insert(style.id).second || style.accent>=accent_count || style.initials.size()>8 || style.tagline.size()>192 ||
+            style.initials.find_first_of("\r\n")!=std::string::npos || style.tagline.find_first_of("\r\n")!=std::string::npos)
+            throw std::runtime_error("Invalid profile appearance");
+    }
+    if (s.splitStyles.size() > 2048)
+        throw std::runtime_error("Too many split appearance entries");
+    std::set<std::pair<std::string,unsigned>> splitRows;
+    for (const auto& style : s.splitStyles) {
+        if (style.run.empty() || style.run.size() > 128 || !std::all_of(style.run.begin(), style.run.end(), [](unsigned char c) {
+                return std::isalnum(c) || c == '-' || c == '_' || c == '.';
+            }) || style.index >= 256 || !splitRows.emplace(style.run, style.index).second ||
+            style.name.size() > 192 || style.imageName.size() > 1024 ||
+            style.name.find_first_of("\r\n") != std::string::npos || style.imageName.find_first_of("\r\n") != std::string::npos ||
+            !speedrun::valid_image_file(style.image))
+            throw std::runtime_error("Invalid split appearance");
+    }
     if (!input::valid(s.controls))
         throw std::runtime_error("Invalid control bindings");
 }
@@ -168,6 +213,11 @@ Settings read_settings(const std::filesystem::path &file) {
         }
         else if (key == "overlay_custom")
             row >> s.overlayMargin >> s.overlayShape >> std::quoted(s.overlayTitle) >> std::quoted(s.overlaySplitNames);
+        else if (key == "split_style") {
+            Settings::SplitStyle style;
+            row >> std::quoted(style.run) >> style.index >> std::quoted(style.name) >> std::quoted(style.image) >> std::quoted(style.imageName);
+            s.splitStyles.push_back(std::move(style));
+        }
         else if (key == "overlay_style") {
             for (auto &color : s.overlayColors)
                 row >> color;
@@ -179,6 +229,11 @@ Settings read_settings(const std::filesystem::path &file) {
             row >> std::quoted(s.onlineRoom) >> std::quoted(s.onlinePassword) >> s.onlineListed >> std::quoted(s.onlineLobby);
         else if (key == "online_visibility")
             row >> s.onlineVisibility;
+        else if (key == "profile_style") {
+            Settings::ProfileStyle style;
+            row >> std::quoted(style.id) >> style.accent >> std::quoted(style.initials) >> std::quoted(style.tagline);
+            s.profileStyles.push_back(std::move(style));
+        }
         else if (key == "online_friend") {
             Settings::Friend entry;
             row >> entry.owner >> entry.id >> std::quoted(entry.name);
@@ -282,6 +337,11 @@ void write_settings(const std::filesystem::path &file, const Settings &s) {
     out << "\nonline_visibility " << s.onlineVisibility << '\n';
     for (const auto &entry : s.onlineFriends)
         out << "online_friend " << entry.owner << ' ' << entry.id << ' ' << std::quoted(entry.name) << '\n';
+    for (const auto& style : s.profileStyles)
+        out << "profile_style " << std::quoted(style.id) << ' ' << style.accent << ' ' << std::quoted(style.initials) << ' ' << std::quoted(style.tagline) << '\n';
+    for (const auto& style : s.splitStyles)
+        out << "split_style " << std::quoted(style.run) << ' ' << style.index << ' ' << std::quoted(style.name) << ' '
+            << std::quoted(style.image) << ' ' << std::quoted(style.imageName) << '\n';
     out.close();
     if (!out)
         throw std::runtime_error("Cannot finish saving settings");

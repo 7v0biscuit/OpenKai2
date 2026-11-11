@@ -43,6 +43,12 @@ struct Settings {
     unsigned overlayDecimals = 2;
     unsigned overlayMargin = 1, overlayShape = 0;
     std::string overlayTitle, overlaySplitNames;
+    struct SplitStyle {
+        std::string run;
+        unsigned index = 0;
+        std::string name, image, imageName;
+    };
+    std::vector<SplitStyle> splitStyles;
     std::string onlineName = "Player";
     std::string onlineAddress;
     unsigned onlinePort = 7350, onlineDelay = 0;
@@ -53,6 +59,11 @@ struct Settings {
         std::string owner, id, name;
     };
     std::vector<Friend> onlineFriends;
+    struct ProfileStyle {
+        std::string id, initials, tagline;
+        unsigned accent = 0;
+    };
+    std::vector<ProfileStyle> profileStyles;
     std::string onlineRoom, onlinePassword, onlineLobby;
     bool onlineListed = true;
     unsigned launcherTheme = 0, launcherAccent = 0, startPage = 0, lastPage = 0;
@@ -60,6 +71,12 @@ struct Settings {
     unsigned hiddenTabs = 0;
     CustomColors launcherColors = no_custom_colors();
 };
+struct SplitAppearance {
+    std::vector<std::string> names;
+    std::vector<std::filesystem::path> images;
+};
+SplitAppearance split_appearance(const Settings& settings, const std::string& run, const std::filesystem::path& image_directory);
+
 std::filesystem::path settings_path();
 std::filesystem::path textures_directory();
 Settings read_settings(const std::filesystem::path &file);

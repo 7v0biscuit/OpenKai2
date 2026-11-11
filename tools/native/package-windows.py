@@ -163,8 +163,9 @@ def main():
             'execution. Allow disk space for an extracted copy in\n'
             '%LOCALAPPDATA%\\OpenKai2\\discs.\n\n'
             'Startup log: %LOCALAPPDATA%\\OpenKai2\\logs\\startup.log\n\n'
-            'This is a development build. Title-screen boot and gameplay have not\n'
-            'been verified. A successful build or disc check is not game-boot proof.\n'
+            'Gameplay has been verified through completion in playtesting. Music\n'
+            'playback and mod tools remain in development. Completion records and\n'
+            'targeted automated checks are documented in the source repository.\n'
             'Source and build instructions: https://github.com/7v0biscuit/OpenKai2\n',
             encoding='utf-8')
         payload = {}
@@ -175,8 +176,10 @@ def main():
                             (ROOT / 'src/launcher/version.h').read_text()).group(1)
         manifest = {'architecture': 'windows-x64', 'version': version,
                     'source_revision': source_revision,
-                    'game_boot_verified': False,
-                    'gameplay_verified': False, 'files_sha256': payload,
+                    'gameplay_status': 'playable',
+                    'completion_status': 'reported_complete',
+                    'completion_reference': 'https://github.com/7v0biscuit/OpenKai2/blob/main/docs/dragon-world-validation.md',
+                    'automated_full_playthrough': False, 'files_sha256': payload,
                     'imports': {path.name: pe_imports(path) for path in root.iterdir()
                                 if path.suffix.lower() in ('.exe', '.dll')}}
         (root / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')

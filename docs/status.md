@@ -1,26 +1,21 @@
 # Development status
 
 OpenKai2 boots the USA game ISO and runs the intro, menus, versus fights and
-Dragon World. Current playtesting reaches roughly 60 FPS through the game.
+Dragon World. Gameplay has been verified through completion in playtesting,
+including all nine Dragon World stages and the ending. Current playtesting
+reaches roughly 60 FPS through the game.
 
-Dragon World is playable in current playtesting. The stage 1 Goal transition
-has passed through entry into stage 2, ally selection and return to board
-control. Full story completion has not been independently verified through
-all nine stages and the ending.
-
-See [Known issues](known-issues.md) for the current problem list and temporary
-workarounds, and [Dragon World validation](dragon-world-validation.md) for the
-progression checks completed so far. Previously reported character animation
-distortion is resolved.
+Music playback and mod tools are the remaining active issue areas. See
+[Known issues](known-issues.md) for details and workarounds, and
+[Dragon World validation](dragon-world-validation.md) for the completion record
+and targeted regression coverage.
 
 ## Current priorities
 
-1. Improve music quality and prevent tracks stopping after fights or scene
+1. Prevent music pops and tracks failing to resume after fights or scene
    changes.
-2. Match Budokai 3 moveset buttons to the right moves, and import moving stage
-   objects and capsules.
-3. Extend Dragon World validation through all nine stages, saving, loading
-   and the ending.
+2. Match imported Budokai 3 moveset buttons to the correct moves and extend
+   support for moving stage objects, stage-wide effects and capsule imports.
 
 ## Runtime
 
@@ -46,9 +41,8 @@ and time stretching for slow frames.
 
 Music plays in full quality but still pops now and then, starting a few
 seconds after the main menu loads, and may fail to load after a fight or when
-returning to character selection. Occasional sound-effect
-glitches are also reported. Offline mixer and buffer checks pass, but scene
-transitions still need in-game testing.
+returning to character selection. Offline mixer and buffer checks pass;
+scene-transition playback remains under investigation.
 
 ## Validation and releases
 
@@ -65,8 +59,9 @@ display paths. The release workflow checks portable launch, update recovery,
 installation and uninstall on Windows before publication. Payload checksums
 and embedded source revisions identify each build.
 
-CI runs without a game disc. Complete story progression and stage-specific
-performance therefore require separate gameplay testing with an owned ISO.
+CI runs without a game disc. The full-game completion record comes from
+playtesting with an owned ISO; automated checks cover specific runtime and
+launcher behavior.
 
 See [Building](building.md), [Windows setup](windows.md) and
 [Release packaging](releases.md) for the build and release procedures.

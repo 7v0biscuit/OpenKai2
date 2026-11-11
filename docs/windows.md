@@ -1,16 +1,30 @@
 # Windows build and startup
 
-OpenKai2 is in development. The runtime reaches menus, versus fights and opening
-story sequences. Progression, performance and complete matches need validation.
+Gameplay has been verified through completion in playtesting. Current work
+focuses on music playback and mod tools.
 
 ## Launcher preferences
 
-The launcher has seven pages: **Play**, **Online**, **Speedrun**, **Mods**,
-**Saves**, **Settings** and **Updates** (Ctrl+1 to Ctrl+7, in the order shown in
-the sidebar). The sidebar groups them under **Game** (Play, Online, Speedrun)
-and **Library** (Mods, Saves, Settings, Updates); Online shows how many friends
-are online and Mods how many mods are on. Friends sit in their own box below the
-tabs, with a green dot for each friend who is online. See [Online play](online.md) and
+The bottom navigation dock has eight pages: **Play**, **Online**, **Speedrun**,
+**Mods**, **Saves**, **Controls**, **Settings** and **Updates**. Ctrl+1 to Ctrl+8
+follow the visible dock order. **Arrange tabs** lets you put tabs in any order or hide the ones you do not use. Play and
+Settings remain visible.
+
+Hover over a dock tab to see its keyboard shortcut. **Ctrl+O** selects an ISO,
+**F5** starts the game after verification, and **Ctrl+L** opens logs.
+**Alt+Left** or **Esc** returns from a detail page. In dropdowns, Enter confirms
+a choice and Esc cancels it; browsing the list does not change saved settings.
+
+**Play** keeps the game image, ISO verification, current release notes and
+profile shortcuts together. Theme artwork stays behind the title with a
+readability overlay. Inter is bundled for interface text and Barlow Condensed
+for the game title; both scale with Windows display scaling. The profile panel
+provides shortcuts to Controls, Saves, Settings and Arrange tabs. Existing
+friends appear below these shortcuts when available. Smaller windows scroll the
+page while the header and navigation dock stay in place. The overlay editor
+keeps its preview available by scrolling instead of hiding it.
+
+See [Online play](online.md) and
 [Speedrun mode](speedrun.md). **Settings** groups display mode, resolution, aspect ratio,
 frame rate cap and VSync; CPU difficulty, HD textures, music, the FPS
 counter and the randomizer (**Game**, see below); renderer, anti-aliasing (FXAA, FXAA High or FXAA Ultra),
@@ -68,7 +82,7 @@ A message in the corner names your new character when a fight starts.
   redrawn at 60 FPS. Accent colors removed in v0.1.100 move to the closest one
   that remains (for example Crimson to Red, Amber to Gold, Teal to Cyan).
 - **Colors…:** recolor any part of the launcher with the Windows color picker:
-  background, sidebar, panels, fields, buttons and their hover color, borders,
+  background, navigation, panels, fields, buttons and their hover color, borders,
   the three text shades, accent, highlight, glow, main buttons and their text,
   both sides of the Play banner with its title and details, success, error and
   link colors, and the Dragon Ball with its stars. Pick a part and choose
@@ -78,8 +92,8 @@ A message in the corner names your new character when a fight starts.
 - **Copy colors / Paste colors:** copy your whole look (theme, accent and every
   changed color) as one line of text, and paste a look you saved or someone
   shared to apply it. **Surprise me** picks a random theme and accent.
-- **Arrange tabs…:** move tabs up or down and hide the ones you do not use.
-  Play and Settings are always shown. Ctrl+1 to Ctrl+7 follow your order.
+- **Arrange tabs…:** move tabs up or down and hide the ones you do not use. Play and Settings are always shown.
+  Ctrl+1 to Ctrl+8 follow the visible dock order.
 - **Start on:** open the launcher on Play or on the last page you used.
 
 Changes apply at once and are saved with your other settings.
@@ -95,7 +109,7 @@ The **Mods** page lists installed mods in load order and opens the import
 tool, which copies characters, movesets and stages from a PS2 ISO or your own
 files into a mod. See [Modding](modding.md).
 
-**Discord activity** in the sidebar controls Rich Presence for the launcher and
+Discord activity follows the launcher and
 game, including a running session. It uses the Discord desktop client and the
 same application icon. See [Discord activity](discord.md) for art-asset setup.
 

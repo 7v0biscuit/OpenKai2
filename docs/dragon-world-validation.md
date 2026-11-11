@@ -1,13 +1,17 @@
 # Dragon World validation
 
-Full completion is not yet verified. Callback registration and component tests
-cover individual operations; they do not replace a playthrough through all nine
-stages and the ending.
+Dragon World has been beaten through all nine stages and the ending in
+playtesting. Full-game completion is now the recorded gameplay status. Music
+playback and mod tools remain the active issue areas.
 
-## Current in-game checks
+This completion report is separate from the targeted runtime checks below.
+Callback registration and component tests verify individual operations; they
+are not themselves a full playthrough.
 
-The following checks use the supported USA disc, Vulkan and native internal
-resolution. The test environment uses software rendering, so its frame rate
+## Targeted in-game checks
+
+The following earlier checks used the supported USA disc, Vulkan and native
+internal resolution. They ran with software rendering, so their frame rate
 does not measure performance on a hardware Vulkan device.
 
 | Check | Observed result |
@@ -21,16 +25,17 @@ does not measure performance on a hardware Vulkan device.
 | Dialogue and ally confirmation labels | Fixed: story dialogue and the "Is this okay?" prompt show their text. |
 | Clear stage 1 and enter stage 2 | Passed on v0.1.84: after both bosses were defeated, Goku moved to the Goal and the snow stage opened. |
 | Complete stage 2 setup | Objective, ally selection and keyboard confirmation completed; board control returned. |
-| Complete stages 2–9 and the ending | Not yet verified. |
+| Complete stages 2–9 and the ending | Completed in subsequent playtesting; full Dragon World completion reported. |
 
 Combat transitions were accelerated with reduced opponent health and maintained
 player health and ki. Enemy board health was also reduced for the boss checks.
 Movement, battle outcome handling and scene transitions still execute the game
 code. These checks do not establish that ordinary combat is free of faults.
 
-## Completion checklist
+## Regression checklist
 
-For each stage, retain a checkpoint before its final enemy and verify:
+When changing story progression, retain a checkpoint before each stage's final
+enemy and verify:
 
 - Required board events and movement paths finish and return control.
 - Battles return to the correct board state after both a win and a loss.
@@ -39,9 +44,9 @@ For each stage, retain a checkpoint before its final enemy and verify:
   the Goal where required.
 - Saving, closing the game and loading restores the expected progress.
 
-After stage 9, verify the ending and the return to a usable menu, then repeat
-the critical transitions without combat acceleration. Check skill-shop entry
-and exit, save persistence and the default rendering configuration separately.
+Include the ending and return to a usable menu in future progression checks.
+Repeat critical transitions without combat acceleration, and check skill-shop
+entry and exit, save persistence and the default rendering configuration.
 
 ## Graphics regression coverage
 

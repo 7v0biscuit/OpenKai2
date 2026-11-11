@@ -19,6 +19,7 @@
 #include "launcher/version.h"
 #include "speedrun_host.h"
 #include "speedrun_overlay.h"
+#include "speedrun_items.h"
 #include "machine_state.h"
 #include "netplay_game.h"
 #include "runtime/ee_scheduler.h"
@@ -292,9 +293,6 @@ int main(int argc, char* argv[]) {
             overlay.size=preferences.overlaySize;
             overlay.background=preferences.overlayBackground;
             overlay.margin=preferences.overlayMargin;overlay.shape=preferences.overlayShape;overlay.title=preferences.overlayTitle;
-            {std::string name;for(const char c:preferences.overlaySplitNames+","){if(c==','){const auto first=name.find_first_not_of(' '),last=name.find_last_not_of(' ');
-                overlay.split_names.push_back(first==std::string::npos ? std::string() : name.substr(first,last-first+1));name.clear();}else name+=c;}
-             while(!overlay.split_names.empty() && overlay.split_names.back().empty())overlay.split_names.pop_back();}
             overlay.split_rows=run::overlay_split_rows[std::min(preferences.overlaySplits,3u)];
             overlay.cpu=online.enabled ? 0u : std::min(preferences.cpuDifficulty,6u);
             overlay.randomizer=preferences.randomizer && !online.enabled;
@@ -305,6 +303,10 @@ int main(int argc, char* argv[]) {
             }
             overlay.logs=log.path.parent_path()/"speedruns";
             overlay.splits=log.path.parent_path().parent_path()/"splits"/run::splits_name(category,overlay.permadeath,overlay.cpu,overlay.randomizer);
+            const auto appearance=openkai2::launcher::split_appearance(preferences,overlay.splits.filename().string(),
+                openkai2::launcher::settings_path().parent_path()/"overlay"/"images");
+            overlay.split_names=appearance.names;overlay.split_images=appearance.images;
+            overlay.items|=run::overlay_bit(run::show_timer)|run::overlay_bit(run::show_splits);
             if (speedrun) {
                 std::vector<run::DiscFileHash> hashes;
                 for (const auto& file : disc.files) hashes.push_back({file.path.generic_string(),file.sha256});

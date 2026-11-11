@@ -3,6 +3,9 @@
 #include "speedrun_overlay.h"
 #include "speedrun_host.h"
 #include "speedrun_items.h"
+#include "speedrun_images.h"
+#include <map>
+#include <stdexcept>
 #include "frame_presenter.h"
 #include "host_input.h"
 #include "machine_state.h"
@@ -238,6 +241,45 @@ struct Overlay {
     double skip_started = 0, last_press = 0;
     uint64_t last_fields = 0;
     bool own_font = false, own_label = false;
+    struct ImageAsset {
+        SplitImage image;
+        Texture2D texture{};
+        size_t frame = 0;
+    };
+    std::map<std::filesystem::path,ImageAsset> split_images;
+    void load_split_images() {
+        constexpr size_t cache_limit = 128u*1024u*1024u;
+        size_t used = 0;
+        for (const auto& path : options.split_images) {
+            if (path.empty() || split_images.count(path)) continue;
+            auto& asset=split_images[path];
+            try {
+                asset.image=load_split_image(path);
+                size_t bytes=0;for(const auto& frame:asset.image.frames)bytes+=frame.rgba.size();
+                if (bytes > cache_limit-used) throw std::runtime_error("Use fewer or smaller animated split images in this run.");
+                used+=bytes;
+                Image image{asset.image.frames.front().rgba.data(),int(asset.image.width),int(asset.image.height),1,PIXELFORMAT_UNCOMPRESSED_R8G8B8A8};
+                asset.texture=LoadTextureFromImage(image);
+                if(asset.texture.id)SetTextureFilter(asset.texture,TEXTURE_FILTER_BILINEAR);
+            } catch(const std::exception& error) {
+                asset.image={};
+                std::cout<<"[speedrun:image] "<<path.filename().string()<<": "<<error.what()<<std::endl;
+            }
+        }
+    }
+    void draw_split_image(const std::filesystem::path& path,float x,float y,float size,double now) {
+        const auto found=split_images.find(path);
+        if(found==split_images.end() || !found->second.texture.id)return;
+        auto& asset=found->second;
+        const auto frame=asset.image.frame_at(uint64_t(std::max(0.0,now)*1000));
+        if(frame!=asset.frame) {
+            UpdateTexture(asset.texture,asset.image.frames[frame].rgba.data());asset.frame=frame;
+        }
+        const float scale=std::min(size/asset.image.width,size/asset.image.height);
+        const float width=asset.image.width*scale,height=asset.image.height*scale;
+        DrawTexturePro(asset.texture,{0,0,float(asset.texture.width),float(asset.texture.height)},
+            {x+(size-width)/2,y+(size-height)/2,width,height},{0,0},0,WHITE);
+    }
 
     void note(const std::string &line) {
         std::cout << "[speedrun] " << line << std::endl;
@@ -456,26 +498,27 @@ struct Overlay {
     }
 
     void load_font() {
-        if (const char *windows = std::getenv("WINDIR"))
-            for (const char *name : {"seguisb.ttf", "segoeuib.ttf", "segoeui.ttf", "tahomabd.ttf", "arialbd.ttf"}) {
-                const std::string path = std::string(windows) + "\\Fonts\\" + name;
-                if (FileExists(path.c_str())) {
-                    font = LoadFontEx(path.c_str(), 72, nullptr, 0);
-                    break;
-                }
-            }
-        own_label = font.texture.id != 0;
-        label_font = own_label ? font : GetFontDefault();
+        std::set<int> glyphs;
+        for(int code=32;code<127;++code)glyphs.insert(code);
+        auto collect=[&](const std::string& value) {
+            int count=0;auto points=LoadCodepoints(value.c_str(),&count);
+            if(points) {for(int i=0;i<count;++i)glyphs.insert(points[i]);UnloadCodepoints(points);}
+        };
+        collect(options.title);for(const auto& name:options.split_names)collect(name);
+        std::vector<int> codepoints(glyphs.begin(),glyphs.end());
 #ifdef _WIN32
-        if (font.texture.id == 0)
-            font = LoadFontFromMemory(".ttf", launcher::display_font, int(launcher::display_font_size), 72,
-                                      nullptr, 0);
+        font=LoadFontFromMemory(".ttf",launcher::ui_font,int(launcher::ui_font_size),72,codepoints.data(),int(codepoints.size()));
 #endif
-        own_font = font.texture.id != 0;
-        if (own_font)
-            SetTextureFilter(font.texture, TEXTURE_FILTER_BILINEAR);
-        else
-            font = GetFontDefault();
+        if(!font.texture.id)
+            if (const char* windows=std::getenv("WINDIR"))
+                for (const char* name : {"seguisb.ttf","segoeuib.ttf","segoeui.ttf","tahomabd.ttf","arialbd.ttf"}) {
+                    const std::string path=std::string(windows)+"\\Fonts\\"+name;
+                    if(FileExists(path.c_str())) {font=LoadFontEx(path.c_str(),72,codepoints.data(),int(codepoints.size()));break;}
+                }
+        own_font=own_label=font.texture.id!=0;
+        if(own_font)SetTextureFilter(font.texture,TEXTURE_FILTER_BILINEAR);
+        else font=GetFontDefault();
+        label_font=font;
     }
 
     float draw_text(const Font &face, bool smooth, const std::string &value, float x, float y, float size,
@@ -509,6 +552,7 @@ struct Overlay {
         Color left_color{}, middle_color{}, right_color{};
         float size = 14;
         bool timer = false, highlight = false, rule = false;
+        std::filesystem::path image;
     };
 
     void draw(double now) {
@@ -517,7 +561,7 @@ struct Overlay {
         if (hidden && !speedrun)
             return;
         const float scale_choice[] = {0.85f, 1.0f, 1.25f, 1.5f};
-        const float s = std::max(0.75f, float(GetScreenHeight()) / 1080.0f) * scale_choice[std::min(options.size, 3u)];
+        float s = std::max(0.75f, float(GetScreenHeight()) / 1080.0f) * scale_choice[std::min(options.size, 3u)];
         const auto pick = [&](unsigned role, unsigned char alpha) {
             const auto &c = options.colors[role];
             return Color{c[0], c[1], c[2], alpha};
@@ -591,6 +635,7 @@ struct Overlay {
                 row.left = split.name;
                 if (split.index < options.split_names.size() && !options.split_names[split.index].empty())
                     row.left = options.split_names[split.index];
+                if (split.index < options.split_images.size()) row.image=options.split_images[split.index];
                 row.left_color = split.done || split.current ? white : grey;
                 if (split.has_delta) {
                     row.middle = format_delta(split.delta);
@@ -651,6 +696,10 @@ struct Overlay {
         if (rows.empty())
             return;
 
+        const float edge[] = {4.0f, 14.0f, 40.0f};
+        float height_units=22;
+        for(const auto& row:rows)height_units+=row.rule?row.size:row.timer?row.size*1.1f:row.size*1.6f;
+        s=std::min(s,float(GetScreenHeight())/(height_units+2*edge[std::min(options.margin,2u)]));
         const float pad = 11 * s, gap = 14 * s;
         float column = 0;
         for (const auto &row : rows)
@@ -662,6 +711,7 @@ struct Overlay {
                 continue;
             const float size = row.size * s;
             float need = row.left.empty() ? 0 : label_width(row.left, row.timer ? 12 * s : size) + gap;
+            if(!row.image.empty())need+=24*s;
             if (row.timer)
                 need += text_width(row.right, size);
             else if (!row.middle.empty() || row.size == 14)
@@ -670,11 +720,11 @@ struct Overlay {
                 need += label_width(row.right, size);
             width = std::max(width, need + pad * 2);
         }
-        width = std::ceil(width);
+        const float margin = edge[std::min(options.margin,2u)]*s;
+        width = std::min(std::ceil(width),std::max(1.0f,float(GetScreenWidth())-margin*2));
         float height = pad * 2;
         for (const auto &row : rows)
             height += row.rule ? row.size * s : row.timer ? row.size * s * 1.1f : row.size * s * 1.6f;
-        const float edge[] = {4.0f, 14.0f, 40.0f}, margin = edge[std::min(options.margin, 2u)] * s;
         const float x = corner % 2 == 0 ? margin : float(GetScreenWidth()) - width - margin;
         float y = corner < 2 ? margin : float(GetScreenHeight()) - height - margin;
         const unsigned char shade[] = {0, 105, 180, 55, 235};
@@ -682,6 +732,15 @@ struct Overlay {
             DrawRectangleRounded({x, y, width, height}, options.shape ? 0.0f : 0.06f, 6, Color{10, 12, 18, alpha});
         y += pad;
         const float left = x + pad, right = x + width - pad;
+        const auto fit = [&](std::string value,float available,float size) {
+            if(label_width(value,size)<=available)return value;
+            while(!value.empty() && label_width(value+"...",size)>available) {
+                size_t at=value.size()-1;
+                while(at && (static_cast<unsigned char>(value[at])&0xC0)==0x80)--at;
+                value.resize(at);
+            }
+            return label_width("...",size)<=available ? value+"..." : std::string();
+        };
         for (const auto &row : rows) {
             const float size = row.size * s;
             if (row.rule) {
@@ -695,11 +754,17 @@ struct Overlay {
                 DrawRectangleRounded({x + 3 * s, y, width - 6 * s, line}, 0.3f, 4, Color{255, 255, 255, 24});
             if (row.timer) {
                 if (!row.left.empty())
-                    label(row.left, left, y + line - 17 * s, 12 * s, row.left_color);
+                    label(fit(row.left,std::max(0.0f,right-left-text_width(row.right,size)-gap),12*s), left, y + line - 17 * s, 12 * s, row.left_color);
                 text(row.right, right - text_width(row.right, size), top, size, row.right_color);
             } else {
+                float name_left=left;
+                if(!row.image.empty()) {
+                    draw_split_image(row.image,left,y+(line-18*s)/2,18*s,now);name_left+=24*s;
+                }
+                const float occupied=row.middle.empty() ? label_width(row.right,size)+gap :
+                    column+gap*2+label_width(row.middle,size);
                 if (!row.left.empty())
-                    label(row.left, left, top, size, row.left_color);
+                    label(fit(row.left,std::max(0.0f,right-name_left-occupied),size), name_left, top, size, row.left_color);
                 if (!row.right.empty())
                     label(row.right, right - label_width(row.right, size), top, size, row.right_color);
                 if (!row.middle.empty())
@@ -713,8 +778,10 @@ struct Overlay {
 std::unique_ptr<Overlay> overlay;
 
 void start(PS2Runtime &, void *) {
-    if (overlay)
+    if (overlay) {
         overlay->load_font();
+        if (overlay->speedrun) overlay->load_split_images();
+    }
 }
 
 void report_gpu_waits(double now) {
@@ -822,6 +889,8 @@ void shutdown(PS2Runtime &, void *) {
         }
         overlay->note("session closed");
     }
+    for(auto& [path,asset]:overlay->split_images)if(asset.texture.id)UnloadTexture(asset.texture);
+    overlay->split_images.clear();
     if (overlay->own_font)
         UnloadFont(overlay->font);
     overlay->own_font = overlay->own_label = false;

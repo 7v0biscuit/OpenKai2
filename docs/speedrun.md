@@ -91,21 +91,30 @@ moderators before submitting a run.
 
 ## Overlay
 
-**Customize overlay…** on the Speedrun page opens the overlay page. Pick the
-items to show, the corner, the size (up to Extra large), the background (None,
-Faint, Light, Dark or Solid) and how many splits are listed, the colors of the
-text, of times ahead and behind and of best segments, and whether times show
-milliseconds, hundredths, tenths or whole seconds. You can also set:
+**Customize overlay…** opens the split editor and presentation settings.
+Choose a split, edit its name and press **Save name** or Enter. **Add split row**
+adds another appearance entry. **Use default** restores that row's standard name
+and removes its image. These changes leave recorded split times unchanged.
+Names and images are kept separately for each category, difficulty, randomizer
+and permadeath setting.
 
-- **Distance from edge:** Tight, Normal or Wide.
-- **Corners:** Rounded or Square.
-- **Title:** your own heading at the top of the overlay, up to 48 characters.
-- **Split names:** your own names for the splits, separated by commas. The
-  first name replaces the first split, the second the second, and so on; leave
-  a name empty (two commas in a row) to keep the original.
+Use **Choose image…** to select your own **PNG**, **JPEG** or **GIF**, or drop a
+file onto the overlay page. GIFs loop in the preview and beside the split in game. Images keep their aspect ratio and transparency. The launcher copies the
+selected file to `%LOCALAPPDATA%\OpenKai2\overlay\images`; removing it from a
+split leaves the original file untouched. Files may be up to 16 MB; GIFs may
+contain up to 300 frames. Large images are scaled for use as split icons.
+There is no bundled split artwork.
 
-The preview updates as you change them when the window is tall enough to show
-it. The FPS counter is on the Settings page, under **Game**.
+**PS2 time** and the **Verified / Flagged / Run over** labels are fixed and
+cannot be renamed or hidden through customization. The status reflects the
+runtime's checks, not a name or image chosen in the launcher.
+
+The presentation settings control the corner, size (up to Extra large),
+background, number of visible splits, text and delta colors, precision,
+distance from the edge, square or rounded corners, and an optional heading.
+**Reset overlay** restores these settings while keeping custom split names
+and images. The preview stays available by scrolling in smaller windows.
+The FPS counter is on Settings under **Game**.
 
 In Dragon World, each battle won is a split and the final split is Kid Buu.
 In World Tournament, each match won is a split and the final split is the final match. The overlay
@@ -121,13 +130,12 @@ compares the run with your best run and shows:
 | Best possible time | Where the run ends if every segment left is your best |
 | Sum of best | Your best segments added together |
 | Personal best | Your fastest finished run |
-| PS2 time | Time counted from the console's frames |
+| PS2 time (fixed) | Time counted from the console's frames |
 | Attempts | Runs started, and how many finished |
 | Run checks | Category, permadeath, fights lost (without permadeath), and Verified, Flagged or Run over. Always shown |
 
-Run checks can't be turned off while speedrun mode is on, so every recording
-shows whether the run is verified. In game, **F7** hides the rest of the
-overlay and **F8** resets: the game restarts and the attempt is saved.
+PS2 time and run checks stay visible while speedrun mode is on. In game,
+**F7** hides the optional overlay rows and **F8** resets: the game restarts and the attempt is saved.
 
 ## Splits
 
