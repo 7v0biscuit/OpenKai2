@@ -217,7 +217,8 @@ int main() {
                     if (GetWindow(hints,GW_OWNER)==w)break;
                 require(hints!=nullptr,"Launcher hover hints are missing");
                 wchar_t hint[512]{};
-                TOOLINFOW tool{sizeof(tool)};tool.hwnd=w;tool.uId=reinterpret_cast<UINT_PTR>(GetDlgItem(w,101));tool.lpszText=hint;
+                TOOLINFOW tool{TTTOOLINFOW_V2_SIZE};tool.uFlags=TTF_IDISHWND;tool.hwnd=w;
+                tool.uId=reinterpret_cast<UINT_PTR>(GetDlgItem(w,101));tool.lpszText=hint;
                 SendMessageW(hints,TTM_GETTEXTW,512,reinterpret_cast<LPARAM>(&tool));
                 require(std::wstring(hint).find(L"Ctrl+1")!=std::wstring::npos,"Dock hints do not show the matching keyboard shortcut");
                 click(w,1001);

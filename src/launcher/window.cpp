@@ -1187,12 +1187,19 @@ struct Window {
         const bool added = found != hintText.end();
         auto& text = hintText[id];
         text = std::move(value);
-        TOOLINFOW tool{sizeof(tool)};
+        // The unmanifested launcher can load common-controls v5, which rejects
+        // the v6-only lpReserved field included in sizeof(TOOLINFOW).
+        TOOLINFOW tool{TTTOOLINFOW_V2_SIZE};
         tool.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
         tool.hwnd = hwnd;
         tool.uId = reinterpret_cast<UINT_PTR>(controls.at(id));
         tool.lpszText = text.data();
-        SendMessageW(hoverHints, added ? TTM_UPDATETIPTEXTW : TTM_ADDTOOLW, 0, reinterpret_cast<LPARAM>(&tool));
+        const auto result = SendMessageW(hoverHints, added ? TTM_UPDATETIPTEXTW : TTM_ADDTOOLW,
+                                        0, reinterpret_cast<LPARAM>(&tool));
+        if (!added && !result) {
+            hintText.erase(id);
+            std::cerr << "[launcher] could not register hover hint for control " << id << '\n';
+        }
     }
     void initializeHints() {
         hoverHints = CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASSW, nullptr, WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX,
