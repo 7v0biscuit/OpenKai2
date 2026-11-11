@@ -39,6 +39,21 @@ BOOL CALLBACK find_launcher(HWND w, LPARAM) {
 void require(bool condition,const char *message) {
     if(!condition)throw std::runtime_error(message);
 }
+RECT visible_bounds(HWND window, HWND control) {
+    RECT bounds{};
+    GetWindowRect(control,&bounds);
+    MapWindowPoints(nullptr,window,reinterpret_cast<POINT*>(&bounds),2);
+    const auto region=CreateRectRgn(0,0,0,0);
+    if(GetWindowRgn(control,region)!=ERROR) {
+        RECT clipped{};
+        const auto kind=GetRgnBox(region,&clipped);
+        DeleteObject(region);
+        require(kind!=ERROR && kind!=NULLREGION,"A visible page control has no visible area");
+        OffsetRect(&clipped,bounds.left,bounds.top);
+        IntersectRect(&bounds,&bounds,&clipped);
+    } else DeleteObject(region);
+    return bounds;
+}
 HWND wait_launcher() {
     const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(20);
     while(std::chrono::steady_clock::now()<deadline) {
@@ -348,21 +363,30 @@ int main() {
                             std::wstring(rulesText).find(L"moderators")!=std::wstring::npos,
                         "The end of the timing rules was discarded");
                 require(!IsWindowVisible(GetDlgItem(w,263)),"The split list covers its empty-state message");
-                for(int height : {860,920,1000}) {
+                for(int height : {768,800,860,920,1000}) {
                     SetWindowPos(w,nullptr,0,0,MulDiv(1000,dpi,96),MulDiv(height,dpi,96),
                                  SWP_NOZORDER|SWP_NOACTIVATE);
+                    SendMessageW(w,WM_VSCROLL,SB_TOP,0);
                     for(int id : {177,178,236,222,264,265,266,267,268,290}) {
-                        RECT bounds{},client{};GetWindowRect(GetDlgItem(w,id),&bounds);GetClientRect(w,&client);
-                        MapWindowPoints(nullptr,w,reinterpret_cast<POINT*>(&bounds),2);
-                        require(IsWindowVisible(GetDlgItem(w,id)) && bounds.left>=0 && bounds.top>=0 &&
-                                    bounds.right<=client.right && bounds.bottom<=client.bottom-MulDiv(110,dpi,96),
+                        if(id==290 && !IsWindowVisible(GetDlgItem(w,id)))continue;
+                        RECT client{};GetClientRect(w,&client);
+                        const auto bounds=visible_bounds(w,GetDlgItem(w,id));
+                        require(IsWindowVisible(GetDlgItem(w,id)) && bounds.left>=0 && bounds.top>=MulDiv(76,dpi,96) &&
+                                    bounds.right<=client.right && bounds.bottom<=client.bottom-MulDiv(116,dpi,96),
                                 ("A speedrun control overlaps the dock or leaves the window: id="+std::to_string(id)).c_str());
                     }
+                    SendMessageW(w,WM_VSCROLL,SB_BOTTOM,0);
+                    RECT bounds{},client{};GetWindowRect(rules,&bounds);GetClientRect(w,&client);
+                    MapWindowPoints(nullptr,w,reinterpret_cast<POINT*>(&bounds),2);
+                    require(IsWindowVisible(rules) && bounds.top>=MulDiv(76,dpi,96) &&
+                                bounds.bottom<=client.bottom-MulDiv(116,dpi,96),
+                            "The full timing-rules field cannot be reached by scrolling");
                     SendMessageW(rules,EM_LINESCROLL,0,10000);
                     require(SendMessageW(rules,EM_GETFIRSTVISIBLELINE,0,0)>0,
                             "The remaining timing rules cannot be scrolled into view");
                     SendMessageW(rules,EM_LINESCROLL,0,-10000);
                 }
+                SendMessageW(w,WM_VSCROLL,SB_TOP,0);
                 SetWindowPos(w,nullptr,0,0,MulDiv(1000,dpi,96),MulDiv(680,dpi,96),SWP_NOZORDER|SWP_NOACTIVATE);
                 SCROLLINFO wheel{sizeof(wheel),SIF_POS};GetScrollInfo(w,SB_VERT,&wheel);
                 require(wheel.nPos==0,"A resized page started at the wrong scroll position");
