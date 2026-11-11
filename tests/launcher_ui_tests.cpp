@@ -472,7 +472,8 @@ int main() {
                             "New category preference was not persisted");
                 }
                 keyboard_choice(GetDlgItem(w,177),0);
-                for(auto route : {std::pair<WORD,int>{'5',120},{'1',110},{'8',160},{'4',185},{'5',148},{'6',400},{'7',140},{'3',177},{'2',245}}) {
+                SetWindowPos(w,nullptr,0,0,MulDiv(1000,dpi,96),MulDiv(768,dpi,96),SWP_NOZORDER|SWP_NOACTIVATE);
+                for(auto route : {std::pair<WORD,int>{'5',120},{'1',110},{'8',160},{'4',185},{'5',148},{'6',400},{'7',140},{'3',177},{'2',246}}) {
                     SetForegroundWindow(w);
                     INPUT keys[4]{};
                     for(auto& key:keys)key.type=INPUT_KEYBOARD;
@@ -481,7 +482,7 @@ int main() {
                     keys[3].ki.wVk=VK_CONTROL;keys[3].ki.dwFlags=KEYEVENTF_KEYUP;
                     require(SendInput(4,keys,sizeof(INPUT))==4,"Cannot submit page shortcut");
                     wait_until([&]{return IsWindowVisible(GetDlgItem(w,route.second))!=FALSE;},
-                        "Page shortcut did not navigate from the focused control");
+                        ("Ctrl+"+std::string(1,char(route.first))+" did not show page control "+std::to_string(route.second)).c_str());
                 }
                 click(w,101);click(w,1006);
                 SendMessageW(GetDlgItem(w,295),LB_SETCURSEL,2,0);click(w,297);
@@ -509,12 +510,15 @@ int main() {
                 click(w,181);
                 const auto mods=openkai2::mods::scan_mods(openkai2::mods::default_mods_directory());
                 require(mods.size()==1 && mods[0].name=="Test mod" && !mods[0].enabled,"Disabling a mod was not saved");
-                RECT client{};GetClientRect(w,&client);
                 auto inside=[&](int id,const char* message){
-                    RECT bounds{};GetWindowRect(GetDlgItem(w,id),&bounds);
-                    MapWindowPoints(nullptr,w,reinterpret_cast<POINT*>(&bounds),2);
-                    require(IsWindowVisible(GetDlgItem(w,id)) && bounds.left>=0 && bounds.top>=0 &&
-                            bounds.right<=client.right && bounds.bottom<=client.bottom,message);
+                    for(auto position : {SB_TOP,SB_BOTTOM}) {
+                        SendMessageW(w,WM_VSCROLL,position,0);
+                        RECT bounds{},client{};GetWindowRect(GetDlgItem(w,id),&bounds);GetClientRect(w,&client);
+                        MapWindowPoints(nullptr,w,reinterpret_cast<POINT*>(&bounds),2);
+                        if(IsWindowVisible(GetDlgItem(w,id)) && bounds.left>=0 && bounds.top>=MulDiv(76,dpi,96) &&
+                            bounds.right<=client.right && bounds.bottom<=client.bottom-MulDiv(116,dpi,96))return;
+                    }
+                    throw std::runtime_error(std::string(message)+": id="+std::to_string(id));
                 };
                 for(int id=181;id<=192;++id) inside(id,"A mods control is clipped at the minimum window size");
                 require(SendMessageW(GetDlgItem(w,189),LB_GETCOUNT,0,0)==1 && !IsWindowEnabled(GetDlgItem(w,192)),
@@ -523,6 +527,7 @@ int main() {
                 click(w,190);
                 require(openkai2::mods::scan_mods(openkai2::mods::default_mods_directory())[0].name=="Renamed mod",
                         "Renaming a mod was not saved");
+                SendMessageW(w,WM_VSCROLL,SB_TOP,0);
                 click(w,188);
                 for(int id : {200,201,213,214,215,216,219,220})
                     inside(id,"An import tool control is clipped at the minimum window size");
