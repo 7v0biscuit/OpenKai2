@@ -21,8 +21,33 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
 namespace openkai2 {
 namespace {
+double threadCpuMilliseconds() {
+#ifdef _WIN32
+    FILETIME created{}, exited{}, kernel{}, user{};
+    if (!GetThreadTimes(GetCurrentThread(), &created, &exited, &kernel, &user))
+        throw std::runtime_error("Cannot read GPU replay thread CPU time");
+    const auto ticks = [](const FILETIME& time) {
+        return (uint64_t(time.dwHighDateTime) << 32u) | time.dwLowDateTime;
+    };
+    return double(ticks(kernel) + ticks(user)) / 10000.0;
+#else
+    timespec time{};
+    if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &time))
+        throw std::runtime_error("Cannot read GPU replay thread CPU time");
+    return double(time.tv_sec) * 1000.0 + double(time.tv_nsec) / 1e6;
+#endif
+}
 std::bitset<gpu::PageCount> referencePages(unsigned psm,unsigned base,unsigned width,unsigned x,unsigned y,unsigned w,unsigned h){
     std::bitset<gpu::PageCount> result;if(!w || !h)return result;
     if(uint64_t(w)*h>4u*1024u*1024u){result.set();return result;}
@@ -854,10 +879,10 @@ int benchmark_gs_replay(const char* path,unsigned passes,unsigned scale,unsigned
         };
         play();if(hdMode){hd::library().wait_idle();play();}
         const auto before=gpu_render_statistics();packets=uploads=0;
-        timespec cpuStart{},cpuEnd{};clock_gettime(CLOCK_THREAD_CPUTIME_ID,&cpuStart);
+        const double cpuStart=threadCpuMilliseconds();
         const auto start=std::chrono::steady_clock::now();
         for(unsigned i=0;i<passes;++i)play();
-        clock_gettime(CLOCK_THREAD_CPUTIME_ID,&cpuEnd);
+        const double cpuEnd=threadCpuMilliseconds();
         gs->writeRegister(0x61u,0u);
         backend->Sync(GSSyncReason::DebugReadback);
         uint64_t vramHash=1469598103934665603ull;for(const auto byte:vram){vramHash^=byte;vramHash*=1099511628211ull;}
@@ -865,7 +890,7 @@ int benchmark_gs_replay(const char* path,unsigned passes,unsigned scale,unsigned
         const auto after=gpu_render_statistics();
         std::cout<<"replay bytes="<<stream.size()<<" packets="<<packets<<" uploads="<<uploads<<" gpu_draws="<<after.gpuDraws-before.gpuDraws
                  <<" cpu_draws="<<after.cpuDraws-before.cpuDraws<<" culled="<<after.culled-before.culled<<" batches="<<after.batches-before.batches
-                 <<" ms="<<double(ns)/1e6<<" thread_cpu_ms="<<double(cpuEnd.tv_sec-cpuStart.tv_sec)*1e3+double(cpuEnd.tv_nsec-cpuStart.tv_nsec)/1e6<<" ns_per_draw="<<double(ns)/double(std::max<uint64_t>(after.gpuDraws-before.gpuDraws+after.culled-before.culled,1u))<<" vram_hash="<<std::hex<<vramHash<<std::dec<<'\n';
+                 <<" ms="<<double(ns)/1e6<<" thread_cpu_ms="<<cpuEnd-cpuStart<<" ns_per_draw="<<double(ns)/double(std::max<uint64_t>(after.gpuDraws-before.gpuDraws+after.culled-before.culled,1u))<<" vram_hash="<<std::hex<<vramHash<<std::dec<<'\n';
         for(const auto& [reason,count]:gpu_fallback_counts())std::cout<<"fallback "<<reason<<"="<<count<<'\n';
         gs.reset();gpu::shutdown_device();return 0;
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';gpu::shutdown_device();return 1;}
