@@ -48,7 +48,7 @@ RECT visible_bounds(HWND window, HWND control) {
         RECT clipped{};
         const auto kind=GetRgnBox(region,&clipped);
         DeleteObject(region);
-        require(kind!=ERROR && kind!=NULLREGION,"A visible page control has no visible area");
+        if(kind==ERROR || kind==NULLREGION)return {};
         OffsetRect(&clipped,bounds.left,bounds.top);
         IntersectRect(&bounds,&bounds,&clipped);
     } else DeleteObject(region);
@@ -57,7 +57,14 @@ RECT visible_bounds(HWND window, HWND control) {
 HWND wait_launcher() {
     const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(20);
     while(std::chrono::steady_clock::now()<deadline) {
-        EnumWindows(find_launcher,0);if(found && IsWindowVisible(found) && GetDlgItem(found,149))return found;
+        EnumWindows(find_launcher,0);
+        if(found && IsWindowVisible(found) && GetDlgItem(found,149)) {
+            const auto user=GetModuleHandleW(L"user32.dll");
+            const auto windowContext=reinterpret_cast<HANDLE(WINAPI*)(HWND)>(GetProcAddress(user,"GetWindowDpiAwarenessContext"));
+            const auto threadContext=reinterpret_cast<HANDLE(WINAPI*)(HANDLE)>(GetProcAddress(user,"SetThreadDpiAwarenessContext"));
+            if(windowContext && threadContext)threadContext(windowContext(found));
+            return found;
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     throw std::runtime_error("Launcher window did not become ready");
@@ -368,12 +375,21 @@ int main() {
                                  SWP_NOZORDER|SWP_NOACTIVATE);
                     SendMessageW(w,WM_VSCROLL,SB_TOP,0);
                     for(int id : {177,178,236,222,264,265,266,267,268,290}) {
-                        if(id==290 && !IsWindowVisible(GetDlgItem(w,id)))continue;
                         RECT client{};GetClientRect(w,&client);
                         const auto bounds=visible_bounds(w,GetDlgItem(w,id));
-                        require(IsWindowVisible(GetDlgItem(w,id)) && bounds.left>=0 && bounds.top>=MulDiv(76,dpi,96) &&
-                                    bounds.right<=client.right && bounds.bottom<=client.bottom-MulDiv(116,dpi,96),
-                                ("A speedrun control overlaps the dock or leaves the window: id="+std::to_string(id)).c_str());
+                        const auto message="A speedrun control overlaps the dock: id="+std::to_string(id)+
+                            " requested="+std::to_string(height)+" dpi="+std::to_string(dpi)+
+                            " client="+std::to_string(client.right)+","+std::to_string(client.bottom)+
+                            " visible="+std::to_string(bounds.left)+","+std::to_string(bounds.top)+","+
+                            std::to_string(bounds.right)+","+std::to_string(bounds.bottom);
+                        wait_until([&] {
+                            if(id==290 && !IsWindowVisible(GetDlgItem(w,id)))return true;
+                            RECT actualClient{};GetClientRect(w,&actualClient);
+                            const auto actual=visible_bounds(w,GetDlgItem(w,id));
+                            return IsWindowVisible(GetDlgItem(w,id)) && actual.right>actual.left && actual.bottom>actual.top &&
+                                actual.left>=0 && actual.top>=MulDiv(76,dpi,96) && actual.right<=actualClient.right &&
+                                actual.bottom<=actualClient.bottom-MulDiv(116,dpi,96);
+                        },message.c_str());
                     }
                     SendMessageW(w,WM_VSCROLL,SB_BOTTOM,0);
                     RECT bounds{},client{};GetWindowRect(rules,&bounds);GetClientRect(w,&client);
