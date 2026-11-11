@@ -93,8 +93,9 @@ moderators before submitting a run.
 
 **Customize overlay…** opens the split editor and presentation settings.
 The mouse wheel scrolls the split list under the pointer independently of the
-launcher page. You can browse its rows with speedrun mode off; select a category
-on Speedrun before editing names or images.
+launcher page. Choose a **Run category** directly in the editor to enable split
+names and images. This is the same category used by Speedrun; choosing **Off**
+disables editing. Difficulty, randomizer and permadeath still follow the Run settings.
 
 Choose a split, edit its name and press **Save name** or Enter. **Add split row**
 adds another appearance entry. **Use default** restores that row's standard name

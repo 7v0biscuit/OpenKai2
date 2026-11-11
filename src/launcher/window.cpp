@@ -1794,7 +1794,8 @@ struct Window {
             const int panelBottom = h - 64, half = (content - 52) / 2, side = contentLeft + 32 + half;
             position(CloseOverlay, right - 20 - 150, 136, 150, 34);
             position(OverlayDefaults, right - 20 - 150 - 10 - 160, 136, 160, 34);
-            position(SplitStyleList, contentLeft + 20, 238, half, 232);
+            position(SpeedrunMode, contentLeft + 20, 238, half, 34);
+            position(SplitStyleList, contentLeft + 20, 314, half, 156);
             position(SplitStyleAdd, contentLeft + 20, 484, 140, 32);
             position(SplitStyleReset, contentLeft + 172, 484, 120, 32);
             position(SplitNameField, contentLeft + 20, 555, half - 122, 34);
@@ -2411,7 +2412,6 @@ struct Window {
     void refreshStyleRows(int selected = -1) {
         if (!controls.count(SplitStyleList)) return;
         const auto list = controls[SplitStyleList];
-        const auto top = SendMessageW(list,LB_GETTOPINDEX,0,0);
         const int keep = std::clamp(selected < 0 ? styleSelection : selected,0,int(styleRowCount())-1);
         SendMessageW(list,WM_SETREDRAW,FALSE,0);SendMessageW(list,LB_RESETCONTENT,0,0);
         for (unsigned i = 0; i < styleRowCount(); ++i) {
@@ -2419,7 +2419,6 @@ struct Window {
             SendMessageW(list,LB_ADDSTRING,0,reinterpret_cast<LPARAM>(name.c_str()));
         }
         SendMessageW(list,LB_SETCURSEL,keep,0);
-        if (top >= 0 && top < LRESULT(styleRowCount())) SendMessageW(list,LB_SETTOPINDEX,top,0);
         SendMessageW(list,WM_SETREDRAW,TRUE,0);InvalidateRect(list,nullptr,FALSE);
         selectStyleRow();
     }
@@ -2645,8 +2644,9 @@ struct Window {
              contentLeft + 20, 164, content - 380, 28, fonts.caption, muted, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
         panelBox(dc, contentLeft, 208, right, panelBottom);
         const auto category = speedrun::Category(settings.speedrun);
+        caps(dc,L"RUN CATEGORY",contentLeft+20,214,half);
         caps(dc, settings.speedrun ? L"SPLITS · " + wide(speedrun::category_label(category, settings.cpuDifficulty, settings.randomizer))
-                                  : L"CHOOSE A CATEGORY ON SPEEDRUN TO EDIT SPLITS", contentLeft + 20, 214, half, muted, DT_END_ELLIPSIS);
+                                  : L"SELECT A CATEGORY ABOVE TO EDIT SPLITS", contentLeft + 20, 290, half, muted, DT_END_ELLIPSIS);
         caps(dc, L"SPLIT NAME", contentLeft + 20, 534, half);
         caps(dc, L"YOUR IMAGE", contentLeft + 20, 608, half);
         const RECT tile{p(contentLeft + 20),p(688),p(contentLeft + 120),p(788)};
@@ -6031,6 +6031,8 @@ struct Window {
         if (id == SplitStyleAdd && notification == BN_CLICKED && settings.speedrun && styleRowCount() < 256) {
             styleSelection = int(styleRowCount());
             storeSplitStyle({splitKey(),unsigned(styleSelection),{},{},{}},L"Split row added. Give it a name or choose your own image.");
+            scrollPage(std::max(pageScroll,589-pageVisibleHeight()));
+            SetFocus(controls[SplitNameField]);
             return;
         }
         if (id == SplitImageChoose && notification == BN_CLICKED && settings.speedrun) {
@@ -6164,6 +6166,7 @@ struct Window {
             if (id == SpeedrunMode || id == Permadeath || id == SpeedrunCpu || id == CpuDifficulty) {
                 refreshSplits();
                 refreshTimingRules();
+                if(page==overlayPage)refreshStyleRows(0);
             }
             if (id == SpeedrunCpu)
                 status = settings.cpuDifficulty ? L"CPU difficulty Z" + std::to_wstring(settings.cpuDifficulty) +

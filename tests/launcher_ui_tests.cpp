@@ -111,6 +111,90 @@ void drop_file(HWND window,const std::filesystem::path& file) {
     GlobalUnlock(memory);
     SendMessageW(window,WM_DROPFILES,reinterpret_cast<WPARAM>(memory),0);
 }
+HWND image_picker() {
+    HWND picker{};
+    EnumWindows([](HWND candidate,LPARAM result)->BOOL {
+        DWORD pid{};GetWindowThreadProcessId(candidate,&pid);
+        wchar_t title[128]{};GetWindowTextW(candidate,title,128);
+        if(pid==GetCurrentProcessId() && std::wstring(title)==L"Choose a split image" && IsWindowVisible(candidate)) {
+            *reinterpret_cast<HWND*>(result)=candidate;return FALSE;
+        }
+        return TRUE;
+    },reinterpret_cast<LPARAM>(&picker));
+    return picker;
+}
+void choose_split_image(HWND window,const std::filesystem::path& path) {
+    require(IsWindowEnabled(GetDlgItem(window,1022)),"Choose image is disabled for an active category");
+    PostMessageW(GetDlgItem(window,1022),BM_CLICK,0,0);
+    const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(30);
+    HWND picker{};
+    while(!(picker=image_picker()) && std::chrono::steady_clock::now()<deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    require(picker!=nullptr,"Choose image did not open the native file picker");
+    struct ClosePicker {
+        HWND window;
+        ~ClosePicker(){if(IsWindow(window))PostMessageW(window,WM_CLOSE,0,0);}
+    } closePicker{picker};
+    if(GetProcAddress(GetModuleHandleW(L"ntdll.dll"),"wine_get_version")) {
+        // This portable Wine environment has no working shell file browser.
+        // Native Windows runs exercise file selection; Wine checks opening and cancellation.
+        PostMessageW(picker,WM_CLOSE,0,0);
+        while(image_picker() && std::chrono::steady_clock::now()<deadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        require(!image_picker(),"The image picker could not be cancelled");
+        SendMessageW(window,WM_NULL,0,0);
+        std::cout<<"Wine shell: checked picker opening/cancellation; importing through file drop.\n";
+        drop_file(window,path);
+        return;
+    }
+    SetForegroundWindow(picker);
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    key_press('N',VK_MENU);
+    key_press('A',VK_CONTROL);
+    // Alt+N focuses File name in both the modern and fallback Windows pickers.
+    std::vector<INPUT> input;
+    for(wchar_t ch:path.wstring()) {
+        INPUT down{};down.type=INPUT_KEYBOARD;down.ki.wScan=ch;down.ki.dwFlags=KEYEVENTF_UNICODE;
+        input.push_back(down);down.ki.dwFlags|=KEYEVENTF_KEYUP;input.push_back(down);
+    }
+    require(SendInput(UINT(input.size()),input.data(),sizeof(INPUT))==input.size(),"Cannot enter an image path");
+    // Wait for queued keyboard input before activating the dialog's Open action.
+    const auto expected=path.wstring();
+    bool entered=false;
+    while(!entered && std::chrono::steady_clock::now()<deadline) {
+        std::pair<const std::wstring*,bool> state{&expected,false};
+        EnumChildWindows(picker,[](HWND child,LPARAM value)->BOOL {
+            auto& state=*reinterpret_cast<std::pair<const std::wstring*,bool>*>(value);
+            wchar_t cls[32]{},text[32768]{};GetClassNameW(child,cls,32);
+            if(_wcsicmp(cls,L"Edit")==0) {
+                GetWindowTextW(child,text,32768);
+                if(text==*state.first)state.second=true;
+            }
+            return TRUE;
+        },reinterpret_cast<LPARAM>(&state));
+        entered=state.second;
+        if(!entered)std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    require(entered,"The image path did not reach the file-name field");
+    HWND open{};
+    EnumChildWindows(picker,[](HWND child,LPARAM result)->BOOL {
+        wchar_t cls[32]{};GetClassNameW(child,cls,32);
+        if(GetDlgCtrlID(child)==IDOK && _wcsicmp(cls,L"Button")==0) {
+            *reinterpret_cast<HWND*>(result)=child;return FALSE;
+        }
+        return TRUE;
+    },reinterpret_cast<LPARAM>(&open));
+    require(open!=nullptr,"The image picker has no Open button");
+    PostMessageW(open,BM_CLICK,0,0);
+    while(image_picker() && std::chrono::steady_clock::now()<deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    if(image_picker()) {
+        PostMessageW(picker,WM_CLOSE,0,0);
+        throw std::runtime_error("The native image picker did not accept the selected file");
+    }
+    // Wait for the UI thread to finish importing after the modal dialog closes.
+    SendMessageW(window,WM_NULL,0,0);
+}
 void mouse_click(HWND control, int x, int y) {
     POINT point{x,y}; ClientToScreen(control,&point);
     static POINT previous{-10000,-10000};
@@ -452,11 +536,12 @@ int main() {
                             "A list or dropdown overlaps the fixed header while scrolling");
                     DeleteObject(clipped);
                 }
-                click(w,103);
                 SendMessageW(w,WM_VSCROLL,SB_TOP,0);
                 SetWindowPos(w,nullptr,0,0,MulDiv(1100,dpi,96),MulDiv(920,dpi,96),SWP_NOZORDER|SWP_NOACTIVATE);
+                require(IsWindowVisible(GetDlgItem(w,177)),"Overlay editing has no category selector");
                 keyboard_choice(GetDlgItem(w,177),1);
-                click(w,222);
+                for(int id:{294,1021,1022,1025})
+                    require(IsWindowEnabled(GetDlgItem(w,id)),"Choosing a category in the overlay did not enable editing");
                 require(!GetDlgItem(w,224) && !GetDlgItem(w,225),"The removed visibility checklist is still present");
                 require(SendMessageW(GetDlgItem(w,1020),LB_GETCOUNT,0,0)==12,"Split customization has no editable rows");
                 mouse_choice(GetDlgItem(w,226),1);
@@ -486,7 +571,8 @@ int main() {
                 require(!std::filesystem::exists(settings_path().parent_path()/"splits"/"any.txt"),"Editing a split name changed recorded times");
                 const auto userImage=root/L"Owned animation.gif";
                 {std::ofstream out(userImage,std::ios::binary);out.write(reinterpret_cast<const char*>(openkai2::test_images::gif),sizeof(openkai2::test_images::gif));}
-                drop_file(w,userImage);
+                require(std::filesystem::exists(userImage) && std::filesystem::file_size(userImage)>0,"The picker fixture was not written");
+                choose_split_image(w,userImage);
                 appearance=read_settings(settings_path());
                 require(appearance.splitStyles.size()==1 && openkai2::speedrun::valid_image_file(appearance.splitStyles[0].image) &&
                             !appearance.splitStyles[0].image.empty() && std::filesystem::exists(userImage),"A user's GIF was not attached or its original was removed");
@@ -494,16 +580,34 @@ int main() {
                 require(openkai2::speedrun::load_split_image(media).frames.size()==4,"Imported GIF animation was lost");
                 const auto protectedItems=openkai2::speedrun::overlay_bit(openkai2::speedrun::show_ps2_time)|openkai2::speedrun::overlay_bit(openkai2::speedrun::show_status);
                 require((appearance.overlayItems&protectedItems)==protectedItems,"PS2 time or verification could be hidden by customization");
-                click(w,223);keyboard_choice(GetDlgItem(w,177),3);click(w,222);
+                keyboard_choice(GetDlgItem(w,177),3);
                 wchar_t customName[200]{};GetWindowTextW(GetDlgItem(w,294),customName,200);
                 require(!*customName && !IsWindowEnabled(GetDlgItem(w,1023)),"Tournament splits inherited Dragon World names or images");
-                click(w,223);keyboard_choice(GetDlgItem(w,177),1);click(w,222);
+                keyboard_choice(GetDlgItem(w,177),1);
                 GetWindowTextW(GetDlgItem(w,294),customName,200);
                 require(std::wstring(customName)==L"Raditz · Arrival","Returning to a category lost its split appearance");
                 click(w,1023);
                 require(read_settings(settings_path()).splitStyles[0].image.empty() && std::filesystem::exists(userImage),"Removing an image deleted the original");
                 click(w,1024);click(w,1021);
-                require(SendMessageW(GetDlgItem(w,1020),LB_GETCOUNT,0,0)==13,"A new split appearance row was not added");
+                require(SendMessageW(list,LB_GETCOUNT,0,0)==13,"A new split appearance row was not added");
+                RECT added{},listClient{};GetClientRect(list,&listClient);
+                SendMessageW(list,LB_GETITEMRECT,12,reinterpret_cast<LPARAM>(&added));
+                require(SendMessageW(list,LB_GETCURSEL,0,0)==12 && added.top>=0 && added.bottom<=listClient.bottom,
+                        "The new split row is selected but hidden below the list");
+                SetWindowTextW(GetDlgItem(w,294),L"Bonus split");click(w,1025);
+                drop_file(w,userImage);
+                appearance=read_settings(settings_path());
+                require(appearance.splitStyles.size()==1 && appearance.splitStyles[0].index==12 &&
+                            appearance.splitStyles[0].name=="Bonus split" && !appearance.splitStyles[0].image.empty(),
+                        "A newly added split cannot save its name and image");
+                click(w,223);click(w,222);
+                require(SendMessageW(list,LB_GETCOUNT,0,0)==13,"Reopening the editor lost an added split");
+                keyboard_choice(GetDlgItem(w,177),0);
+                require(!IsWindowEnabled(GetDlgItem(w,1021)) && !IsWindowEnabled(GetDlgItem(w,1022)),
+                        "Editing remains enabled without a category");
+                keyboard_choice(GetDlgItem(w,177),1);
+                SendMessageW(list,LB_SETCURSEL,12,0);
+                SendMessageW(w,WM_COMMAND,MAKEWPARAM(1020,LBN_SELCHANGE),reinterpret_cast<LPARAM>(list));
                 click(w,1024);
                 require(SendMessageW(GetDlgItem(w,1020),LB_GETCOUNT,0,0)==12,"Resetting an added row left it behind");
                 click(w,223);
