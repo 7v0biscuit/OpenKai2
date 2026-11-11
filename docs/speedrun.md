@@ -92,6 +92,10 @@ moderators before submitting a run.
 ## Overlay
 
 **Customize overlay…** opens the split editor and presentation settings.
+The mouse wheel scrolls the split list under the pointer independently of the
+launcher page. You can browse its rows with speedrun mode off; select a category
+on Speedrun before editing names or images.
+
 Choose a split, edit its name and press **Save name** or Enter. **Add split row**
 adds another appearance entry. **Use default** restores that row's standard name
 and removes its image. These changes leave recorded split times unchanged.

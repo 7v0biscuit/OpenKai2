@@ -29,6 +29,7 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <windowsx.h>
 
 #include <algorithm>
 #include <array>
@@ -262,7 +263,7 @@ enum Id {
     ControlsReset = 400,
     ControlKey = 410,
     ControlAlternate = 430,
-    HomeProfile = 1000, TopProfile, HomeControls = 1003, HomeSaves, HomeSettings, HomeArrange,
+    HomeProfile = 1000, HomeControls = 1003, HomeSaves, HomeSettings, HomeArrange,
     ProfileInitials, ProfileTagline, ProfileAccent, ProfileSave, ProfileReset, ProfileCopyId, NavigateBack,
     SplitStyleList = 1020, SplitStyleAdd, SplitImageChoose, SplitImageRemove, SplitStyleReset, SplitNameSave,
     ControlPad = 450
@@ -872,7 +873,7 @@ struct Window {
     bool trayAdded = false, wasRunning = false;
     unsigned launchState = 0;
     int pageScroll=0, laidOutPage=-1, wheelRemainder=0;
-    bool layoutPending=false;
+    bool layoutPending=false, forwardingWheel=false;
     int pageVisibleHeight() const {
         RECT r{};GetClientRect(hwnd,&r);
         return std::max(1,unscale(r.bottom)-shellHeader-shellDockReserve);
@@ -884,6 +885,24 @@ struct Window {
         const int next=std::clamp(value,0,pageCanvasHeight()-pageVisibleHeight());
         if(next==pageScroll)return;
         pageScroll=next;layout();InvalidateRect(hwnd,nullptr,FALSE);
+    }
+    bool routeWheelToControl(WPARAM keys, LPARAM position) {
+        const POINT screen{GET_X_LPARAM(position), GET_Y_LPARAM(position)};
+        POINT client=screen;ScreenToClient(hwnd,&client);
+        if(client.y<p(shellHeader) || client.y>=p(shellHeader+pageVisibleHeight()))return false;
+        for(auto child=WindowFromPoint(screen);child && child!=hwnd && IsChild(hwnd,child);child=GetParent(child)) {
+            wchar_t type[32]{};GetClassNameW(child,type,32);
+            const auto style=GetWindowLongPtrW(child,GWL_STYLE);
+            const bool list=_wcsicmp(type,L"LISTBOX")==0;
+            const bool multiline=_wcsicmp(type,L"EDIT")==0 && (style&ES_MULTILINE);
+            if((list || multiline) && (style&WS_VSCROLL) && IsWindowEnabled(child)) {
+                forwardingWheel=true;
+                SendMessageW(child,WM_MOUSEWHEEL,keys,position);
+                forwardingWheel=false;
+                return true;
+            }
+        }
+        return false;
     }
     int p(int n) const { return MulDiv(n, int(dpi), 96); }
     int unscale(int n) const { return MulDiv(n, 96, int(dpi)); }
@@ -1153,7 +1172,7 @@ struct Window {
     }
     void place(int id, int x, int y, int w, int h, bool visible = true) {
         auto c = controls.at(id);
-        const bool pageControl = !(id >= PlayTab && id <= ControlsTab) && id != TopProfile;
+        const bool pageControl = !(id >= PlayTab && id <= ControlsTab);
         if (pageControl) {
             y += shellHeader - pageScroll;
             const int viewportBottom = shellHeader + pageVisibleHeight();
@@ -1212,7 +1231,7 @@ struct Window {
         hint(Play, L"Play game (F5). Verify your ISO first.");
         hint(ChooseIso, L"Choose your Budokai 2 USA ISO (Ctrl+O). You can also drop it onto the launcher.");
         hint(VerifyIso, L"Check the selected disc and required game files.");
-        hint(TopProfile, L"Customize your local profile.");
+        hint(HomeProfile, L"Customize your local profile.");
         hint(HomeControls, L"Change keyboard and controller bindings.");
         hint(HomeSaves, L"Import saves and manage recovery backups.");
         hint(HomeSettings, L"Display, sound, graphics and launcher preferences.");
@@ -1302,7 +1321,6 @@ struct Window {
                                                           {TabDefaults, L"Reset tabs"},
                                                           {ArrangeTabs, L"Arrange tabs…"},
                                                           {HomeProfile, L"Manage profile"},
-                                                          {TopProfile, L"Profile"},
                                                           {HomeControls, L"Controls & bindings"},
                                                           {HomeSaves, L"Saves & backups"},
                                                           {HomeSettings, L"Graphics & audio"},
@@ -1595,7 +1613,7 @@ struct Window {
                           (release.has_value() || staged.has_value()))));
         const bool editingSplit = settings.speedrun != 0;
         for (int id : {SplitStyleList,SplitNameField,SplitNameSave,SplitStyleAdd,SplitImageChoose,SplitImageRemove,SplitStyleReset})
-            if (controls.count(id)) EnableWindow(controls[id], editingSplit &&
+            if (controls.count(id)) EnableWindow(controls[id], (editingSplit || id == SplitStyleList) &&
                 (id != SplitStyleAdd || styleRowCount() < 256) &&
                 (id != SplitImageRemove || (splitStyle(size_t(styleSelection)) && !splitStyle(size_t(styleSelection))->image.empty())));
         InvalidateRect(hwnd, nullptr, FALSE);
@@ -1645,7 +1663,6 @@ struct Window {
             place(PlayTab + i, dockLeft + int(tab - dockTabs.begin()) * dockCell,
                   clientHeight - 96, dockCell, 54, tab != dockTabs.end());
         }
-        position(TopProfile, right - 116, 19, 116, 34);
         if (hasNotice()) {
             position(NoticeDecline, contentLeft + content - 96, 64, 96, 30);
             position(NoticeAccept, contentLeft + content - 96 - 10 - 96, 64, 96, 30);
@@ -1930,7 +1947,7 @@ struct Window {
             return;
         const int viewportTop = p(shellHeader), viewportBottom = p(shellHeader + pageVisibleHeight());
         for (const auto& [id, control] : controls) {
-            if ((id >= PlayTab && id <= ControlsTab) || id == TopProfile)
+            if (id >= PlayTab && id <= ControlsTab)
                 continue;
             RECT bounds{};
             GetWindowRect(control, &bounds);
@@ -1951,7 +1968,7 @@ struct Window {
     }
     void clipControlPaint(HDC dc, HWND control) const {
         const int id = GetDlgCtrlID(control);
-        if ((id >= PlayTab && id <= ControlsTab) || id == TopProfile)
+        if (id >= PlayTab && id <= ControlsTab)
             return;
         RECT bounds{};
         GetWindowRect(control, &bounds);
@@ -6039,7 +6056,7 @@ struct Window {
             navigateBack();
             return;
         }
-        if (notification==BN_CLICKED && (id==HomeProfile || id==TopProfile)) {openProfile();return;}
+        if (notification==BN_CLICKED && id==HomeProfile) {openProfile();return;}
         if (notification==BN_CLICKED && (id==ProfileSave || id==ProfileReset || id==ProfileCopyId)) {
             const auto profile=activeProfile();if(!profile)return;
             if(id==ProfileCopyId) {
@@ -6065,8 +6082,8 @@ struct Window {
             }
             InvalidateRect(hwnd,nullptr,FALSE);return;
         }
-        if (notification==BN_CLICKED && id>=HomeProfile && id<=HomeArrange) {
-            const int target=id==HomeProfile || id==TopProfile ? onlinePage : id==HomeControls ? controlsPage :
+        if (notification==BN_CLICKED && id>=HomeControls && id<=HomeArrange) {
+            const int target=id==HomeControls ? controlsPage :
                              id==HomeSaves ? savesPage : id==HomeArrange ? tabsPage : settingsPage;
             page=target;
             if(page==tabsPage)refreshTabs();
@@ -7093,7 +7110,9 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
             self->dropped(reinterpret_cast<HDROP>(wp));
             return 0;
         case WM_MOUSEWHEEL: {
-            if (self->dropdownOpen() || self->pageCanvasHeight() <= self->pageVisibleHeight()) return 0;
+            if (self->forwardingWheel || self->dropdownOpen()) return 0;
+            if (self->routeWheelToControl(wp,lp)) return 0;
+            if (self->pageCanvasHeight() <= self->pageVisibleHeight()) return 0;
             self->wheelRemainder += GET_WHEEL_DELTA_WPARAM(wp);
             const int steps = self->wheelRemainder/WHEEL_DELTA;
             self->wheelRemainder -= steps*WHEEL_DELTA;
@@ -7317,6 +7336,9 @@ int run_window(const std::filesystem::path &initialIso) {
     } shortcutCleanup{accelerators};
     MSG message{};
     while (GetMessageW(&message, nullptr, 0, 0) > 0) {
+        if (message.message == WM_MOUSEWHEEL && message.hwnd != hwnd &&
+            !state.dropdownOpen() && state.routeWheelToControl(message.wParam, message.lParam))
+            continue;
         if ((message.message == WM_KEYDOWN || message.message == WM_SYSKEYDOWN) &&
             SendMessageW(hwnd, controlKeyMessage, message.wParam, message.lParam))
             continue;

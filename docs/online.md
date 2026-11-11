@@ -110,11 +110,11 @@ source) or any MQTT broker, and set `online_room ... "<host>:<port>"` in
 
 ## Profile appearance
 
-Use **Profile** in the launcher's header, or **Customize profile** on Play, to
-choose avatar initials, an accent and a short tagline. Appearance is saved
-separately for each profile on this PC. It does not change the public profile
-name, ID or private key, and is not sent to other players.
+Use **Customize profile** on Play to choose avatar initials, an accent and a
+short tagline. Appearance is saved separately for each profile on this PC.
+It does not change the public profile name, ID or private key, and is not sent
+to other players.
 
 **Copy profile ID** copies the public ID for sharing. **Use defaults** resets
 appearance without deleting the profile or its friends. If no profile exists,
-the Profile action opens the Online page to create one.
+**Create profile** on Play opens the Online page to create one.

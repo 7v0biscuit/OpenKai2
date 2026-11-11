@@ -73,6 +73,18 @@ void click(HWND w,int id) {
     require(GetDlgItem(w,id)!=nullptr,"Missing launcher action");
     SendMessageW(GetDlgItem(w,id),BM_CLICK,0,0);
 }
+POINT control_center(HWND window,int id) {
+    const auto bounds=visible_bounds(window,GetDlgItem(window,id));
+    require(bounds.right>bounds.left && bounds.bottom>bounds.top,"Wheel target is not visible");
+    POINT point{(bounds.left+bounds.right)/2,(bounds.top+bounds.bottom)/2};
+    ClientToScreen(window,&point);
+    require(SetCursorPos(point.x,point.y)!=FALSE,"Cannot position the wheel over a page control");
+    return point;
+}
+void wheel_over(HWND window,int id,short delta) {
+    const auto point=control_center(window,id);
+    SendMessageW(window,WM_MOUSEWHEEL,MAKEWPARAM(0,WORD(delta)),MAKELPARAM(point.x,point.y));
+}
 void key_press(WORD code, WORD modifier=0) {
     INPUT events[4]{};
     const int count=modifier ? 4 : 2;
@@ -131,6 +143,10 @@ void open_dropdown(HWND combo) {
         std::string open;
         for(int id=100;id<260;++id){HWND c=GetDlgItem(GetAncestor(combo,GA_ROOT),id);if(c&&SendMessageW(c,CB_GETDROPPEDSTATE,0,0))open+=" "+std::to_string(id);}
         RECT r{};GetWindowRect(combo,&r);
+        GUITHREADINFO gui{sizeof(gui)};GetGUIThreadInfo(GetWindowThreadProcessId(combo,nullptr),&gui);
+        std::cerr<<"[ui:test] dropdown focus="<<GetDlgCtrlID(gui.hwndFocus)<<" capture="<<GetDlgCtrlID(gui.hwndCapture)
+                 <<" active="<<(gui.hwndActive==GetAncestor(combo,GA_ROOT))<<" flags="<<gui.flags
+                 <<" left_down="<<bool(GetAsyncKeyState(VK_LBUTTON)&0x8000)<<"\n";
         throw std::runtime_error("Dropdown did not open: "+std::to_string(GetDlgCtrlID(combo))+" under="+std::to_string(GetDlgCtrlID(under))+
             " class="+std::string(type,type+wcslen(type))+" open="+open+" visible="+std::to_string(IsWindowVisible(combo))+
             " rect="+std::to_string(r.left)+","+std::to_string(r.top)+","+std::to_string(r.right)+","+std::to_string(r.bottom));
@@ -234,6 +250,7 @@ int main() {
                 }
                 SetWindowPos(w,nullptr,0,0,1280,900,SWP_NOZORDER|SWP_NOACTIVATE);
                 require(GetDlgItem(w,1002)==nullptr,"Settings is duplicated in the header");
+                require(GetDlgItem(w,1001)==nullptr,"Profile is still in the header");
                 HWND hints{};
                 while ((hints=FindWindowExW(nullptr,hints,TOOLTIPS_CLASSW,nullptr)))
                     if (GetWindow(hints,GW_OWNER)==w)break;
@@ -243,7 +260,7 @@ int main() {
                 tool.uId=reinterpret_cast<UINT_PTR>(GetDlgItem(w,101));tool.lpszText=hint;
                 SendMessageW(hints,TTM_GETTEXTW,512,reinterpret_cast<LPARAM>(&tool));
                 require(std::wstring(hint).find(L"Ctrl+1")!=std::wstring::npos,"Dock hints do not show the matching keyboard shortcut");
-                click(w,1001);
+                click(w,1000);
                 require(IsWindowVisible(GetDlgItem(w,1007)),"Profile customization did not open");
                 SetWindowTextW(GetDlgItem(w,1007),L"UT");SetWindowTextW(GetDlgItem(w,1008),L"Local appearance");
                 keyboard_choice(GetDlgItem(w,1009),3);click(w,1010);
@@ -397,6 +414,11 @@ int main() {
                     require(IsWindowVisible(rules) && bounds.top>=MulDiv(76,dpi,96) &&
                                 bounds.bottom<=client.bottom-MulDiv(116,dpi,96),
                             "The full timing-rules field cannot be reached by scrolling");
+                    SCROLLINFO pageBefore{sizeof(pageBefore),SIF_POS},pageAfter{sizeof(pageAfter),SIF_POS};
+                    GetScrollInfo(w,SB_VERT,&pageBefore);
+                    wheel_over(w,290,-WHEEL_DELTA);GetScrollInfo(w,SB_VERT,&pageAfter);
+                    require(SendMessageW(rules,EM_GETFIRSTVISIBLELINE,0,0)>0 && pageBefore.nPos==pageAfter.nPos,
+                            "Scrolling timing rules moved the launcher page");
                     SendMessageW(rules,EM_LINESCROLL,0,10000);
                     require(SendMessageW(rules,EM_GETFIRSTVISIBLELINE,0,0)>0,
                             "The remaining timing rules cannot be scrolled into view");
@@ -414,6 +436,12 @@ int main() {
                 require(IsWindowVisible(GetDlgItem(w,290)),"Timing rules cannot be reached in a short window");
                 click(w,222);
                 require(IsWindowVisible(GetDlgItem(w,1020)),"The split appearance list disappeared in a short window");
+                require(IsWindowEnabled(GetDlgItem(w,1020)) && !IsWindowEnabled(GetDlgItem(w,294)),
+                        "Split browsing requires activating a speedrun, or editing is enabled without a category");
+                wheel_over(w,1020,-WHEEL_DELTA);
+                GetScrollInfo(w,SB_VERT,&wheel);
+                require(SendMessageW(GetDlgItem(w,1020),LB_GETTOPINDEX,0,0)>0 && wheel.nPos==0,
+                        "Scrolling the split list moved the launcher page");
                 SendMessageW(w,WM_VSCROLL,SB_BOTTOM,0);
                 require(IsWindowVisible(GetDlgItem(w,1020)) && IsWindowVisible(GetDlgItem(w,294)),
                         "Overlay controls cannot be reached by scrolling");
@@ -431,6 +459,26 @@ int main() {
                 click(w,222);
                 require(!GetDlgItem(w,224) && !GetDlgItem(w,225),"The removed visibility checklist is still present");
                 require(SendMessageW(GetDlgItem(w,1020),LB_GETCOUNT,0,0)==12,"Split customization has no editable rows");
+                mouse_choice(GetDlgItem(w,226),1);
+                require(read_settings(settings_path()).overlayCorner==1,"The overlay position was not saved");
+                const auto list=GetDlgItem(w,1020);
+                SendMessageW(list,LB_SETTOPINDEX,0,0);
+                const auto point=control_center(w,1020);
+                PostMessageW(GetDlgItem(w,226),WM_MOUSEWHEEL,MAKEWPARAM(0,WORD(short(-WHEEL_DELTA))),MAKELPARAM(point.x,point.y));
+                wait_until([&]{GetScrollInfo(w,SB_VERT,&wheel);return SendMessageW(list,LB_GETTOPINDEX,0,0)>0 || wheel.nPos!=0;},
+                           "The split list did not receive a wheel event sent to another control");
+                require(wheel.nPos==0 && read_settings(settings_path()).overlayCorner==1 && SendMessageW(list,LB_GETCURSEL,0,0)==0,
+                        "Scrolling splits changed the page, selected row or focused dropdown value");
+                SendMessageW(list,LB_SETTOPINDEX,11,0);
+                const auto lastTop=SendMessageW(list,LB_GETTOPINDEX,0,0);
+                wheel_over(w,1020,-WHEEL_DELTA);GetScrollInfo(w,SB_VERT,&wheel);
+                require(SendMessageW(list,LB_GETTOPINDEX,0,0)==lastTop && wheel.nPos==0,
+                        "The launcher scrolls when the split list reaches its end");
+                SendMessageW(list,LB_SETTOPINDEX,0,0);
+                wheel_over(w,1020,-60);wheel_over(w,1020,-60);GetScrollInfo(w,SB_VERT,&wheel);
+                require(SendMessageW(list,LB_GETTOPINDEX,0,0)>0 && wheel.nPos==0,
+                        "Partial wheel steps do not scroll splits independently");
+                SendMessageW(list,LB_SETTOPINDEX,0,0);
                 SetWindowTextW(GetDlgItem(w,294),L"Raditz · Arrival");click(w,1025);
                 auto appearance=read_settings(settings_path());
                 require(appearance.splitStyles.size()==1 && appearance.splitStyles[0].name=="Raditz · Arrival" &&
