@@ -184,7 +184,7 @@ struct GpuRasterBackend::Impl {
         const auto remember=[&](uint64_t result){memo.key=memoKey;memo.generation=hdGeneration;memo.pages=pages;memo.result=result;return result;};
         if((pages&gpuDirty).any())return remember(0u);
         uint64_t stamp=1469598103934665603ull;
-        for(size_t p=pages._Find_first();p<gpu::PageCount;p=pages._Find_next(p)){stamp^=pageContent(unsigned(p));stamp*=1099511628211ull;}
+        for(size_t p=0;p<pages.size();++p)if(pages.test(p)){stamp^=pageContent(unsigned(p));stamp*=1099511628211ull;}
         uint64_t colors=0u;
         if(indexed(t.psm)){const uint32_t first=cmd[28];for(unsigned i=0;i<(fourBit(t.psm) ? 16u : 256u);++i){colors^=palette[first+i];colors*=1099511628211ull;}}
         const std::array<uint64_t,4> key={uint64_t(t.psm)|(uint64_t(t.tbp0)<<8u)|(uint64_t(t.tbw)<<24u)|(uint64_t(w)<<32u)|(uint64_t(h)<<48u),stamp,colors,
