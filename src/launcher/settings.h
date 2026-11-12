@@ -55,6 +55,7 @@ struct Settings {
     std::vector<std::string> onlineProfiles;
     std::vector<std::string> onlineKeys;
     unsigned onlineVisibility = 0;
+    unsigned onlineRoomFilter = 0, onlinePlayerFilter = 0;
     struct Friend {
         std::string owner, id, name;
     };
@@ -62,6 +63,7 @@ struct Settings {
     struct ProfileStyle {
         std::string id, initials, tagline;
         unsigned accent = 0;
+        std::string image, imageName;
     };
     std::vector<ProfileStyle> profileStyles;
     std::string onlineRoom, onlinePassword, onlineLobby;

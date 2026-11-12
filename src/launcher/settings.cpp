@@ -54,7 +54,7 @@ void validate_settings(const Settings &s) {
         throw std::runtime_error("Invalid graphics settings");
     if (s.onlinePort < 1 || s.onlinePort > 65535 || s.onlineDelay > 8 || s.onlineVisibility > 2 || s.onlineKeys.size() > 32 || s.onlineName.size() > 64 ||
         s.onlineAddress.size() > 255 || s.onlineRoom.size() > 64 || s.onlinePassword.size() > 64 ||
-        s.onlineLobby.size() > 255 || s.onlineProfiles.size() > 32)
+        s.onlineLobby.size() > 255 || s.onlineProfiles.size() > 32 || s.onlineRoomFilter > 2 || s.onlinePlayerFilter > 1)
         throw std::runtime_error("Invalid online settings");
     if (s.launcherTheme >= theme_count || s.launcherAccent >= accent_count || s.startPage > 1 || s.lastPage >= tab_count ||
         !valid_tab_order(s.tabOrder, s.hiddenTabs) || !valid_custom_colors(s.launcherColors))
@@ -64,7 +64,8 @@ void validate_settings(const Settings &s) {
     for (const auto& style : s.profileStyles) {
         if (style.id.size()!=64 || !std::all_of(style.id.begin(),style.id.end(),[](unsigned char c){return std::isxdigit(c)!=0;}) ||
             !profileIds.insert(style.id).second || style.accent>=accent_count || style.initials.size()>8 || style.tagline.size()>192 ||
-            style.initials.find_first_of("\r\n")!=std::string::npos || style.tagline.find_first_of("\r\n")!=std::string::npos)
+            style.initials.find_first_of("\r\n")!=std::string::npos || style.tagline.find_first_of("\r\n")!=std::string::npos ||
+            !speedrun::valid_image_file(style.image) || style.imageName.size()>1024 || style.imageName.find_first_of("\r\n")!=std::string::npos)
             throw std::runtime_error("Invalid profile appearance");
     }
     if (s.splitStyles.size() > 2048)
@@ -84,6 +85,7 @@ void validate_settings(const Settings &s) {
 }
 Settings read_settings(const std::filesystem::path &file) {
     Settings s;
+    std::vector<std::array<std::string,3>> profileImages;
     bool tabLayout = false;
     std::ifstream in(file);
     if (!in) {
@@ -229,6 +231,13 @@ Settings read_settings(const std::filesystem::path &file) {
             row >> std::quoted(s.onlineRoom) >> std::quoted(s.onlinePassword) >> s.onlineListed >> std::quoted(s.onlineLobby);
         else if (key == "online_visibility")
             row >> s.onlineVisibility;
+        else if (key == "online_filters")
+            row >> s.onlineRoomFilter >> s.onlinePlayerFilter;
+        else if (key == "profile_image") {
+            std::array<std::string,3> image;
+            row >> std::quoted(image[0]) >> std::quoted(image[1]) >> std::quoted(image[2]);
+            profileImages.push_back(std::move(image));
+        }
         else if (key == "profile_style") {
             Settings::ProfileStyle style;
             row >> std::quoted(style.id) >> style.accent >> std::quoted(style.initials) >> std::quoted(style.tagline);
@@ -284,6 +293,16 @@ Settings read_settings(const std::filesystem::path &file) {
             std::rotate(before, order.end() - 1, order.end());
         }
     }
+    std::set<std::string> imageIds;
+    for (const auto& image : profileImages) {
+        if(!imageIds.insert(image[0]).second)throw std::runtime_error("Duplicate profile image");
+        auto found=std::find_if(s.profileStyles.begin(),s.profileStyles.end(),[&](const auto& style){return style.id==image[0];});
+        if(found==s.profileStyles.end()) {
+            s.profileStyles.push_back({image[0],{},{},0,{},{}});
+            found=std::prev(s.profileStyles.end());
+        }
+        found->image=image[1];found->imageName=image[2];
+    }
     validate_settings(s);
     if (s.hdTextures && s.internalScale == 1)
         s.internalScale = 2;
@@ -337,8 +356,11 @@ void write_settings(const std::filesystem::path &file, const Settings &s) {
     out << "\nonline_visibility " << s.onlineVisibility << '\n';
     for (const auto &entry : s.onlineFriends)
         out << "online_friend " << entry.owner << ' ' << entry.id << ' ' << std::quoted(entry.name) << '\n';
-    for (const auto& style : s.profileStyles)
+    out << "online_filters " << s.onlineRoomFilter << ' ' << s.onlinePlayerFilter << '\n';
+    for (const auto& style : s.profileStyles) {
+        if(!style.image.empty())out << "profile_image " << std::quoted(style.id) << ' ' << std::quoted(style.image) << ' ' << std::quoted(style.imageName) << '\n';
         out << "profile_style " << std::quoted(style.id) << ' ' << style.accent << ' ' << std::quoted(style.initials) << ' ' << std::quoted(style.tagline) << '\n';
+    }
     for (const auto& style : s.splitStyles)
         out << "split_style " << std::quoted(style.run) << ' ' << style.index << ' ' << std::quoted(style.name) << ' '
             << std::quoted(style.image) << ' ' << std::quoted(style.imageName) << '\n';

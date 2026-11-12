@@ -24,6 +24,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <thread>
+#include <set>
 #include <cwchar>
 
 using namespace openkai2::launcher;
@@ -111,24 +112,24 @@ void drop_file(HWND window,const std::filesystem::path& file) {
     GlobalUnlock(memory);
     SendMessageW(window,WM_DROPFILES,reinterpret_cast<WPARAM>(memory),0);
 }
-HWND image_picker() {
-    HWND picker{};
+HWND image_picker(const wchar_t* title) {
+    std::pair<const wchar_t*,HWND> picker{title,nullptr};
     EnumWindows([](HWND candidate,LPARAM result)->BOOL {
         DWORD pid{};GetWindowThreadProcessId(candidate,&pid);
         wchar_t title[128]{};GetWindowTextW(candidate,title,128);
-        if(pid==GetCurrentProcessId() && std::wstring(title)==L"Choose a split image" && IsWindowVisible(candidate)) {
-            *reinterpret_cast<HWND*>(result)=candidate;return FALSE;
+        if(pid==GetCurrentProcessId() && std::wstring(title)==reinterpret_cast<std::pair<const wchar_t*,HWND>*>(result)->first && IsWindowVisible(candidate)) {
+            reinterpret_cast<std::pair<const wchar_t*,HWND>*>(result)->second=candidate;return FALSE;
         }
         return TRUE;
     },reinterpret_cast<LPARAM>(&picker));
-    return picker;
+    return picker.second;
 }
-void choose_split_image(HWND window,const std::filesystem::path& path) {
-    require(IsWindowEnabled(GetDlgItem(window,1022)),"Choose image is disabled for an active category");
-    PostMessageW(GetDlgItem(window,1022),BM_CLICK,0,0);
+void choose_image(HWND window,const std::filesystem::path& path,int action=1022,const wchar_t* title=L"Choose a split image") {
+    require(IsWindowEnabled(GetDlgItem(window,action)),"Choose image is disabled for an active category");
+    PostMessageW(GetDlgItem(window,action),BM_CLICK,0,0);
     const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(30);
     HWND picker{};
-    while(!(picker=image_picker()) && std::chrono::steady_clock::now()<deadline)
+    while(!(picker=image_picker(title)) && std::chrono::steady_clock::now()<deadline)
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     require(picker!=nullptr,"Choose image did not open the native file picker");
     struct ClosePicker {
@@ -139,9 +140,9 @@ void choose_split_image(HWND window,const std::filesystem::path& path) {
         // This portable Wine environment has no working shell file browser.
         // Native Windows runs exercise file selection; Wine checks opening and cancellation.
         PostMessageW(picker,WM_CLOSE,0,0);
-        while(image_picker() && std::chrono::steady_clock::now()<deadline)
+        while(image_picker(title) && std::chrono::steady_clock::now()<deadline)
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        require(!image_picker(),"The image picker could not be cancelled");
+        require(!image_picker(title),"The image picker could not be cancelled");
         SendMessageW(window,WM_NULL,0,0);
         std::cout<<"Wine shell: checked picker opening/cancellation; importing through file drop.\n";
         drop_file(window,path);
@@ -186,9 +187,9 @@ void choose_split_image(HWND window,const std::filesystem::path& path) {
     },reinterpret_cast<LPARAM>(&open));
     require(open!=nullptr,"The image picker has no Open button");
     PostMessageW(open,BM_CLICK,0,0);
-    while(image_picker() && std::chrono::steady_clock::now()<deadline)
+    while(image_picker(title) && std::chrono::steady_clock::now()<deadline)
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    if(image_picker()) {
+    if(image_picker(title)) {
         PostMessageW(picker,WM_CLOSE,0,0);
         throw std::runtime_error("The native image picker did not accept the selected file");
     }
@@ -332,6 +333,31 @@ int main() {
                         require(text.cx+8<=bounds.right-bounds.left,"A dock tab's label is clipped");
                     }
                 }
+                for(auto size:{std::pair{960,680},std::pair{1440,960}}) {
+                    SetWindowPos(w,nullptr,0,0,size.first,size.second,SWP_NOZORDER|SWP_NOACTIVATE);
+                    for(int id:{1000,1060,1061,1062,1063,1042,1043,1045,110,111,112,256,114}) {
+                        bool reachable=false;
+                        for(int position:{SB_TOP,SB_BOTTOM}) {
+                            SendMessageW(w,WM_VSCROLL,position,0);
+                            RECT bounds{},client{};GetWindowRect(GetDlgItem(w,id),&bounds);GetClientRect(w,&client);
+                            MapWindowPoints(nullptr,w,reinterpret_cast<POINT*>(&bounds),2);
+                            if(IsWindowVisible(GetDlgItem(w,id)) && bounds.top>=76 && bounds.bottom<=client.bottom-116 &&
+                               bounds.left>=0 && bounds.right<=client.right)reachable=true;
+                        }
+                        require(reachable,("A lounge control cannot be reached: "+std::to_string(id)).c_str());
+                    }
+                    SendMessageW(w,WM_VSCROLL,SB_TOP,0);
+                }
+                RedrawWindow(w,nullptr,nullptr,RDW_INVALIDATE|RDW_UPDATENOW|RDW_ALLCHILDREN);
+                auto edgeDc=GetDC(GetDlgItem(w,1043));std::set<COLORREF> edgeColors;
+                for(int y=0;y<10;++y)for(int x=0;x<10;++x)edgeColors.insert(GetPixel(edgeDc,x,y));
+                ReleaseDC(GetDlgItem(w,1043),edgeDc);
+                require(edgeColors.size()>5,"Rounded launcher edges have no fractional color coverage");
+                require(!IsWindowEnabled(GetDlgItem(w,256)),"Join is enabled with no room selected");
+                require(!IsWindowEnabled(GetDlgItem(w,1062)),"Invite is enabled with no online friend selected");
+                keyboard_choice(GetDlgItem(w,1060),1);keyboard_choice(GetDlgItem(w,1060),0);
+                SetWindowTextW(GetDlgItem(w,1042),L"Kame");click(w,1045);
+                require(!IsWindowEnabled(GetDlgItem(w,1045)),"The lounge search did not clear");
                 SetWindowPos(w,nullptr,0,0,1280,900,SWP_NOZORDER|SWP_NOACTIVATE);
                 require(GetDlgItem(w,1002)==nullptr,"Settings is duplicated in the header");
                 require(GetDlgItem(w,1001)==nullptr,"Profile is still in the header");
@@ -353,9 +379,64 @@ int main() {
                             style.profileStyles[0].tagline=="Local appearance" && style.profileStyles[0].accent==3 &&
                             style.onlineKeys==initial.onlineKeys && style.onlineName==initial.onlineName,
                         "Profile customization changed identity or did not persist");
+                const auto portrait=root/L"My profile animation.gif";
+                {std::ofstream out(portrait,std::ios::binary);out.write(reinterpret_cast<const char*>(openkai2::test_images::gif),sizeof(openkai2::test_images::gif));}
+                choose_image(w,portrait,1040,L"Choose a profile picture");
+                auto picture=read_settings(settings_path());
+                require(picture.profileStyles.size()==1 && !picture.profileStyles[0].image.empty() &&
+                        picture.profileStyles[0].imageName=="My profile animation.gif" && std::filesystem::exists(portrait),
+                        "Choosing a profile picture failed or removed the original");
+                const auto copied=settings_path().parent_path()/"profiles"/"images"/picture.profileStyles[0].image;
+                require(openkai2::speedrun::load_split_image(copied).frames.size()==4,"A profile GIF lost its animation");
+                click(w,1010);
+                require(read_settings(settings_path()).profileStyles[0].image==picture.profileStyles[0].image,
+                        "Saving profile text discarded its picture");
+                click(w,1041);
+                require(read_settings(settings_path()).profileStyles[0].image.empty() && std::filesystem::exists(portrait) &&
+                        !IsWindowEnabled(GetDlgItem(w,1041)),"Removing a profile picture deleted the original or stayed enabled");
+                drop_file(w,portrait);
+                require(!read_settings(settings_path()).profileStyles[0].image.empty(),"Dropping a profile picture did not work");
                 key_press(VK_LEFT,VK_MENU);
                 wait_until([&]{return IsWindowVisible(GetDlgItem(w,112)) && !IsWindowVisible(GetDlgItem(w,1007));},
                            "Alt+Left did not return from profile customization");
+                click(w,102);
+                SendMessageW(w,WM_VSCROLL,SB_TOP,0);
+                for(int id:{1000,1012,1042,1043,1044,1045})
+                    require(IsWindowVisible(GetDlgItem(w,id)),"Online profile or browse controls are missing");
+                SetWindowTextW(GetDlgItem(w,1042),L"Kame House");
+                require(IsWindowEnabled(GetDlgItem(w,1045)),"Online search cannot be cleared");
+                click(w,1045);
+                wchar_t query[128]{};GetWindowTextW(GetDlgItem(w,1042),query,128);
+                require(!*query && !IsWindowEnabled(GetDlgItem(w,1045)),"Clearing online search left stale text or controls");
+                keyboard_choice(GetDlgItem(w,1043),2);keyboard_choice(GetDlgItem(w,1044),1);
+                require(read_settings(settings_path()).onlineRoomFilter==2 && read_settings(settings_path()).onlinePlayerFilter==1,
+                        "Online room and friend filters did not save");
+                const auto currentDpi=[](HWND window) {
+                    const auto getDpi=reinterpret_cast<UINT(WINAPI*)(HWND)>(GetProcAddress(GetModuleHandleW(L"user32.dll"),"GetDpiForWindow"));
+                    return getDpi ? getDpi(window) : 96u;
+                }(w);
+                for(int height:{680,960}) {
+                    SetWindowPos(w,nullptr,0,0,MulDiv(1100,currentDpi,96),MulDiv(height,currentDpi,96),SWP_NOZORDER|SWP_NOACTIVATE);
+                    for(int id:{1000,1012,1042,1043,1044,1045,243,244,245,256,258,259}) {
+                        bool reachable=false;
+                        for(int position:{SB_TOP,SB_BOTTOM}) {
+                            SendMessageW(w,WM_VSCROLL,position,0);
+                            if(!IsWindowVisible(GetDlgItem(w,id)))continue;
+                            RECT bounds{},client{};GetWindowRect(GetDlgItem(w,id),&bounds);GetClientRect(w,&client);
+                            MapWindowPoints(nullptr,w,reinterpret_cast<POINT*>(&bounds),2);
+                            if(bounds.top>=MulDiv(76,currentDpi,96) && bounds.bottom<=client.bottom-MulDiv(116,currentDpi,96))reachable=true;
+                        }
+                        require(reachable,"An Online action cannot be reached above the dock");
+                    }
+                }
+                SendMessageW(w,WM_VSCROLL,SB_TOP,0);
+                click(w,1000);
+                require(IsWindowVisible(GetDlgItem(w,1040)),"Online has no direct route to profile pictures");
+                mouse_click(GetDlgItem(w,106),16,16);
+                wait_until([&]{return IsWindowVisible(GetDlgItem(w,140));},"Settings did not open before the search shortcut");
+                key_press('F',VK_CONTROL);
+                wait_until([&]{return IsWindowVisible(GetDlgItem(w,1042));},"Ctrl+F did not open online search");
+                SendMessageW(w,WM_VSCROLL,SB_BOTTOM,0);
                 click(w,106);
                 require(GetDlgItem(w,174)==nullptr,"The Discord toggle is still in the launcher");
                 require(read_settings(settings_path()).discordPresence,"Discord activity is not on by default");
@@ -572,7 +653,7 @@ int main() {
                 const auto userImage=root/L"Owned animation.gif";
                 {std::ofstream out(userImage,std::ios::binary);out.write(reinterpret_cast<const char*>(openkai2::test_images::gif),sizeof(openkai2::test_images::gif));}
                 require(std::filesystem::exists(userImage) && std::filesystem::file_size(userImage)>0,"The picker fixture was not written");
-                choose_split_image(w,userImage);
+                choose_image(w,userImage);
                 appearance=read_settings(settings_path());
                 require(appearance.splitStyles.size()==1 && openkai2::speedrun::valid_image_file(appearance.splitStyles[0].image) &&
                             !appearance.splitStyles[0].image.empty() && std::filesystem::exists(userImage),"A user's GIF was not attached or its original was removed");
@@ -652,7 +733,7 @@ int main() {
                     wait_until([&]{return IsWindowVisible(GetDlgItem(w,route.second))!=FALSE;},
                         ("Ctrl+"+std::string(1,char(route.first))+" did not show page control "+std::to_string(route.second)).c_str());
                 }
-                click(w,101);click(w,1006);
+                click(w,106);click(w,301);
                 SendMessageW(GetDlgItem(w,295),LB_SETCURSEL,2,0);click(w,297);
                 require(read_settings(settings_path()).tabOrder[3]==2,"Dock tabs cannot be moved freely across the old groups");
                 key_press('4',VK_CONTROL);

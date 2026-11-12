@@ -38,8 +38,9 @@ files.
 - **Save states:** F5 saves and F9 loads the whole console outside speedrun and online play.
 - **Randomizer:** a random character, with its own moves and skills, for every
   Dragon World and World Tournament fight. Works with speedruns and permadeath.
-- **Launcher:** bottom navigation with reorderable tabs, thirteen picture themes,
-  custom colors, local profile appearance, ISO verification, saves and backups,
+- **Launcher:** a lounge with friends, searchable rooms and selected-room details;
+  bottom navigation with reorderable tabs, thirteen illustrated themes, custom
+  colors, local PNG/JPEG/GIF profile pictures, ISO verification, saves and backups,
   automatic updates and Discord activity. See [Windows](docs/windows.md).
 - **Controls:** rebind every PS2 button to a key, an alternate key and a controller
   button in the Controls tab. Works with Xbox, PlayStation and most other controllers.

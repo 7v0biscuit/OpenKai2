@@ -29,7 +29,7 @@ tag is removed, and other players' games check the key's signature too.
 ## Finding a match
 
 The launcher connects to the online service on its own. The **Rooms** list and
-the **Players** list update live; there is nothing to refresh.
+the **Players** list update live. **Refresh** also rechecks room latency.
 
 - **Join a room:** pick it and press **Join room**, or double-click it. When the
   room has a password, a password box appears below the list. Each room shows
@@ -68,7 +68,7 @@ tried first.
 
 - **Add friend:** pick a player and press **Add friend**. They get a notification
   and can accept. A request sent while they are offline waits until they come
-  online. Friends are listed in quick access on Play, online ones first.
+  online. Friends are listed in quick access on Play, online ones first, and remain available in Online’s Players list.
   A green dot means online, yellow means in a match or hosting, and grey means
   offline. A friend who is hosting shows the room's name; double-click them to
   join it. Double-click any other friend to invite them, or pick a friend to
@@ -118,3 +118,28 @@ to other players.
 **Copy profile ID** copies the public ID for sharing. **Use defaults** resets
 appearance without deleting the profile or its friends. If no profile exists,
 **Create profile** on Play opens the Online page to create one.
+
+## Profile pictures and browsing
+
+Choose **Customize profile** on Online or Play, then **Choose picture…** to
+select a PNG, JPEG or animated GIF from your PC. You can also drop a picture
+onto the Profile page. GIFs animate on Profile, Play and Online. Pictures are
+cropped to a circle; initials are used when no picture is set.
+
+Pictures may be up to 16 MB, with up to 300 GIF frames. The launcher copies
+files to `%LOCALAPPDATA%\OpenKai2\profiles\images`. Removing or replacing a
+picture keeps the original file. Each profile keeps its own picture, initials,
+accent and tagline. These appearance settings stay on this PC and are not
+uploaded to the online service.
+
+Use **Search rooms or players** to find a room, host or player by name. **Clear**
+restores the lists. **Ctrl+F** opens Online and focuses search. Room filters
+show compatible versions by default, all versions, or compatible rooms without
+a password. Player filters show everyone or just friends who are online.
+Friends remain available in Online's Players list after being added.
+Filters are remembered; search text is cleared when the launcher restarts.
+
+**Reconnect** retries the service when offline; **Refresh** updates room pings
+when connected. Join and invite buttons become available when their required
+ISO, connection and selection are ready. List positions stay in place while
+room pings and player presence update.

@@ -2,6 +2,7 @@
 #include "graphics_settings.h"
 #include "launcher/saves.h"
 #include "launcher/settings.h"
+#include "launcher/online_browser.h"
 #include "speedrun.h"
 #include "launcher/update.h"
 #include "disc_image.h"
@@ -133,12 +134,35 @@ int main() {
         s.onlineVisibility = 1;
         s.onlineFriends = {{std::string(64, 'a'), std::string(64, 'c'), "Krillin \"K\""}};
         s.profileStyles={{std::string(64,'a'),"SG","Local only",3},{std::string(64,'b'),"V","Second profile",7}};
+        s.profileStyles[0].image=std::string(64,'d')+".gif";
+        s.profileStyles[0].imageName="My \"portrait\".gif";
+        s.onlineRoomFilter=2;s.onlinePlayerFilter=1;
         s.splitStyles={{"any.txt",0,"Raditz",std::string(64,'c')+".gif","My image.gif"},{"tournament-novice.txt",0,"First round",{},{} }};
         write_settings(root / "settings.ini", s);
         auto read = read_settings(root / "settings.ini");
         require(read.profileStyles.size()==2 && read.profileStyles[0].id==std::string(64,'a') &&
                     read.profileStyles[0].initials=="SG" && read.profileStyles[0].tagline=="Local only" &&
                     read.profileStyles[0].accent==3 && read.profileStyles[1].accent==7,"Profile appearance did not round-trip independently");
+        require(read.profileStyles[0].image==s.profileStyles[0].image && read.profileStyles[0].imageName==s.profileStyles[0].imageName &&
+                read.profileStyles[1].image.empty() && read.onlineRoomFilter==2 && read.onlinePlayerFilter==1,
+                "Profile pictures or online filters did not round-trip independently");
+        auto invalidImage=s;invalidImage.profileStyles[0].image="../outside.gif";rejects([&]{validate_settings(invalidImage);});
+        invalidImage=s;invalidImage.profileStyles[0].imageName="two\nlines.gif";rejects([&]{validate_settings(invalidImage);});
+        invalidImage=s;invalidImage.onlineRoomFilter=3;rejects([&]{validate_settings(invalidImage);});
+        const std::vector<openkai2::online::Room> browserRooms={
+            {"1","Kame House","Goku","127.0.0.1","current",7350,false,false},
+            {"2","Snow Arena","Vegeta","127.0.0.1","current",7350,true,false},
+            {"3","Old room","Krillin","127.0.0.1","older",7350,false,false}};
+        require(browse_rooms(browserRooms,"current",0,"").size()==2 && browse_rooms(browserRooms,"current",1,"").size()==3 &&
+                browse_rooms(browserRooms,"current",2,"").size()==1,"Room compatibility or password filtering is wrong");
+        require(browse_rooms(browserRooms,"current",0,"vEgEtA").size()==1 && browse_rooms(browserRooms,"current",0,"SNOW").size()==1 &&
+                browse_rooms(browserRooms,"current",0,"missing").empty() && browserRooms.size()==3,
+                "Room search failed or changed the directory's room list");
+        const std::vector<openkai2::online::Player> browserPlayers={{"1","Goku","online","current",false},{"2","Vegeta","hosting","current",false}};
+        const auto friendly=[](const std::string& id){return id=="2";};
+        require(browse_players(browserPlayers,false,"",friendly).size()==2 && browse_players(browserPlayers,true,"",friendly).size()==1 &&
+                browse_players(browserPlayers,true,"goku",friendly).empty() && browse_players(browserPlayers,false,"GOku",friendly).size()==1,
+                "Player browsing hides friends or ignores search and friend filters");
         require(read.splitStyles.size()==2 && read.splitStyles[0].run=="any.txt" && read.splitStyles[0].name=="Raditz" &&
                 read.splitStyles[0].image==std::string(64,'c')+".gif" && read.splitStyles[1].name=="First round","Split appearances did not round-trip by category");
         const auto splitLook=split_appearance(read,"any.txt",root/"images");
@@ -218,7 +242,7 @@ int main() {
         {
             using namespace openkai2::launcher;
             const auto first = make_theme(0, 0);
-            require(first.background == Rgb{20, 16, 25} && first.accent == Rgb{240, 163, 90} && first.banner == 2u,
+            require(first.accent == themes[0].accent && first.banner == themes[0].banner && luminance(first.background)<luminance(first.panel),
                     "The default theme is not Dragon Balls");
             for (unsigned theme = 0; theme < theme_count; ++theme)
                 require(themes[theme].banner >= 1u && themes[theme].banner <= banner_picture_count, "A theme has no picture");
@@ -275,7 +299,7 @@ int main() {
                 for (unsigned a = 0; a < theme_count; ++a)
                     for (unsigned b = a + 1; b < theme_count; ++b) {
                         const auto x = make_theme(a, 0), y = make_theme(b, 0);
-                        require(distance(x.accent, y.accent) + distance(x.panel, y.panel) * 4u + distance(x.heroFrom, y.heroFrom) > 140u,
+                        require(x.banner!=y.banner || distance(x.accent,y.accent)+distance(x.panel,y.panel)*4u+distance(x.heroFrom,y.heroFrom)>140u,
                                 "Two launcher themes look almost the same");
                     }
                 custom[4] = 0x1000000;

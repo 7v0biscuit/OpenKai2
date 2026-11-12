@@ -9,12 +9,18 @@ function(openkai2_add_launcher_ui project_root enable_tests)
         COMMAND "${CMAKE_COMMAND}" -DFONT=${font} -DOUTPUT=${font_source}
             -P "${project_root}/tools/native/embed-font.cmake"
         DEPENDS "${font}" "${project_root}/tools/native/embed-font.cmake" VERBATIM)
-    set(ui_font "${project_root}/third_party/inter/Inter.ttf")
+    set(ui_font "${project_root}/third_party/inter/Inter-Regular.ttf")
     set(ui_font_source "${CMAKE_CURRENT_BINARY_DIR}/openkai2_launcher_ui_font.cpp")
     add_custom_command(OUTPUT "${ui_font_source}"
         COMMAND "${CMAKE_COMMAND}" -DFONT=${ui_font} -DOUTPUT=${ui_font_source} -DFONT_SYMBOL=ui_font
             -P "${project_root}/tools/native/embed-font.cmake"
         DEPENDS "${ui_font}" "${project_root}/tools/native/embed-font.cmake" VERBATIM)
+    set(ui_semibold_font "${project_root}/third_party/inter/Inter-SemiBold.ttf")
+    set(ui_semibold_source "${CMAKE_CURRENT_BINARY_DIR}/openkai2_launcher_ui_semibold.cpp")
+    add_custom_command(OUTPUT "${ui_semibold_source}"
+        COMMAND "${CMAKE_COMMAND}" -DFONT=${ui_semibold_font} -DOUTPUT=${ui_semibold_source} -DFONT_SYMBOL=ui_semibold_font
+            -P "${project_root}/tools/native/embed-font.cmake"
+        DEPENDS "${ui_semibold_font}" "${project_root}/tools/native/embed-font.cmake" VERBATIM)
     set(banner_dir "${project_root}/src/launcher/banners")
     set(banner_names capsule balls radar scouter budokai_black budokai_board majin_buu babidi majin_vegeta saiyan_pod spirit_bomb nimbus potara)
     set(banner_files "")
@@ -41,11 +47,12 @@ function(openkai2_add_launcher_ui project_root enable_tests)
         "${project_root}/src/ed25519.cpp"
         "${font_source}"
         "${ui_font_source}"
+        "${ui_semibold_source}"
         "${banner_source}")
     target_include_directories(openkai2_launcher_ui PRIVATE "${project_root}/src")
     target_compile_features(openkai2_launcher_ui PUBLIC cxx_std_17)
     target_link_libraries(openkai2_launcher_ui PUBLIC openkai2_launcher_model openkai2_discord_presence openkai2_speedrun
-        comctl32 comdlg32 shell32 ole32 uuid gdi32 windowscodecs winhttp ws2_32)
+        comctl32 comdlg32 shell32 ole32 uuid gdi32 gdiplus windowscodecs winhttp ws2_32)
     if(MSVC)
         target_compile_options(openkai2_launcher_ui PRIVATE /utf-8)
     endif()
