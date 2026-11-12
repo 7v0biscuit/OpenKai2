@@ -27,7 +27,7 @@ namespace {
 u8 *iopMemory = nullptr;
 std::vector<int16_t> mixed;
 std::array<std::vector<u16>, 2> remainders;
-struct StreamCounts { uint64_t transfers = 0, bytes = 0, unread = 0; };
+struct StreamCounts { uint64_t transfers = 0, bytes = 0, unread = 0, starved = 0, starvedCycles = 0, since = 0, last = 0, resumes = 0; bool starving = false; };
 std::array<StreamCounts, 2> streamCounts;
 std::FILE *dumpFile(const char *suffix) {
     const char *base = std::getenv("OPENKAI2_AUDIO_DUMP");
@@ -41,7 +41,24 @@ void reportStream(unsigned core) {
     const auto &c = streamCounts[core];
     if (c.transfers >= 64u && (c.transfers & (c.transfers - 1u)) == 0u)
         std::cerr << "[audio:adma] core=" << core << " transfers=" << c.transfers << " bytes=" << c.bytes
-                  << " unread_at_completion=" << c.unread << '\n';
+                  << " unread_at_completion=" << c.unread << " starved=" << c.starved
+                  << " starved_ms=" << c.starvedCycles / 36864u << '\n';
+}
+void observeStreams(uint64_t now) {
+    for (unsigned core = 0; core < 2u; ++core) {
+        auto &c = streamCounts[core];
+        const bool starving = (Cores[core].AutoDMACtrl & ~3u) != 0u && (Cores[core].AutoDMACtrl & (core + 1u)) != 0u;
+        if (starving && !c.starving) {
+            c.since = now;
+            ++c.starved;
+        } else if (!starving && c.starving) {
+            c.starvedCycles += now - c.since;
+            if ((c.starved & (c.starved - 1u)) == 0u)
+                std::cerr << "[audio:adma] core=" << core << " starved=" << c.starved << " starved_ms="
+                          << c.starvedCycles / 36864u << " transfers=" << c.transfers << '\n';
+        }
+        c.starving = starving;
+    }
 }
 }
 
@@ -89,6 +106,7 @@ void write16(uint32_t address, uint16_t value, uint64_t now) {
         return;
     clock(now);
     TimeUpdate(psxRegs.cycle);
+    observeStreams(now);
     SPU2_FastWrite(address, value);
 }
 
@@ -97,8 +115,14 @@ void dma_write(unsigned core, uint32_t address, uint32_t bytes, uint64_t now) {
         return;
     clock(now);
     TimeUpdate(psxRegs.cycle);
+    observeStreams(now);
     spu2DmaRegisters[core][0] = address;
     if ((Cores[core].AutoDMACtrl & (core + 1u)) == core + 1u) {
+        auto &counts = streamCounts[core];
+        if (counts.transfers && now - counts.last > 36864000ull * 2u && counts.resumes++ < 2000u)
+            std::cerr << "[audio:music] core=" << core << " resumed after_silence_s=" << (now - counts.last) / 36864000ull
+                      << " at_s=" << now / 36864000ull << " transfers=" << counts.transfers << '\n';
+        counts.last = now;
         ++streamCounts[core].transfers;
         streamCounts[core].bytes += bytes;
         if (inputDump[core]) {
@@ -115,6 +139,7 @@ void dma_complete(unsigned core, uint64_t now) {
         return;
     clock(now);
     TimeUpdate(psxRegs.cycle);
+    observeStreams(now);
     auto &state = Cores[core];
     if (state.AdmaInProgress && state.DMAPtr && state.InputDataLeft > 0u) {
         auto &kept = remainders[core];
@@ -133,6 +158,7 @@ void advance(uint64_t now) {
         return;
     clock(now);
     TimeUpdate(psxRegs.cycle);
+    observeStreams(now);
 }
 
 bool take_dma_irq(unsigned core) {

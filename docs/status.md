@@ -39,10 +39,14 @@ PCSX2's SPU2 core mirrors the console's register writes and transfers and mixes
 voices, sound effects and music at 48 kHz. Host output includes volume control
 and time stretching for slow frames.
 
-Music plays in full quality but still pops now and then, starting a few
-seconds after the main menu loads, and may fail to load after a fight or when
-returning to character selection. Offline mixer and buffer checks pass;
-scene-transition playback remains under investigation.
+A crackle that started a few seconds into playback and then persisted is
+fixed: when the game's audio rate and the sound card's clock differed slightly,
+the resampler lost its previous sample each time its buffer was tidied and
+produced a small click many times a second. A regression test covers clock
+differences in both directions. Music may still fail to load after a fight or
+when returning to character selection; this has not been reproduced, and
+`startup.log` now records when the music stream resumes after silence and
+whether the sound chip ran out of stream data.
 
 ## Validation and releases
 

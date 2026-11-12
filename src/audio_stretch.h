@@ -141,9 +141,9 @@ class StretchedPlayback {
                 skipFrames(skip);
             }
         }
-        if (read_ > 8192u || read_ == input_.size() / 2u) {
-            input_.erase(input_.begin(), input_.begin() + read_ * 2u);
-            read_ = 0;
+        if (read_ > 8192u || (read_ > 1u && read_ == input_.size() / 2u)) {
+            input_.erase(input_.begin(), input_.begin() + (read_ - 1u) * 2u);
+            read_ = 1;
         }
     }
     double speed() const { return speed_; }

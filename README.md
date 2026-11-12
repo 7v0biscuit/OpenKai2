@@ -59,8 +59,9 @@ files.
 
 ## Known issues
 
-- **Music:** music plays in full quality, but it pops now and then (starting
-  a few seconds after the main menu loads) and may fail to load after a fight.
+- **Music:** a track may fail to load after a fight or when returning to
+  character selection. A crackle that built up a few seconds into playback is
+  fixed; if you still hear pops, please send `startup.log`.
 - **Imported Budokai 3 stages** bring their fight effects but not their moving
   stage objects.
 - **Budokai 3 movesets** (experimental): the character animates, but buttons

@@ -96,9 +96,53 @@ void neverRepeats(double rate) {
     require(backwards == 0, "Music played part of itself a second time");
     require(playback->underruns() == 0, "Steady game audio ran dry");
 }
+void driftIsClean(double rate) {
+    StereoAudioQueue queue;
+    auto playback = std::make_unique<StretchedPlayback>();
+    const double tone = 2 * 3.141592653589793 * 6000 / 48000;
+    size_t position = 0, pulls = 0, glitches = 0, measured = 0;
+    double owed = 0, worst = 0;
+    float before = 0, previous = 0;
+    std::vector<double> residuals;
+    for (double time = 0; time < 120.0; time += .02) {
+        owed += 960 * rate;
+        const auto count = size_t(owed);
+        owed -= double(count);
+        std::vector<int16_t> data(count * 2);
+        for (size_t i = 0; i < count; ++i, ++position)
+            data[i * 2] = data[i * 2 + 1] = int16_t(9830 * std::sin(position * tone));
+        require(queue.push(data) == count, "Audio producer overflowed");
+        std::vector<float> out(960 * 2);
+        playback->render(queue, out);
+        if (++pulls <= 1500)
+            continue;
+        for (size_t i = 0; i < 960; ++i) {
+            const float value = out[i * 2];
+            const double residual = std::abs(double(value) - 2 * std::cos(tone) * previous + before);
+            residuals.push_back(residual);
+            before = previous;
+            previous = value;
+            ++measured;
+        }
+    }
+    auto sorted = residuals;
+    std::nth_element(sorted.begin(), sorted.begin() + sorted.size() / 2, sorted.end());
+    const double typical = sorted[sorted.size() / 2], limit = std::max(typical * 6, 2.0e-3);
+    for (size_t i = 2; i < residuals.size(); ++i) {
+        worst = std::max(worst, residuals[i]);
+        glitches += residuals[i] > limit;
+    }
+    std::cout << "rate=" << rate << " drift typical=" << typical << " worst=" << worst << " glitches=" << glitches
+              << " underruns=" << playback->underruns() << " skips=" << playback->skips() << '\n';
+    require(measured > 1000000, "Drift test did not play");
+    require(playback->underruns() == 0 && playback->skips() == 0, "A small clock difference interrupted playback");
+    require(glitches == 0, "A small clock difference between the game and the sound card clicked");
+}
 }
 int main() {
     try {
+        for (double rate : {.99993, .9995, 1.0005, 1.002})
+            driftIsClean(rate);
         for (double rate : {.4, .7, .93, 1.0})
             continuous(rate, false);
         continuous(.93, true);

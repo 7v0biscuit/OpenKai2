@@ -9,16 +9,22 @@ tools are the remaining active issue areas.
 Music is mixed at 48 kHz stereo from the game's sound chip output. The remaining
 problems concern playback consistency:
 
-- Music can pop intermittently, starting a few seconds after the main menu
-  loads.
 - A track may fail to load after a fight or fail to resume when returning to
   character selection.
 - A long frame hitch can briefly interrupt the music. At substantially reduced
   game speed, time stretching can affect its clarity.
 
-The pops and missing tracks remain under investigation. Since v0.2.0,
-`startup.log` ends with an `[audio:device]` line showing whether the output
-buffer ran short; include it when reporting a problem.
+A crackle that started a few seconds into playback and then persisted was
+fixed after v0.2.7. It came from the step that matches the game's audio rate to
+the sound card's clock, not from the sound card running short. If you still
+hear pops, please report them with `startup.log`.
+
+Missing tracks remain under investigation. `startup.log` ends with an
+`[audio:device]` line showing whether the output buffer ran short, records
+`[audio:music] resumed after_silence_s=...` each time the music stream restarts
+after two or more seconds of silence, and adds `starved=` to the `[audio:adma]`
+lines, counting the times the sound chip ran out of stream data. Include the
+log when reporting a problem.
 
 As a temporary workaround, set **Music** to **Off** in the launcher. This
 silences music tracks while retaining voices, sound effects and video audio.
