@@ -19,9 +19,19 @@
 #include <variant>
 #include <vector>
 
+class StateBlocks
+{
+public:
+    virtual ~StateBlocks() = default;
+    virtual bool block(void *data, size_t size, bool loading, bool fixed) = 0;
+};
+
 class StateArchive
 {
 public:
+    static constexpr size_t block_threshold = 65536;
+    void blocks(StateBlocks *handler) noexcept { m_blocks = handler; }
+
     explicit StateArchive(std::vector<uint8_t> &output) : m_output(&output) {}
     explicit StateArchive(const std::vector<uint8_t> &input) : m_input(&input) {}
 
@@ -31,6 +41,8 @@ public:
     void bytes(void *data, size_t size)
     {
         if (!size)
+            return;
+        if (m_blocks && size >= block_threshold && m_blocks->block(data, size, m_input != nullptr, !m_movable))
             return;
         if (m_input)
         {
@@ -43,6 +55,21 @@ public:
         const size_t at = m_output->size();
         m_output->resize(at + size);
         std::memcpy(m_output->data() + at, data, size);
+    }
+
+    void movableBytes(void *data, size_t size)
+    {
+        m_movable = true;
+        try
+        {
+            bytes(data, size);
+        }
+        catch (...)
+        {
+            m_movable = false;
+            throw;
+        }
+        m_movable = false;
     }
 
     void section(uint32_t tag)
@@ -70,6 +97,8 @@ private:
     std::vector<uint8_t> *m_output = nullptr;
     const std::vector<uint8_t> *m_input = nullptr;
     size_t m_position = 0;
+    StateBlocks *m_blocks = nullptr;
+    bool m_movable = false;
 };
 
 template <typename T>
@@ -106,7 +135,7 @@ inline void archive(StateArchive &a, std::string &value)
     archiveSize(a, size);
     if (a.loading())
         value.resize(size_t(size));
-    a.bytes(value.data(), value.size());
+    a.movableBytes(value.data(), value.size());
 }
 
 template <typename T, typename Alloc>
@@ -129,7 +158,7 @@ void archive(StateArchive &a, std::vector<T, Alloc> &value)
     {
         if (a.loading())
             value.resize(size_t(size));
-        a.bytes(value.data(), value.size() * sizeof(T));
+        a.movableBytes(value.data(), value.size() * sizeof(T));
     }
     else
     {

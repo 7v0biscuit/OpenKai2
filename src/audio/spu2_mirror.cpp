@@ -52,7 +52,8 @@ void observeStreams(uint64_t now) {
             c.since = now;
             ++c.starved;
         } else if (!starving && c.starving) {
-            c.starvedCycles += now - c.since;
+            if (now > c.since)
+                c.starvedCycles += now - c.since;
             if ((c.starved & (c.starved - 1u)) == 0u)
                 std::cerr << "[audio:adma] core=" << core << " starved=" << c.starved << " starved_ms="
                           << c.starvedCycles / 36864u << " transfers=" << c.transfers << '\n';
@@ -119,7 +120,7 @@ void dma_write(unsigned core, uint32_t address, uint32_t bytes, uint64_t now) {
     spu2DmaRegisters[core][0] = address;
     if ((Cores[core].AutoDMACtrl & (core + 1u)) == core + 1u) {
         auto &counts = streamCounts[core];
-        if (counts.transfers && now - counts.last > 36864000ull * 2u && counts.resumes++ < 2000u)
+        if (counts.transfers && now > counts.last && now - counts.last > 36864000ull * 2u && counts.resumes++ < 2000u)
             std::cerr << "[audio:music] core=" << core << " resumed after_silence_s=" << (now - counts.last) / 36864000ull
                       << " at_s=" << now / 36864000ull << " transfers=" << counts.transfers << '\n';
         counts.last = now;

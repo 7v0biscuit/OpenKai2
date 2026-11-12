@@ -143,12 +143,12 @@ std::unique_ptr<Session> start_game_session(PS2Runtime &runtime, const Arguments
     machine.save = [&runtime] {
         std::vector<uint8_t> body;
         StateArchive archive(body);
-        runtime.eeScheduler().serializeMachine(archive);
+        serialize_machine(runtime.eeScheduler(), archive);
         return body;
     };
     machine.load = [&runtime](const std::vector<uint8_t> &body) {
         StateArchive archive(body);
-        runtime.eeScheduler().serializeMachine(archive);
+        serialize_machine(runtime.eeScheduler(), archive);
         if (!archive.finished())
             throw std::runtime_error("The host's game state does not match this build");
     };

@@ -92,7 +92,10 @@ the in-game bar shows **out of sync**. The bar at the top shows the opponent,
 ping and input delay.
 
 Both players need the same OpenKai2 version and Budokai 2 disc. Mods, save states
-and speedrun mode are off online. Your own memory card is not changed: matches
+and speedrun mode are off online. Online matches always use PS2 disc timing,
+whatever **PS2 load times** is set to, so both games load at the same moments.
+The disc drive's position and the game's random numbers travel with the
+starting state, so both games begin from exactly the same point. Your own memory card is not changed: matches
 use a copy in `%LOCALAPPDATA%\OpenKai2\netplay\`.
 
 ## The online service
@@ -143,3 +146,19 @@ Filters are remembered; search text is cleared when the launcher restarts.
 when connected. Join and invite buttons become available when their required
 ISO, connection and selection are ready. List positions stay in place while
 room pings and player presence update.
+
+## Rollback (in development)
+
+Online play runs in lockstep with a small input delay. Rollback netcode, which
+hides the delay by predicting the other player's buttons and correcting the
+game when a prediction was wrong, is being built in steps:
+
+1. Done: snapshots that store only the memory that changed each frame, and
+   save states that replay exactly. `OPENKAI2_ROLLBACK_TEST=start,frames,depth`
+   makes the game snapshot every frame, roll back `depth` frames every
+   `3 * depth` frames, replay them, and report in `startup.log` whether the
+   replayed frames matched (`[rollback] ... differing=0`).
+2. Next: make each snapshot fast enough to take every frame at 60 FPS, and
+   replay frames without drawing or playing them.
+3. Then: predicted inputs and corrections in the match itself, tested between
+   two PCs.

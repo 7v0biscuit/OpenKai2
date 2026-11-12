@@ -2,6 +2,7 @@
 #include "machine_state.h"
 #include "disc_image.h"
 #include "host_input.h"
+#include "delta_states.h"
 #include "netplay.h"
 #include "state_archive.h"
 #include "runtime/ee_scheduler.h"
@@ -11,6 +12,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <map>
+#include <memory>
 #include <cstring>
 #include <exception>
 #include <mutex>
@@ -55,6 +57,23 @@ template <typename T> bool take(const std::vector<uint8_t> &in, size_t &at, T &v
 }
 }
 
+namespace {
+std::vector<std::function<void(StateArchive &)>> &machineParts() {
+    static std::vector<std::function<void(StateArchive &)>> parts;
+    return parts;
+}
+}
+
+void add_machine_state_part(std::function<void(StateArchive &)> part) { machineParts().push_back(std::move(part)); }
+
+void serialize_machine(EeScheduler &scheduler, StateArchive &archive) {
+    scheduler.serializeMachine(archive);
+    archive.section(0x54524150u);
+    for (auto &part : machineParts())
+        part(archive);
+    archive.section(0x444e4550u);
+}
+
 const uint8_t *machineMemory = nullptr;
 size_t machineMemoryBytes = 0;
 
@@ -79,7 +98,7 @@ std::map<uint64_t, uint64_t> reference, current;
 std::atomic<uint16_t> buttons{0xffff};
 std::vector<uint8_t> savedMemory, sampleMemory;
 uint64_t savedHash = 0;
-constexpr uint64_t sampleFrame = 30;
+uint64_t sampleFrame = 30;
 
 void report_differences(const char *what, const std::vector<uint8_t> &expected) {
     size_t count = 0;
@@ -123,8 +142,11 @@ void configure() {
     enabled = true;
     unsigned long long a = 0, b = 0;
     int c = 0;
-    if (std::sscanf(value, "%llu,%llu,%d", &a, &b, &c) >= 1 && a)
+    unsigned long long d = 0;
+    if (std::sscanf(value, "%llu,%llu,%d,%llu", &a, &b, &c, &d) >= 1 && a)
         startAt = a;
+    if (d)
+        sampleFrame = d;
     if (b)
         frames = b;
     if (c > 1)
@@ -146,7 +168,7 @@ void point(EeScheduler &scheduler) {
         const auto began = std::chrono::steady_clock::now();
         base.clear();
         StateArchive saving(base);
-        scheduler.serializeMachine(saving);
+        serialize_machine(scheduler, saving);
         savedMemory.assign(machineMemory, machineMemory + machineMemoryBytes);
         savedHash = hash_memory();
         std::cerr << "[determinism] saved tick=" << tick << " bytes=" << base.size() << " ms=" << milliseconds(began) << '\n';
@@ -202,12 +224,105 @@ void point(EeScheduler &scheduler) {
     }
     const auto loadBegan = std::chrono::steady_clock::now();
     StateArchive loading(static_cast<const std::vector<uint8_t> &>(base));
-    scheduler.serializeMachine(loading);
+    serialize_machine(scheduler, loading);
     std::cerr << "[determinism] loaded ms=" << milliseconds(loadBegan) << '\n';
     if (hash_memory() != savedHash)
         report_differences("after_load", savedMemory);
     last = start;
     buttons = pattern(0);
+}
+
+bool rollbackEnabled = false, rollbackDone = false;
+uint64_t rollbackStart = 1800, rollbackFrames = 600, rollbackDepth = 4, rollbackLast = ~0ull, rollbackHighest = 0, rollbackRolled = 0;
+std::unique_ptr<DeltaStates> rollbackStates;
+std::map<uint64_t, uint64_t> rollbackHashes;
+struct RollbackTotals {
+    uint64_t captures = 0, pages = 0, small = 0, rollbacks = 0, compared = 0, differing = 0, firstDifference = 0;
+    double captureMs = 0, captureMax = 0, restoreMs = 0, restoreMax = 0, compareMs = 0;
+} rollbackTotals;
+
+void configure_rollback() {
+    const char *value = std::getenv("OPENKAI2_ROLLBACK_TEST");
+    if (!value || !*value)
+        return;
+    unsigned long long a = 0, b = 0, c = 0;
+    const int read = std::sscanf(value, "%llu,%llu,%llu", &a, &b, &c);
+    if (read >= 1 && a)
+        rollbackStart = a;
+    if (read >= 2 && b)
+        rollbackFrames = b;
+    if (read >= 3 && c)
+        rollbackDepth = std::min<unsigned long long>(c, 30);
+    rollbackStates = std::make_unique<DeltaStates>(size_t(rollbackDepth) + 2u);
+    rollbackEnabled = true;
+}
+
+void rollback_point(EeScheduler &scheduler) {
+    if (rollbackDone || !machineMemory)
+        return;
+    const uint64_t tick = scheduler.currentVSyncTick();
+    if (tick < rollbackStart || tick == rollbackLast)
+        return;
+    if (rollbackLast == ~0ull) {
+        rollbackStart = tick;
+        set_pad_source(&pad);
+    }
+    rollbackLast = tick;
+    auto &totals = rollbackTotals;
+    const uint64_t hash = hash_memory();
+    if (const auto known = rollbackHashes.find(tick); known != rollbackHashes.end()) {
+        ++totals.compared;
+        if (known->second != hash && !totals.differing++)
+            totals.firstDifference = tick - rollbackStart;
+    } else
+        rollbackHashes[tick] = hash;
+    const auto serialize = [&](StateArchive &archive) { serialize_machine(scheduler, archive); };
+    auto began = std::chrono::steady_clock::now();
+    rollbackStates->capture(tick, serialize);
+    double elapsed = milliseconds(began);
+    if (totals.captures++) {
+        totals.captureMs += elapsed;
+        totals.captureMax = std::max(totals.captureMax, elapsed);
+        totals.pages += rollbackStates->stats().pages;
+        totals.compareMs += rollbackStates->stats().compareMs;
+    } else
+        std::cerr << "[rollback] first capture ms=" << elapsed << " tracked_blocks=" << rollbackStates->stats().regions
+                  << " other_state_bytes=" << rollbackStates->stats().small << '\n';
+    totals.small = rollbackStates->stats().small;
+    const uint64_t frame = tick - rollbackStart;
+    if (tick >= rollbackHighest && frame >= rollbackFrames) {
+        rollbackDone = true;
+        set_pad_source(nullptr);
+        const double captures = double(std::max<uint64_t>(totals.captures - 1u, 1u)), rollbacks = double(std::max<uint64_t>(totals.rollbacks, 1u));
+        std::cerr << "[rollback] frames=" << frame << " depth=" << rollbackDepth << " captures=" << totals.captures
+                  << " capture_avg_ms=" << totals.captureMs / captures << " capture_max_ms=" << totals.captureMax
+                  << " memory_compare_avg_ms=" << totals.compareMs / captures << " changed_pages_avg=" << double(totals.pages) / captures << " other_state_bytes=" << totals.small
+                  << " rollbacks=" << totals.rollbacks << " restore_avg_ms=" << totals.restoreMs / rollbacks
+                  << " restore_max_ms=" << totals.restoreMax << " resimulated_frames_compared=" << totals.compared
+                  << " differing=" << totals.differing;
+        if (totals.differing)
+            std::cerr << " first_frame=" << totals.firstDifference;
+        std::cerr << "\n[rollback] done\n";
+        return;
+    }
+    rollbackHighest = std::max(rollbackHighest, tick);
+    buttons = pattern(frame);
+    if (tick > rollbackRolled && frame % (rollbackDepth * 3u) == rollbackDepth * 3u - 1u && rollbackStates->holds(tick - rollbackDepth)) {
+        rollbackRolled = tick;
+        began = std::chrono::steady_clock::now();
+        const bool restored = rollbackStates->restore(tick - rollbackDepth, serialize);
+        elapsed = milliseconds(began);
+        if (!restored)
+            throw std::runtime_error("Rollback test could not restore a kept frame");
+        totals.restoreMs += elapsed;
+        totals.restoreMax = std::max(totals.restoreMax, elapsed);
+        ++totals.rollbacks;
+        rollbackLast = tick - rollbackDepth;
+        buttons = pattern(rollbackLast - rollbackStart);
+        if (hash_memory() != rollbackHashes[rollbackLast] && !totals.differing++)
+            totals.firstDifference = rollbackLast - rollbackStart;
+        ++totals.compared;
+    }
 }
 }
 
@@ -217,6 +332,7 @@ void set_machine_memory(const uint8_t *rdram, size_t bytes) {
     machineMemory = rdram;
     machineMemoryBytes = bytes;
     probe::configure();
+    probe::configure_rollback();
 }
 
 void set_machine_state_identity(std::string value) { identity = std::move(value); }
@@ -266,12 +382,14 @@ bool machine_state_pending() {
 void machine_state_point(EeScheduler &scheduler) {
     const bool pendingRequest = hasPending.load(std::memory_order_acquire);
     auto *session = netplay::active();
-    if (!probe::enabled && !pendingRequest && !session)
+    if (!probe::enabled && !probe::rollbackEnabled && !pendingRequest && !session)
         return;
     std::string reason;
     const bool savable = scheduler.stateSavable(&reason);
     if (probe::enabled && savable)
         probe::point(scheduler);
+    if (probe::rollbackEnabled && savable)
+        probe::rollback_point(scheduler);
     if (session && savable)
         session->state_point();
     if (!pendingRequest)
@@ -308,7 +426,7 @@ void machine_state_point(EeScheduler &scheduler) {
     if (!request.load) {
         try {
             StateArchive archive(result.data);
-            scheduler.serializeMachine(archive);
+            serialize_machine(scheduler, archive);
             result.ok = true;
         } catch (const std::exception &error) {
             result.data.clear();
@@ -318,9 +436,9 @@ void machine_state_point(EeScheduler &scheduler) {
         std::vector<uint8_t> backup;
         try {
             StateArchive saving(backup);
-            scheduler.serializeMachine(saving);
+            serialize_machine(scheduler, saving);
             StateArchive loading(static_cast<const std::vector<uint8_t> &>(request.data));
-            scheduler.serializeMachine(loading);
+            serialize_machine(scheduler, loading);
             if (!loading.finished())
                 throw std::runtime_error("Save state has extra data");
             result.ok = true;
@@ -329,7 +447,7 @@ void machine_state_point(EeScheduler &scheduler) {
             if (!backup.empty()) {
                 try {
                     StateArchive restore(static_cast<const std::vector<uint8_t> &>(backup));
-                    scheduler.serializeMachine(restore);
+                    serialize_machine(scheduler, restore);
                 } catch (...) {
                     result.message += "; the game could not be restored and should be restarted";
                 }

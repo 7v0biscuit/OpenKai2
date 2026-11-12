@@ -1,0 +1,23 @@
+--- a/Kernel/Stubs/LibC.cpp
++++ b/Kernel/Stubs/LibC.cpp
+@@ -1,4 +1,5 @@
+ #include <bit>
++#include "guest_random.h"
+ #include "Common.h"
+ #include "LibC.h"
+ #include "ps2_log.h"
+@@ -1079,12 +1080,12 @@
+ 
+     void rand(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+     {
+-        setReturnS32(ctx, std::rand() & 0x7FFF);
++        setReturnS32(ctx, openkai2::guest_rand());
+     }
+ 
+     void srand(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+     {
+-        std::srand(getRegU32(ctx, 4));
++        openkai2::guest_srand(getRegU32(ctx, 4));
+         setReturnS32(ctx, 0);
+     }
+ 

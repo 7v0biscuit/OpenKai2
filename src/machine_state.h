@@ -7,6 +7,7 @@
 #include <vector>
 
 class EeScheduler;
+class StateArchive;
 
 namespace openkai2 {
 
@@ -16,6 +17,8 @@ struct MachineStateResult {
     std::vector<uint8_t> data;
 };
 
+void add_machine_state_part(std::function<void(StateArchive &)> part);
+void serialize_machine(EeScheduler &scheduler, StateArchive &archive);
 void set_machine_state_identity(std::string identity);
 const std::string &machine_state_identity();
 

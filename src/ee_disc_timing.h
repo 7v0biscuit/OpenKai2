@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #pragma once
 #include "disc_timing.h"
+#include "state_archive.h"
 #include <cstdint>
 
 namespace openkai2 {
@@ -41,6 +42,10 @@ public:
         return enabled_ && tick < ready_;
     }
     uint64_t ready() const { return ready_; }
+    void serializeState(StateArchive &archive) {
+        archive.bytes(&timing_, sizeof timing_);
+        archive(ready_);
+    }
 
 private:
     void settle(uint64_t tick) {

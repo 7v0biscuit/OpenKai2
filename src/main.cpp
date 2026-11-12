@@ -21,6 +21,7 @@
 #include "speedrun_overlay.h"
 #include "speedrun_items.h"
 #include "machine_state.h"
+#include "guest_random.h"
 #include "netplay_game.h"
 #include "runtime/ee_scheduler.h"
 #ifdef _WIN32
@@ -419,14 +420,19 @@ int main(int argc, char* argv[]) {
         openkai2::randomizer::active().enable(randomize,uint64_t(std::chrono::steady_clock::now().time_since_epoch().count()));
         {
             const char *discMode = std::getenv("OPENKAI2_DISC_TIMING");
-            eeDisc.enable(!(discMode && std::string(discMode) == "instant") && (preferences.ps2LoadTimes || speedrun));
+            eeDisc.enable(!(discMode && std::string(discMode) == "instant") && (preferences.ps2LoadTimes || speedrun || online.enabled));
+            static const bool hostStateSaved = (openkai2::add_machine_state_part([](StateArchive &archive) {
+                eeDisc.serializeState(archive);
+                archive(openkai2::guest_random_state());
+            }), true);
+            (void)hostStateSaved;
             originalCdRead = runtime.lookupFunction(cd_read_entry);
             originalCdSeek = runtime.lookupFunction(cd_seek_entry);
             originalCdSync = runtime.lookupFunction(cd_sync_entry);
             if (!originalCdRead || !originalCdSeek || !originalCdSync || !runtime.replaceFunction(cd_read_entry, timedCdRead) ||
                 !runtime.replaceFunction(cd_seek_entry, timedCdSeek) || !runtime.replaceFunction(cd_sync_entry, timedCdSync))
                 throw std::runtime_error("Cannot bind the disc reads");
-            std::cout << "[cdvd:timing] game reads " << (eeDisc.enabled() ? (preferences.ps2LoadTimes ? "take PS2 drive time (4x DVD CAV, 30/100 ms seeks)" : "take PS2 drive time because speedrun mode requires it") : "are as fast as this PC allows") << std::endl;
+            std::cout << "[cdvd:timing] game reads " << (eeDisc.enabled() ? (preferences.ps2LoadTimes ? "take PS2 drive time (4x DVD CAV, 30/100 ms seeks)" : online.enabled ? "take PS2 drive time so both players stay in sync" : "take PS2 drive time because speedrun mode requires it") : "are as fast as this PC allows") << std::endl;
         }
         struct RestoreDiscReads {
             PS2Runtime& runtime;
