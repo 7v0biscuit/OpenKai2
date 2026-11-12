@@ -244,11 +244,28 @@ int main() {
             const auto first = make_theme(0, 0);
             require(first.accent == themes[0].accent && first.banner == themes[0].banner && luminance(first.background)<luminance(first.panel),
                     "The default theme is not Dragon Balls");
+            const auto contrast = [](Rgb a, Rgb b) {
+                const auto light = [](Rgb c) {
+                    const auto linear = [](uint8_t channel) {
+                        const double value = channel / 255.0;
+                        return value <= .04045 ? value / 12.92 : std::pow((value + .055) / 1.055, 2.4);
+                    };
+                    return .2126 * linear(c.r) + .7152 * linear(c.g) + .0722 * linear(c.b);
+                };
+                const double x = light(a), y = light(b);
+                return (std::max(x,y) + .05) / (std::min(x,y) + .05);
+            };
             for (unsigned theme = 0; theme < theme_count; ++theme)
                 require(themes[theme].banner >= 1u && themes[theme].banner <= banner_picture_count, "A theme has no picture");
             for (unsigned theme = 0; theme < theme_count; ++theme)
                 for (unsigned accent = 0; accent < accent_count; ++accent) {
                     const auto look = make_theme(theme, accent);
+                    require(contrast(look.ink,look.panel) >= 4.5 && contrast(look.ink,look.field) >= 4.5 &&
+                                contrast(look.muted,look.panel) >= 4.5 && contrast(look.faint,look.panel) >= 4.5 &&
+                                contrast(look.buttonInk,look.buttonTop) >= 4.5,
+                            "A theme's text or main action falls below 4.5:1 contrast");
+                    if (themes[theme].light)
+                        require(contrast(look.accent,look.panel) >= 4.5,"A light theme has an unreadable accent");
                     const auto apart = [](unsigned a, unsigned b) { return a > b ? a - b : b - a; };
                     require(apart(luminance(look.ink), luminance(look.panel)) > 150u && apart(luminance(look.muted), luminance(look.panel)) > 60u &&
                                 apart(luminance(look.ink), luminance(look.field)) > 150u,

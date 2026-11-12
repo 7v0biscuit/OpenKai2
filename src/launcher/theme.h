@@ -21,19 +21,19 @@ struct ThemeChoice {
     unsigned banner = 0;
 };
 inline constexpr ThemeChoice themes[] = {
-    {L"Dragon Balls", {20, 16, 25}, {27, 21, 33}, {38, 29, 45}, {240, 163, 90}, {255, 210, 138}, {20, 16, 25}, {58, 42, 60}, {230, 206, 186}, false, 2},
-    {L"Capsule", {243, 246, 250}, {232, 238, 246}, {255, 255, 255}, {47, 111, 220}, {24, 74, 160}, {14, 34, 74}, {31, 79, 156}, {214, 228, 250}, true, 1},
-    {L"Dragon Radar", {12, 27, 19}, {15, 33, 23}, {21, 45, 31}, {123, 224, 143}, {255, 210, 90}, {13, 26, 18}, {47, 106, 62}, {176, 220, 190}, false, 3},
-    {L"Scouter", {30, 12, 17}, {38, 15, 21}, {52, 21, 29}, {255, 111, 97}, {255, 179, 168}, {27, 11, 16}, {91, 31, 42}, {236, 190, 184}, false, 4},
-    {L"Budokai Black", {10, 10, 11}, {14, 14, 16}, {21, 21, 24}, {236, 234, 228}, {224, 64, 46}, {12, 12, 14}, {30, 30, 34}, {205, 203, 198}, false, 5},
-    {L"Budokai Black (board)", {10, 10, 11}, {14, 14, 16}, {21, 21, 24}, {224, 64, 46}, {236, 234, 228}, {12, 12, 14}, {30, 30, 34}, {205, 203, 198}, false, 6},
-    {L"Majin Buu", {34, 16, 29}, {42, 20, 36}, {58, 28, 50}, {255, 140, 198}, {255, 210, 90}, {26, 12, 22}, {92, 39, 73}, {245, 200, 225}, false, 7},
-    {L"Babidi", {22, 11, 34}, {28, 14, 42}, {40, 20, 60}, {140, 230, 120}, {255, 200, 90}, {18, 9, 28}, {58, 28, 86}, {214, 196, 255}, false, 8},
-    {L"Majin Vegeta", {20, 10, 7}, {26, 13, 9}, {38, 19, 13}, {255, 196, 58}, {214, 58, 42}, {16, 8, 5}, {58, 14, 14}, {240, 200, 160}, false, 9},
-    {L"Saiyan Pod", {18, 14, 34}, {23, 18, 42}, {33, 27, 58}, {180, 150, 255}, {255, 140, 140}, {14, 11, 26}, {52, 40, 92}, {205, 195, 240}, false, 10},
-    {L"Spirit Bomb", {11, 19, 48}, {14, 24, 58}, {21, 34, 76}, {124, 196, 255}, {220, 240, 255}, {9, 14, 36}, {30, 60, 110}, {180, 210, 245}, false, 11},
-    {L"Flying Nimbus", {34, 20, 44}, {42, 25, 52}, {58, 36, 66}, {255, 183, 77}, {255, 230, 170}, {26, 16, 32}, {120, 62, 58}, {245, 210, 180}, false, 12},
-    {L"Potara", {11, 34, 36}, {14, 41, 43}, {20, 55, 57}, {77, 208, 200}, {255, 214, 90}, {9, 26, 28}, {28, 84, 86}, {175, 225, 220}, false, 13},
+    {L"Dragon Balls", {16, 20, 27}, {21, 27, 36}, {28, 37, 49}, {245, 161, 82}, {255, 211, 145}, {21, 25, 33}, {48, 37, 28}, {221, 195, 164}, false, 2},
+    {L"Capsule", {237, 242, 248}, {247, 250, 253}, {255, 255, 255}, {36, 100, 202}, {22, 63, 122}, {17, 43, 75}, {30, 75, 120}, {211, 229, 250}, true, 1},
+    {L"Dragon Radar", {12, 23, 20}, {16, 33, 27}, {23, 43, 35}, {117, 217, 166}, {219, 196, 118}, {14, 32, 25}, {37, 77, 55}, {194, 223, 205}, false, 3},
+    {L"Scouter", {27, 16, 22}, {36, 21, 30}, {48, 29, 41}, {245, 112, 121}, {255, 208, 174}, {28, 17, 25}, {76, 38, 57}, {238, 203, 208}, false, 4},
+    {L"Budokai Black", {14, 16, 19}, {20, 23, 28}, {27, 32, 39}, {230, 231, 233}, {242, 155, 75}, {21, 24, 29}, {40, 46, 54}, {200, 205, 213}, false, 5},
+    {L"Budokai Black (board)", {16, 16, 18}, {23, 23, 26}, {32, 32, 36}, {242, 103, 82}, {245, 215, 178}, {21, 21, 25}, {51, 35, 33}, {215, 201, 191}, false, 6},
+    {L"Majin Buu", {29, 21, 32}, {40, 27, 42}, {53, 36, 58}, {247, 159, 203}, {245, 204, 117}, {33, 23, 37}, {79, 44, 70}, {233, 198, 220}, false, 7},
+    {L"Babidi", {23, 20, 35}, {32, 27, 48}, {44, 37, 64}, {179, 217, 122}, {240, 198, 119}, {27, 23, 48}, {53, 40, 73}, {208, 198, 230}, false, 8},
+    {L"Majin Vegeta", {24, 22, 18}, {34, 32, 26}, {48, 44, 34}, {230, 187, 92}, {231, 127, 89}, {33, 27, 17}, {76, 52, 36}, {227, 209, 178}, false, 9},
+    {L"Saiyan Pod", {20, 23, 34}, {27, 33, 48}, {37, 45, 64}, {176, 154, 222}, {227, 188, 183}, {24, 29, 42}, {48, 57, 76}, {201, 210, 226}, false, 10},
+    {L"Spirit Bomb", {16, 28, 38}, {22, 39, 53}, {31, 52, 70}, {139, 203, 229}, {208, 236, 248}, {19, 35, 48}, {40, 81, 100}, {195, 223, 237}, false, 11},
+    {L"Flying Nimbus", {33, 27, 33}, {44, 37, 44}, {58, 48, 56}, {242, 185, 113}, {244, 219, 176}, {36, 28, 37}, {84, 59, 66}, {231, 209, 189}, false, 12},
+    {L"Potara", {16, 30, 33}, {23, 41, 45}, {33, 56, 60}, {119, 205, 196}, {225, 196, 122}, {18, 39, 42}, {43, 74, 73}, {190, 222, 216}, false, 13},
 };
 inline constexpr unsigned theme_count = sizeof(themes) / sizeof(themes[0]);
 inline constexpr unsigned banner_picture_count = 13u;
@@ -49,9 +49,9 @@ struct AccentChoice {
     Rgb color;
 };
 inline constexpr AccentChoice accents[] = {
-    {L"Theme color", {0, 0, 0}}, {L"Orange", {255, 136, 28}}, {L"Gold", {246, 196, 64}}, {L"Red", {236, 72, 84}},
-    {L"Pink", {244, 110, 190}},  {L"Purple", {168, 112, 255}}, {L"Blue", {64, 156, 255}}, {L"Cyan", {52, 206, 220}},
-    {L"Green", {86, 200, 120}},  {L"White", {226, 230, 238}}, {L"RGB (cycling)", {255, 64, 64}},
+    {L"Theme color", {0, 0, 0}}, {L"Orange", {245, 155, 76}}, {L"Gold", {239, 211, 112}}, {L"Red", {244, 120, 133}},
+    {L"Pink", {231, 151, 191}}, {L"Purple", {169, 141, 226}}, {L"Blue", {94, 148, 240}}, {L"Cyan", {85, 209, 211}},
+    {L"Green", {126, 203, 151}}, {L"White", {230, 235, 242}}, {L"RGB (cycling)", {255, 64, 64}},
 };
 inline constexpr unsigned accent_count = sizeof(accents) / sizeof(accents[0]);
 inline constexpr unsigned rgb_accent = accent_count - 1u;
@@ -61,7 +61,7 @@ inline constexpr unsigned rgb_cycle_ms = 60000u, rgb_frame_ms = 16u;
 
 constexpr Rgb cycling_accent(unsigned long long milliseconds) {
     const unsigned position = unsigned(milliseconds % rgb_cycle_ms) * 1536u / rgb_cycle_ms;
-    const unsigned rise = position % 256u, fall = 255u - rise, low = 56u;
+    const unsigned rise = position % 256u, fall = 255u - rise, low = 96u;
     const auto level = [&](unsigned value) { return uint8_t(low + value * (255u - low) / 255u); };
     switch (position / 256u) {
     case 0: return {level(255), level(rise), level(0)};
@@ -148,10 +148,11 @@ constexpr int32_t to_hex(Rgb c) { return int32_t(c.r) << 16 | int32_t(c.g) << 8 
 
 constexpr void shade_main_buttons(Theme &out, Rgb base) {
     const Rgb white{255, 255, 255}, black{0, 0, 0};
-    out.buttonTop = blend(base, white, 80);
+    out.buttonTop = base;
+    out.buttonInk = luminance(base) > 110u ? blend(base, black, 220) : white;
     out.buttonBottom = blend(base, black, 12);
-    out.buttonHotTop = blend(base, white, 130);
-    out.buttonHotBottom = blend(base, white, 40);
+    out.buttonHotTop = blend(base, white, 28);
+    out.buttonHotBottom = blend(base, white, 16);
     out.buttonPressedTop = blend(base, black, 25);
     out.buttonPressedBottom = blend(base, black, 55);
     out.buttonShine = blend(out.buttonTop, Rgb{255, 245, 214}, 150);
@@ -169,40 +170,39 @@ constexpr Theme make_theme(unsigned theme, unsigned accent, const CustomColors &
     out.sidebar = t.sidebar;
     out.panel = t.panel;
     if (t.light) {
-        out.field = white;
-        out.raised = blend(t.sidebar, black, 10);
-        out.hover = blend(blend(t.sidebar, black, 22), out.accent, 34);
-        out.border = blend(blend(t.sidebar, black, 34), out.accent, 18);
-        out.ink = {24, 26, 34};
-        out.muted = blend(Rgb{82, 88, 106}, t.accent, 24);
-        out.faint = blend(Rgb{105, 112, 130}, t.accent, 16);
-        out.highlight = own ? t.highlight : blend(out.accent, black, 70);
-        out.success = {22, 146, 88};
-        out.error = {198, 46, 40};
-        out.info = blend(Rgb{36, 92, 220}, t.accent, 40);
+        const unsigned brightness = luminance(out.accent);
+        if (brightness > 100u)
+            out.accent = blend(out.accent, black, (brightness - 100u) * 255u / brightness);
+        out.field = {243, 247, 252};
+        out.raised = {232, 238, 246};
+        out.hover = blend(out.raised, out.accent, 18);
+        out.border = {191, 202, 218};
+        out.ink = {24, 35, 51};
+        out.muted = {77, 94, 117};
+        out.faint = {101, 117, 139};
+        out.highlight = own ? t.highlight : blend(out.accent, black, 24);
+        out.success = {27, 120, 81};
+        out.error = {180, 51, 58};
+        out.info = out.accent;
         out.shadow = blend(t.background, white, 200);
     } else {
-        out.background = blend(Rgb{12,13,16},t.background,70);
-        out.sidebar = blend(Rgb{17,18,22},t.sidebar,70);
-        out.panel = blend(Rgb{24,25,30},t.panel,85);
-        out.field = blend(blend(out.panel,white,12),out.accent,5);
-        out.raised = blend(blend(out.panel,white,22),out.accent,7);
-        out.hover = blend(blend(out.panel,white,34),out.accent,16);
-        out.border = blend(blend(out.panel,white,25),out.accent,12);
-        out.ink = {242, 238, 230};
-        out.muted = blend(Rgb{172,175,188},t.accent,16);
-        out.faint = blend(Rgb{125,130,145},t.accent,12);
-        out.highlight = own ? t.highlight : blend(out.accent, Rgb{255, 236, 170}, 120);
-        out.success = {98, 214, 152};
-        out.error = {255, 112, 102};
-        out.info = blend(Rgb{90, 130, 255}, t.accent, 50);
+        out.field = blend(out.panel, black, 22);
+        out.raised = blend(out.panel, white, 17);
+        out.hover = blend(blend(out.panel, white, 24), out.accent, 12);
+        out.border = blend(out.panel, white, 34);
+        out.ink = {239, 242, 247};
+        out.muted = {177, 187, 201};
+        out.faint = {148, 160, 178};
+        out.highlight = own ? t.highlight : blend(out.accent, white, 54);
+        out.success = {120, 214, 172};
+        out.error = {247, 143, 140};
+        out.info = blend(Rgb{135, 183, 242}, out.accent, 28);
         out.shadow = blend(t.background, black, 160);
     }
     out.heroFrom = own ? t.heroFrom : blend(t.heroFrom, out.accent, 90);
     out.heroTo = t.heroTo;
     out.glow = blend(out.accent, black, 20);
     shade_main_buttons(out, out.accent);
-    out.buttonInk = luminance(out.accent) > 110u ? blend(out.accent, black, 220) : white;
     out.bannerTitle = blend(Rgb{255, 246, 236}, t.bannerText, 40);
     out.bannerText = t.bannerText;
     out.banner = t.banner;

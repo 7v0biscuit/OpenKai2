@@ -473,7 +473,7 @@ int main() {
                 click(w,1000);
                 require(IsWindowVisible(GetDlgItem(w,1040)),"Online has no direct route to profile pictures");
                 mouse_click(GetDlgItem(w,106),16,16);
-                wait_until([&]{return IsWindowVisible(GetDlgItem(w,140));},"Settings did not open before the search shortcut");
+                wait_until([&]{return IsWindowVisible(GetDlgItem(w,1110));},"Settings did not open before the search shortcut");
                 key_press('F',VK_CONTROL);
                 wait_until([&]{return IsWindowVisible(GetDlgItem(w,1042));},"Ctrl+F did not open online search");
                 SendMessageW(w,WM_VSCROLL,SB_BOTTOM,0);

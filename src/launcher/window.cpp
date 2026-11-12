@@ -3775,8 +3775,7 @@ struct Window {
                 const auto base = settings.launcherColors[main_button_role] >= 0 ? buttonTop : orange;
                 const auto accent = pressed ? mix(base,background,40) : hot ? mix(base,ink,20) : base;
                 box(dc,r,accent,accent,10);
-                label = settings.launcherColors[14] >= 0 ? buttonInk :
-                    (GetRValue(accent)*299+GetGValue(accent)*587+GetBValue(accent)*114)<150000 ? RGB(255,255,255) : RGB(25,20,18);
+                label = buttonInk;
             } else {
                 const bool quick = id>=HomeControls && id<=HomeArrange;
                 const bool onBanner = id == Play || id == LoadState;
