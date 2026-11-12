@@ -52,6 +52,46 @@ jobs:
         run: cmake --build build/probes --config Release --target openkai2_launcher_ui_tests openkai2_discord_tests --parallel 2
       - name: Run component tests
         run: ctest --test-dir build/probes -C Release --output-on-failure --no-tests=error
+  windows-launcher-integration:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check launcher in the runtime build with debug symbols
+        shell: python
+        run: |
+          import importlib.util, os, subprocess
+          from pathlib import Path
+          root = Path.cwd()
+          spec = importlib.util.spec_from_file_location('windows_builder', 'tools/native/build-windows.py')
+          builder = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(builder)
+          work = root / '.local/launcher-integration'
+          upstream, build = work / 'PS2Recomp', work / 'build'
+          upstream.mkdir(parents=True)
+          os.environ['OPENKAI2_WORK_DIR'] = work.as_posix()
+          def run(*args):
+              subprocess.run(list(map(str, args)), check=True)
+          run('git', '-C', upstream, 'init')
+          run('git', '-C', upstream, 'fetch', '--depth', '1', 'https://github.com/ran-j/PS2Recomp.git', builder.PIN)
+          run('git', '-C', upstream, 'checkout', '--detach', 'FETCH_HEAD')
+          run('cmake', '-S', upstream, '-B', build, '-G', 'Visual Studio 17 2022', '-A', 'x64',
+              '-DPS2X_BUILD_RECOMP=OFF', '-DPS2X_BUILD_ANALYZER=OFF', '-DPS2X_BUILD_TEST=OFF',
+              '-DPS2X_BUILD_STUDIO=OFF', '-DPS2X_BUILD_RUNTIME=ON', '-DPS2X_ENABLE_DEBUG_UI=OFF',
+              '-DPS2X_ENABLE_AGRESSIVE_LOGS=OFF', '-DOPENKAI2_RUNTIME_TESTS_ONLY=ON',
+              '-DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=' + (root / 'tools/native/attach-game.cmake').as_posix())
+          run('cmake', '--build', build, '--config', 'RelWithDebInfo', '--target', 'openkai2_launcher_ui_tests', '--parallel', '2')
+          result = subprocess.run(['ctest', '--test-dir', str(build), '-C', 'RelWithDebInfo',
+                                   '-R', '^launcher_native_interaction$', '--output-on-failure', '--no-tests=error'],
+                                  capture_output=True, text=True)
+          print(result.stdout, result.stderr)
+          if result.returncode:
+              text = result.stdout[-16000:].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print('::error title=Launcher integration::' + text)
+          raise SystemExit(result.returncode)
   windows-tools:
     runs-on: windows-2022
     timeout-minutes: 45
@@ -77,7 +117,7 @@ jobs:
               lines = list(tail)
               selected = set()
               for index, line in enumerate(lines):
-                  if re.search(r'error [A-Z]+\d|error:|FAILED|failed|Traceback|regression|Assertion', line, re.IGNORECASE):
+                  if re.search(r'error [A-Z]+\d|error:|FAILED|failed|Traceback|regression|Assertion|ui:fault|ui:stack|ui:stage', line, re.IGNORECASE):
                       selected.update(range(max(0, index - 2), min(len(lines), index + 4)))
               messages = [('Windows source build tail', ''.join(lines)[-3500:])]
               details = ''.join(lines[index] for index in sorted(selected))[-12000:]

@@ -11,6 +11,7 @@
 #endif
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include "win32_test_crash.h"
 #include <commctrl.h>
 #include <shellapi.h>
 #include <shlobj.h>
@@ -301,6 +302,7 @@ void apply_update(const StagedUpdate &) {
 }
 }
 int main() {
+    enable_test_crash_trace();
     try {
         const auto root=std::filesystem::temp_directory_path()/
             (L"OpenKai2 UI "+std::to_wstring(GetCurrentProcessId()));
@@ -316,6 +318,7 @@ int main() {
             HWND w{};
             try {
                 w=wait_launcher();
+                std::cout<<"[ui:stage] lounge layout and filtering"<<std::endl;
                 wait_until([] { return updateStarted.load(); }, "Background update did not start");
                 require(IsWindowEnabled(GetDlgItem(w,110)) != FALSE,
                         "Background update check blocked choosing an ISO");
@@ -379,6 +382,7 @@ int main() {
                             style.profileStyles[0].tagline=="Local appearance" && style.profileStyles[0].accent==3 &&
                             style.onlineKeys==initial.onlineKeys && style.onlineName==initial.onlineName,
                         "Profile customization changed identity or did not persist");
+                std::cout<<"[ui:stage] profile image selection"<<std::endl;
                 const auto portrait=root/L"My profile animation.gif";
                 {std::ofstream out(portrait,std::ios::binary);out.write(reinterpret_cast<const char*>(openkai2::test_images::gif),sizeof(openkai2::test_images::gif));}
                 choose_image(w,portrait,1040,L"Choose a profile picture");
