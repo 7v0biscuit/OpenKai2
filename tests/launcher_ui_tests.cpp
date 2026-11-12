@@ -75,6 +75,21 @@ void click(HWND w,int id) {
     require(GetDlgItem(w,id)!=nullptr,"Missing launcher action");
     SendMessageW(GetDlgItem(w,id),BM_CLICK,0,0);
 }
+void reveal_control(HWND control) {
+    const auto window = GetAncestor(control,GA_ROOT);
+    const auto dpiForWindow = reinterpret_cast<UINT(WINAPI *)(HWND)>(GetProcAddress(GetModuleHandleW(L"user32.dll"),"GetDpiForWindow"));
+    const int dpi = dpiForWindow ? int(dpiForWindow(window)) : 96;
+    for (int attempt=0;attempt<100;++attempt) {
+        RECT bounds{},client{};GetWindowRect(control,&bounds);GetClientRect(window,&client);
+        MapWindowPoints(nullptr,window,reinterpret_cast<POINT*>(&bounds),2);
+        if (IsWindowVisible(control) && bounds.top>=MulDiv(76,dpi,96) && bounds.bottom<=client.bottom-MulDiv(116,dpi,96)) return;
+        const WPARAM direction = bounds.top<MulDiv(76,dpi,96) ? SB_LINEUP : SB_LINEDOWN;
+        SCROLLINFO before{sizeof(before),SIF_POS},after{sizeof(after),SIF_POS};
+        GetScrollInfo(window,SB_VERT,&before);SendMessageW(window,WM_VSCROLL,direction,0);GetScrollInfo(window,SB_VERT,&after);
+        if(before.nPos==after.nPos) break;
+    }
+    throw std::runtime_error("Cannot scroll to control "+std::to_string(GetDlgCtrlID(control)));
+}
 POINT control_center(HWND window,int id) {
     const auto bounds=visible_bounds(window,GetDlgItem(window,id));
     require(bounds.right>bounds.left && bounds.bottom>bounds.top,"Wheel target is not visible");
@@ -215,6 +230,7 @@ void mouse_click(HWND control, int x, int y) {
     require(SendInput(2,input,sizeof(INPUT))==2,"Cannot submit native mouse input");
 }
 void open_dropdown(HWND combo) {
+    reveal_control(combo);
     SetForegroundWindow(GetAncestor(combo,GA_ROOT));
     RECT field{};GetClientRect(combo,&field);
     mouse_click(combo,field.right-10,(field.bottom-field.top)/2);
@@ -327,6 +343,7 @@ int main() {
                     RECT client{};GetClientRect(w,&client);
                     for (int id=101;id<=108;++id) {
                         auto tab=GetDlgItem(w,id);RECT bounds{};GetWindowRect(tab,&bounds);
+                        if (id==105 || id==108) {require(!IsWindowVisible(tab),"A Play tool remains in the dock");continue;}
                         MapWindowPoints(nullptr,w,reinterpret_cast<POINT*>(&bounds),2);
                         require(IsWindowVisible(tab) && bounds.left>=0 && bounds.right<=client.right && bounds.top>=0 && bounds.bottom<=client.bottom-26,
                                 "A dock tab extends beyond the launcher border");
@@ -338,7 +355,7 @@ int main() {
                 }
                 for(auto size:{std::pair{960,680},std::pair{1440,960}}) {
                     SetWindowPos(w,nullptr,0,0,size.first,size.second,SWP_NOZORDER|SWP_NOACTIVATE);
-                    for(int id:{1000,1060,1061,1062,1063,1042,1043,1045,110,111,112,256,114}) {
+                    for(int id:{1000,1003,1004,1060,1061,1062,1063,1042,1043,1045,111,112,256,114}) {
                         bool reachable=false;
                         for(int position:{SB_TOP,SB_BOTTOM}) {
                             SendMessageW(w,WM_VSCROLL,position,0);
@@ -358,6 +375,25 @@ int main() {
                 require(edgeColors.size()>5,"Rounded launcher edges have no fractional color coverage");
                 require(!IsWindowEnabled(GetDlgItem(w,256)),"Join is enabled with no room selected");
                 require(!IsWindowEnabled(GetDlgItem(w,1062)),"Invite is enabled with no online friend selected");
+                wchar_t isoAction[40]{};GetWindowTextW(GetDlgItem(w,111),isoAction,40);
+                require(std::wstring(isoAction)==L"Verify ISO" && !IsWindowVisible(GetDlgItem(w,110)),
+                        "The Play page still exposes Change ISO");
+                key_press('K',VK_CONTROL);
+                wait_until([&]{return IsWindowVisible(GetDlgItem(w,1101));},"Ctrl+K did not open the action finder");
+                SetWindowTextW(GetDlgItem(w,1101),L"controls");
+                require(SendMessageW(GetDlgItem(w,1102),LB_GETCOUNT,0,0)==1,"Action search did not narrow the results");
+                key_press(VK_RETURN);
+                wait_until([&]{return IsWindowVisible(GetDlgItem(w,1105));},"The action finder did not open Controls");
+                for(int id=450;id<466;++id) {
+                    const auto control=GetDlgItem(w,id);reveal_control(control);
+                    wchar_t label[200]{};GetWindowTextW(control,label,200);RECT bounds{};GetClientRect(control,&bounds);
+                    auto dc=GetDC(control);auto old=SelectObject(dc,reinterpret_cast<HFONT>(SendMessageW(control,WM_GETFONT,0,0)));
+                    SIZE extent{};GetTextExtentPoint32W(dc,label,int(wcslen(label)),&extent);SelectObject(dc,old);ReleaseDC(control,dc);
+                    require(extent.cx+40<=bounds.right,"A controller binding label is clipped");
+                }
+                click(w,1105);
+                require(IsWindowVisible(GetDlgItem(w,1004)) && !IsWindowVisible(GetDlgItem(w,108)),
+                        "Back to Play restored a removed dock tab");
                 keyboard_choice(GetDlgItem(w,1060),1);keyboard_choice(GetDlgItem(w,1060),0);
                 SetWindowTextW(GetDlgItem(w,1042),L"Kame");click(w,1045);
                 require(!IsWindowEnabled(GetDlgItem(w,1045)),"The lounge search did not clear");
@@ -443,7 +479,13 @@ int main() {
                 SendMessageW(w,WM_VSCROLL,SB_BOTTOM,0);
                 click(w,106);
                 require(GetDlgItem(w,174)==nullptr,"The Discord toggle is still in the launcher");
-                require(read_settings(settings_path()).discordPresence,"Discord activity is not on by default");
+                require(!read_settings(settings_path()).discordPresence,"Startup ignored the saved Discord preference");
+                SetWindowTextW(GetDlgItem(w,1110),L"graphics");
+                require(IsWindowVisible(GetDlgItem(w,140)) && !IsWindowVisible(GetDlgItem(w,143)),
+                        "Settings search did not filter and reflow sections");
+                SetWindowTextW(GetDlgItem(w,1110),L"nothing matches");
+                require(!IsWindowVisible(GetDlgItem(w,140)),"An unmatched settings search leaves controls visible");
+                click(w,1111);
                 for(int id=140;id<=150;++id) {
                     if(id==148)continue;
                     auto combo=GetDlgItem(w,id);
@@ -452,6 +494,11 @@ int main() {
                 }
                 keyboard_choice(GetDlgItem(w,141),3);
                 require(read_settings(settings_path()).fps==120,"FPS was not persisted by native interaction");
+                click(w,1114);
+                require(read_settings(settings_path()).fps==240 && !read_settings(settings_path()).discordPresence,
+                        "Undo settings failed or changed unrelated preferences");
+                require(!IsWindowEnabled(GetDlgItem(w,1114)),"Undo stayed enabled with no previous change");
+                keyboard_choice(GetDlgItem(w,141),3);
                 open_dropdown(GetDlgItem(w,141));key_press(VK_HOME);
                 wait_until([&]{return SendMessageW(GetDlgItem(w,141),CB_GETCURSEL,0,0)==0;},"A dropdown could not be previewed");
                 require(read_settings(settings_path()).fps==120,"An unconfirmed dropdown choice was saved");
@@ -477,7 +524,7 @@ int main() {
                 require(read_settings(settings_path()).upscaler==3,"FSR selection was not persisted");
                 keyboard_choice(GetDlgItem(w,145),2);
                 require(read_settings(settings_path()).textureFilter==2,"Texture filtering was not saved");
-                click(w,105);
+                click(w,101);click(w,1004);
                 auto saves = GetDlgItem(w,126);
                 require((GetWindowLongPtrW(saves,GWL_STYLE) & LBS_EXTENDEDSEL) != 0,
                         "Save list does not allow multiple selections");
@@ -528,7 +575,7 @@ int main() {
                         "Graphics defaults did not reset");
                 require(!reset.autoBackups && !reset.autoUpdates && reset.updateChannel==0,
                         "Reset graphics changed save/update preferences");
-                require(reset.discordPresence,"Reset graphics changed the Discord preference");
+                require(!reset.discordPresence,"Reset graphics changed the Discord preference");
                 require(reset.audio && reset.volume==50,"Reset graphics changed the audio preference");
                 const auto dpiForWindow = reinterpret_cast<UINT(WINAPI *)(HWND)>(
                     GetProcAddress(GetModuleHandleW(L"user32.dll"), "GetDpiForWindow"));
@@ -537,7 +584,8 @@ int main() {
                     SetWindowPos(w,nullptr,0,0,MulDiv(1000,dpi,96),MulDiv(height,dpi,96),
                                  SWP_NOZORDER|SWP_NOACTIVATE);
                     for(int id : {140,141,142,143,144,145,146,147,149,150,151,152,153,154,
-                                  160,161,162,163,164,170,171,173,179}) {
+                                  170,171,173,179,1100,1110,1111,1112,1113,1114}) {
+                        if (id!=1100) reveal_control(GetDlgItem(w,id));
                         RECT bounds{},client{};GetWindowRect(GetDlgItem(w,id),&bounds);GetClientRect(w,&client);
                         MapWindowPoints(nullptr,w,reinterpret_cast<POINT*>(&bounds),2);
                         require(bounds.left>=0 && bounds.top>=0 && bounds.right<=client.right &&
@@ -726,7 +774,7 @@ int main() {
                 }
                 keyboard_choice(GetDlgItem(w,177),0);
                 SetWindowPos(w,nullptr,0,0,MulDiv(1000,dpi,96),MulDiv(768,dpi,96),SWP_NOZORDER|SWP_NOACTIVATE);
-                for(auto route : {std::pair<WORD,int>{'5',120},{'1',110},{'8',160},{'4',185},{'5',148},{'6',400},{'7',140},{'3',177},{'2',246}}) {
+                for(auto route : {std::pair<WORD,int>{'1',112},{'6',160},{'4',185},{'5',1110},{'3',177},{'2',246}}) {
                     SetForegroundWindow(w);
                     INPUT keys[4]{};
                     for(auto& key:keys)key.type=INPUT_KEYBOARD;
@@ -743,7 +791,7 @@ int main() {
                 key_press('4',VK_CONTROL);
                 wait_until([&]{return IsWindowVisible(GetDlgItem(w,177));},"A moved tab's keyboard shortcut did not follow the dock");
                 click(w,106);click(w,301);click(w,299);click(w,300);
-                click(w,105);
+                click(w,101);click(w,1004);
                 RECT previous{};
                 for(int id : {121,120,122,127}) {
                     RECT bounds{},client{};GetWindowRect(GetDlgItem(w,id),&bounds);GetClientRect(w,&client);

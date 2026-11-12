@@ -326,8 +326,14 @@ int main() {
                 std::ofstream old(root / "controls-last.ini");
                 old << "version 1\nlauncher_tabs 0 1 2 3 4 5 6 7 0\n";
             }
-            require(read_settings(root / "controls-last.ini").tabOrder == default_tab_order,
-                    "Controls was not moved ahead of Settings and Updates");
+            require(normalize_dock_order(read_settings(root / "controls-last.ini").tabOrder) == default_tab_order,
+                    "A legacy tab order did not move the Play tools out of the dock");
+            require(Settings{}.tabOrder == default_tab_order && dock_tab_count == 6 && default_tab_order[4] == 5u &&
+                        default_tab_order[5] == 6u && !dock_tab(4) && !dock_tab(7),
+                    "The default dock does not contain the six main pages");
+            require(normalize_dock_order(std::array<unsigned,tab_count>{7,5,0,4,3,6,1,2}) ==
+                        std::array<unsigned,tab_count>{5,0,3,6,1,2,7,4},
+                    "Dock migration changed the relative order of the user's main tabs");
             {
                 std::ofstream(root / "scale-old.ini") << "version 1\ninternal_scale 1\n";
                 std::ofstream(root / "scale-chosen.ini") << "version 1\ninternal_scale 3\n";
@@ -345,9 +351,6 @@ int main() {
                             automatic_internal_scale(2160, false) == 4u && automatic_internal_scale(448, true) == 2u,
                         "Automatic internal resolution does not match the display height");
             }
-            require(Settings{}.tabOrder == default_tab_order && default_tab_order[5] == 7u && default_tab_order[6] == 5u &&
-                        default_tab_order[7] == 6u,
-                    "The System tabs are not ordered Controls, Settings, Updates");
             {
                 Settings bound;
                 bound.controls.keys[openkai2::input::Cross] = 74;

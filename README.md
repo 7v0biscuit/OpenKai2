@@ -39,11 +39,12 @@ files.
 - **Randomizer:** a random character, with its own moves and skills, for every
   Dragon World and World Tournament fight. Works with speedruns and permadeath.
 - **Launcher:** a lounge with friends, searchable rooms and selected-room details;
-  bottom navigation with reorderable tabs, thirteen illustrated themes, custom
+  six dock tabs, Play shortcuts for controls and saves, an action finder,
+  thirteen illustrated themes, custom
   colors, local PNG/JPEG/GIF profile pictures, ISO verification, saves and backups,
   automatic updates and Discord activity. See [Windows](docs/windows.md).
 - **Controls:** rebind every PS2 button to a key, an alternate key and a controller
-  button in the Controls tab. Works with Xbox, PlayStation and most other controllers.
+  button through **Play > Controls**. Works with Xbox, PlayStation and most other controllers.
 - **Audio:** volume, and an option to turn off only the music while voices and
   sound effects keep playing.
 - **CPU difficulty:** Z1 to Z6 levels above Very Hard, set in the launcher or

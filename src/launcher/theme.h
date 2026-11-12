@@ -76,7 +76,18 @@ constexpr Rgb cycling_accent(unsigned long long milliseconds) {
 inline constexpr unsigned tab_count = 8;
 inline constexpr const wchar_t *tab_names[tab_count] = {L"Play", L"Online", L"Speedrun", L"Mods", L"Saves", L"Settings", L"Updates", L"Controls"};
 inline constexpr unsigned fixed_tabs = (1u << 0u) | (1u << 5u);
-inline constexpr std::array<unsigned, tab_count> default_tab_order{0, 1, 2, 3, 4, 7, 5, 6};
+// Page identifiers remain stable for saved preferences and keyboard routes.
+// Saves and Controls are tools on Play, rather than independent dock tabs.
+inline constexpr unsigned dock_tab_count = 6;
+constexpr bool dock_tab(unsigned page) { return page < tab_count && page != 4u && page != 7u; }
+inline constexpr std::array<unsigned, tab_count> default_tab_order{0, 1, 2, 3, 5, 6, 4, 7};
+constexpr std::array<unsigned, tab_count> normalize_dock_order(const std::array<unsigned, tab_count>& order) {
+    std::array<unsigned, tab_count> result{};
+    unsigned index = 0;
+    for (unsigned page : order) if (dock_tab(page)) result[index++] = page;
+    for (unsigned page : order) if (!dock_tab(page)) result[index++] = page;
+    return result;
+}
 
 struct Theme {
     Rgb background, sidebar, panel, field, raised, hover, border, ink, muted, faint;

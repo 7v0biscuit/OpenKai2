@@ -5,11 +5,15 @@ focuses on music playback and mod tools.
 
 ## Launcher preferences
 
-The bottom navigation dock has eight pages: **Play**, **Online**, **Speedrun**,
-**Mods**, **Saves**, **Controls**, **Settings** and **Updates**. Ctrl+1 to Ctrl+8
-follow the visible dock order. **Arrange tabs** lets you put tabs in any order or hide the ones you do not use. Play and
-Settings remain visible.
+The bottom dock has six pages: **Play**, **Online**, **Speedrun**, **Mods**,
+**Settings** and **Updates**. **Controls** and **Saves & backups** are shortcuts
+on Play, with a **Back to Play** button on each page. Alt+1 to Alt+6 (or
+Ctrl+1 to Ctrl+6) follow the visible dock order. **Arrange tabs** reorders or
+hides tabs; Play and Settings remain visible. Existing tab arrangements keep
+their relative order when the two Play tools move out of the dock.
 
+**Find an action** in the header, or **Ctrl+K**, searches pages and tools.
+Use the arrow keys and Enter to open a result; Esc returns to the previous page.
 Hover over a dock tab to see its keyboard shortcut. **Ctrl+O** selects an ISO,
 **F5** starts the game after verification, and **Ctrl+L** opens logs.
 **Alt+Left** or **Esc** returns from a detail page. In dropdowns, Enter confirms
@@ -19,8 +23,10 @@ a choice and Esc cancels it; browsing the list does not change saved settings.
 profile shortcuts together. Theme artwork stays behind the title with a
 readability overlay. Inter is bundled for interface text and Barlow Condensed
 for the game title; both scale with Windows display scaling. The profile panel
-provides shortcuts to Controls, Saves, Settings and Arrange tabs. Existing
-friends appear below these shortcuts when available. Smaller windows scroll the
+lets you customize your local profile. Friends appear on the left, the game
+and Play tools in the middle, and selected-room details on the right.
+**Verify ISO** checks the selected disc or lets you choose another one.
+Smaller windows scroll the
 page while the header and navigation dock stay in place. The overlay editor
 keeps its preview available by scrolling instead of hiding it.
 
@@ -93,12 +99,19 @@ A message in the corner names your new character when a fight starts.
   changed color) as one line of text, and paste a look you saved or someone
   shared to apply it. **Surprise me** picks a random theme and accent.
 - **Arrange tabs…:** move tabs up or down and hide the ones you do not use. Play and Settings are always shown.
-  Ctrl+1 to Ctrl+8 follow the visible dock order.
+  Alt+1 to Alt+6 and Ctrl+1 to Ctrl+6 follow the visible dock order.
 - **Start on:** open the launcher on Play or on the last page you used.
 
 Changes apply at once and are saved with your other settings.
+Search Settings by section, such as graphics or display. **Undo change** restores
+the last settings edit in this session without replacing profiles, disc paths,
+saves or update preferences. Display and Game each have a reset button.
 
-The **Saves** page contains automatic session backups, imports and recovery.
+**Play > Saves & backups** contains automatic session backups, imports and recovery.
+Search by save name or backup filename, sort backups by date or name, and select
+several items to delete. Restoring a backup first shows its contents and creates
+a recovery copy of the current card. Controls stack into one column in narrower
+windows so controller binding names remain readable.
 **Unlock all** unlocks characters, stages and all 404 supported capsules in an existing USA progress
 save, filling skill quantities to their supported capacity. It checks both save checksums and creates a backup before replacing the
 card. Story progress, equipped skills, preferences and other games' files are preserved. Existing quantities above the normal capacity are retained.
