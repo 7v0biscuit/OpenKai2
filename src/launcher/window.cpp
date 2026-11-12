@@ -348,19 +348,23 @@ void smoothDrawing(Gdiplus::Graphics& graphics) {
 // GDI backend. Large panels use an analytic contour; small vector icons are
 // sampled at 4x resolution, then reduced before compositing onto the canvas.
 template<class Distance>
-bool contour(HDC dc, RECT r, Distance distance, COLORREF face, COLORREF outline, bool filled) {
+bool contour(HDC dc, RECT r, Distance distance, COLORREF face, COLORREF outline, bool filled, RECT interior={}) {
     const auto& list=surfaces();
     const auto found=std::find_if(list.begin(),list.end(),[dc](const Surface& s){return s.dc==dc;});
     if(found==list.end() || !found->pixels)return false;
+    if(filled && interior.right>interior.left && interior.bottom>interior.top)fill(dc,interior,face);
     GdiFlush();POINT origin{};GetViewportOrgEx(dc,&origin);
+    const uint32_t solid=uint32_t(GetRValue(face))<<16|uint32_t(GetGValue(face))<<8|GetBValue(face);
     for(int y=std::max<int>(r.top,-origin.y);y<std::min<int>(r.bottom,found->height-origin.y);++y)
         for(int x=std::max<int>(r.left,-origin.x);x<std::min<int>(r.right,found->width-origin.x);++x) {
+            if(filled && y>=interior.top && y<interior.bottom && x>=interior.left && x<interior.right){x=interior.right-1;continue;}
             const double d=distance(x+.5,y+.5);
             const double outer=std::clamp(.5-d,0.0,1.0),inner=std::clamp(-.5-d,0.0,1.0);
             const double cover=filled ? outer : outer-inner;
             if(cover<=0)continue;
-            const auto color=filled ? blend(outline,face,inner/outer) : outline;
             auto& pixel=found->pixels[size_t(y+origin.y)*found->width+x+origin.x];
+            if(filled && inner>=1){pixel=solid;continue;}
+            const auto color=filled ? blend(outline,face,inner/outer) : outline;
             const auto under=RGB(pixel>>16&255,pixel>>8&255,pixel&255);
             const auto out=blend(under,color,cover);
             pixel=uint32_t(GetRValue(out))<<16|uint32_t(GetGValue(out))<<8|GetBValue(out);
@@ -397,11 +401,13 @@ void smoothBox(HDC dc,RECT r,COLORREF face,COLORREF outline,float radius,bool fi
     if(r.right<=r.left || r.bottom<=r.top)return;
     const double halfWidth=(r.right-r.left)/2.0,halfHeight=(r.bottom-r.top)/2.0;
     const double corner=std::clamp(double(radius),0.0,std::min(halfWidth,halfHeight));
+    const LONG inset=LONG(std::ceil(corner))+1;
+    const RECT interior{r.left+inset,r.top+1,r.right-inset,r.bottom-1};
     if(contour(dc,r,[&](double x,double y){
         const double qx=std::abs(x-r.left-halfWidth)-halfWidth+corner;
         const double qy=std::abs(y-r.top-halfHeight)-halfHeight+corner;
         return (qx>0 && qy>0 ? std::hypot(qx,qy) : std::max(qx,qy))-corner;
-    },face,outline,filled))return;
+    },face,outline,filled,interior))return;
     sampledVector(dc,r,[&](Gdiplus::Graphics& graphics){
         const float x=float(r.left)+.5f,y=float(r.top)+.5f,w=float(r.right-r.left)-1.f,h=float(r.bottom-r.top)-1.f;
         const float d=float(corner)*2;Gdiplus::GraphicsPath path;
