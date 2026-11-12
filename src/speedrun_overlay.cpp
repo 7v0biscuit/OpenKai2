@@ -19,6 +19,7 @@
 #include <thread>
 #include "ps2_runtime.h"
 #include <raylib.h>
+#include "rlgl.h"
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -100,10 +101,28 @@ struct AutoLoad {
     std::atomic<int> state{0};
     unsigned tries = 0;
     uint64_t next = 120;
+    std::atomic<bool> loaded{false};
 };
 AutoLoad &auto_load() {
     static AutoLoad value;
     return value;
+}
+
+void capture_frame(uint64_t fields) {
+    static const char *request = std::getenv("OPENKAI2_CAPTURE_AFTER");
+    static uint64_t base = 0;
+    static bool done = false;
+    if (!request || !*request || done || !auto_load().loaded)
+        return;
+    if (!base)
+        base = fields;
+    if (fields < base + std::strtoull(request, nullptr, 10))
+        return;
+    done = true;
+    rlDrawRenderBatchActive();
+    TakeScreenshot("capture.png");
+    std::cout << "[capture] saved fields=" << fields - base << " size=" << GetScreenWidth() << 'x' << GetScreenHeight()
+              << " render=" << GetRenderWidth() << 'x' << GetRenderHeight() << std::endl;
 }
 
 void load_on_start(unsigned slot, uint64_t fields) {
@@ -125,6 +144,8 @@ void load_on_start(unsigned slot, uint64_t fields) {
     openkai2::request_machine_load(std::move(body), [slot](openkai2::MachineStateResult result) {
         auto &load = auto_load();
         std::cout << "[state] start load slot " << slot << " try " << load.tries << (result.ok ? " ok" : " refused: " + result.message) << std::endl;
+        if (result.ok)
+            load.loaded = true;
         if (result.ok)
             toast("State loaded from slot " + std::to_string(slot));
         else if (load.tries >= 30)
@@ -838,6 +859,7 @@ void draw(PS2Runtime &runtime, void *) {
     }
     if (overlay->options.load_state && !overlay->speedrun && !session)
         load_on_start(overlay->options.load_state, fields);
+    capture_frame(fields);
     if (!overlay->speedrun && !session && IsKeyPressed(KEY_F6)) {
         unsigned level = 0;
         if (openkai2::cpu::cycle(level))
@@ -910,7 +932,7 @@ void install_overlay(PS2Runtime &runtime, OverlayOptions options) {
     overlay = std::make_unique<Overlay>();
     overlay->speedrun = options.category != Category::off;
     openkai2::enable_manual_machine_states(!overlay->speedrun);
-    overlay->skipping = options.skip_to_menu;
+    overlay->skipping = options.skip_to_menu && overlay->speedrun;
     overlay->options = std::move(options);
     overlay->timer = Timer{overlay->options.category};
     if (tournament(overlay->options.category)) {
