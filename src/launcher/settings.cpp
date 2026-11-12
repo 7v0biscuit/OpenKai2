@@ -47,7 +47,7 @@ std::filesystem::path settings_path() {
 void validate_settings(const Settings &s) {
     if (s.fps > 240 || s.width < 640 || s.width > 7680 || s.height < 448 || s.height > 4320 ||
         s.windowMode > 1 || s.antialiasing > 3 || s.textureFilter > 2 || s.upscaler > 5 ||
-        s.aspect > 3 || s.internalScale < 1 || s.internalScale > 4 || s.hdTextures > 4 || s.volume > 100 || s.cpuDifficulty > 6 || s.windowWidth < 0 || s.windowHeight < 0 ||
+        s.aspect > 3 || s.internalScale > 4 || s.hdTextures > 4 || s.volume > 100 || s.cpuDifficulty > 6 || s.windowWidth < 0 || s.windowHeight < 0 ||
         s.windowWidth > 32768 || s.windowHeight > 32768 || s.updateChannel > 1 || s.speedrun >= speedrun::category_count || s.overlayItems > speedrun::overlay_all || s.overlayCorner > 3 ||
         s.overlaySize > 3 || s.overlayBackground > 4 || s.overlayMargin > 2 || s.overlayShape > 1 || s.overlayTitle.size() > 192 || s.overlaySplitNames.size() > 2400 || s.overlaySplits > 3 || s.overlayDecimals > 3 ||
         std::any_of(s.overlayColors.begin(), s.overlayColors.end(), [](unsigned c) { return c >= speedrun::overlay_color_count; }) || (s.renderer != "auto" && s.renderer != "gpu" && s.renderer != "vulkan" && s.renderer != "cpu"))
@@ -86,7 +86,7 @@ void validate_settings(const Settings &s) {
 Settings read_settings(const std::filesystem::path &file) {
     Settings s;
     std::vector<std::array<std::string,3>> profileImages;
-    bool tabLayout = false;
+    bool tabLayout = false, graphicsProfile = false;
     std::ifstream in(file);
     if (!in) {
         if (std::filesystem::exists(file))
@@ -194,6 +194,11 @@ Settings read_settings(const std::filesystem::path &file) {
             auto &target = key == "controls_keys" ? s.controls.keys : key == "controls_alternate" ? s.controls.alternate : s.controls.pad;
             for (auto &value : target)
                 row >> value;
+        }
+        else if (key == "graphics_profile") {
+            unsigned profile = 0;
+            row >> profile;
+            graphicsProfile = profile >= 2u;
         }
         else if (key == "launcher_tab_layout") {
             unsigned layout = 0;
@@ -306,6 +311,8 @@ Settings read_settings(const std::filesystem::path &file) {
     validate_settings(s);
     if (s.hdTextures && s.internalScale == 1)
         s.internalScale = 2;
+    if (!graphicsProfile && s.internalScale == 1 && !s.hdTextures)
+        s.internalScale = 0;
     return s;
 }
 void write_settings(const std::filesystem::path &file, const Settings &s) {
@@ -319,7 +326,7 @@ void write_settings(const std::filesystem::path &file, const Settings &s) {
     out << "# OpenKai2\nversion 1\niso " << std::quoted(path_utf8(s.iso)) << "\nfps " << s.fps
         << "\nwidth " << s.width << "\nheight " << s.height << "\nwindow_mode " << s.windowMode
         << "\nantialiasing " << s.antialiasing << "\ntexture_filter " << s.textureFilter
-        << "\nupscaler " << s.upscaler << "\naspect " << s.aspect << "\ninternal_scale " << s.internalScale << "\nhd_textures " << s.hdTextures << "\nmusic " << s.music << "\nvsync " << s.vsync
+        << "\nupscaler " << s.upscaler << "\naspect " << s.aspect << "\ninternal_scale " << s.internalScale << "\ngraphics_profile 2" << "\nhd_textures " << s.hdTextures << "\nmusic " << s.music << "\nvsync " << s.vsync
         << "\naudio " << s.audio << "\nvolume " << s.volume << "\ncpu_difficulty " << s.cpuDifficulty
         << "\nauto_backups " << s.autoBackups << "\nauto_updates " << s.autoUpdates
         << "\nupdate_channel " << s.updateChannel << "\nrenderer " << std::quoted(s.renderer)

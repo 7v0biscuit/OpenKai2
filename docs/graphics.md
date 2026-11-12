@@ -8,10 +8,19 @@ renderer always draws at the PS2's native resolution.
 
 | Choice | Picture size |
 |---|---|
+| Auto (match display) | Picked from your display, see below. This is the default |
 | Native | 640x448, as on a PS2 |
 | 2x | 1280x896 |
 | 3x | 1920x1344 |
 | 4x | 2560x1792 |
+
+**Auto** picks the smallest choice that covers the height the game is shown
+at: the window height, or the screen height in borderless mode. A 720p window
+gets 2x, 1080p gets 3x, and 1440p or 4K gets 4x. With HD textures on it never
+picks less than 2x. `startup.log` records the choice as
+`[display] internal_scale=auto display_height=1080 chosen=3x`. If you updated
+from a version before Auto existed and had never changed this setting from
+Native, it is switched to Auto once; choose Native again to keep the PS2 picture.
 
 3D scenes, menus and sprites are drawn at the higher resolution. Pictures the
 game draws and then reuses as a texture, such as full-screen copies and
@@ -23,7 +32,10 @@ still larger than the window, every upscaler except Nearest averages it down
 instead of skipping pixels. The game's own memory is still drawn at
 native resolution as well, so effects that read back the picture, videos and
 anything the game copies with the CPU stay at native sharpness. Higher choices
-need more graphics power and graphics memory; 4x uses about 400 MB.
+need more graphics power and graphics memory; 4x uses about 400 MB. If the
+graphics card cannot hold the chosen size at all, the game uses the largest
+size that fits and notes it in `startup.log`
+(`internal_resolution=4x does not fit this GPU; using 3x`).
 
 The chosen resolution is a maximum. When the graphics card cannot keep up and
 the game starts falling behind 60 FPS (the card is busy more than 85% of the

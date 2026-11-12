@@ -42,6 +42,7 @@
 #include <mutex>
 #include <stdexcept>
 #include <streambuf>
+#include <thread>
 #include <vector>
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -158,6 +159,29 @@ void usage() {
 
 }
 
+#ifdef _WIN32
+extern "C" {
+__declspec(dllexport) DWORD NvOptimusEnablement = 1;
+__declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
+}
+#endif
+namespace {
+void use_full_host_performance() {
+#ifdef _WIN32
+    const bool priority = SetPriorityClass(GetCurrentProcess(), ABOVE_NORMAL_PRIORITY_CLASS) != 0;
+    PROCESS_POWER_THROTTLING_STATE throttling{};
+    throttling.Version = PROCESS_POWER_THROTTLING_CURRENT_VERSION;
+    throttling.ControlMask = PROCESS_POWER_THROTTLING_EXECUTION_SPEED;
+    throttling.StateMask = 0;
+    const bool unthrottled = SetProcessInformation(GetCurrentProcess(), ProcessPowerThrottling, &throttling, sizeof throttling) != 0;
+    std::cout << "[host] cores=" << std::thread::hardware_concurrency() << " priority=" << (priority ? "above_normal" : "normal")
+              << " power_throttling=" << (unthrottled ? "off" : "system") << " gpu_preference=high_performance" << std::endl;
+#else
+    std::cout << "[host] cores=" << std::thread::hardware_concurrency() << std::endl;
+#endif
+}
+}
+
 int main(int argc, char* argv[]) {
     StartupLog log;
     bool interactive=false, restart=false;
@@ -235,7 +259,16 @@ int main(int argc, char* argv[]) {
         openkai2::GraphicsSettings display;
         display.width=preferences.width;display.height=preferences.height;
         display.textureFilter=preferences.textureFilter;display.upscaler=preferences.upscaler;
-        display.antialiasing=preferences.antialiasing;display.aspect=preferences.aspect;display.internalScale=preferences.internalScale;display.hdTextures=preferences.hdTextures;display.textureFolder=openkai2::launcher::textures_directory();
+        display.antialiasing=preferences.antialiasing;display.aspect=preferences.aspect;display.internalScale=preferences.internalScale;
+        if(display.internalScale==0u){
+            unsigned target=preferences.height;
+#ifdef _WIN32
+            if(preferences.windowMode!=0)target=unsigned(std::max(1,GetSystemMetrics(SM_CYSCREEN)));
+#endif
+            display.internalScale=openkai2::automatic_internal_scale(target,preferences.hdTextures!=0);
+            std::cout << "[display] internal_scale=auto display_height=" << target << " chosen=" << display.internalScale << "x\n";
+        }
+        display.hdTextures=preferences.hdTextures;display.textureFolder=openkai2::launcher::textures_directory();
         display.borderless=preferences.windowMode!=0;display.vsync=preferences.vsync;
         openkai2::set_graphics_settings(display);
         openkai2::set_renderer_preference(renderer);
@@ -247,6 +280,7 @@ int main(int argc, char* argv[]) {
         log.open();
         std::cout << "[build] source_revision=" OPENKAI2_SOURCE_REVISION " renderer="
                   << openkai2::renderer_preference() << " presentation=async" << std::endl;
+        use_full_host_performance();
         std::cout << "[display] fps_limit=" << openkai2::window_fps_limit() << " game_timing=original\n";
         std::cout << "[display:settings] size=" << display.width << 'x' << display.height
                   << " mode=" << (display.borderless ? "borderless" : "windowed")

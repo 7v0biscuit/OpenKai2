@@ -1608,8 +1608,8 @@ struct Window {
         combo(Filtering, {L"Game default", L"Nearest (sharp)", L"Bilinear (3D surfaces)"},
               int(settings.textureFilter));
         combo(Upscaler, {L"Nearest", L"Bilinear", L"Bicubic", L"AMD FSR 1", L"Lanczos", L"Sharp pixels"}, int(settings.upscaler));
-        combo(InternalScale, {L"Native (1x)", L"2x native", L"3x native", L"4x native"},
-              int(std::clamp(settings.internalScale, 1u, 4u) - 1u));
+        combo(InternalScale, {L"Native (1x)", L"2x native", L"3x native", L"4x native", L"Auto (match display)"},
+              settings.internalScale == 0 ? 4 : int(std::clamp(settings.internalScale, 1u, 4u) - 1u));
         combo(HdTextures, {L"Off", L"Upscaled from your disc", L"Texture packs", L"Texture packs, upscale the rest", L"Dump textures for pack makers"},
               int(std::min(settings.hdTextures, 4u)));
         combo(Music, {L"On", L"Off (voices and sound effects stay on)"}, settings.music ? 0 : 1);
@@ -6138,7 +6138,7 @@ struct Window {
         next.antialiasing = unsigned(selected(Antialiasing));
         next.textureFilter = unsigned(selected(Filtering));
         next.upscaler = unsigned(selected(Upscaler));
-        next.internalScale = unsigned(std::max(0, selected(InternalScale))) + 1u;
+        next.internalScale = selected(InternalScale) >= 4 ? 0u : unsigned(std::max(0, selected(InternalScale))) + 1u;
         next.hdTextures = unsigned(std::max(0, selected(HdTextures)));
         next.music = selected(Music) != 1;
         next.vsync = selected(Vsync) != 0;
@@ -6401,7 +6401,10 @@ struct Window {
                                                     : std::wstring(L"PNG files named by texture hash in the textures folder replace the game's textures.") +
                                                           (settings.hdTextures == 3 ? L" Textures without a replacement are upscaled." : L"");
             else if (id == InternalScale)
-                status = settings.internalScale > 1
+                status = settings.internalScale == 0
+                             ? std::wstring(L"Internal resolution: automatic. 3D scenes render to match your display, up to 4x, "
+                                            L"and step down by themselves if the graphics card can't hold 60 FPS.")
+                             : settings.internalScale > 1
                              ? L"Internal resolution " + std::to_wstring(settings.internalScale) +
                                    L"x: 3D scenes render at a higher resolution with the GPU and Vulkan renderers. "
                                    L"It needs more graphics power and applies the next time the game starts."
@@ -6553,7 +6556,7 @@ struct Window {
             write_settings(settings_path(), next);
             settings = std::move(next);
             const std::pair<int, int> choices[] = {{Renderer, 0}, {Fps, 6}, {Resolution, 0},
-                {WindowMode, 0}, {Antialiasing, 0}, {Filtering, 0}, {Upscaler, 1}, {Vsync, 1}, {Aspect, 0}, {InternalScale, 0}, {HdTextures, 0}};
+                {WindowMode, 0}, {Antialiasing, 0}, {Filtering, 0}, {Upscaler, 1}, {Vsync, 1}, {Aspect, 0}, {InternalScale, 4}, {HdTextures, 0}};
             for (auto [control, value] : choices) SendMessageW(controls[control], CB_SETCURSEL, value, 0);
             status = L"Display and graphics settings restored. Your disc, saves and update choices were kept.";
             error = false;

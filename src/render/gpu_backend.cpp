@@ -12,6 +12,7 @@
 #include <atomic>
 #include <bitset>
 #include <chrono>
+#include <cstdlib>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -131,6 +132,8 @@ struct GpuRasterBackend::Impl {
     struct Load{std::chrono::steady_clock::time_point at{};uint64_t busy=0,fields=0,late=0;unsigned overloaded=0,relaxed=0;
         std::chrono::steady_clock::time_point holdUntil{},raised{};std::chrono::seconds hold{20};} load;
     void adapt(){
+        static const bool fixed=[]{const char* value=std::getenv("OPENKAI2_FIXED_RESOLUTION");return value && *value=='1';}();
+        if(fixed)return;
         const auto now=std::chrono::steady_clock::now();
         const uint64_t busy=runtime_work_total_ns(RuntimeWork::gpuDevice),fields=field_lateness.fields.load(std::memory_order_relaxed),
             late=field_lateness.late.load(std::memory_order_relaxed);
@@ -267,16 +270,24 @@ struct GpuRasterBackend::Impl {
         try{
             resources=std::make_shared<Resources>();scale=maxScale=std::clamp(graphics_settings().internalScale,1u,4u);
             bool supported=false;size_t capacity=0;const unsigned hdMode=scale>1u ? graphics_settings().hdTextures : 0u;
-            device->invoke([r=resources,&supported,&capacity,words=slotWords(),scaled=scale>1u,extra=hdMode ? hdWords : 0u](gpu::Host& host){
+            const unsigned requested=scale;unsigned fitted=scale;
+            device->invoke([r=resources,&supported,&capacity,&fitted,requested,extra=hdMode ? hdWords : 0u](gpu::Host& host){
                 r->compute=host.create();r->compute->create(gpu::address_tables());
-                supported=scaled && r->compute->hires_supported();
                 const size_t limit=r->compute->storage_word_limit();
-                supported=supported && words*(colorSlots+1u)<=limit && words*depthSlots<=limit;
+                const auto wordsAt=[](unsigned s){return size_t(shadowWidth*s)*size_t(shadowHeight*s);};
+                const auto fits=[&](unsigned s){return wordsAt(s)*(colorSlots+1u)<=limit && wordsAt(s)*depthSlots<=limit;};
+                while(fitted>1u && !fits(fitted))--fitted;
+                supported=requested>1u && fitted>1u && r->compute->hires_supported();
+                const size_t words=wordsAt(fitted);
                 if(supported){
                     capacity=std::min(extra,limit-words*(colorSlots+1u));
                     r->compute->hires_reserve(words*colorSlots+capacity+words,words*depthSlots);
                 }
             });
+            if(supported && fitted!=requested){
+                std::cout<<"[renderer] internal_resolution="<<requested<<"x does not fit this GPU; using "<<fitted<<"x"<<std::endl;
+                scale=maxScale=fitted;
+            }
             hires=supported;hdCapacity=capacity;dropShadows();
             hdOn=hires && hdMode!=0u && hdCapacity!=0u;
             if(hdOn)hd::library().configure(hdMode,graphics_settings().textureFolder,scale>=3u ? 4u : 2u);

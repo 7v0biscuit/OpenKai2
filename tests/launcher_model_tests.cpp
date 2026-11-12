@@ -328,6 +328,23 @@ int main() {
             }
             require(read_settings(root / "controls-last.ini").tabOrder == default_tab_order,
                     "Controls was not moved ahead of Settings and Updates");
+            {
+                std::ofstream(root / "scale-old.ini") << "version 1\ninternal_scale 1\n";
+                std::ofstream(root / "scale-chosen.ini") << "version 1\ninternal_scale 3\n";
+                std::ofstream(root / "scale-kept.ini") << "version 1\ninternal_scale 1\ngraphics_profile 2\n";
+                require(read_settings(root / "scale-old.ini").internalScale == 0u, "An untouched 1x internal resolution did not become automatic");
+                require(read_settings(root / "scale-chosen.ini").internalScale == 3u, "A chosen internal resolution was replaced");
+                require(read_settings(root / "scale-kept.ini").internalScale == 1u, "Native resolution chosen after the update was replaced");
+                Settings automatic;
+                write_settings(root / "scale-auto.ini", automatic);
+                require(automatic.internalScale == 0u && read_settings(root / "scale-auto.ini").internalScale == 0u,
+                        "Automatic internal resolution is not the default or did not save");
+                using openkai2::automatic_internal_scale;
+                require(automatic_internal_scale(448, false) == 1u && automatic_internal_scale(720, false) == 2u &&
+                            automatic_internal_scale(1080, false) == 3u && automatic_internal_scale(1440, false) == 4u &&
+                            automatic_internal_scale(2160, false) == 4u && automatic_internal_scale(448, true) == 2u,
+                        "Automatic internal resolution does not match the display height");
+            }
             require(Settings{}.tabOrder == default_tab_order && default_tab_order[5] == 7u && default_tab_order[6] == 5u &&
                         default_tab_order[7] == 6u,
                     "The System tabs are not ordered Controls, Settings, Updates");

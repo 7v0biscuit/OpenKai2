@@ -11,6 +11,10 @@ struct GraphicsSettings {
     std::filesystem::path textureFolder;
     bool borderless = false, vsync = true;
 };
+constexpr unsigned automatic_internal_scale(unsigned displayHeight, bool hdTextures) {
+    const unsigned scale = std::clamp((displayHeight + 447u) / 448u, 1u, 4u);
+    return hdTextures && scale < 2u ? 2u : scale;
+}
 void set_graphics_settings(const GraphicsSettings &settings);
 const GraphicsSettings &graphics_settings() noexcept;
 bool texture_filter_enabled(bool gameFilter, bool sprite = false) noexcept;
