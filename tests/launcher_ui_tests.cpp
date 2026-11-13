@@ -502,6 +502,14 @@ int main(int argc,char** argv) {
                 require(std::wstring(hint).find(L"Ctrl+1")!=std::wstring::npos,"Dock hints do not show the matching keyboard shortcut");
                 click(w,1000);
                 require(IsWindowVisible(GetDlgItem(w,1007)),"Profile customization did not open");
+                {
+                    const auto combo=GetDlgItem(w,1009);RECT field{};GetClientRect(combo,&field);
+                    const auto palette=make_theme(initial.launcherTheme,initial.launcherAccent,initial.launcherColors);
+                    const auto dc=GetDC(combo);const auto pixel=GetPixel(dc,field.right/2,field.bottom/2);ReleaseDC(combo,dc);
+                    require(pixel==RGB(palette.field.r,palette.field.g,palette.field.b),
+                            "Changing pages exposed a control background from the previous page");
+                }
+
                 SetWindowTextW(GetDlgItem(w,1007),L"UT");SetWindowTextW(GetDlgItem(w,1008),L"Local appearance");
                 keyboard_choice(GetDlgItem(w,1009),3);click(w,1010);
                 const auto style=read_settings(settings_path());

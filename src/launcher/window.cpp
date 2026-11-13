@@ -2115,7 +2115,8 @@ struct Window {
         RECT rect{};
         GetClientRect(hwnd, &rect);
         if (rect.right<=0 || rect.bottom<=0) return;
-        if(laidOutPage!=page){pageScroll=0;laidOutPage=page;}
+        const bool pageChanged=laidOutPage!=page;
+        if(pageChanged){pageScroll=0;laidOutPage=page;}
         for (unsigned pass=0;pass<3;++pass) {
             const auto previous=rect;
             const int canvas=pageCanvasHeight();
@@ -2486,6 +2487,7 @@ struct Window {
         }
         clipPageControls();
         refreshEnabled();
+        if(pageChanged)RedrawWindow(hwnd,nullptr,nullptr,RDW_INVALIDATE|RDW_UPDATENOW|RDW_ALLCHILDREN);
     }
     void clipPageControls() {
         if (dropdownOpen())
