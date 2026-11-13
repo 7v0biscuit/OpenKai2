@@ -87,12 +87,13 @@ tried first.
 When both games start, they connect again with a one-time key from the room, and
 the host sends its memory card and full game state, so both games start the
 same. Your controls work while the games link up. The games then exchange button presses a few frames ahead
-and run in lockstep. Every two seconds they compare memory; if they ever differ,
+and use rollback to hide the delay (see below). Every two seconds they compare memory; if they ever differ,
 the in-game bar shows **out of sync**. The bar at the top shows the opponent,
 ping and input delay.
 
-Both players need the same OpenKai2 version and Budokai 2 disc. Mods, save states
-and speedrun mode are off online. Online matches always use PS2 disc timing,
+Both players need the same OpenKai2 version and Budokai 2 disc. Mods, save states,
+the randomizer and speedrun mode are off online. **Music off** is ignored online,
+because it changes the music data the game reads and the two games would differ. Online matches always use PS2 disc timing,
 whatever **PS2 load times** is set to, so both games load at the same moments.
 The disc drive's position and the game's random numbers travel with the
 starting state, so both games begin from exactly the same point. Your own memory card is not changed: matches
@@ -147,7 +148,7 @@ when connected. Join and invite buttons become available when their required
 ISO, connection and selection are ready. List positions stay in place while
 room pings and player presence update.
 
-## Rollback (in development)
+## Rollback
 
 Online matches use rollback netcode. Input delay is capped at 2 frames; when
 the other player's buttons for a frame have not arrived yet, the game repeats

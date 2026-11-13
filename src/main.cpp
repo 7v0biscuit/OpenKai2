@@ -382,8 +382,10 @@ int main(int argc, char* argv[]) {
             std::cout << "[netplay] online play: mods are off" << std::endl;
             openkai2::netplay::prepare_memory_card(online);
         }
-        const auto applied=openkai2::mods::DiscOverlay::global().configure(paths.cdImage,mods,!preferences.music);
-        if (!preferences.music) std::cout << "[audio] music off: " << openkai2::mods::DiscOverlay::global().muted_tracks() << " music tracks silenced" << std::endl;
+        const bool muteMusic=!preferences.music && !online.enabled;
+        const auto applied=openkai2::mods::DiscOverlay::global().configure(paths.cdImage,mods,muteMusic);
+        if (muteMusic) std::cout << "[audio] music off: " << openkai2::mods::DiscOverlay::global().muted_tracks() << " music tracks silenced" << std::endl;
+        else if (!preferences.music) std::cout << "[audio] music off is ignored in online play so both players read the same disc" << std::endl;
         std::cout << "[mods] directory=" << modsDirectory.string() << " enabled=" << mods.size()
                   << " replaced_files=" << applied.replaced_files << " replaced_entries=" << applied.replaced_entries
                   << " added_entries=" << applied.added_entries << " relocated_files=" << applied.relocated_files << std::endl;
