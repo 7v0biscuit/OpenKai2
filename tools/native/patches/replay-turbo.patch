@@ -1,0 +1,49 @@
+--- a/Kernel/EeScheduler.cpp
++++ b/Kernel/EeScheduler.cpp
+@@ -1852,7 +1852,8 @@
+                 return;
+             }
+ 
+-            if (now < pacingDeadline)
++            const bool turbo = openkai2::replay_turbo.load(std::memory_order_relaxed);
++            if (now < pacingDeadline && !turbo)
+             {
+                 openkai2::precise_wait_until(m_eventCv, lock, pacingDeadline, [this]()
+                                      { return !m_events.empty() ||
+@@ -1866,9 +1867,9 @@
+ 
+             const auto pacedNow = std::chrono::steady_clock::now();
+             auto firstFuture = std::partition(m_deadlines.begin(), m_deadlines.end(),
+-                                              [this, pacedNow](const ScheduledEvent &item)
++                                              [this, pacedNow, turbo](const ScheduledEvent &item)
+                                               { return item.deadlineCycle <= m_eeCycle &&
+-                                                       item.hostDeadline <= pacedNow; });
++                                                       (turbo || item.hostDeadline <= pacedNow); });
+             due.insert(due.end(),
+                        std::make_move_iterator(m_deadlines.begin()),
+                        std::make_move_iterator(firstFuture));
+@@ -2097,6 +2098,8 @@
+         }
+     }
+ 
++    if (openkai2::replay_turbo.load(std::memory_order_relaxed))
++        hostDeadline = std::chrono::steady_clock::now();
+     const bool signaled = openkai2::precise_wait_until(m_eventCv, lock, hostDeadline, [this]()
+                                                { return !m_events.empty() ||
+                                                         m_stopRequested.load(std::memory_order_acquire); });
+--- a/runtime/ps2_iop_host.cpp
++++ b/runtime/ps2_iop_host.cpp
+@@ -1,3 +1,4 @@
++#include "simulation_pacing.h"
+ #include "ps2_iop_host.h"
+ #include "host_audio.h"
+ 
+@@ -270,6 +271,8 @@
+ 
+ void PS2IopHostAdapter::audioPcm(uint32_t core,std::span<const int16_t> samples,uint32_t sampleRate)
+ {
++    if (openkai2::replay_turbo.load(std::memory_order_relaxed))
++        return;
+     openkai2::submit_host_audio(&m_runtime,core,samples,sampleRate);
+ }
+ 

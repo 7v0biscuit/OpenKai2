@@ -4,6 +4,7 @@
 #include "host_input.h"
 #include "delta_states.h"
 #include "netplay.h"
+#include "simulation_pacing.h"
 #include "state_archive.h"
 #include "runtime/ee_scheduler.h"
 #include <algorithm>
@@ -240,7 +241,8 @@ std::unique_ptr<DeltaStates> rollbackStates;
 std::map<uint64_t, uint64_t> rollbackHashes;
 struct RollbackTotals {
     uint64_t captures = 0, pages = 0, small = 0, rollbacks = 0, compared = 0, differing = 0, firstDifference = 0;
-    double captureMs = 0, captureMax = 0, restoreMs = 0, restoreMax = 0, compareMs = 0;
+    double captureMs = 0, captureMax = 0, restoreMs = 0, restoreMax = 0, compareMs = 0, replayMs = 0;
+    std::chrono::steady_clock::time_point replayBegan{};
 } rollbackTotals;
 
 void configure_rollback() {
@@ -280,6 +282,10 @@ void rollback_point(EeScheduler &scheduler) {
             totals.firstDifference = tick - rollbackStart;
     } else
         rollbackHashes[tick] = hash;
+    if (replay_turbo.load() && tick >= rollbackHighest) {
+        replay_turbo = false;
+        totals.replayMs += milliseconds(totals.replayBegan);
+    }
     const auto serialize = [&](StateArchive &archive) { serialize_machine(scheduler, archive); };
     auto began = std::chrono::steady_clock::now();
     rollbackStates->capture(tick, serialize);
@@ -302,7 +308,7 @@ void rollback_point(EeScheduler &scheduler) {
                   << " capture_avg_ms=" << totals.captureMs / captures << " capture_max_ms=" << totals.captureMax
                   << " memory_compare_avg_ms=" << totals.compareMs / captures << " changed_pages_avg=" << double(totals.pages) / captures << " other_state_bytes=" << totals.small
                   << " rollbacks=" << totals.rollbacks << " restore_avg_ms=" << totals.restoreMs / rollbacks
-                  << " restore_max_ms=" << totals.restoreMax << " resimulated_frames_compared=" << totals.compared
+                  << " restore_max_ms=" << totals.restoreMax << " replay_avg_ms=" << totals.replayMs / rollbacks << " resimulated_frames_compared=" << totals.compared
                   << " differing=" << totals.differing;
         if (totals.differing)
             std::cerr << " first_frame=" << totals.firstDifference;
@@ -321,6 +327,8 @@ void rollback_point(EeScheduler &scheduler) {
         totals.restoreMs += elapsed;
         totals.restoreMax = std::max(totals.restoreMax, elapsed);
         ++totals.rollbacks;
+        totals.replayBegan = std::chrono::steady_clock::now();
+        replay_turbo = true;
         rollbackLast = tick - rollbackDepth;
         buttons = pattern(rollbackLast - rollbackStart);
         if (hash_memory() != rollbackHashes[rollbackLast] && !totals.differing++)
