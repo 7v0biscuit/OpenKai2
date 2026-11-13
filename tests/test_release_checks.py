@@ -39,6 +39,17 @@ class ReleaseChecks(unittest.TestCase):
             with self.assertRaises(TimeoutError):
                 checks.wait('a'*40, 'v0.3.3')
 
+    def test_main_and_tag_must_both_pass(self):
+        with patch.object(checks, 'wait') as wait:
+            checks.validate_release('a'*40, 'v0.3.3')
+            self.assertEqual([call.args for call in wait.call_args_list],
+                             [('a'*40, 'main'), ('a'*40, 'v0.3.3')])
+
+    def test_manual_main_publish_checks_main_once(self):
+        with patch.object(checks, 'wait') as wait:
+            checks.validate_release('a'*40, 'main')
+            wait.assert_called_once_with('a'*40, 'main')
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -86,7 +86,7 @@ jobs:
       actions: read
     steps:
       - uses: actions/checkout@v4
-      - name: Require component checks for this release ref
+      - name: Require component checks on main and the release ref
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}

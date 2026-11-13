@@ -904,10 +904,11 @@ struct Window {
     std::deque<DeferredMessage> deferredMessages;
     bool deferDuringPaint(UINT message, WPARAM wp, LPARAM lp) {
         if (!painting) return false;
+        // Focus cancellation only changes transient control state. Handle it
+        // immediately so it cannot be replayed against a newly opened popup.
         switch (message) {
         case WM_COMMAND: case WM_TIMER: case WM_SIZE: case WM_DPICHANGED:
         case WM_CLOSE: case WM_DROPFILES: case WM_MOUSEWHEEL: case WM_VSCROLL:
-        case WM_ACTIVATEAPP: case WM_ACTIVATE: case WM_NCACTIVATE:
         case pageClipMessage: case restoreUiMessage: case onlineChanged: case onlineNotice:
         case controlKeyMessage: case controlClearMessage:
             break;
@@ -916,9 +917,10 @@ struct Window {
         // GDI and native controls can dispatch sent messages while a frame is
         // being drawn. Keep its fonts, page data and bitmap alive until EndPaint.
         // A DPI message owns a temporary RECT, so retain the value, not its pointer.
+        if (message==WM_COMMAND && closingDropdowns &&
+            (HIWORD(wp)==CBN_SELCHANGE || HIWORD(wp)==CBN_SELENDOK)) return true;
         DeferredMessage pending{message,wp,lp};
         if (message==WM_DPICHANGED) pending.rectangle=*reinterpret_cast<const RECT*>(lp);
-        if (message==WM_ACTIVATEAPP) appActive=wp!=FALSE;
         if (message==WM_TIMER && std::any_of(deferredMessages.begin(),deferredMessages.end(),
             [wp](const auto& item){return item.message==WM_TIMER && item.wp==wp;})) return true;
         deferredMessages.push_back(pending);
@@ -3677,7 +3679,7 @@ struct Window {
         if (rect.right <= 0 || rect.bottom <= 0) {
             return;
         }
-        const auto glowing = renderFrame();
+        const auto glowing = renderFrame(rect);
         BitBlt(dc, 0, 0, rect.right, rect.bottom, buffer.dc, 0, 0, SRCCOPY);
         if (paintedPage != page || paintedScroll != pageScroll || paintedSize != std::pair<int, int>{rect.right, rect.bottom} || paintedGlow != glowing) {
             paintedPage = page;
@@ -3688,20 +3690,19 @@ struct Window {
                 InvalidateRect(control, nullptr, FALSE);
         }
     }
-    std::vector<int> renderFrame() {
-        RECT rect{};
-        GetClientRect(hwnd, &rect);
+    std::vector<int> renderFrame(const RECT& rect) {
         if (rect.right <= 0 || rect.bottom <= 0)
             return {};
         if (laidOutPage != page)
             pageScroll = 0;
-        const int pageHeight=pageCanvasHeight(), visibleHeight=pageVisibleHeight();
+        const int w=unscale(rect.right), h=unscale(rect.bottom);
+        const int visibleHeight=std::max(1,h-shellHeader-shellDockReserve);
+        const int pageHeight=std::max(visibleHeight,pageCanvasHeight());
         pageScroll = std::clamp(pageScroll, 0, pageHeight - visibleHeight);
         const int sourceTop=p(pageScroll), destinationTop=p(shellHeader);
         if (buffer.frame.width!=rect.right || buffer.frame.height!=std::max(int(rect.bottom),p(pageHeight))) ambient.clear();
         buffer.make(rect.right,std::max(int(rect.bottom),p(pageHeight)));
         auto memory = buffer.dc;
-        const int w = unscale(rect.right), h = unscale(rect.bottom);
         const int content = w - contentLeft - margin;
         const size_t pixels = size_t(buffer.frame.width) * size_t(buffer.frame.height);
         if (ambient.size() != pixels) {

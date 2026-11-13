@@ -33,6 +33,7 @@ namespace {
 HWND found{};
 std::atomic<bool> updateStarted{false}, releaseUpdate{false};
 std::atomic<int> paintInterruptions{0};
+std::atomic<bool> activateDuringPaint{false};
 std::atomic<HWND> paintStressWindow{nullptr};
 LRESULT CALLBACK interrupt_paint(int code,WPARAM wp,LPARAM lp) {
     static thread_local bool injecting=false;
@@ -40,9 +41,19 @@ LRESULT CALLBACK interrupt_paint(int code,WPARAM wp,LPARAM lp) {
     const auto window=paintStressWindow.load();
     if (code>=0 && !injecting && window && event->hwnd!=window &&
         GetAncestor(event->hwnd,GA_ROOT)==window &&
-        GetPropW(window,L"OpenKai2.Painting") && paintInterruptions.load()<12) {
-        const int step=paintInterruptions.fetch_add(1);
+        GetPropW(window,L"OpenKai2.Painting") &&
+        (activateDuringPaint.load() || paintInterruptions.load()<12)) {
         injecting=true;
+        if (activateDuringPaint.exchange(false)) {
+            SendMessageW(window,WM_NCACTIVATE,FALSE,0);
+            SendMessageW(window,WM_ACTIVATEAPP,FALSE,0);
+            SendMessageW(window,WM_ACTIVATEAPP,TRUE,0);
+            SendMessageW(window,WM_NCACTIVATE,TRUE,0);
+            SendMessageW(GetDlgItem(window,141),CB_SHOWDROPDOWN,TRUE,0);
+            injecting=false;
+            return CallNextHookEx(nullptr,code,wp,lp);
+        }
+        const int step=paintInterruptions.fetch_add(1);
         // Interrupt the canvas at a real native-control call, as a sent resize,
         // navigation or monitor-DPI message can do on Windows.
         SetWindowPos(window,nullptr,0,0,step%2 ? 1440 : 960,step%2 ? 960 : 600,
@@ -472,6 +483,13 @@ int main(int argc,char** argv) {
                     RECT bounds{};GetWindowRect(w,&bounds);
                     require(bounds.right-bounds.left>=960 && bounds.bottom-bounds.top>=600,
                             "A deferred DPI change retained an expired rectangle");
+                    reveal_control(GetDlgItem(w,141));
+                    activateDuringPaint=true;
+                    RedrawWindow(w,nullptr,nullptr,RDW_INVALIDATE|RDW_UPDATENOW);
+                    wait_until([&]{return !activateDuringPaint.load() && !GetPropW(w,L"OpenKai2.PendingUi") &&
+                        SendMessageW(GetDlgItem(w,141),CB_GETDROPPEDSTATE,0,0)!=0;},
+                        "A stale deactivation closed the dropdown opened after activation");
+                    SendMessageW(GetDlgItem(w,141),CB_SHOWDROPDOWN,FALSE,0);
                 }
                 click(w,101);
                 for(int height:{600,960,600,960}) {

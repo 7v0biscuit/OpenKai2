@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""Require the component workflow for this release ref before publishing assets."""
+"""Require main and release-ref component checks before publishing assets."""
 import json
 import os
 import subprocess
@@ -36,5 +36,11 @@ def wait(revision, ref, timeout=2400):
     raise TimeoutError('Component checks did not finish; release remains unpublished.')
 
 
+def validate_release(revision, ref):
+    wait(revision, 'main')
+    if ref != 'main':
+        wait(revision, ref)
+
+
 if __name__ == '__main__':
-    wait(os.environ['GITHUB_SHA'], os.environ['GITHUB_REF_NAME'])
+    validate_release(os.environ['GITHUB_SHA'], os.environ['GITHUB_REF_NAME'])
