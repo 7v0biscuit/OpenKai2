@@ -447,6 +447,130 @@ void service_rooms_invites_passwords() {
     server.join();
 }
 
+struct RollbackMachine : FakeMachine {
+    std::map<uint64_t, std::pair<uint64_t, uint64_t>> snapshots;
+    std::atomic<bool> restored{false};
+    uint64_t restores = 0;
+
+    Machine bindRollback() {
+        Machine machine = bind();
+        machine.capture = [this](uint64_t at) {
+            snapshots[at] = {tick.load(), sum};
+            while (snapshots.size() > max_prediction + 4u)
+                snapshots.erase(snapshots.begin());
+        };
+        machine.restore = [this](uint64_t at) {
+            const auto found = snapshots.find(at);
+            if (found == snapshots.end())
+                return false;
+            tick = found->second.first;
+            sum = found->second.second;
+            snapshots.erase(snapshots.upper_bound(at), snapshots.end());
+            restored = true;
+            ++restores;
+            return true;
+        };
+        machine.replaying = [](bool) {};
+        return machine;
+    }
+};
+
+void rollback_corrects_late_inputs() {
+    RollbackMachine hostMachine, guestMachine;
+    hostMachine.host = true;
+    guestMachine.host = false;
+    hostMachine.tick = 300;
+    guestMachine.tick = 12;
+    Options hostOptions;
+    hostOptions.host = true;
+    hostOptions.port = 0;
+    hostOptions.name = "Goku";
+    hostOptions.identity = "build:disc";
+    hostOptions.lag_ms = 40;
+    Session host(hostOptions, hostMachine.bindRollback());
+    host.start();
+    for (int i = 0; i < 200 && !host.listening_port(); ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    require(host.listening_port() != 0, "rollback host listens");
+    Options guestOptions = hostOptions;
+    guestOptions.host = false;
+    guestOptions.address = "127.0.0.1";
+    guestOptions.port = host.listening_port();
+    guestOptions.name = "Vegeta";
+    Session guest(guestOptions, guestMachine.bindRollback());
+    guest.start();
+
+    constexpr uint64_t frames = 720;
+    auto play = [](Session &session, RollbackMachine &machine, bool &ok, uint64_t &began) {
+        ok = false;
+        auto next = std::chrono::steady_clock::now();
+        for (int step = 0; step < 60000; ++step) {
+            session.state_point();
+            const auto status = session.status();
+            if (status.phase == Phase::ended)
+                return;
+            Input port0{}, port1{};
+            if (!session.inputs(port0, port1) && session.status().phase == Phase::ended)
+                return;
+            if (status.phase == Phase::playing) {
+                if (!began)
+                    began = machine.tick;
+                machine.seen[machine.tick] = {port0, port1};
+                machine.sum = machine.sum * 31 + port0[0] * 7 + port1[0];
+                if (machine.tick >= began + frames && !session.rolling_back()) {
+                    ok = true;
+                    return;
+                }
+            }
+            ++machine.tick;
+            if (status.phase != Phase::playing) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                next = std::chrono::steady_clock::now();
+            } else if (!session.rolling_back()) {
+                next += std::chrono::microseconds(16667);
+                std::this_thread::sleep_until(next);
+            }
+        }
+    };
+    bool hostOk = false, guestOk = false;
+    uint64_t hostBegan = 0, guestBegan = 0;
+    std::thread hostThread([&] { play(host, hostMachine, hostOk, hostBegan); });
+    std::thread guestThread([&] { play(guest, guestMachine, guestOk, guestBegan); });
+    hostThread.join();
+    guestThread.join();
+    const auto hostStatus = host.status(), guestStatus = guest.status();
+    require(hostOk && guestOk, "both rollback players finish: " + hostStatus.message + " / " + guestStatus.message);
+    require(hostStatus.delay <= rollback_delay && guestStatus.delay == hostStatus.delay,
+            "rollback uses a short input delay: " + std::to_string(hostStatus.delay));
+    const auto hostStats = host.rollback_stats(), guestStats = guest.rollback_stats();
+    std::cout << "rollback host predicted=" << hostStats.predicted << " mispredicted=" << hostStats.mispredicted
+              << " rollbacks=" << hostStats.rollbacks << " replayed=" << hostStats.replayed << " longest=" << hostStats.longest
+              << " stalls=" << hostStats.stalls << "; guest predicted=" << guestStats.predicted
+              << " mispredicted=" << guestStats.mispredicted << " rollbacks=" << guestStats.rollbacks
+              << " longest=" << guestStats.longest << " stalls=" << guestStats.stalls << '\n';
+    require(hostStats.mispredicted > 10 && guestStats.mispredicted > 10 && hostStats.rollbacks > 10 && guestStats.rollbacks > 10,
+            "late inputs were predicted wrongly and corrected");
+    require(hostStats.longest <= max_prediction + 1u && guestStats.longest <= max_prediction + 1u, "rollbacks stay within the window");
+    const uint64_t settled = hostBegan + frames - 30;
+    size_t compared = 0, pressed0 = 0, pressed1 = 0;
+    for (const auto &[tick, inputs] : hostMachine.seen) {
+        if (tick > settled)
+            continue;
+        const auto found = guestMachine.seen.find(tick);
+        require(found != guestMachine.seen.end(), "both players played frame " + std::to_string(tick));
+        require(found->second.first == inputs.first && found->second.second == inputs.second,
+                "after rollback both players used the same inputs at frame " + std::to_string(tick));
+        ++compared;
+        pressed0 += inputs.first[0] != 0xff;
+        pressed1 += inputs.second[0] != 0xff;
+    }
+    require(compared >= frames - 40, "rollback frames compared: " + std::to_string(compared));
+    require(pressed0 > 50 && pressed1 > 30, "both players' presses survive rollback");
+    require(!hostStatus.desynced && !guestStatus.desynced, "rollback reports no desync");
+    host.stop();
+    guest.stop();
+}
+
 void room_checks_before_launch() {
     auto wait = [](Room &room) {
         for (int i = 0; i < 400; ++i) {
@@ -580,7 +704,9 @@ void relay_through_service() {
     Room guest(joinOptions);
     guest.start();
     for (int i = 0; i < 1500; ++i) {
-        if (guest.status().phase == RoomPhase::ready || guest.status().phase == RoomPhase::failed)
+        const auto guestPhase = guest.status().phase, hostPhase = host.status().phase;
+        if (guestPhase == RoomPhase::failed || hostPhase == RoomPhase::failed ||
+            (guestPhase == RoomPhase::ready && hostPhase == RoomPhase::ready))
             break;
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
@@ -620,6 +746,7 @@ int main() {
         compression_round_trip();
         snapshot_round_trip();
         two_players_stay_in_step();
+        rollback_corrects_late_inputs();
         room_checks_before_launch();
         relay_through_service();
         wrong_build_is_refused();

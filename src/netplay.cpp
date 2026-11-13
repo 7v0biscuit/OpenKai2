@@ -267,6 +267,7 @@ void Session::stop() {
         return;
     {
         std::lock_guard lock(mutex_);
+        std::lock_guard socketLock(socketMutex_);
         if (status_.phase != Phase::ended && socket_.valid()) {
             std::vector<uint8_t> frame;
             put32(frame, 1);
@@ -277,8 +278,11 @@ void Session::stop() {
     outgoingReady_.notify_all();
     if (writer_.joinable())
         writer_.join();
-    socket_.shutdown();
-    listener_.shutdown();
+    {
+        std::lock_guard lock(socketMutex_);
+        socket_.shutdown();
+        listener_.shutdown();
+    }
     changed_.notify_all();
     if (worker_.joinable())
         worker_.join();
@@ -304,6 +308,7 @@ void Session::end(const std::string &message) {
     std::cerr << "[netplay] " << message << '\n';
     changed_.notify_all();
     outgoingReady_.notify_all();
+    std::lock_guard lock(socketMutex_);
     socket_.shutdown();
 }
 
@@ -418,7 +423,9 @@ int Session::handshake() {
         Reader reply{payload.data(), payload.size()};
         const std::string signature = reply.text(256);
         const std::string verified = identity::verified_name(name, "session:" + ours, signature);
-        const unsigned delay = options_.delay ? options_.delay : auto_delay(rtt);
+        const unsigned delay = options_.delay ? options_.delay
+                               : options_.rollback ? std::min(auto_delay(rtt), rollback_delay)
+                                                   : auto_delay(rtt);
         if (!write_frame(confirm, {uint8_t(delay)})) {
             end("Connection lost");
             return 0;
@@ -477,7 +484,9 @@ void Session::run() {
         if (options_.host) {
             for (int attempt = 0; !listener_.valid(); ++attempt) {
                 try {
-                    listener_ = net::Socket::listen(options_.port);
+                    net::Socket listening = net::Socket::listen(options_.port);
+                    std::lock_guard lock(socketMutex_);
+                    listener_ = std::move(listening);
                 } catch (const std::exception &) {
                     if (attempt >= 40 || stopping_)
                         throw;
@@ -522,20 +531,30 @@ void Session::run() {
                 status_.message = waiting;
             }
             while (!stopping_) {
-                socket_ = listener_.accept(250);
-                if (!socket_.valid())
+                net::Socket accepted = listener_.accept(250);
+                if (!accepted.valid())
                     continue;
+                {
+                    std::lock_guard lock(socketMutex_);
+                    socket_ = std::move(accepted);
+                }
                 const int result = handshake();
                 if (result > 0)
                     break;
-                socket_.close();
+                {
+                    std::lock_guard lock(socketMutex_);
+                    socket_.close();
+                }
                 std::lock_guard lock(mutex_);
                 const std::string reason = status_.message;
                 status_.phase = Phase::connecting;
                 status_.message = result < 0 ? waiting : waiting + " (a player could not join: " + reason + ")";
             }
             listing.close();
-            listener_.close();
+            {
+                std::lock_guard lock(socketMutex_);
+                listener_.close();
+            }
             {
                 std::lock_guard lock(mutex_);
                 if (stopping_ || status_.phase != Phase::syncing)
@@ -552,7 +571,11 @@ void Session::run() {
             std::string error;
             const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
             while (!stopping_ && !socket_.valid() && std::chrono::steady_clock::now() < deadline) {
-                socket_ = net::Socket::connect(options_.address, options_.port, error);
+                net::Socket connected = net::Socket::connect(options_.address, options_.port, error);
+                {
+                    std::lock_guard lock(socketMutex_);
+                    socket_ = std::move(connected);
+                }
                 if (!socket_.valid())
                     std::this_thread::sleep_for(std::chrono::seconds(1));
             }
@@ -607,7 +630,10 @@ void Session::read_loop() {
             std::memcpy(value.data(), payload.data() + in.at, value.size());
             {
                 std::lock_guard lock(mutex_);
-                remote_[tick] = value;
+                if (options_.lag_ms)
+                    delayed_.push_back({std::chrono::steady_clock::now() + std::chrono::milliseconds(options_.lag_ms), tick, value});
+                else
+                    accept_remote(tick, value);
             }
             changed_.notify_all();
             break;
@@ -651,7 +677,111 @@ void Session::read_loop() {
         end("Connection lost");
 }
 
+void Session::accept_remote(uint64_t tick, const Input &value) {
+    remote_[tick] = value;
+    if (const auto guess = predicted_.find(tick); guess != predicted_.end()) {
+        if (guess->second != value) {
+            rollbackTo_ = std::min(rollbackTo_, tick);
+            ++rollbackStats_.mispredicted;
+        }
+        predicted_.erase(guess);
+    }
+    while (remote_.count(confirmed_ + 1))
+        ++confirmed_;
+}
+
+void Session::deliver_delayed() {
+    const auto now = std::chrono::steady_clock::now();
+    while (!delayed_.empty() && delayed_.front().due <= now) {
+        accept_remote(delayed_.front().tick, delayed_.front().value);
+        delayed_.pop_front();
+    }
+}
+
+bool Session::remote_or_predict(uint64_t tick, Input &out) {
+    {
+        std::lock_guard lock(mutex_);
+        deliver_delayed();
+        if (auto found = remote_.find(tick); found != remote_.end()) {
+            out = found->second;
+            return true;
+        }
+        if (tick <= confirmed_ + max_prediction) {
+            const auto last = remote_.find(confirmed_);
+            out = last != remote_.end() ? last->second : neutral_input();
+            predicted_[tick] = out;
+            ++rollbackStats_.predicted;
+            return true;
+        }
+        ++rollbackStats_.stalls;
+    }
+    return wait_remote(tick, out);
+}
+
+void Session::rollback_point() {
+    const uint64_t tick = machine_.tick();
+    uint64_t target = ~0ull, start = 0;
+    bool finished = false;
+    {
+        std::lock_guard lock(mutex_);
+        deliver_delayed();
+        start = startTick_;
+        if (replaying_ && tick >= frontier_) {
+            replaying_ = false;
+            finished = true;
+        }
+        frontier_ = std::max(frontier_, tick);
+        if (rollbackTo_ <= tick)
+            target = rollbackTo_;
+    }
+    if (finished && machine_.replaying)
+        machine_.replaying(false);
+    if (target != ~0ull) {
+        uint64_t from = target > start ? target - 1 : start;
+        if (!machine_.restore(from) && (from == target || !machine_.restore(from = target))) {
+            end("The game fell too far behind the other player to correct itself");
+            return;
+        }
+        if (machine_.replaying)
+            machine_.replaying(true);
+        std::lock_guard lock(mutex_);
+        rollbackTo_ = ~0ull;
+        cachedTick_ = ~0ull;
+        replaying_ = true;
+        for (auto it = predicted_.lower_bound(from); it != predicted_.end();)
+            it = predicted_.erase(it);
+        ++rollbackStats_.rollbacks;
+        rollbackStats_.replayed += tick - from;
+        rollbackStats_.longest = std::max(rollbackStats_.longest, tick - from);
+        return;
+    }
+    machine_.capture(tick);
+}
+
+RollbackStats Session::rollback_stats() const {
+    std::lock_guard lock(mutex_);
+    return rollbackStats_;
+}
+
+bool Session::rolling_back() const {
+    std::lock_guard lock(mutex_);
+    return replaying_;
+}
+
 void Session::state_point() {
+    bool rollback = false;
+    {
+        std::lock_guard lock(mutex_);
+        rollback = status_.phase == Phase::playing && options_.rollback && machine_.capture && machine_.restore;
+    }
+    if (rollback) {
+        try {
+            rollback_point();
+        } catch (const std::exception &error) {
+            end(error.what());
+        }
+        return;
+    }
     bool doSave = false, doLoad = false;
     std::vector<uint8_t> packed;
     {
@@ -675,6 +805,8 @@ void Session::state_point() {
             std::lock_guard lock(mutex_);
             startTick_ = tick;
             lastSent_ = startTick_ + options_.delay - 1;
+            confirmed_ = startTick_ + options_.delay - 1;
+            frontier_ = tick;
             cachedTick_ = ~0ull;
             locked_ = true;
             status_.phase = Phase::playing;
@@ -690,6 +822,8 @@ void Session::state_point() {
             std::lock_guard lock(mutex_);
             startTick_ = tick;
             lastSent_ = startTick_ + options_.delay - 1;
+            confirmed_ = startTick_ + options_.delay - 1;
+            frontier_ = tick;
             cachedTick_ = ~0ull;
             locked_ = true;
             status_.phase = Phase::playing;
@@ -704,6 +838,7 @@ bool Session::wait_remote(uint64_t tick, Input &out) {
     std::unique_lock lock(mutex_);
     const auto began = std::chrono::steady_clock::now();
     while (true) {
+        deliver_delayed();
         if (auto found = remote_.find(tick); found != remote_.end()) {
             out = found->second;
             status_.waiting = false;
@@ -719,7 +854,7 @@ bool Session::wait_remote(uint64_t tick, Input &out) {
         }
         if (waited > std::chrono::milliseconds(50))
             status_.waiting = true;
-        changed_.wait_for(lock, std::chrono::milliseconds(50));
+        changed_.wait_for(lock, std::chrono::milliseconds(options_.lag_ms ? 2 : 50));
     }
 }
 
@@ -765,10 +900,16 @@ bool Session::inputs(Input &port0, Input &port1) {
             if (auto found = local_.find(tick); found != local_.end())
                 local = found->second;
         }
-        if (!wait_remote(tick, remote))
+        const bool predicting = options_.rollback && machine_.capture && machine_.restore;
+        if (!(predicting ? remote_or_predict(tick, remote) : wait_remote(tick, remote)))
             return false;
     }
-    if (tick > start && (tick - start) % hash_interval == 0 && machine_.hash) {
+    bool settled = true;
+    {
+        std::lock_guard lock(mutex_);
+        settled = predicted_.empty() || predicted_.begin()->first >= tick;
+    }
+    if (settled && tick > start && (tick - start) % hash_interval == 0 && machine_.hash) {
         const uint64_t value = machine_.hash();
         {
             std::lock_guard lock(mutex_);

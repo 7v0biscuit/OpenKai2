@@ -23,6 +23,8 @@ inline constexpr uint16_t default_port = 7350;
 inline constexpr unsigned max_delay = 8;
 inline constexpr uint64_t hash_interval = 120;
 inline constexpr uint8_t probe_message = 12;
+inline constexpr unsigned max_prediction = 8;
+inline constexpr unsigned rollback_delay = 2;
 
 using Input = std::array<uint8_t, 6>;
 Input neutral_input();
@@ -51,6 +53,8 @@ struct Options {
     std::string password;
     std::string lobby, room, room_id, version;
     bool listed = false, hidden = false, upnp = true;
+    bool rollback = true;
+    unsigned lag_ms = 0;
     std::string invite_token;
 };
 
@@ -63,6 +67,13 @@ struct Machine {
     std::function<std::vector<CardFile>()> read_cards;
     std::function<void(const std::vector<CardFile> &)> write_cards;
     std::function<bool()> stopping;
+    std::function<void(uint64_t)> capture;
+    std::function<bool(uint64_t)> restore;
+    std::function<void(bool)> replaying;
+};
+
+struct RollbackStats {
+    uint64_t predicted = 0, mispredicted = 0, rollbacks = 0, replayed = 0, longest = 0, stalls = 0;
 };
 
 enum class Phase { connecting, syncing, playing, ended };
@@ -88,6 +99,8 @@ class Session {
     void state_point();
     Status status() const;
     uint16_t listening_port() const { return listeningPort_.load(); }
+    RollbackStats rollback_stats() const;
+    bool rolling_back() const;
 
   private:
     void run();
@@ -97,6 +110,10 @@ class Session {
     void send(uint8_t type, std::vector<uint8_t> payload);
     void end(const std::string &message);
     bool wait_remote(uint64_t tick, Input &out);
+    bool remote_or_predict(uint64_t tick, Input &out);
+    void accept_remote(uint64_t tick, const Input &value);
+    void deliver_delayed();
+    void rollback_point();
 
     Options options_;
     Machine machine_;
@@ -106,6 +123,7 @@ class Session {
     std::atomic<uint16_t> listeningPort_{0};
 
     mutable std::mutex mutex_;
+    std::mutex socketMutex_;
     std::condition_variable changed_;
     Status status_;
     std::deque<std::vector<uint8_t>> outgoing_;
@@ -117,6 +135,16 @@ class Session {
     uint64_t startTick_ = 0, lastSent_ = 0, cachedTick_ = ~0ull;
     Input cached0_{}, cached1_{};
     std::chrono::steady_clock::time_point pingSent_{};
+    std::map<uint64_t, Input> predicted_;
+    struct Delayed {
+        std::chrono::steady_clock::time_point due;
+        uint64_t tick;
+        Input value;
+    };
+    std::deque<Delayed> delayed_;
+    uint64_t confirmed_ = 0, rollbackTo_ = ~0ull, frontier_ = 0;
+    bool replaying_ = false;
+    RollbackStats rollbackStats_;
 };
 
 Session *active();

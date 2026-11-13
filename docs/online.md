@@ -149,9 +149,17 @@ room pings and player presence update.
 
 ## Rollback (in development)
 
-Online play runs in lockstep with a small input delay. Rollback netcode, which
-hides the delay by predicting the other player's buttons and correcting the
-game when a prediction was wrong, is being built in steps:
+Online matches use rollback netcode. Input delay is capped at 2 frames; when
+the other player's buttons for a frame have not arrived yet, the game repeats
+their last known buttons and keeps running. If the real buttons turn out
+different, the game returns to the last correct frame and replays up to the
+present without drawing or sound. It runs up to 8 frames ahead of the other
+player before it waits. Set `OPENKAI2_NETPLAY_ROLLBACK=0` on both PCs to go
+back to plain lockstep. `OPENKAI2_NETPLAY_LAG_MS` adds artificial delay to
+received inputs for testing. When a match ends, `startup.log` reports
+`[netplay] rollback predicted=... mispredicted=... rollbacks=...`.
+
+It was built in steps:
 
 1. Done: snapshots that store only the memory that changed each frame, and
    save states that replay exactly. `OPENKAI2_ROLLBACK_TEST=start,frames,depth`
@@ -162,8 +170,8 @@ game when a prediction was wrong, is being built in steps:
    several CPU cores (about 1.4 ms per snapshot on an idle four-core test
    machine). Rolled-back frames replay without waiting for real time, without
    sound and without drawing; the frame after a replay draws normally.
-3. Then: predicted inputs and corrections in the match itself, tested between
-   two PCs.
+3. Done: predicted inputs and corrections in the match itself. Hash checks
+   only cover frames whose inputs are confirmed on both sides.
 
 ## Managing profiles on this PC
 

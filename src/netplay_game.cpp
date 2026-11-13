@@ -3,7 +3,9 @@
 #include "disc_image.h"
 #include "host_input.h"
 #include "launcher/version.h"
+#include "delta_states.h"
 #include "machine_state.h"
+#include "simulation_pacing.h"
 #include "ps2_runtime.h"
 #include "runtime/ee_scheduler.h"
 #include "state_archive.h"
@@ -13,6 +15,8 @@
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
+#include <memory>
+#include <thread>
 
 namespace ps2_stubs {
 void setStableCardDates(bool stable);
@@ -137,6 +141,10 @@ std::unique_ptr<Session> start_game_session(PS2Runtime &runtime, const Arguments
     options.hidden = arguments.hidden;
     options.invite_token = arguments.invite_token;
     options.version = launcher::application_version;
+    if (const char *rollback = std::getenv("OPENKAI2_NETPLAY_ROLLBACK"); rollback && *rollback == '0')
+        options.rollback = false;
+    if (const char *lag = std::getenv("OPENKAI2_NETPLAY_LAG_MS"); lag && *lag)
+        options.lag_ms = unsigned(std::min(500ul, std::strtoul(lag, nullptr, 10)));
     const auto root = card_root(arguments);
     Machine machine;
     machine.tick = [&runtime] { return runtime.eeScheduler().currentVSyncTick(); };
@@ -186,6 +194,19 @@ std::unique_ptr<Session> start_game_session(PS2Runtime &runtime, const Arguments
         };
     }
     machine.stopping = [&runtime] { return runtime.isStopRequested(); };
+    if (options.rollback) {
+        auto states = std::make_shared<DeltaStates>(max_prediction + 4u,
+                                                    std::clamp(std::thread::hardware_concurrency(), 2u, 4u) - 1u);
+        states->pictureless(true);
+        const auto serialize = [&runtime](StateArchive &archive) { serialize_machine(runtime.eeScheduler(), archive); };
+        machine.capture = [states, serialize](uint64_t tick) {
+            if (states->size() && tick <= states->newest())
+                return;
+            states->capture(tick, serialize);
+        };
+        machine.restore = [states, serialize](uint64_t tick) { return states->restore(tick, serialize); };
+        machine.replaying = [](bool on) { replay_turbo.store(on, std::memory_order_relaxed); };
+    }
     machine.read_cards = [root] { return read_card_files(root); };
     machine.write_cards = [root](const std::vector<CardFile> &files) { write_card_files(root, files); };
     ps2_stubs::setStableCardDates(true);
@@ -204,6 +225,11 @@ void stop_game_session(std::unique_ptr<Session> &session) {
         return;
     set_pad_source(nullptr);
     set_active(nullptr);
+    replay_turbo.store(false, std::memory_order_relaxed);
+    const auto stats = session->rollback_stats();
+    std::cout << "[netplay] rollback predicted=" << stats.predicted << " mispredicted=" << stats.mispredicted
+              << " rollbacks=" << stats.rollbacks << " replayed_frames=" << stats.replayed << " longest=" << stats.longest
+              << " stalls=" << stats.stalls << std::endl;
     session->stop();
     session.reset();
 }
