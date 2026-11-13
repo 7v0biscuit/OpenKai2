@@ -142,7 +142,7 @@ class Session {
         Input value;
     };
     std::deque<Delayed> delayed_;
-    uint64_t confirmed_ = 0, rollbackTo_ = ~0ull, frontier_ = 0;
+    uint64_t confirmed_ = 0, rollbackTo_ = ~0ull, frontier_ = 0, captured_ = ~0ull;
     bool replaying_ = false;
     RollbackStats rollbackStats_;
 };

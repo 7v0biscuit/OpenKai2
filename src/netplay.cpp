@@ -706,7 +706,7 @@ bool Session::remote_or_predict(uint64_t tick, Input &out) {
             out = found->second;
             return true;
         }
-        if (tick <= confirmed_ + max_prediction) {
+        if (tick == captured_ && tick <= confirmed_ + max_prediction) {
             const auto last = remote_.find(confirmed_);
             out = last != remote_.end() ? last->second : neutral_input();
             predicted_[tick] = out;
@@ -747,6 +747,7 @@ void Session::rollback_point() {
         std::lock_guard lock(mutex_);
         rollbackTo_ = ~0ull;
         cachedTick_ = ~0ull;
+        captured_ = from;
         replaying_ = true;
         for (auto it = predicted_.lower_bound(from); it != predicted_.end();)
             it = predicted_.erase(it);
@@ -756,6 +757,8 @@ void Session::rollback_point() {
         return;
     }
     machine_.capture(tick);
+    std::lock_guard lock(mutex_);
+    captured_ = tick;
 }
 
 RollbackStats Session::rollback_stats() const {
@@ -907,7 +910,7 @@ bool Session::inputs(Input &port0, Input &port1) {
     bool settled = true;
     {
         std::lock_guard lock(mutex_);
-        settled = predicted_.empty() || predicted_.begin()->first >= tick;
+        settled = rollbackTo_ >= tick && (predicted_.empty() || predicted_.begin()->first >= tick);
     }
     if (settled && tick > start && (tick - start) % hash_interval == 0 && machine_.hash) {
         const uint64_t value = machine_.hash();
