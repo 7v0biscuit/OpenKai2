@@ -80,7 +80,7 @@ endif()
 if(BUILD_TESTING)
     add_executable(openkai2_disc_timing_tests tests/disc_timing_tests.cpp)
     target_include_directories(openkai2_disc_timing_tests PRIVATE src)
-    target_compile_features(openkai2_disc_timing_tests PRIVATE cxx_std_17)
+    target_compile_features(openkai2_disc_timing_tests PRIVATE cxx_std_20)
     add_test(NAME disc_timing COMMAND openkai2_disc_timing_tests)
 endif()
 
