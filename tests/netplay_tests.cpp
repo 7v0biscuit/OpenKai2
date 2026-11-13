@@ -500,7 +500,7 @@ void rollback_corrects_late_inputs() {
     Session guest(guestOptions, guestMachine.bindRollback());
     guest.start();
 
-    constexpr uint64_t frames = 720;
+    static constexpr uint64_t frames = 720;
     auto play = [](Session &session, RollbackMachine &machine, bool &ok, uint64_t &began) {
         ok = false;
         auto next = std::chrono::steady_clock::now();
