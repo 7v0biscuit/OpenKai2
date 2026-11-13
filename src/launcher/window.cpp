@@ -1097,7 +1097,16 @@ struct Window {
             const auto style=GetWindowLongPtrW(child,GWL_STYLE);
             const bool list=_wcsicmp(type,L"LISTBOX")==0;
             const bool multiline=_wcsicmp(type,L"EDIT")==0 && (style&ES_MULTILINE);
-            if((list || multiline) && (style&WS_VSCROLL) && IsWindowEnabled(child)) {
+            bool overflowing=false;
+            if(list) {
+                RECT area{};GetClientRect(child,&area);
+                const auto count=SendMessageW(child,LB_GETCOUNT,0,0),row=SendMessageW(child,LB_GETITEMHEIGHT,0,0);
+                overflowing=count>0 && row>0 && count*row>area.bottom-area.top;
+            } else if(multiline) {
+                SCROLLINFO info{sizeof(info),SIF_RANGE|SIF_PAGE};
+                overflowing=GetScrollInfo(child,SB_VERT,&info) && info.nMax-info.nMin+1>int(info.nPage);
+            }
+            if((list || multiline) && overflowing && (style&WS_VSCROLL) && IsWindowEnabled(child)) {
                 forwardingWheel=true;
                 SendMessageW(child,WM_MOUSEWHEEL,keys,position);
                 forwardingWheel=false;
