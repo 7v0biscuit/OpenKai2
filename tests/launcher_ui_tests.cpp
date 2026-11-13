@@ -978,6 +978,21 @@ int main(int argc,char** argv) {
                 click(w,214);
                 click(w,213);
                 require(IsWindowVisible(GetDlgItem(w,180))!=FALSE,"Back to mods did not return to the mods page");
+                std::cout<<"[ui:stage] display scale and work-area bounds"<<std::endl;
+                MONITORINFO screen{sizeof screen};require(GetMonitorInfoW(MonitorFromWindow(w,MONITOR_DEFAULTTONEAREST),&screen)!=FALSE,"Cannot read the display work area");
+                RECT original{};GetWindowRect(w,&original);
+                const auto getDpi=reinterpret_cast<UINT(WINAPI*)(HWND)>(GetProcAddress(GetModuleHandleW(L"user32.dll"),"GetDpiForWindow"));
+                const UINT originalDpi=getDpi ? getDpi(w) : 96;
+                RECT suggested{screen.rcWork.left+16,screen.rcWork.top+16,screen.rcWork.right+640,screen.rcWork.bottom+640};
+                SendMessageW(w,WM_DPICHANGED,MAKEWPARAM(192,192),LPARAM(&suggested));
+                MINMAXINFO limits{};SendMessageW(w,WM_GETMINMAXINFO,0,LPARAM(&limits));
+                RECT scaled{};GetWindowRect(w,&scaled);
+                require(scaled.left>=screen.rcWork.left && scaled.top>=screen.rcWork.top && scaled.right<=screen.rcWork.right && scaled.bottom<=screen.rcWork.bottom,
+                        "Changing display scale pushed the launcher outside its monitor");
+                require(limits.ptMinTrackSize.x<=screen.rcWork.right-screen.rcWork.left && limits.ptMinTrackSize.y<=screen.rcWork.bottom-screen.rcWork.top,
+                        "The minimum launcher size exceeds the monitor at 200% scale");
+                SendMessageW(w,WM_DPICHANGED,MAKEWPARAM(originalDpi,originalDpi),LPARAM(&original));
+
             } catch (...) { failure=std::current_exception(); }
             if(w)PostMessageW(w,WM_CLOSE,0,0);
         });

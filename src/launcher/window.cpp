@@ -311,6 +311,18 @@ int audioChoice(const Settings &settings) {
     return 1 + int(nearest - audioVolumes.begin());
 }
 
+RECT fitWindowToMonitor(RECT target) {
+    MONITORINFO monitor{sizeof(monitor)};
+    if(!GetMonitorInfoW(MonitorFromRect(&target,MONITOR_DEFAULTTONEAREST),&monitor))return target;
+    const auto& work=monitor.rcWork;
+    const LONG width=std::clamp(target.right-target.left,1L,work.right-work.left);
+    const LONG height=std::clamp(target.bottom-target.top,1L,work.bottom-work.top);
+    target.left=std::clamp(target.left,work.left,work.right-width);
+    target.top=std::clamp(target.top,work.top,work.bottom-height);
+    target.right=target.left+width;target.bottom=target.top+height;
+    return target;
+}
+
 std::wstring wide(const std::string &s) {
     if (s.empty())
         return {};
@@ -7837,7 +7849,12 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
         }
         case WM_GETMINMAXINFO: {
             auto *limits = reinterpret_cast<MINMAXINFO *>(lp);
+            MONITORINFO monitor{sizeof(monitor)};
             limits->ptMinTrackSize = {self->p(960), self->p(600)};
+            if(GetMonitorInfoW(MonitorFromWindow(hwnd,MONITOR_DEFAULTTONEAREST),&monitor)) {
+                limits->ptMinTrackSize.x=std::min(limits->ptMinTrackSize.x,monitor.rcWork.right-monitor.rcWork.left);
+                limits->ptMinTrackSize.y=std::min(limits->ptMinTrackSize.y,monitor.rcWork.bottom-monitor.rcWork.top);
+            }
             return 0;
         }
         case WM_DPICHANGED: {
@@ -7851,8 +7868,8 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
             for (auto [id, c] : self->controls)
                 SendMessageW(c, WM_SETFONT, reinterpret_cast<WPARAM>(self->fonts.body), TRUE);
             SendMessageW(self->controls[TimingRules], WM_SETFONT, reinterpret_cast<WPARAM>(self->fonts.caption), TRUE);
-            auto *r = reinterpret_cast<RECT *>(lp);
-            SetWindowPos(hwnd, nullptr, r->left, r->top, r->right - r->left, r->bottom - r->top,
+            const auto r=fitWindowToMonitor(*reinterpret_cast<RECT *>(lp));
+            SetWindowPos(hwnd, nullptr, r.left, r.top, r.right - r.left, r.bottom - r.top,
                          SWP_NOZORDER | SWP_NOACTIVATE);
             self->layout();
             self->queueUiRestore();
@@ -8021,6 +8038,8 @@ int run_window(const std::filesystem::path &initialIso) {
         width = saved.windowWidth;
         height = saved.windowHeight;
     }
+    const auto fitted=fitWindowToMonitor({left,top,left+width,top+height});
+    left=fitted.left;top=fitted.top;width=fitted.right-fitted.left;height=fitted.bottom-fitted.top;
     auto hwnd = CreateWindowExW(0, type.lpszClassName, L"OpenKai2", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN | WS_VSCROLL, left, top,
                                 width, height, nullptr, nullptr, type.hInstance, &state);
     if (!hwnd)
