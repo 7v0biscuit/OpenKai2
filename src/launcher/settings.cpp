@@ -12,6 +12,8 @@
 #include <iomanip>
 #include <sstream>
 #include <stdexcept>
+#include <chrono>
+#include <thread>
 #ifdef _WIN32
 #include <windows.h>
 #endif
@@ -91,6 +93,11 @@ Settings read_settings(const std::filesystem::path &file) {
     std::map<std::string,unsigned> profileAvailability;
     bool tabLayout = false, graphicsProfile = false;
     std::ifstream in(file);
+    for (int attempt = 0; !in && attempt < 50 && std::filesystem::exists(file); ++attempt) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        in.clear();
+        in.open(file);
+    }
     if (!in) {
         if (std::filesystem::exists(file))
             throw std::runtime_error("Cannot read settings");
@@ -405,8 +412,13 @@ void write_settings(const std::filesystem::path &file, const Settings &s) {
     if (!out)
         throw std::runtime_error("Cannot finish saving settings");
 #ifdef _WIN32
-    if (!MoveFileExW(temporary.c_str(), file.c_str(),
-                     MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+    bool replaced = false;
+    for (int attempt = 0; !replaced && attempt < 50; ++attempt) {
+        replaced = MoveFileExW(temporary.c_str(), file.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != FALSE;
+        if (!replaced)
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    if (!replaced)
         throw std::runtime_error("Cannot replace settings file");
 #else
     std::filesystem::rename(temporary, file);
