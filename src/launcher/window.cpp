@@ -2060,9 +2060,9 @@ struct Window {
             const auto previous=rect;
             const int canvas=pageCanvasHeight();
             pageScroll=std::clamp(pageScroll,0,canvas-pageVisibleHeight());
-            SCROLLINFO scroll{sizeof(scroll),SIF_RANGE|SIF_PAGE|SIF_POS};
-            scroll.nMin=0;scroll.nMax=canvas-1;scroll.nPage=UINT(pageVisibleHeight());scroll.nPos=pageScroll;
-            SetScrollInfo(hwnd,SB_VERT,&scroll,TRUE);
+            SetPropW(hwnd,L"OpenKai2.ScrollPos",reinterpret_cast<HANDLE>(intptr_t(pageScroll)));
+            SetPropW(hwnd,L"OpenKai2.ScrollMax",reinterpret_cast<HANDLE>(intptr_t(canvas-1)));
+            SetPropW(hwnd,L"OpenKai2.ScrollPage",reinterpret_cast<HANDLE>(intptr_t(pageVisibleHeight())));
             GetClientRect(hwnd,&rect);
             if (EqualRect(&previous,&rect)) break;
         }
@@ -7873,10 +7873,8 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
             return 0;
         }
         case WM_VSCROLL: {
-            SCROLLINFO scroll{sizeof(scroll),SIF_TRACKPOS};GetScrollInfo(hwnd,SB_VERT,&scroll);
             const int code=LOWORD(wp),step=self->pageVisibleHeight()-40;
-            const int next=code==SB_THUMBTRACK || code==SB_THUMBPOSITION ? scroll.nTrackPos :
-                code==SB_LINEUP ? self->pageScroll-32 : code==SB_LINEDOWN ? self->pageScroll+32 :
+            const int next=code==SB_LINEUP ? self->pageScroll-32 : code==SB_LINEDOWN ? self->pageScroll+32 :
                 code==SB_PAGEUP ? self->pageScroll-step : code==SB_PAGEDOWN ? self->pageScroll+step :
                 code==SB_TOP ? 0 : code==SB_BOTTOM ? self->pageCanvasHeight() : self->pageScroll;
             self->scrollPage(next);return 0;
@@ -8065,7 +8063,7 @@ int run_window(const std::filesystem::path &initialIso) {
     }
     const auto fitted=fitWindowToMonitor({left,top,left+width,top+height});
     left=fitted.left;top=fitted.top;width=fitted.right-fitted.left;height=fitted.bottom-fitted.top;
-    auto hwnd = CreateWindowExW(0, type.lpszClassName, L"OpenKai2", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN | WS_VSCROLL, left, top,
+    auto hwnd = CreateWindowExW(0, type.lpszClassName, L"OpenKai2", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, left, top,
                                 width, height, nullptr, nullptr, type.hInstance, &state);
     if (!hwnd)
         throw std::runtime_error("Cannot open the launcher window");

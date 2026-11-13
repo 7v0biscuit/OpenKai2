@@ -75,6 +75,14 @@ BOOL CALLBACK find_launcher(HWND w, LPARAM) {
     if(pid==GetCurrentProcessId() && std::wstring(type)==L"OpenKai2.Launcher") {found=w;return FALSE;}
     return TRUE;
 }
+BOOL page_scroll(HWND window, SCROLLINFO &scroll) {
+    scroll.nMin=0;
+    scroll.nPos=int(reinterpret_cast<intptr_t>(GetPropW(window,L"OpenKai2.ScrollPos")));
+    scroll.nMax=int(reinterpret_cast<intptr_t>(GetPropW(window,L"OpenKai2.ScrollMax")));
+    scroll.nPage=UINT(reinterpret_cast<intptr_t>(GetPropW(window,L"OpenKai2.ScrollPage")));
+    scroll.nTrackPos=scroll.nPos;
+    return TRUE;
+}
 void require(bool condition,const char *message) {
     if(!condition)throw std::runtime_error(message);
 }
@@ -126,12 +134,12 @@ void reveal_control(HWND control) {
         if (IsWindowVisible(control) && bounds.top>=MulDiv(76,dpi,96) && bounds.bottom<=client.bottom-MulDiv(116,dpi,96)) return;
         const WPARAM direction = bounds.top<MulDiv(76,dpi,96) ? SB_LINEUP : SB_LINEDOWN;
         SCROLLINFO before{sizeof(before),SIF_POS},after{sizeof(after),SIF_POS};
-        GetScrollInfo(window,SB_VERT,&before);SendMessageW(window,WM_VSCROLL,direction,0);GetScrollInfo(window,SB_VERT,&after);
+        page_scroll(window,before);SendMessageW(window,WM_VSCROLL,direction,0);page_scroll(window,after);
         if(before.nPos==after.nPos) std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     RECT bounds{},client{};GetWindowRect(control,&bounds);GetClientRect(window,&client);
     MapWindowPoints(nullptr,window,reinterpret_cast<POINT*>(&bounds),2);
-    SCROLLINFO scroll{sizeof(scroll),SIF_ALL};GetScrollInfo(window,SB_VERT,&scroll);
+    SCROLLINFO scroll{sizeof(scroll),SIF_ALL};page_scroll(window,scroll);
     throw std::runtime_error("Cannot scroll to control "+std::to_string(GetDlgCtrlID(control))+
         " visible="+std::to_string(IsWindowVisible(control))+" client="+std::to_string(client.right)+","+std::to_string(client.bottom)+
         " bounds="+std::to_string(bounds.left)+","+std::to_string(bounds.top)+","+std::to_string(bounds.right)+","+std::to_string(bounds.bottom)+
@@ -443,6 +451,20 @@ int main(int argc,char** argv) {
                         "Background update check blocked choosing an ISO");
                 require(!IsWindowVisible(GetDlgItem(w,1100)),"The header action search bar is still shown");
                 {
+                    click(w,106);SCROLLINFO page{sizeof(page),SIF_ALL};page_scroll(w,page);
+                    require((GetWindowLongPtrW(w,GWL_STYLE)&WS_VSCROLL)==0,"The launcher shows a page scroll bar");
+                    require(page.nMax+1>int(page.nPage),"The settings page is not taller than the window");
+                    SendMessageW(w,WM_VSCROLL,SB_TOP,0);
+                    const auto top=reinterpret_cast<intptr_t>(GetPropW(w,L"OpenKai2.ScrollPos"));
+                    RECT client{};GetClientRect(w,&client);
+                    POINT middle{client.right/2,client.bottom/2};ClientToScreen(w,&middle);
+                    SendMessageW(w,WM_MOUSEWHEEL,MAKEWPARAM(0,WORD(short(-WHEEL_DELTA))),MAKELPARAM(middle.x,middle.y));
+                    require(reinterpret_cast<intptr_t>(GetPropW(w,L"OpenKai2.ScrollPos"))>top,"The mouse wheel did not scroll the page");
+                    SendMessageW(w,WM_VSCROLL,SB_TOP,0);
+                    require(reinterpret_cast<intptr_t>(GetPropW(w,L"OpenKai2.ScrollPos"))==0,"Scrolling to the top did not reach the top");
+                    click(w,101);
+                }
+                {
                     const auto field=GetDlgItem(w,140);const auto dc=GetDC(field);
                     const auto previous=SelectObject(dc,reinterpret_cast<HFONT>(SendMessageW(field,WM_GETFONT,0,0)));
                     wchar_t face[80]{};GetTextFaceW(dc,80,face);TEXTMETRICW metrics{};GetTextMetricsW(dc,&metrics);SelectObject(dc,previous);ReleaseDC(field,dc);
@@ -500,9 +522,9 @@ int main(int argc,char** argv) {
                     FocusTarget other;other.back(w);
                     for(int page:{106,103,102,101}) {
                         click(w,page);SendMessageW(w,WM_VSCROLL,SB_BOTTOM,0);
-                        SCROLLINFO before{sizeof(before),SIF_POS},after{sizeof(after),SIF_POS};GetScrollInfo(w,SB_VERT,&before);
+                        SCROLLINFO before{sizeof(before),SIF_POS},after{sizeof(after),SIF_POS};page_scroll(w,before);
                         other.away();other.back(w);
-                        GetScrollInfo(w,SB_VERT,&after);
+                        page_scroll(w,after);
                         require(before.nPos==after.nPos,"Switching applications lost the launcher scroll position");
                         check_shell_alignment(w);
                     }
@@ -528,9 +550,9 @@ int main(int argc,char** argv) {
                     require(!SendMessageW(fps,CB_GETDROPPEDSTATE,0,0) && read_settings(settings_path()).fps==240,
                             "Switching applications saved an unconfirmed dropdown choice or left its popup open");
                     SendMessageW(w,WM_VSCROLL,SB_BOTTOM,0);SCROLLINFO before{sizeof(before),SIF_POS},after{sizeof(after),SIF_POS};
-                    GetScrollInfo(w,SB_VERT,&before);ShowWindow(w,SW_MINIMIZE);
+                    page_scroll(w,before);ShowWindow(w,SW_MINIMIZE);
                     wait_until([&]{return IsIconic(w)!=FALSE;},"Launcher did not minimize");
-                    ShowWindow(w,SW_RESTORE);other.back(w);GetScrollInfo(w,SB_VERT,&after);
+                    ShowWindow(w,SW_RESTORE);other.back(w);page_scroll(w,after);
                     require(before.nPos==after.nPos,"Minimizing lost the launcher scroll position");check_shell_alignment(w);
                     click(w,101);
                 }
@@ -894,8 +916,8 @@ int main(int argc,char** argv) {
                                 bounds.bottom<=client.bottom-MulDiv(116,dpi,96),
                             "The full timing-rules field cannot be reached by scrolling");
                     SCROLLINFO pageBefore{sizeof(pageBefore),SIF_POS},pageAfter{sizeof(pageAfter),SIF_POS};
-                    GetScrollInfo(w,SB_VERT,&pageBefore);
-                    wheel_over(w,290,-WHEEL_DELTA);GetScrollInfo(w,SB_VERT,&pageAfter);
+                    page_scroll(w,pageBefore);
+                    wheel_over(w,290,-WHEEL_DELTA);page_scroll(w,pageAfter);
                     require(SendMessageW(rules,EM_GETFIRSTVISIBLELINE,0,0)>0 && pageBefore.nPos==pageAfter.nPos,
                             "Scrolling timing rules moved the launcher page");
                     SendMessageW(rules,EM_LINESCROLL,0,10000);
@@ -905,11 +927,11 @@ int main(int argc,char** argv) {
                 }
                 SendMessageW(w,WM_VSCROLL,SB_TOP,0);
                 SetWindowPos(w,nullptr,0,0,MulDiv(1000,dpi,96),MulDiv(680,dpi,96),SWP_NOZORDER|SWP_NOACTIVATE);
-                SCROLLINFO wheel{sizeof(wheel),SIF_POS};GetScrollInfo(w,SB_VERT,&wheel);
+                SCROLLINFO wheel{sizeof(wheel),SIF_POS};page_scroll(w,wheel);
                 require(wheel.nPos==0,"A resized page started at the wrong scroll position");
-                SendMessageW(w,WM_MOUSEWHEEL,MAKEWPARAM(0,WORD(short(-60))),0);GetScrollInfo(w,SB_VERT,&wheel);
+                SendMessageW(w,WM_MOUSEWHEEL,MAKEWPARAM(0,WORD(short(-60))),0);page_scroll(w,wheel);
                 require(wheel.nPos==0,"A partial mouse-wheel step moved too far");
-                SendMessageW(w,WM_MOUSEWHEEL,MAKEWPARAM(0,WORD(short(-60))),0);GetScrollInfo(w,SB_VERT,&wheel);
+                SendMessageW(w,WM_MOUSEWHEEL,MAKEWPARAM(0,WORD(short(-60))),0);page_scroll(w,wheel);
                 require(wheel.nPos>0,"High-resolution mouse-wheel steps were discarded");
                 SendMessageW(w,WM_VSCROLL,SB_BOTTOM,0);
                 require(IsWindowVisible(GetDlgItem(w,290)),"Timing rules cannot be reached in a short window");
@@ -918,7 +940,7 @@ int main(int argc,char** argv) {
                 require(IsWindowEnabled(GetDlgItem(w,1020)) && !IsWindowEnabled(GetDlgItem(w,294)),
                         "Split browsing requires activating a speedrun, or editing is enabled without a category");
                 wheel_over(w,1020,-WHEEL_DELTA);
-                GetScrollInfo(w,SB_VERT,&wheel);
+                page_scroll(w,wheel);
                 require(SendMessageW(GetDlgItem(w,1020),LB_GETTOPINDEX,0,0)>0 && wheel.nPos==0,
                         "Scrolling the split list moved the launcher page");
                 SendMessageW(w,WM_VSCROLL,SB_BOTTOM,0);
@@ -945,17 +967,17 @@ int main(int argc,char** argv) {
                 SendMessageW(list,LB_SETTOPINDEX,0,0);
                 const auto point=control_center(w,1020);
                 PostMessageW(GetDlgItem(w,226),WM_MOUSEWHEEL,MAKEWPARAM(0,WORD(short(-WHEEL_DELTA))),MAKELPARAM(point.x,point.y));
-                wait_until([&]{GetScrollInfo(w,SB_VERT,&wheel);return SendMessageW(list,LB_GETTOPINDEX,0,0)>0 || wheel.nPos!=0;},
+                wait_until([&]{page_scroll(w,wheel);return SendMessageW(list,LB_GETTOPINDEX,0,0)>0 || wheel.nPos!=0;},
                            "The split list did not receive a wheel event sent to another control");
                 require(wheel.nPos==0 && read_settings(settings_path()).overlayCorner==1 && SendMessageW(list,LB_GETCURSEL,0,0)==0,
                         "Scrolling splits changed the page, selected row or focused dropdown value");
                 SendMessageW(list,LB_SETTOPINDEX,11,0);
                 const auto lastTop=SendMessageW(list,LB_GETTOPINDEX,0,0);
-                wheel_over(w,1020,-WHEEL_DELTA);GetScrollInfo(w,SB_VERT,&wheel);
+                wheel_over(w,1020,-WHEEL_DELTA);page_scroll(w,wheel);
                 require(SendMessageW(list,LB_GETTOPINDEX,0,0)==lastTop && wheel.nPos==0,
                         "The launcher scrolls when the split list reaches its end");
                 SendMessageW(list,LB_SETTOPINDEX,0,0);
-                wheel_over(w,1020,-60);wheel_over(w,1020,-60);GetScrollInfo(w,SB_VERT,&wheel);
+                wheel_over(w,1020,-60);wheel_over(w,1020,-60);page_scroll(w,wheel);
                 require(SendMessageW(list,LB_GETTOPINDEX,0,0)>0 && wheel.nPos==0,
                         "Partial wheel steps do not scroll splits independently");
                 SendMessageW(list,LB_SETTOPINDEX,0,0);
