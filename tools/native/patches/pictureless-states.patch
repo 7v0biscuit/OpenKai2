@@ -1,0 +1,11 @@
+--- a/runtime/gs/gs_frontend.cpp
++++ b/runtime/gs/gs_frontend.cpp
+@@ -227,6 +227,8 @@
+ 
+ void GS::serializeState(StateArchive &archive)
+ {
++    if (archive.pictureless())
++        return;
+     fence();
+     std::lock_guard<std::recursive_mutex> lock(m_stateMutex);
+     archive.section(0x20205347u);

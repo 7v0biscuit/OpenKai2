@@ -31,6 +31,8 @@ class StateArchive
 public:
     static constexpr size_t block_threshold = 65536;
     void blocks(StateBlocks *handler) noexcept { m_blocks = handler; }
+    void pictureless(bool on) noexcept { m_pictureless = on; }
+    [[nodiscard]] bool pictureless() const noexcept { return m_pictureless; }
 
     explicit StateArchive(std::vector<uint8_t> &output) : m_output(&output) {}
     explicit StateArchive(const std::vector<uint8_t> &input) : m_input(&input) {}
@@ -98,7 +100,7 @@ private:
     const std::vector<uint8_t> *m_input = nullptr;
     size_t m_position = 0;
     StateBlocks *m_blocks = nullptr;
-    bool m_movable = false;
+    bool m_movable = false, m_pictureless = false;
 };
 
 template <typename T>

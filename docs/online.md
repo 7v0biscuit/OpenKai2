@@ -158,7 +158,9 @@ game when a prediction was wrong, is being built in steps:
    makes the game snapshot every frame, roll back `depth` frames every
    `3 * depth` frames, replay them, and report in `startup.log` whether the
    replayed frames matched (`[rollback] ... differing=0`).
-2. Next: make each snapshot fast enough to take every frame at 60 FPS, and
+2. In progress: rollback snapshots now leave the picture out, since replayed
+   frames redraw it, and compare memory on several CPU cores. A snapshot of a
+   fight takes about 1.4 ms on an idle four-core test machine. Still to do:
    replay frames without drawing or playing them.
 3. Then: predicted inputs and corrections in the match itself, tested between
    two PCs.

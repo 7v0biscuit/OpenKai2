@@ -6,6 +6,7 @@
 #include "netplay.h"
 #include "state_archive.h"
 #include "runtime/ee_scheduler.h"
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdio>
@@ -17,6 +18,7 @@
 #include <exception>
 #include <mutex>
 #include <optional>
+#include <thread>
 
 namespace openkai2 {
 namespace {
@@ -245,15 +247,17 @@ void configure_rollback() {
     const char *value = std::getenv("OPENKAI2_ROLLBACK_TEST");
     if (!value || !*value)
         return;
-    unsigned long long a = 0, b = 0, c = 0;
-    const int read = std::sscanf(value, "%llu,%llu,%llu", &a, &b, &c);
+    unsigned long long a = 0, b = 0, c = 0, picture = 0;
+    const int read = std::sscanf(value, "%llu,%llu,%llu,%llu", &a, &b, &c, &picture);
     if (read >= 1 && a)
         rollbackStart = a;
     if (read >= 2 && b)
         rollbackFrames = b;
     if (read >= 3 && c)
         rollbackDepth = std::min<unsigned long long>(c, 30);
-    rollbackStates = std::make_unique<DeltaStates>(size_t(rollbackDepth) + 2u);
+    rollbackStates = std::make_unique<DeltaStates>(size_t(rollbackDepth) + 2u, std::clamp(std::thread::hardware_concurrency(), 2u, 4u) - 1u);
+    rollbackStates->pictureless(picture == 0);
+    std::cerr << "[rollback] test snapshots " << (picture ? "include" : "leave out") << " the picture\n";
     rollbackEnabled = true;
 }
 

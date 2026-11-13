@@ -3,6 +3,9 @@
 #include "state_archive.h"
 #include <algorithm>
 #include <chrono>
+#include <condition_variable>
+#include <mutex>
+#include <thread>
 #include <cstdint>
 #include <cstring>
 #include <deque>
@@ -19,7 +22,22 @@ class DeltaStates : public StateBlocks {
         double compareMs = 0;
     };
 
-    explicit DeltaStates(size_t capacity) : capacity_(capacity ? capacity : 1) {}
+    explicit DeltaStates(size_t capacity, unsigned helpers = 0) : capacity_(capacity ? capacity : 1), workers_(helpers) {
+        for (size_t i = 0; i < workers_.size(); ++i)
+            workers_[i].thread = std::thread([this, i] { work(i); });
+    }
+    ~DeltaStates() override {
+        {
+            std::lock_guard lock(poolMutex_);
+            stopping_ = true;
+        }
+        poolWake_.notify_all();
+        for (auto &worker : workers_)
+            if (worker.thread.joinable())
+                worker.thread.join();
+    }
+    DeltaStates(const DeltaStates &) = delete;
+    DeltaStates &operator=(const DeltaStates &) = delete;
 
     template <typename Serialize>
     void capture(uint64_t id, Serialize &&serialize) {
@@ -33,6 +51,7 @@ class DeltaStates : public StateBlocks {
         mode_ = Mode::capture;
         StateArchive archive(frame.small);
         archive.blocks(this);
+        archive.pictureless(pictureless_);
         try {
             serialize(archive);
         } catch (...) {
@@ -92,6 +111,7 @@ class DeltaStates : public StateBlocks {
         mode_ = Mode::restore;
         StateArchive archive(static_cast<const std::vector<uint8_t> &>(frame.small));
         archive.blocks(this);
+        archive.pictureless(pictureless_);
         try {
             serialize(archive);
         } catch (...) {
@@ -107,6 +127,7 @@ class DeltaStates : public StateBlocks {
         return true;
     }
 
+    void pictureless(bool on) { pictureless_ = on; }
     void clear() {
         frames_.clear();
         regions_.clear();
@@ -166,15 +187,13 @@ class DeltaStates : public StateBlocks {
             regions_[found->second].fixed == fixed) {
             index = found->second;
             Region &region = regions_[index];
-            const size_t count = pages(size);
-            for (size_t i = 0; i < count; ++i) {
-                const size_t offset = i * page, length = span(region, i);
-                if (std::memcmp(data + offset, region.shadow.data() + offset, length) == 0)
-                    continue;
+            changed(data, region, differing_);
+            for (const uint32_t i : differing_) {
+                const size_t offset = size_t(i) * page, length = span(region, i);
                 const size_t at = current_->pages.size();
                 current_->pages.resize(at + page);
                 std::memcpy(current_->pages.data() + at, region.shadow.data() + offset, length);
-                current_->undo.push_back({index, uint32_t(i)});
+                current_->undo.push_back({index, i});
                 std::memcpy(region.shadow.data() + offset, data + offset, length);
             }
         } else {
@@ -232,9 +251,63 @@ class DeltaStates : public StateBlocks {
     }
 
     void scan(Region &region) {
-        for (size_t i = 0; i < region.touched.size(); ++i)
-            if (std::memcmp(region.base + i * page, region.shadow.data() + i * page, span(region, i)) != 0)
-                region.touched[i] = 1;
+        changed(region.base, region, differing_);
+        for (const uint32_t i : differing_)
+            region.touched[i] = 1;
+    }
+
+    static void compare(const uint8_t *live, const Region &region, size_t from, size_t to, std::vector<uint32_t> &out) {
+        for (size_t i = from; i < to; ++i)
+            if (std::memcmp(live + i * page, region.shadow.data() + i * page, span(region, i)) != 0)
+                out.push_back(uint32_t(i));
+    }
+
+    void changed(const uint8_t *live, const Region &region, std::vector<uint32_t> &out) {
+        out.clear();
+        const size_t count = pages(region.size);
+        if (count < parallelPages || workers_.empty()) {
+            compare(live, region, 0, count, out);
+            return;
+        }
+        const size_t parts = workers_.size() + 1u, each = (count + parts - 1u) / parts;
+        {
+            std::lock_guard lock(poolMutex_);
+            job_ = {live, &region, each, count};
+            pending_ = workers_.size();
+            ++generation_;
+        }
+        poolWake_.notify_all();
+        compare(live, region, 0, std::min(each, count), out);
+        {
+            std::unique_lock lock(poolMutex_);
+            poolDone_.wait(lock, [&] { return pending_ == 0; });
+        }
+        for (auto &worker : workers_)
+            out.insert(out.end(), worker.found.begin(), worker.found.end());
+    }
+
+    void work(size_t index) {
+        uint64_t seen = 0;
+        for (;;) {
+            Job job;
+            {
+                std::unique_lock lock(poolMutex_);
+                poolWake_.wait(lock, [&] { return stopping_ || generation_ != seen; });
+                if (stopping_)
+                    return;
+                seen = generation_;
+                job = job_;
+            }
+            auto &found = workers_[index].found;
+            found.clear();
+            const size_t from = std::min(job.each * (index + 1u), job.count), to = std::min(from + job.each, job.count);
+            compare(job.live, *job.region, from, to, found);
+            {
+                std::lock_guard lock(poolMutex_);
+                --pending_;
+            }
+            poolDone_.notify_one();
+        }
     }
 
     void detach(Region &region) {
@@ -260,7 +333,25 @@ class DeltaStates : public StateBlocks {
                 drop(region);
     }
 
+    static constexpr size_t parallelPages = 128;
+    struct Job {
+        const uint8_t *live = nullptr;
+        const Region *region = nullptr;
+        size_t each = 0, count = 0;
+    };
+    struct Worker {
+        std::thread thread;
+        std::vector<uint32_t> found;
+    };
     size_t capacity_;
+    std::vector<Worker> workers_;
+    std::mutex poolMutex_;
+    std::condition_variable poolWake_, poolDone_;
+    Job job_;
+    size_t pending_ = 0;
+    uint64_t generation_ = 0;
+    bool stopping_ = false;
+    std::vector<uint32_t> differing_;
     std::deque<Frame> frames_;
     std::vector<Region> regions_;
     std::unordered_map<uint8_t *, uint32_t> byPointer_;
@@ -269,5 +360,6 @@ class DeltaStates : public StateBlocks {
     Mode mode_ = Mode::idle;
     Stats stats_;
     double compareMs_ = 0;
+    bool pictureless_ = false;
 };
 }

@@ -61,10 +61,10 @@ struct Machine {
     }
 };
 
-void randomRollbacks(unsigned seed, size_t capacity) {
+void randomRollbacks(unsigned seed, size_t capacity, unsigned helpers = 0) {
     std::mt19937 random(seed);
     Machine machine;
-    DeltaStates states(capacity);
+    DeltaStates states(capacity, helpers);
     std::map<uint64_t, std::vector<uint8_t>> reference;
     auto serialize = [&](StateArchive &archive) { machine.serialize(archive); };
     uint64_t id = 0;
@@ -130,6 +130,8 @@ int main() {
             randomRollbacks(seed, 8);
         randomRollbacks(9u, 1);
         randomRollbacks(11u, 16);
+        randomRollbacks(21u, 8, 3);
+        randomRollbacks(22u, 6, 1);
         std::cout << "Rollback state checks passed.\n";
         return 0;
     } catch (const std::exception &error) {
