@@ -706,7 +706,7 @@ bool Session::remote_or_predict(uint64_t tick, Input &out) {
             out = found->second;
             return true;
         }
-        if (tick == captured_ && tick <= confirmed_ + max_prediction) {
+        if (captured_ + 1 == tick && tick <= confirmed_ + max_prediction) {
             const auto last = remote_.find(confirmed_);
             out = last != remote_.end() ? last->second : neutral_input();
             predicted_[tick] = out;
@@ -737,8 +737,8 @@ void Session::rollback_point() {
     if (finished && machine_.replaying)
         machine_.replaying(false);
     if (target != ~0ull) {
-        uint64_t from = target > start ? target - 1 : start;
-        if (!machine_.restore(from) && (from == target || !machine_.restore(from = target))) {
+        const uint64_t from = target > start ? target - 1 : start;
+        if (!machine_.restore(from)) {
             end("The game fell too far behind the other player to correct itself");
             return;
         }

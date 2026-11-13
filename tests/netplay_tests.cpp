@@ -505,7 +505,6 @@ void rollback_corrects_late_inputs() {
         ok = false;
         auto next = std::chrono::steady_clock::now();
         for (int step = 0; step < 60000; ++step) {
-            session.state_point();
             const auto status = session.status();
             if (status.phase == Phase::ended)
                 return;
@@ -517,10 +516,11 @@ void rollback_corrects_late_inputs() {
                     began = machine.tick;
                 machine.seen[machine.tick] = {port0, port1};
                 machine.sum = machine.sum * 31 + port0[0] * 7 + port1[0];
-                if (machine.tick >= began + frames && !session.rolling_back()) {
-                    ok = true;
-                    return;
-                }
+            }
+            session.state_point();
+            if (status.phase == Phase::playing && machine.tick >= began + frames && !session.rolling_back()) {
+                ok = true;
+                return;
             }
             ++machine.tick;
             if (status.phase != Phase::playing) {
