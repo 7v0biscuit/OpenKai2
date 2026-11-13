@@ -158,10 +158,10 @@ game when a prediction was wrong, is being built in steps:
    makes the game snapshot every frame, roll back `depth` frames every
    `3 * depth` frames, replay them, and report in `startup.log` whether the
    replayed frames matched (`[rollback] ... differing=0`).
-2. In progress: rollback snapshots now leave the picture out, since replayed
-   frames redraw it, and compare memory on several CPU cores. A snapshot of a
-   fight takes about 1.4 ms on an idle four-core test machine. Still to do:
-   replay frames without drawing or playing them.
+2. Done: rollback snapshots leave the picture out and compare memory on
+   several CPU cores (about 1.4 ms per snapshot on an idle four-core test
+   machine). Rolled-back frames replay without waiting for real time, without
+   sound and without drawing; the frame after a replay draws normally.
 3. Then: predicted inputs and corrections in the match itself, tested between
    two PCs.
 

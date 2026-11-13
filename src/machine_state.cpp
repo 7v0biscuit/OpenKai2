@@ -308,7 +308,8 @@ void rollback_point(EeScheduler &scheduler) {
                   << " capture_avg_ms=" << totals.captureMs / captures << " capture_max_ms=" << totals.captureMax
                   << " memory_compare_avg_ms=" << totals.compareMs / captures << " changed_pages_avg=" << double(totals.pages) / captures << " other_state_bytes=" << totals.small
                   << " rollbacks=" << totals.rollbacks << " restore_avg_ms=" << totals.restoreMs / rollbacks
-                  << " restore_max_ms=" << totals.restoreMax << " replay_avg_ms=" << totals.replayMs / rollbacks << " resimulated_frames_compared=" << totals.compared
+                  << " restore_max_ms=" << totals.restoreMax << " replay_avg_ms=" << totals.replayMs / rollbacks
+                  << " replay_skipped_draw_packets=" << replay_skipped_packets.load() << " resimulated_frames_compared=" << totals.compared
                   << " differing=" << totals.differing;
         if (totals.differing)
             std::cerr << " first_frame=" << totals.firstDifference;

@@ -11,6 +11,7 @@ struct FieldLateness {
 inline FieldLateness field_lateness;
 inline std::atomic<uint64_t> pacing_oversleep{0};
 inline std::atomic<bool> replay_turbo{false};
+inline std::atomic<uint64_t> replay_skipped_packets{0};
 inline void record_field_lateness(std::chrono::steady_clock::duration behind) noexcept {
     const auto us = behind.count() > 0 ? uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(behind).count()) : 0u;
     field_lateness.fields.fetch_add(1u, std::memory_order_relaxed);

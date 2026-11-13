@@ -1,0 +1,20 @@
+--- a/runtime/gs/gs_frontend.cpp
++++ b/runtime/gs/gs_frontend.cpp
+@@ -1,4 +1,5 @@
+ #include "state_archive.h"
++#include "simulation_pacing.h"
+ #include "graphics_settings.h"
+ #include "runtime/gs/gs_frontend.h"
+ #include "guest_timing.h"
+@@ -776,6 +777,11 @@
+ 
+ void GS::processGIFPacket(const uint8_t *data, uint32_t sizeBytes)
+ {
++    if (openkai2::replay_turbo.load(std::memory_order_relaxed) && !onWorker())
++    {
++        openkai2::replay_skipped_packets.fetch_add(1u, std::memory_order_relaxed);
++        return;
++    }
+     if (!m_worker.joinable() || onWorker())
+     {
+         processGIFPacketNow(data, sizeBytes);
