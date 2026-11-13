@@ -417,6 +417,13 @@ int main(int argc,char** argv) {
                     }
                     click(w,106);
                     const auto fps=GetDlgItem(w,141);open_dropdown(fps);key_press(VK_HOME);
+                    wait_until([&]{return SendMessageW(fps,CB_GETCURSEL,0,0)==0;},"The dropdown preview did not receive Home");
+                    SendMessageW(w,WM_NCACTIVATE,FALSE,0);
+                    require(!SendMessageW(fps,CB_GETDROPPEDSTATE,0,0) && read_settings(settings_path()).fps==240,
+                            "Nonclient deactivation committed a dropdown preview");
+                    SendMessageW(w,WM_NCACTIVATE,TRUE,0);
+                    open_dropdown(fps);key_press(VK_HOME);
+                    wait_until([&]{return SendMessageW(fps,CB_GETCURSEL,0,0)==0;},"The focus test did not receive its dropdown preview");
                     other.away();other.back(w);
                     require(!SendMessageW(fps,CB_GETDROPPEDSTATE,0,0) && read_settings(settings_path()).fps==240,
                             "Switching applications saved an unconfirmed dropdown choice or left its popup open");
@@ -623,6 +630,7 @@ int main(int argc,char** argv) {
                 }
                 keyboard_choice(GetDlgItem(w,141),3);
                 require(read_settings(settings_path()).fps==120,"FPS was not persisted by native interaction");
+                SendMessageW(w,WM_COMMAND,MAKEWPARAM(141,CBN_SELCHANGE),LPARAM(GetDlgItem(w,141)));
                 click(w,1114);
                 require(read_settings(settings_path()).fps==240 && !read_settings(settings_path()).discordPresence,
                         "Undo settings failed or changed unrelated preferences");

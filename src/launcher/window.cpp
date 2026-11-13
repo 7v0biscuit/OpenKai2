@@ -6464,7 +6464,7 @@ struct Window {
         } else
             next.audio = false;
         write_settings(settings_path(), next);
-        if (page == settingsPage) previousSettings = settings;
+        if (page == settingsPage && preferences(next)!=preferences(settings)) previousSettings = settings;
         settings = std::move(next);
         status = child ? L"Settings saved. Restart the game to use them." : L"Settings saved.";
         std::cout << "[launcher:settings] saved fps=" << settings.fps << " size=" << settings.width << 'x'
@@ -6589,9 +6589,13 @@ struct Window {
                     if (notification == CBN_SELENDCANCEL)
                         return;
                 }
-                if (notification == CBN_SELCHANGE && SendMessageW(found->second, CB_GETDROPPEDSTATE, 0, 0))
-                    return;
+                // Native Windows can close the popup before sending its last preview.
+                if (notification == CBN_SELCHANGE && dropdownOriginal.count(id))return;
                 if (notification == CBN_SELENDOK) {
+                    const auto foreground=GetForegroundWindow();
+                    if(!appActive || !foreground || GetAncestor(foreground,GA_ROOTOWNER)!=hwnd) {
+                        suspendUi();return;
+                    }
                     dropdownOriginal.erase(id);
                     notification = CBN_SELCHANGE;
                 }
@@ -7641,6 +7645,10 @@ LRESULT CALLBACK edit_procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
 LRESULT CALLBACK combo_procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
     auto original = reinterpret_cast<WNDPROC>(GetPropW(hwnd, L"OpenKai2.ComboProcedure"));
     auto *owner = reinterpret_cast<Window *>(GetWindowLongPtrW(GetParent(hwnd), GWLP_USERDATA));
+    const auto nextFocus=reinterpret_cast<HWND>(wp);
+    const bool cancelling=owner && !owner->closingDropdowns && message==WM_KILLFOCUS &&
+        owner->dropdownOriginal.count(GetDlgCtrlID(hwnd)) && (!nextFocus || GetAncestor(nextFocus,GA_ROOTOWNER)!=owner->hwnd);
+    if(cancelling) {owner->suspendUi();owner->closingDropdowns=true;}
     if(owner && (message==WM_SETFONT || message==CB_ADDSTRING || message==CB_INSERTSTRING || message==CB_DELETESTRING || message==CB_RESETCONTENT))
         owner->comboTextWidths.erase(GetDlgCtrlID(hwnd));
     if (message == WM_PAINT && owner) {
@@ -7709,6 +7717,7 @@ LRESULT CALLBACK combo_procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) 
         RemovePropW(hwnd, L"OpenKai2.Hot");
     const auto result = original ? CallWindowProcW(original, hwnd, message, wp, lp)
                                  : DefWindowProcW(hwnd, message, wp, lp);
+    if(cancelling)owner->closingDropdowns=false;
     if (message == WM_SETFOCUS || message == WM_KILLFOCUS || message == WM_ENABLE ||
         message == CB_SETCURSEL || message == CB_SHOWDROPDOWN || message == WM_LBUTTONDOWN)
         InvalidateRect(hwnd, nullptr, FALSE);
@@ -7749,8 +7758,12 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
             if (self->appActive) self->queueUiRestore();
             else self->suspendUi();
             return 0;
+        case WM_NCACTIVATE:
+            if(!wp)self->suspendUi();
+            break;
         case WM_ACTIVATE:
-            if (LOWORD(wp)!=WA_INACTIVE) self->queueUiRestore();
+            if (LOWORD(wp)==WA_INACTIVE) self->suspendUi();
+            else self->queueUiRestore();
             break;
         case WM_ENABLE:
             if (wp) self->queueUiRestore();
