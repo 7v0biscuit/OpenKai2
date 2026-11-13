@@ -267,6 +267,12 @@ void service_rooms_invites_passwords() {
     require(wait_for([&] { return piccolo.players().size() == 1 && krillin.players().size() == 1; }),
             "launchers see each other");
     require(krillin.players()[0].name == "Piccolo", "player names are shown");
+    for(const std::string status:{"away","do not disturb","hosting","in a match","online"}) {
+        piccolo.set_status(status);piccolo.set_status(status);
+        require(wait_for([&]{const auto player=krillin.player(piccolo.id());return player && player->status==status;}),
+                "signed profile availability reaches another launcher");
+    }
+
     require(on::lookup_name(service, "P i c c o l o", krillinProfile.id, error) == on::NameState::taken,
             "a claimed name is taken for everyone else");
     require(on::lookup_name(service, "piccolo", piccoloProfile.id, error) == on::NameState::mine, "the owner keeps the name");

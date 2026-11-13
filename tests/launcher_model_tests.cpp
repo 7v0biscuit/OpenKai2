@@ -2,6 +2,7 @@
 #include "graphics_settings.h"
 #include "launcher/saves.h"
 #include "launcher/settings.h"
+#include "launcher/layout.h"
 #include "launcher/online_browser.h"
 #include "speedrun.h"
 #include "launcher/update.h"
@@ -134,6 +135,8 @@ int main() {
         s.onlineVisibility = 1;
         s.onlineFriends = {{std::string(64, 'a'), std::string(64, 'c'), "Krillin \"K\""}};
         s.profileStyles={{std::string(64,'a'),"SG","Local only",3},{std::string(64,'b'),"V","Second profile",7}};
+        s.reducedMotion=true;s.helpHints=false;
+        s.profileStyles[0].pictureFit=1;s.profileStyles[0].notifications=false;s.profileStyles[0].availability=2;
         s.profileStyles[0].image=std::string(64,'d')+".gif";
         s.profileStyles[0].imageName="My \"portrait\".gif";
         s.onlineRoomFilter=2;s.onlinePlayerFilter=1;
@@ -146,6 +149,38 @@ int main() {
         require(read.profileStyles[0].image==s.profileStyles[0].image && read.profileStyles[0].imageName==s.profileStyles[0].imageName &&
                 read.profileStyles[1].image.empty() && read.onlineRoomFilter==2 && read.onlinePlayerFilter==1,
                 "Profile pictures or online filters did not round-trip independently");
+        require(read.reducedMotion && !read.helpHints && read.profileStyles[0].pictureFit==1 && !read.profileStyles[0].notifications && read.profileStyles[0].availability==2 && read.profileStyles[1].notifications,
+                "Per-profile framing and quiet mode did not round-trip");
+        auto badFit=s;badFit.profileStyles[0].pictureFit=2;rejects([&]{validate_settings(badFit);});
+        Settings profileBefore=s;profileBefore.onlineProfiles={"First","Second"};profileBefore.onlineKeys={std::string(64,'1'),std::string(64,'2')};
+        profileBefore.onlineFriends={{std::string(64,'a'),std::string(64,'c'),"Friend"}};
+        const auto recovery=profile_recovery(profileBefore,0,std::string(64,'a'));
+        require(recovery.onlineProfiles.size()==1 && recovery.onlineKeys[0]==profileBefore.onlineKeys[0] && recovery.profileStyles.size()==1 && recovery.onlineFriends.size()==1,
+                "Profile recovery did not isolate the removed identity");
+        Settings current=profileBefore;current.onlineProfiles.erase(current.onlineProfiles.begin());current.onlineKeys.erase(current.onlineKeys.begin());
+        current.profileStyles.erase(current.profileStyles.begin());current.onlineFriends.clear();current.fps=90;
+        restore_profile(current,recovery);
+        require(current.fps==90 && current.onlineProfiles.size()==2 && current.onlineName=="First" && current.onlineKeys.back()==recovery.onlineKeys[0] &&
+                current.profileStyles.back().image==profileBefore.profileStyles[0].image && !current.profileStyles.back().notifications && current.onlineFriends.size()==1,
+                "Profile recovery lost identity or overwrote unrelated settings");
+        rejects([&]{restore_profile(current,recovery);});
+        rejects([&]{profile_recovery(profileBefore,9,std::string(64,'a'));});
+        for(int width:{872,1040,1360,1840}) {
+            ui::SettingsLayout layout(width);
+            int last=0;
+            for(size_t section=0;section<layout.sections.size();++section) {
+                require(layout.sections[section]>last,"Settings cards overlap");
+                for(int index=0;index<layout.fields[section];++index) {
+                    const auto field=layout.field(layout.sections[section],index);
+                    require(field.x>=36 && field.x+field.width<=36+width && field.width>=200,"Settings field leaves its card");
+                    require(field.y+field.height<layout.bottom(layout.sections[section],layout.fields[section]),"Settings field leaves card vertically");
+                }
+                last=layout.bottom(layout.sections[section],layout.fields[section]);
+            }
+            layout.filter(L"texture filtering");require(layout.sections[1]==ui::SettingsLayout::top && layout.sections[0]<0 && layout.sections[2]<0,"Settings search did not reflow its card");
+            layout.filter(L"go to display");require(layout.sections[0]==ui::SettingsLayout::top,"Settings search rejected navigation words");
+            ui::DockLayout dock(width+72,600,6);require(dock.left>=20 && dock.left+6*dock.cell<=width+52 && dock.top+74<600,"Dock leaves the window");
+        }
         auto invalidImage=s;invalidImage.profileStyles[0].image="../outside.gif";rejects([&]{validate_settings(invalidImage);});
         invalidImage=s;invalidImage.profileStyles[0].imageName="two\nlines.gif";rejects([&]{validate_settings(invalidImage);});
         invalidImage=s;invalidImage.onlineRoomFilter=3;rejects([&]{validate_settings(invalidImage);});
@@ -160,6 +195,10 @@ int main() {
                 "Room search failed or changed the directory's room list");
         const std::vector<openkai2::online::Player> browserPlayers={{"1","Goku","online","current",false},{"2","Vegeta","hosting","current",false}};
         const auto friendly=[](const std::string& id){return id=="2";};
+        require(profile_status(0,false,false,false)=="online" && profile_status(1,false,false,false)=="away" &&
+                profile_status(2,false,false,false)=="do not disturb" && profile_status(2,true,true,true)=="in a match" &&
+                profile_status(1,false,true,true)=="hosting" && profile_status(2,false,true,false)=="joining",
+                "Profile availability overrides an active match or room");
         require(browse_players(browserPlayers,false,"",friendly).size()==2 && browse_players(browserPlayers,true,"",friendly).size()==1 &&
                 browse_players(browserPlayers,true,"goku",friendly).empty() && browse_players(browserPlayers,false,"GOku",friendly).size()==1,
                 "Player browsing hides friends or ignores search and friend filters");

@@ -349,6 +349,7 @@ void Directory::close() {
 void Directory::set_status(const std::string &status) {
     {
         std::lock_guard lock(mutex_);
+        if(status_==status)return;
         status_ = status;
     }
     if (nameTaken_)

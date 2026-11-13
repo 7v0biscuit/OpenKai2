@@ -101,9 +101,16 @@ A message in the corner names your new character when a fight starts.
 - **Arrange tabs…:** move tabs up or down and hide the ones you do not use. Play and Settings are always shown.
   Alt+1 to Alt+6 and Ctrl+1 to Ctrl+6 follow the visible dock order.
 - **Start on:** open the launcher on Play or on the last page you used.
+- **Interface motion:** Smooth follows Windows’ animation preference. Reduced
+  motion keeps dock transitions, animated profile/split images and cycling
+  profile accents still.
+- **Help hints:** turn hover explanations on or off. Keyboard shortcuts keep working.
+- **Discord activity:** show or hide the launcher and game in Discord.
 
 Changes apply at once and are saved with your other settings.
-Search Settings by section, such as graphics or display. **Undo change** restores
+Use the section filters or search Settings for a topic such as texture filtering,
+frame rate or display. Ctrl+F focuses the current page’s search; Ctrl+K opens
+the action finder. The bell or Ctrl+Shift+N opens the Notifications inbox. **Undo change** restores
 the last settings edit in this session without replacing profiles, disc paths,
 saves or update preferences. Display and Game each have a reset button.
 
@@ -244,8 +251,8 @@ The verified ISO path is remembered for the next session. The ISO remains
 required, including when a verified cache already exists.
 
 The launcher uses owner-drawn Windows controls with Segoe UI for all text and
-line icons for every tab and tile. The comic lettering is kept for the OpenKai2
-logo only.
+line icons for every tab and tile. Display lettering is reserved for the game title; controls and explanatory
+text use the interface font.
 
 **Settings** saves the renderer, frame-rate limit, window resolution,
 windowed/borderless mode, aspect ratio, VSync, FXAA, texture filtering, and spatial upscaling.
@@ -254,8 +261,8 @@ sampling. Display scaling supports nearest, bilinear, and bicubic sampling;
 FXAA runs before enlargement. Changes apply to the next game launch.
 The default 4:3 aspect restores the original television proportions; 16:9,
 stretch, and native-pixel modes are also available. These spatial filters do not
-create additional game frames. FSR and frame
-generation are not currently included.
+create additional game frames. AMD FSR 1 spatial upscaling is included; temporal
+FSR upscaling and frame generation are not included.
 
 Preferences are stored in `%LOCALAPPDATA%\OpenKai2\settings.ini`. They are
 shared by the installed and portable packages. Cancelling ISO selection leaves
@@ -294,7 +301,8 @@ automatically deleted. Uninstalling preserves saves, backups, and preferences.
 
 ## Display frame limit
 
-The default limit is **60 FPS**. Choose another limit in Settings, including
+The default presentation limit is **240 FPS**; game simulation stays at
+**60 FPS**. Choose another presentation limit in Settings, including
 240 or unlimited, or use the direct game command:
 
 ```powershell

@@ -8,6 +8,12 @@
 
 namespace openkai2::launcher {
 
+inline std::string profile_status(unsigned availability,bool playing,bool inRoom,bool host) {
+    if(playing)return "in a match";
+    if(inRoom)return host ? "hosting" : "joining";
+    return availability==2 ? "do not disturb" : availability==1 ? "away" : "online";
+}
+
 inline std::string search_text(std::string value) {
     for(auto& c:value)c=char(std::tolower(static_cast<unsigned char>(c)));
     return value;

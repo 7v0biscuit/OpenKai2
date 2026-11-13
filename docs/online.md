@@ -75,9 +75,9 @@ tried first.
   remove them.
 - **Invite:** pick a player and press **Invite**. Your room opens and the invite
   is sent. The invited player gets a Windows notification and an **Accept** /
-  **Decline** card at the top of the launcher, and joins without needing the
+  **Decline** card in **Notifications** (the bell, or Ctrl+Shift+N), and joins without needing the
   room password.
-- **Notifications:** the card shows who sent the invite or friend request, how
+- **Notifications:** open the bell in the header to review requests. The card shows who sent the invite or friend request, how
   long ago, which room, and how many more are waiting. Repeat invites from the
   same player are merged into one. The **Online** tab shows how many are
   waiting.
@@ -127,7 +127,7 @@ appearance without deleting the profile or its friends. If no profile exists,
 Choose **Customize profile** on Online or Play, then **Choose picture…** to
 select a PNG, JPEG or animated GIF from your PC. You can also drop a picture
 onto the Profile page. GIFs animate on Profile, Play and Online. Pictures are
-cropped to a circle; initials are used when no picture is set.
+displayed in a circle; choose **Fill the circle** to crop, or **Fit the whole picture** to keep its edges. Initials are used when no picture is set.
 
 Pictures may be up to 16 MB, with up to 300 GIF frames. The launcher copies
 files to `%LOCALAPPDATA%\OpenKai2\profiles\images`. Removing or replacing a
@@ -136,7 +136,7 @@ accent and tagline. These appearance settings stay on this PC and are not
 uploaded to the online service.
 
 Use **Search rooms or players** to find a room, host or player by name. **Clear**
-restores the lists. **Ctrl+F** opens Online and focuses search. Room filters
+restores the lists. **Ctrl+F** focuses the current page’s search. On Play and Online, it searches rooms and players. Room filters
 show compatible versions by default, all versions, or compatible rooms without
 a password. Player filters show everyone or just friends who are online.
 Friends remain available in Online's Players list after being added.
@@ -164,3 +164,35 @@ game when a prediction was wrong, is being built in steps:
    replay frames without drawing or playing them.
 3. Then: predicted inputs and corrections in the match itself, tested between
    two PCs.
+
+## Managing profiles on this PC
+
+The Profile page has an **Active profile** switcher. **Manage online profiles**
+opens name creation and removal on Online. Switching and removal are disabled
+while a game or room is active so a match keeps the identity it started with.
+
+Use **Copy appearance** to reuse another local profile’s picture, framing,
+initials, accent and tagline. It keeps the destination profile’s identity,
+friends and notification preference. **Save profile** saves the text, framing,
+accent and alert settings; choosing or removing a picture also saves them.
+
+**Online availability** lets each profile appear as Available, Away or Do not
+disturb. Hosting, joining and active matches take priority automatically. Do
+not disturb also silences desktop alerts; your online status stays visible.
+
+Each profile can use **Quiet — launcher inbox only** to turn off invitation
+sounds, taskbar flashing and Windows alerts. Requests still appear in the
+launcher’s Notifications inbox. This preference does not hide online presence.
+
+**Remove** asks for confirmation and defaults to keeping the profile. Before
+removal, the launcher saves its identity, friend list and appearance in
+`%LOCALAPPDATA%\OpenKai2\profiles\recovery\last-removed.ini`.
+**Undo removal** restores that profile without replacing game settings or
+other profiles. This recovery file stores a private identity key, just like the
+local settings file. It stays on this PC and is replaced on the next removal.
+The original picture files and game saves are kept.
+
+Launcher motion and hover hints can be changed under **Settings → Launcher**.
+Reduced motion keeps the dock, animated pictures and cycling profile accents
+still. Smooth mode also respects Windows’ animation preference. Ctrl+K, Ctrl+F
+and the dock shortcuts keep working when hover hints are off.

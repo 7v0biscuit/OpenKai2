@@ -27,6 +27,7 @@ struct Settings {
     unsigned cpuDifficulty = 0;
     bool autoUpdates = true;
     bool discordPresence = true;
+    bool reducedMotion = false, helpHints = true;
     unsigned updateChannel = 1;
     std::string renderer = "auto";
     int windowLeft = 0, windowTop = 0, windowWidth = 0, windowHeight = 0;
@@ -64,6 +65,8 @@ struct Settings {
         std::string id, initials, tagline;
         unsigned accent = 0;
         std::string image, imageName;
+        unsigned pictureFit = 0, availability = 0;
+        bool notifications = true;
     };
     std::vector<ProfileStyle> profileStyles;
     std::string onlineRoom, onlinePassword, onlineLobby;
@@ -84,5 +87,7 @@ std::filesystem::path textures_directory();
 Settings read_settings(const std::filesystem::path &file);
 void write_settings(const std::filesystem::path &file, const Settings &settings);
 void validate_settings(const Settings &settings);
+Settings profile_recovery(const Settings& settings, size_t index, const std::string& id);
+void restore_profile(Settings& settings, const Settings& recovery);
 std::wstring quote_argument(const std::wstring &value);
 }

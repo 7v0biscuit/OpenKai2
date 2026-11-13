@@ -88,7 +88,13 @@ void reveal_control(HWND control) {
         GetScrollInfo(window,SB_VERT,&before);SendMessageW(window,WM_VSCROLL,direction,0);GetScrollInfo(window,SB_VERT,&after);
         if(before.nPos==after.nPos) break;
     }
-    throw std::runtime_error("Cannot scroll to control "+std::to_string(GetDlgCtrlID(control)));
+    RECT bounds{},client{};GetWindowRect(control,&bounds);GetClientRect(window,&client);
+    MapWindowPoints(nullptr,window,reinterpret_cast<POINT*>(&bounds),2);
+    SCROLLINFO scroll{sizeof(scroll),SIF_ALL};GetScrollInfo(window,SB_VERT,&scroll);
+    throw std::runtime_error("Cannot scroll to control "+std::to_string(GetDlgCtrlID(control))+
+        " visible="+std::to_string(IsWindowVisible(control))+" client="+std::to_string(client.right)+","+std::to_string(client.bottom)+
+        " bounds="+std::to_string(bounds.left)+","+std::to_string(bounds.top)+","+std::to_string(bounds.right)+","+std::to_string(bounds.bottom)+
+        " scroll="+std::to_string(scroll.nPos)+" range="+std::to_string(scroll.nMax));
 }
 POINT control_center(HWND window,int id) {
     const auto bounds=visible_bounds(window,GetDlgItem(window,id));
@@ -303,6 +309,61 @@ void keyboard_choice(HWND combo,int index) {
         std::to_string(GetDlgCtrlID(combo))+" expected="+std::to_string(index)+
         " actual="+std::to_string(actual));
 }
+LRESULT CALLBACK focus_target_procedure(HWND window,UINT message,WPARAM wp,LPARAM lp) {
+    if(message==WM_APP+1) {AllowSetForegroundWindow(DWORD(wp));return 0;}
+    if(message==WM_DESTROY) {PostQuitMessage(0);return 0;}
+    return DefWindowProcW(window,message,wp,lp);
+}
+int run_focus_target() {
+    WNDCLASSW type{};type.lpfnWndProc=focus_target_procedure;type.hInstance=GetModuleHandleW(nullptr);
+    type.lpszClassName=L"OpenKai2.TestFocus";type.hbrBackground=HBRUSH(COLOR_WINDOW+1);
+    RegisterClassW(&type);
+    auto window=CreateWindowW(type.lpszClassName,L"Launcher focus test",WS_OVERLAPPEDWINDOW,
+        20,20,520,260,nullptr,nullptr,type.hInstance,nullptr);
+    if(!window)return 2;
+    ShowWindow(window,SW_SHOW);SetForegroundWindow(window);
+    MSG message{};while(GetMessageW(&message,nullptr,0,0)>0){TranslateMessage(&message);DispatchMessageW(&message);}
+    return 0;
+}
+struct FocusTarget {
+    PROCESS_INFORMATION process{};
+    HWND window{};
+    FocusTarget() {
+        wchar_t executable[32768]{};GetModuleFileNameW(nullptr,executable,32768);
+        auto command=quote_argument(executable)+L" --focus-target";
+        STARTUPINFOW startup{};startup.cb=sizeof(startup);
+        require(CreateProcessW(executable,command.data(),nullptr,nullptr,FALSE,CREATE_NO_WINDOW,
+                              nullptr,nullptr,&startup,&process)!=FALSE,"Cannot start the focus test window");
+        try {
+            wait_until([&]{window=FindWindowW(L"OpenKai2.TestFocus",nullptr);DWORD pid=0;
+                if(window)GetWindowThreadProcessId(window,&pid);return window && pid==process.dwProcessId;},
+                "Focus test window did not open");
+        } catch(...) {TerminateProcess(process.hProcess,2);CloseHandle(process.hThread);CloseHandle(process.hProcess);throw;}
+    }
+    void away() {
+        SetForegroundWindow(window);
+        wait_until([&]{return GetForegroundWindow()==window;},"Cannot switch away from the launcher");
+    }
+    void back(HWND launcher) {
+        SendMessageW(window,WM_APP+1,GetCurrentProcessId(),0);
+        SetForegroundWindow(launcher);
+        wait_until([&]{return GetForegroundWindow()==launcher;},"Cannot return to the launcher");
+        SendMessageW(launcher,WM_NULL,0,0);
+    }
+    ~FocusTarget() {
+        if(window)PostMessageW(window,WM_CLOSE,0,0);
+        if(WaitForSingleObject(process.hProcess,3000)==WAIT_TIMEOUT)TerminateProcess(process.hProcess,2);
+        CloseHandle(process.hThread);CloseHandle(process.hProcess);
+    }
+};
+void check_shell_alignment(HWND launcher) {
+    const auto dpiForWindow=reinterpret_cast<UINT(WINAPI*)(HWND)>(GetProcAddress(GetModuleHandleW(L"user32.dll"),"GetDpiForWindow"));
+    const int dpi=dpiForWindow?int(dpiForWindow(launcher)):96;
+    RECT client{},field{};GetClientRect(launcher,&client);GetWindowRect(GetDlgItem(launcher,1100),&field);
+    MapWindowPoints(nullptr,launcher,reinterpret_cast<POINT*>(&field),2);
+    require(std::abs(field.right-(client.right-MulDiv(36,dpi,96)))<=1,
+            "Scrollbar changes left the launcher header at a stale width");
+}
 }
 namespace openkai2::launcher {
 std::optional<UpdateRelease> check_for_updates(bool) {
@@ -317,7 +378,8 @@ void apply_update(const StagedUpdate &) {
     throw std::runtime_error("UI test unexpectedly tried to install an update");
 }
 }
-int main() {
+int main(int argc,char** argv) {
+    if(argc==2 && std::string(argv[1])=="--focus-target")return run_focus_target();
     enable_test_crash_trace();
     try {
         const auto root=std::filesystem::temp_directory_path()/
@@ -338,6 +400,33 @@ int main() {
                 wait_until([] { return updateStarted.load(); }, "Background update did not start");
                 require(IsWindowEnabled(GetDlgItem(w,110)) != FALSE,
                         "Background update check blocked choosing an ISO");
+                std::cout<<"[ui:stage] resize and application focus recovery"<<std::endl;
+                for(int height:{600,960,600,960}) {
+                    SetWindowPos(w,nullptr,0,0,1440,height,SWP_NOZORDER|SWP_NOACTIVATE);
+                    SendMessageW(w,WM_NULL,0,0);check_shell_alignment(w);
+                }
+                {
+                    FocusTarget other;other.back(w);
+                    for(int page:{106,103,102,101}) {
+                        click(w,page);SendMessageW(w,WM_VSCROLL,SB_BOTTOM,0);
+                        SCROLLINFO before{sizeof(before),SIF_POS},after{sizeof(after),SIF_POS};GetScrollInfo(w,SB_VERT,&before);
+                        other.away();other.back(w);
+                        GetScrollInfo(w,SB_VERT,&after);
+                        require(before.nPos==after.nPos,"Switching applications lost the launcher scroll position");
+                        check_shell_alignment(w);
+                    }
+                    click(w,106);
+                    const auto fps=GetDlgItem(w,141);open_dropdown(fps);key_press(VK_HOME);
+                    other.away();other.back(w);
+                    require(!SendMessageW(fps,CB_GETDROPPEDSTATE,0,0) && read_settings(settings_path()).fps==240,
+                            "Switching applications saved an unconfirmed dropdown choice or left its popup open");
+                    SendMessageW(w,WM_VSCROLL,SB_BOTTOM,0);SCROLLINFO before{sizeof(before),SIF_POS},after{sizeof(after),SIF_POS};
+                    GetScrollInfo(w,SB_VERT,&before);ShowWindow(w,SW_MINIMIZE);
+                    wait_until([&]{return IsIconic(w)!=FALSE;},"Launcher did not minimize");
+                    ShowWindow(w,SW_RESTORE);other.back(w);GetScrollInfo(w,SB_VERT,&after);
+                    require(before.nPos==after.nPos,"Minimizing lost the launcher scroll position");check_shell_alignment(w);
+                    click(w,101);
+                }
                 for (auto size : {std::pair{960,600},std::pair{1000,680},std::pair{1440,960}}) {
                     SetWindowPos(w,nullptr,0,0,size.first,size.second,SWP_NOZORDER|SWP_NOACTIVATE);
                     RECT client{};GetClientRect(w,&client);
@@ -356,15 +445,10 @@ int main() {
                 for(auto size:{std::pair{960,680},std::pair{1440,960}}) {
                     SetWindowPos(w,nullptr,0,0,size.first,size.second,SWP_NOZORDER|SWP_NOACTIVATE);
                     for(int id:{1000,1003,1004,1060,1061,1062,1063,1042,1043,1045,111,112,256,114}) {
-                        bool reachable=false;
-                        for(int position:{SB_TOP,SB_BOTTOM}) {
-                            SendMessageW(w,WM_VSCROLL,position,0);
-                            RECT bounds{},client{};GetWindowRect(GetDlgItem(w,id),&bounds);GetClientRect(w,&client);
-                            MapWindowPoints(nullptr,w,reinterpret_cast<POINT*>(&bounds),2);
-                            if(IsWindowVisible(GetDlgItem(w,id)) && bounds.top>=76 && bounds.bottom<=client.bottom-116 &&
-                               bounds.left>=0 && bounds.right<=client.right)reachable=true;
-                        }
-                        require(reachable,("A lounge control cannot be reached: "+std::to_string(id)).c_str());
+                        reveal_control(GetDlgItem(w,id));
+                        RECT bounds{},client{};GetWindowRect(GetDlgItem(w,id),&bounds);GetClientRect(w,&client);
+                        MapWindowPoints(nullptr,w,reinterpret_cast<POINT*>(&bounds),2);
+                        require(bounds.left>=0 && bounds.right<=client.right,("A lounge control leaves the window: "+std::to_string(id)).c_str());
                     }
                     SendMessageW(w,WM_VSCROLL,SB_TOP,0);
                 }
@@ -436,6 +520,25 @@ int main() {
                         !IsWindowEnabled(GetDlgItem(w,1041)),"Removing a profile picture deleted the original or stayed enabled");
                 drop_file(w,portrait);
                 require(!read_settings(settings_path()).profileStyles[0].image.empty(),"Dropping a profile picture did not work");
+                keyboard_choice(GetDlgItem(w,1220),1);keyboard_choice(GetDlgItem(w,1221),1);keyboard_choice(GetDlgItem(w,1228),2);click(w,1010);
+                picture=read_settings(settings_path());
+                require(picture.profileStyles[0].pictureFit==1 && !picture.profileStyles[0].notifications && picture.profileStyles[0].availability==2,
+                        "Profile picture framing or quiet mode was not saved");
+                Settings recovered;recovered.onlineName="Recovered profile";recovered.onlineProfiles={recovered.onlineName};recovered.onlineKeys={std::string(64,'c')};
+                const auto recoveryPath=settings_path().parent_path()/"profiles"/"recovery"/"last-removed.ini";
+                std::filesystem::create_directories(recoveryPath.parent_path());write_settings(recoveryPath,recovered);
+                click(w,1000);require(IsWindowEnabled(GetDlgItem(w,1224)),"Profile recovery is unavailable");click(w,1224);
+                auto restored=read_settings(settings_path());
+                require(restored.onlineName=="Recovered profile" && restored.onlineKeys.back()==std::string(64,'c') && !std::filesystem::exists(recoveryPath),
+                        "Profile recovery did not restore the original identity");
+                keyboard_choice(GetDlgItem(w,1222),0);click(w,1223);
+                restored=read_settings(settings_path());
+                require(restored.profileStyles.size()==2 && restored.profileStyles.back().image==picture.profileStyles[0].image && restored.profileStyles.back().notifications && restored.profileStyles.back().availability==0,
+                        "Copying appearance lost its picture or overwrote notification preferences");
+                keyboard_choice(GetDlgItem(w,246),0);
+                require(read_settings(settings_path()).onlineName==initial.onlineName,"The profile page cannot switch identities");
+                click(w,1210);require(IsWindowVisible(GetDlgItem(w,1013)),"Notification inbox has no return action");
+                click(w,1013);click(w,101);click(w,1000);
                 key_press(VK_LEFT,VK_MENU);
                 wait_until([&]{return IsWindowVisible(GetDlgItem(w,112)) && !IsWindowVisible(GetDlgItem(w,1007));},
                            "Alt+Left did not return from profile customization");
@@ -443,6 +546,24 @@ int main() {
                 SendMessageW(w,WM_VSCROLL,SB_TOP,0);
                 for(int id:{1000,1012,1042,1043,1044,1045})
                     require(IsWindowVisible(GetDlgItem(w,id)),"Online profile or browse controls are missing");
+                std::cout<<"[ui:stage] safe profile removal and recovery"<<std::endl;
+                const auto beforeRemoval=read_settings(settings_path());
+                for(int answer:{IDNO,IDYES}) {
+                    PostMessageW(GetDlgItem(w,248),BM_CLICK,0,0);
+                    HWND confirm{};wait_until([&]{confirm=FindWindowW(L"#32770",L"Remove profile");return confirm!=nullptr;},"Profile removal did not ask for confirmation");
+                    wait_until([&] {
+                        const auto keep=GetDlgItem(confirm,IDNO);GUITHREADINFO info{sizeof info};
+                        GetGUIThreadInfo(GetWindowThreadProcessId(confirm,nullptr),&info);
+                        return keep && ((GetWindowLongPtrW(keep,GWL_STYLE)&BS_TYPEMASK)==BS_DEFPUSHBUTTON || info.hwndFocus==keep);
+                    },"Profile deletion does not default to keeping the profile");
+                    SendMessageW(GetDlgItem(confirm,answer),BM_CLICK,0,0);
+                    wait_until([&]{return !IsWindow(confirm);},"Profile removal confirmation stayed open");
+                    SendMessageW(w,WM_NULL,0,0);
+                    require(read_settings(settings_path()).onlineProfiles.size()==beforeRemoval.onlineProfiles.size()-(answer==IDYES ? 1u : 0u),
+                            "Profile removal ignored the confirmation choice");
+                }
+                click(w,1224);
+                require(read_settings(settings_path()).onlineKeys.back()==beforeRemoval.onlineKeys[0],"Undo removal replaced the profile identity");
                 SetWindowTextW(GetDlgItem(w,1042),L"Kame House");
                 require(IsWindowEnabled(GetDlgItem(w,1045)),"Online search cannot be cleared");
                 click(w,1045);
@@ -475,11 +596,19 @@ int main() {
                 mouse_click(GetDlgItem(w,106),16,16);
                 wait_until([&]{return IsWindowVisible(GetDlgItem(w,1110));},"Settings did not open before the search shortcut");
                 key_press('F',VK_CONTROL);
-                wait_until([&]{return IsWindowVisible(GetDlgItem(w,1042));},"Ctrl+F did not open online search");
+                wait_until([&]{GUITHREADINFO info{sizeof info};GetGUIThreadInfo(GetWindowThreadProcessId(w,nullptr),&info);return info.hwndFocus==GetDlgItem(w,1110);},"Ctrl+F did not focus settings search");
                 SendMessageW(w,WM_VSCROLL,SB_BOTTOM,0);
                 click(w,106);
-                require(GetDlgItem(w,174)==nullptr,"The Discord toggle is still in the launcher");
+                require(GetDlgItem(w,174)!=nullptr,"The saved Discord preference has no launcher control");
                 require(!read_settings(settings_path()).discordPresence,"Startup ignored the saved Discord preference");
+                keyboard_choice(GetDlgItem(w,1226),1);keyboard_choice(GetDlgItem(w,1227),1);
+                require(read_settings(settings_path()).reducedMotion && !read_settings(settings_path()).helpHints,
+                        "Interface motion or hint preferences were not saved");
+                click(w,1114);require(read_settings(settings_path()).helpHints && read_settings(settings_path()).reducedMotion,
+                        "Undo did not restore help hints independently");
+                keyboard_choice(GetDlgItem(w,1226),0);
+                click(w,1200);
+
                 SetWindowTextW(GetDlgItem(w,1110),L"graphics");
                 require(IsWindowVisible(GetDlgItem(w,140)) && !IsWindowVisible(GetDlgItem(w,143)),
                         "Settings search did not filter and reflow sections");

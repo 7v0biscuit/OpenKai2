@@ -4,6 +4,7 @@
 #include "speedrun_images.h"
 #include "disc_image.h"
 #include "launcher/paths.h"
+#include <map>
 #include <algorithm>
 #include <cctype>
 #include <set>
@@ -63,7 +64,7 @@ void validate_settings(const Settings &s) {
     if (s.profileStyles.size() > 32) throw std::runtime_error("Too many profile appearances");
     for (const auto& style : s.profileStyles) {
         if (style.id.size()!=64 || !std::all_of(style.id.begin(),style.id.end(),[](unsigned char c){return std::isxdigit(c)!=0;}) ||
-            !profileIds.insert(style.id).second || style.accent>=accent_count || style.initials.size()>8 || style.tagline.size()>192 ||
+            !profileIds.insert(style.id).second || style.accent>=accent_count || style.pictureFit>1 || style.availability>2 || style.initials.size()>8 || style.tagline.size()>192 ||
             style.initials.find_first_of("\r\n")!=std::string::npos || style.tagline.find_first_of("\r\n")!=std::string::npos ||
             !speedrun::valid_image_file(style.image) || style.imageName.size()>1024 || style.imageName.find_first_of("\r\n")!=std::string::npos)
             throw std::runtime_error("Invalid profile appearance");
@@ -86,6 +87,8 @@ void validate_settings(const Settings &s) {
 Settings read_settings(const std::filesystem::path &file) {
     Settings s;
     std::vector<std::array<std::string,3>> profileImages;
+    std::map<std::string,std::pair<unsigned,bool>> profileOptions;
+    std::map<std::string,unsigned> profileAvailability;
     bool tabLayout = false, graphicsProfile = false;
     std::ifstream in(file);
     if (!in) {
@@ -116,7 +119,9 @@ Settings read_settings(const std::filesystem::path &file) {
             std::string p;
             row >> std::quoted(p);
             s.importIso = std::filesystem::u8path(p);
-        } else if (key == "fps")
+        } else if (key == "launcher_motion")
+            row >> s.reducedMotion >> s.helpHints;
+        else if (key == "fps")
             row >> s.fps;
         else if (key == "width")
             row >> s.width;
@@ -238,6 +243,16 @@ Settings read_settings(const std::filesystem::path &file) {
             row >> s.onlineVisibility;
         else if (key == "online_filters")
             row >> s.onlineRoomFilter >> s.onlinePlayerFilter;
+        else if (key == "profile_availability") {
+            std::string id;unsigned availability;row >> std::quoted(id) >> availability;
+            if(!profileAvailability.emplace(id,availability).second)throw std::runtime_error("Duplicate profile availability");
+        }
+        else if (key == "profile_options") {
+            std::string id;unsigned fit;bool notifications;
+            row >> std::quoted(id) >> fit >> notifications;
+            if (!profileOptions.emplace(id,std::make_pair(fit,notifications)).second)
+                throw std::runtime_error("Duplicate profile options");
+        }
         else if (key == "profile_image") {
             std::array<std::string,3> image;
             row >> std::quoted(image[0]) >> std::quoted(image[1]) >> std::quoted(image[2]);
@@ -308,6 +323,18 @@ Settings read_settings(const std::filesystem::path &file) {
         }
         found->image=image[1];found->imageName=image[2];
     }
+    for (const auto& [id,options] : profileOptions) {
+        auto found=std::find_if(s.profileStyles.begin(),s.profileStyles.end(),[&](const auto& style){return style.id==id;});
+        if(found==s.profileStyles.end()) {
+            s.profileStyles.push_back({id,{},{},0,{},{}});found=std::prev(s.profileStyles.end());
+        }
+        found->pictureFit=options.first;found->notifications=options.second;
+    }
+    for(const auto& [id,availability]:profileAvailability) {
+        auto found=std::find_if(s.profileStyles.begin(),s.profileStyles.end(),[&](const auto& style){return style.id==id;});
+        if(found==s.profileStyles.end()) {s.profileStyles.push_back({id,{},{},0,{},{}});found=std::prev(s.profileStyles.end());}
+        found->availability=availability;
+    }
     validate_settings(s);
     if (s.hdTextures && s.internalScale == 1)
         s.internalScale = 2;
@@ -333,6 +360,7 @@ void write_settings(const std::filesystem::path &file, const Settings &s) {
         << "\ndiscord_presence " << s.discordPresence << "\nimport_iso " << std::quoted(path_utf8(s.importIso))
         << "\nlauncher_window " << s.windowLeft << ' ' << s.windowTop << ' ' << s.windowWidth << ' '
         << s.windowHeight << ' ' << s.windowMaximized << "\nlauncher_skin " << s.launcherTheme << ' ' << s.launcherAccent << ' ' << s.startPage << ' ' << s.lastPage
+        << "\nlauncher_motion " << s.reducedMotion << ' ' << s.helpHints
         << "\nlauncher_tabs";
     for (unsigned tab : s.tabOrder)
         out << ' ' << tab;
@@ -365,6 +393,8 @@ void write_settings(const std::filesystem::path &file, const Settings &s) {
         out << "online_friend " << entry.owner << ' ' << entry.id << ' ' << std::quoted(entry.name) << '\n';
     out << "online_filters " << s.onlineRoomFilter << ' ' << s.onlinePlayerFilter << '\n';
     for (const auto& style : s.profileStyles) {
+        out << "profile_availability " << std::quoted(style.id) << ' ' << style.availability << '\n';
+        out << "profile_options " << std::quoted(style.id) << ' ' << style.pictureFit << ' ' << style.notifications << '\n';
         if(!style.image.empty())out << "profile_image " << std::quoted(style.id) << ' ' << std::quoted(style.image) << ' ' << std::quoted(style.imageName) << '\n';
         out << "profile_style " << std::quoted(style.id) << ' ' << style.accent << ' ' << std::quoted(style.initials) << ' ' << std::quoted(style.tagline) << '\n';
     }
@@ -381,6 +411,51 @@ void write_settings(const std::filesystem::path &file, const Settings &s) {
 #else
     std::filesystem::rename(temporary, file);
 #endif
+}
+Settings profile_recovery(const Settings& settings, size_t index, const std::string& id) {
+    if(index>=settings.onlineProfiles.size() || index>=settings.onlineKeys.size() || id.empty())
+        throw std::runtime_error("This profile has no recoverable identity");
+    Settings recovery;
+    recovery.onlineName=settings.onlineProfiles[index];
+    recovery.onlineProfiles={recovery.onlineName};
+    recovery.onlineKeys={settings.onlineKeys[index]};
+    for(const auto& style:settings.profileStyles)if(style.id==id)recovery.profileStyles.push_back(style);
+    for(const auto& entry:settings.onlineFriends)if(entry.owner==id)recovery.onlineFriends.push_back(entry);
+    validate_settings(recovery);
+    return recovery;
+}
+void restore_profile(Settings& settings, const Settings& recovery) {
+    validate_settings(recovery);
+    if(recovery.onlineProfiles.size()!=1 || recovery.onlineKeys.size()!=1)
+        throw std::runtime_error("This file is not a profile recovery backup");
+    if(settings.onlineProfiles.size()>=32)throw std::runtime_error("Remove a profile before restoring another");
+    for(size_t i=0;i<settings.onlineProfiles.size();++i) {
+        const auto key=[](const std::string& name) {
+            std::string result;
+            for(unsigned char c:name) {
+                if(c>='A' && c<='Z')result.push_back(char(c+32));
+                else if((c>='a' && c<='z') || (c>='0' && c<='9') || c>=0x80)result.push_back(char(c));
+            }
+            return result;
+        };
+        const auto a=key(settings.onlineProfiles[i]),b=key(recovery.onlineProfiles[0]);
+        if(a==b || (i<settings.onlineKeys.size() && settings.onlineKeys[i]==recovery.onlineKeys[0]))
+            throw std::runtime_error("That profile is already available on this PC");
+    }
+    Settings next=settings;
+    next.onlineKeys.resize(next.onlineProfiles.size());
+    next.onlineProfiles.push_back(recovery.onlineProfiles[0]);
+    next.onlineKeys.push_back(recovery.onlineKeys[0]);
+    next.onlineName=recovery.onlineProfiles[0];
+    for(const auto& style:recovery.profileStyles) {
+        if(std::none_of(next.profileStyles.begin(),next.profileStyles.end(),[&](const auto& existing){return existing.id==style.id;}))
+            next.profileStyles.push_back(style);
+    }
+    for(const auto& entry:recovery.onlineFriends) {
+        if(std::none_of(next.onlineFriends.begin(),next.onlineFriends.end(),[&](const auto& existing){return existing.id==entry.id && existing.owner==entry.owner;}))
+            next.onlineFriends.push_back(entry);
+    }
+    validate_settings(next);settings=std::move(next);
 }
 std::wstring quote_argument(const std::wstring &v) {
     std::wstring result = L"\"";

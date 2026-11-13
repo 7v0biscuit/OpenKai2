@@ -2,6 +2,7 @@
 #include "launcher/window.h"
 #include "discord_presence.h"
 #include "launcher/display_font.h"
+#include "launcher/layout.h"
 #include "launcher/banners.h"
 #include "disc_image.h"
 #include "launcher/saves.h"
@@ -103,11 +104,17 @@ constexpr int shellHeader = 76, shellDockReserve = 116;
 constexpr int speedrunTop = 112, splitsTop = 284, speedrunRulesTop = 526;
 constexpr int onlineProfileTop = 112, onlineHostTop = 248, onlineHostBottom = 352, onlineListsTop = 364;
 struct LoungeLayout {
-    int left=contentLeft, friendsWidth, centre, centreRight, details, right, bottom, gameBottom, roomsTop, notesTop, notesBottom;
-    LoungeLayout(int width,int height) : friendsWidth(std::clamp(width*17/100,188,222)),
-        centre(left+friendsWidth+20), centreRight(left+width-std::clamp(width*23/100,232,294)-20),
-        details(centreRight+20),right(left+width),bottom(height-128),gameBottom(332),
-        roomsTop(gameBottom+86),notesTop(height-112),notesBottom(height-32) {}
+    bool compact;
+    int left=contentLeft, friendsLeft, friendsWidth, friendsBottom, centre, centreRight, details, detailsTop,
+        right, bottom, gameBottom, roomsTop, notesTop, notesBottom;
+    LoungeLayout(int width,int height) : compact(width<1100),
+        friendsWidth(compact ? std::clamp(width*28/100,240,292) : std::clamp(width*17/100,188,222)),
+        friendsBottom(compact ? 424 : height-128),centre(compact ? left : left+friendsWidth+20),
+        centreRight(left+width-(compact ? friendsWidth : std::clamp(width*23/100,232,294))-20),
+        details(centreRight+20),detailsTop(compact ? 440 : 112),right(left+width),bottom(height-128),
+        gameBottom(348),roomsTop(gameBottom+92),notesTop(height-112),notesBottom(height-32) {
+        friendsLeft=compact ? details : left;
+    }
     int centreWidth() const{return centreRight-centre;}
     int detailsWidth() const{return right-details;}
 };
@@ -282,11 +289,16 @@ enum Id {
     ControlPad = 450,
     FindAction = 1100, ActionSearch, ActionList, ActionOpen, ActionClose,
     BackToPlay, VerifySelectedIso, SaveSearch, SaveSort, ClearSaveSearch,
-    SettingsSearch, ClearSettingsSearch, ResetDisplay, ResetGame, UndoSettings
+    SettingsSearch, ClearSettingsSearch, ResetDisplay, ResetGame, UndoSettings,
+    SettingsAll=1200, SettingsDisplay, SettingsGraphics, SettingsGame, SettingsLauncher,
+    OpenNotifications=1210,
+    ProfileFit=1220, ProfileNotifications, ProfileCopyFrom, ProfileCopyStyle, ProfileRecover, ProfileManage, LauncherMotion, LauncherHints, ProfileAvailability
 };
 constexpr int pageCount = 8, onlinePage = 1, speedrunPage = 2, modsPage = 3, savesPage = 4, settingsPage = 5, updatesPage = 6,
-              controlsPage = 7, importPage = 8, overlayPage = 9, tabsPage = 10, colorsPage = 11, profilePage = 12, finderPage = 13;
-constexpr UINT controlKeyMessage = WM_APP + 40, controlClearMessage = WM_APP + 41, pageClipMessage = WM_APP + 42;
+              controlsPage = 7, importPage = 8, overlayPage = 9, tabsPage = 10, colorsPage = 11,
+              profilePage = 12, finderPage = 13, notificationsPage=14;
+constexpr UINT controlKeyMessage = WM_APP + 40, controlClearMessage = WM_APP + 41,
+               pageClipMessage = WM_APP + 42, restoreUiMessage = WM_APP + 43;
 constexpr std::array<int, 17> padChoices{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17};
 constexpr int controlsTop = 112, controlRowTop = 196;
 constexpr std::array<unsigned, 4> audioVolumes{100u, 75u, 50u, 25u};
@@ -787,7 +799,7 @@ struct Fonts {
         brand = font(17, FW_SEMIBOLD);
         strong = font(14, FW_SEMIBOLD);
         wordmark = font(56, FW_SEMIBOLD, lettering);
-        gameName = font(54, FW_SEMIBOLD, lettering);
+        gameName = font(66, FW_SEMIBOLD, lettering);
         title = font(28, FW_SEMIBOLD);
         mark = font(24, FW_SEMIBOLD);
     }
@@ -832,33 +844,6 @@ struct ControlsLayout {
     int y(unsigned index) const { return controlRowTop + int(index % 8) * 44 + (stacked ? int(index / 8) * 392 : 0); }
     int bottom() const { return controlRowTop + 8 * 44 + (stacked ? 392 : 0) + 8; }
 };
-struct SettingsGrid : Grid {
-    int header, rowHeight, gap, controlHeight, fieldGap;
-    int displayTop = 180, graphicsTop, gameTop, updatesTop;
-    SettingsGrid(int width, int height) : Grid(width) {
-        header = 62; rowHeight = 60; gap = 14; controlHeight = 36; fieldGap = 20;
-        gameTop = bottom(displayTop, 2) + gap;
-        graphicsTop = bottom(gameTop, 2) + gap;
-        updatesTop = bottom(graphicsTop, 2) + gap;
-    }
-    int bottom(int top, int rows) const { return top + header + rows * rowHeight + 4; }
-    int label(int top, int row) const { return top + header + row * rowHeight; }
-    int field(int top, int row) const { return label(top, row) + fieldGap; }
-    void filter(const std::wstring &query) {
-        const wchar_t *keywords[] = {
-            L"display window resolution aspect frame fps vsync audio volume",
-            L"game cpu difficulty textures music randomizer load times counter",
-            L"graphics renderer anti aliasing filtering upscaling presets fsr internal resolution",
-            L"launcher theme accent colors tabs start page appearance"};
-        int next = 180;
-        int *tops[] = {&displayTop, &gameTop, &graphicsTop, &updatesTop};
-        for (int i = 0; i < 4; ++i) {
-            const bool shown = query.empty() || std::wstring(keywords[i]).find(query) != std::wstring::npos;
-            *tops[i] = shown ? next : -1;
-            if (shown) next = bottom(next, i == 3 ? 1 : 2) + gap;
-        }
-    }
-};
 LRESULT CALLBACK combo_procedure(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK button_procedure(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK edit_procedure(HWND, UINT, WPARAM, LPARAM);
@@ -867,6 +852,8 @@ struct Window {
     HWND hwnd{}, hoverHints{};
     std::map<int, std::wstring> hintText;
     std::map<int, LRESULT> dropdownOriginal;
+    std::map<int,int> comboTextWidths;
+    std::set<int> comboValueHints;
     Fonts fonts;
     const wchar_t *letteringFace = L"Barlow Condensed SemiBold";
     unsigned dpi = 96;
@@ -1003,6 +990,7 @@ struct Window {
     };
     std::shared_ptr<NameCheck> nameCheck;
     int capturing = -1;
+    LPARAM pendingCaptureAlt=0;
     std::string hostingRoom, hostingToken, pendingInvitee;
     std::chrono::steady_clock::time_point inviteDeadline{};
     bool trayAdded = false, wasRunning = false;
@@ -1012,8 +1000,47 @@ struct Window {
     int dockTarget=-1;
     ULONGLONG dockStarted=0;
     bool homeFriendsOnly=false;
-    bool layoutPending=false, forwardingWheel=false;
-    int finderFrom = 0, finderReturnPage = 0;
+    bool layoutPending=false, forwardingWheel=false, layingOut=false, layoutAgain=false;
+    bool appActive=true, wasMinimized=false, restoreQueued=false, closingDropdowns=false;
+    HWND lastFocusedControl{};
+    void queueUiRestore() {
+        if (!restoreQueued && hwnd && !closing) {
+            restoreQueued=true;
+            PostMessageW(hwnd,restoreUiMessage,0,0);
+        }
+    }
+    void suspendUi() {
+        if (const auto focus=GetFocus(); focus && IsChild(hwnd,focus)) lastFocusedControl=focus;
+        hotButton=0;
+        closingDropdowns=true;
+        const auto originals=dropdownOriginal;
+        for (const auto& [id,control] : controls) {
+            RemovePropW(control,L"OpenKai2.Hot");
+            wchar_t kind[32]{};GetClassNameW(control,kind,32);
+            if (_wcsicmp(kind,L"ComboBox")!=0) continue;
+            if (const auto choice=originals.find(id); choice!=originals.end())
+                SendMessageW(control,CB_SETCURSEL,choice->second,0);
+            if (SendMessageW(control,CB_GETDROPPEDSTATE,0,0)) SendMessageW(control,CB_SHOWDROPDOWN,FALSE,0);
+        }
+        dropdownOriginal.clear(); closingDropdowns=false;
+        if (hoverHints) SendMessageW(hoverHints,TTM_POP,0,0);
+        pendingCaptureAlt=0;
+        if (capturing>=0) {capturing=-1;refreshControls();}
+        if (dockStarted) {dockPosition=double(dockTarget);dockStarted=0;KillTimer(hwnd,4);}
+    }
+    void restoreUi() {
+        restoreQueued=false;
+        if (!appActive || IsIconic(hwnd) || !IsWindowVisible(hwnd) || !IsWindowEnabled(hwnd) || picking || controls.empty()) return;
+        ambient.clear(); paintedPage=-1; paintedScroll=-1; paintedSize={};
+        layout();
+        renderFrame();
+        const auto focus=GetFocus();
+        if ((!focus || focus==hwnd) && lastFocusedControl && IsWindow(lastFocusedControl) &&
+            IsChild(hwnd,lastFocusedControl) && IsWindowVisible(lastFocusedControl) && IsWindowEnabled(lastFocusedControl))
+            SetFocus(lastFocusedControl);
+        RedrawWindow(hwnd,nullptr,nullptr,RDW_INVALIDATE|RDW_ERASE|RDW_FRAME|RDW_ALLCHILDREN);
+    }
+    int finderFrom = 0, finderReturnPage = 0, profileReturnPage=0;
     struct Action { int id; const wchar_t *name; const wchar_t *keywords; };
     const std::vector<Action> actions{
         {Play, L"Play game", L"start offline launch"},
@@ -1027,9 +1054,14 @@ struct Window {
         {OpenOverlay, L"Customize speedrun overlay", L"split images png jpeg gif"},
         {ModsTab, L"Mods", L"characters stages import"},
         {SettingsTab, L"Settings", L"display graphics audio theme"},
+        {SettingsDisplay,L"Display settings",L"window resolution aspect ratio frame rate fps cap vsync volume audio fullscreen"},
+        {SettingsGraphics,L"Graphics settings",L"renderer anti aliasing texture filtering upscaling fsr internal resolution image"},
+        {SettingsGame,L"Game settings",L"cpu difficulty music textures randomizer load times fps counter"},
+        {SettingsLauncher,L"Launcher appearance",L"theme accent colors start page discord activity"},
         {ArrangeTabs, L"Arrange tabs", L"dock navigation order hide"},
         {UpdatesTab, L"Updates", L"release patch notes download"},
-        {OpenLogs, L"Open logs folder", L"diagnostics startup launcher"}
+        {OpenLogs, L"Open logs folder", L"diagnostics startup launcher"},
+        {OpenNotifications,L"Notifications",L"friend requests invitations online"}
     };
     std::vector<size_t> actionRows;
     std::optional<Settings> previousSettings;
@@ -1037,11 +1069,14 @@ struct Window {
         return std::tie(s.renderer, s.fps, s.width, s.height, s.windowMode, s.aspect, s.antialiasing,
             s.textureFilter, s.upscaler, s.internalScale, s.hdTextures, s.music, s.vsync, s.cpuDifficulty,
             s.audio, s.volume, s.fpsCounter, s.randomizer, s.ps2LoadTimes, s.launcherTheme, s.launcherAccent,
-            s.launcherColors, s.startPage);
+            s.launcherColors, s.startPage, s.discordPresence, s.reducedMotion, s.helpHints);
     }
     static std::wstring searchText(std::wstring value) {
         std::transform(value.begin(), value.end(), value.begin(), [](wchar_t c) { return wchar_t(std::towlower(c)); });
         return value;
+    }
+    static bool matchesSearch(const std::wstring& text,const std::wstring& query) {
+        return ui::matchesTerms(text,query);
     }
     void refreshActions() {
         const auto query = searchText(trimmed(textOf(ActionSearch)));
@@ -1049,7 +1084,7 @@ struct Window {
         actionRows.clear();
         for (size_t i = 0; i < actions.size(); ++i) {
             const auto haystack = searchText(std::wstring(actions[i].name) + L" " + actions[i].keywords);
-            if (!query.empty() && haystack.find(query) == std::wstring::npos) continue;
+            if (!matchesSearch(haystack,query)) continue;
             actionRows.push_back(i);
             SendMessageW(controls[ActionList], LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(actions[i].name));
         }
@@ -1058,6 +1093,7 @@ struct Window {
         InvalidateRect(hwnd, nullptr, FALSE);
     }
     void openActionFinder() {
+        if(page==finderPage) {SetFocus(controls[ActionSearch]);SendMessageW(controls[ActionSearch],EM_SETSEL,0,-1);return;}
         if (page != finderPage) { finderReturnPage = page; finderFrom = navigationPage(); }
         page = finderPage;
         SetWindowTextW(controls[ActionSearch], L"");
@@ -1081,14 +1117,12 @@ struct Window {
         const int controlsHeight = width < 1180 ? 1120 : 760;
         int settingsHeight = 970;
         if (page == settingsPage && controls.count(SettingsSearch)) {
-            SettingsGrid grid(width, 970);
+            ui::SettingsLayout grid(width);
             grid.filter(searchText(trimmed(textOf(SettingsSearch))));
-            settingsHeight = 680;
-            for (auto [top,rows] : {std::pair{grid.displayTop,2}, {grid.gameTop,2}, {grid.graphicsTop,2}, {grid.updatesTop,1}})
-                if (top >= 0) settingsHeight = std::max(settingsHeight,grid.bottom(top,rows)+48);
+            settingsHeight=grid.height();
         }
         return std::max(page == overlayPage ? 880 : page == onlinePage ? 740 : page == controlsPage ? controlsHeight :
-                        page == settingsPage ? settingsHeight : page == 0 ? 740 : page == savesPage ? 780 : 680, pageVisibleHeight());
+                        page == settingsPage ? settingsHeight : page == profilePage ? 980 : page == 0 ? (width<1100 ? 1040 : 740) : page == savesPage ? 780 : 680, pageVisibleHeight());
     }
     void scrollPage(int value) {
         if (dropdownOpen())
@@ -1096,6 +1130,16 @@ struct Window {
         const int next=std::clamp(value,0,pageCanvasHeight()-pageVisibleHeight());
         if(next==pageScroll)return;
         pageScroll=next;layout();InvalidateRect(hwnd,nullptr,FALSE);
+    }
+    void focusControl(int id) {
+        if(dropdownOpen())suspendUi();
+        const auto control=controls.at(id);
+        RECT bounds{};GetWindowRect(control,&bounds);
+        MapWindowPoints(nullptr,hwnd,reinterpret_cast<POINT*>(&bounds),2);
+        if(bounds.top<p(shellHeader))scrollPage(pageScroll+unscale(bounds.top)-shellHeader-12);
+        else if(bounds.bottom>p(shellHeader+pageVisibleHeight()))
+            scrollPage(pageScroll+unscale(bounds.bottom)-shellHeader-pageVisibleHeight()+12);
+        SetFocus(control);
     }
     bool routeWheelToControl(WPARAM keys, LPARAM position) {
         const POINT screen{GET_X_LPARAM(position), GET_Y_LPARAM(position)};
@@ -1118,8 +1162,8 @@ struct Window {
     int p(int n) const { return MulDiv(n, int(dpi), 96); }
     int unscale(int n) const { return MulDiv(n, 96, int(dpi)); }
     int navigationPage() const {
-        return page == finderPage ? finderFrom : page == savesPage || page == controlsPage ? 0 :
-               page == profilePage ? onlinePage : page == importPage ? modsPage : page == overlayPage ? speedrunPage : page == tabsPage || page == colorsPage ? settingsPage : page;
+        return page == notificationsPage ? onlinePage : page == finderPage ? finderFrom : page == savesPage || page == controlsPage ? 0 :
+               page == profilePage ? profileReturnPage : page == importPage ? modsPage : page == overlayPage ? speedrunPage : page == tabsPage || page == colorsPage ? settingsPage : page;
     }
     std::vector<int> visibleTabs() const {
         std::vector<int> shown;
@@ -1134,6 +1178,7 @@ struct Window {
         return found == shown.end() ? -1 : int(found - shown.begin());
     }
     bool allowMotion() const {
+        if(settings.reducedMotion)return false;
         BOOL enabled=TRUE;
         return !SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION,0,&enabled,0) || enabled;
     }
@@ -1238,10 +1283,14 @@ struct Window {
     void openProfile() {
         const auto profile=activeProfile();
         if(!profile){page=onlinePage;layout();SetFocus(controls[OnlineName]);InvalidateRect(hwnd,nullptr,FALSE);return;}
+        if(page!=profilePage)profileReturnPage=navigationPage();
         const auto style=profileStyle(profile->id);
         SetWindowTextW(controls[ProfileInitials],style ? wide(style->initials).c_str() : L"");
         SetWindowTextW(controls[ProfileTagline],style ? wide(style->tagline).c_str() : L"");
         SendMessageW(controls[ProfileAccent],CB_SETCURSEL,style ? style->accent : 0,0);
+        SendMessageW(controls[ProfileFit],CB_SETCURSEL,style ? style->pictureFit : 0,0);
+        SendMessageW(controls[ProfileAvailability],CB_SETCURSEL,style ? style->availability : 0,0);
+        SendMessageW(controls[ProfileNotifications],CB_SETCURSEL,style && !style->notifications ? 1 : 0,0);
         page=profilePage;layout();InvalidateRect(hwnd,nullptr,FALSE);
     }
     std::filesystem::path profileImageDirectory() const {return settings_path().parent_path()/"profiles"/"images";}
@@ -1256,6 +1305,9 @@ struct Window {
         found->tagline=utf8(trimmed(textOf(ProfileTagline)));
         found->accent=unsigned(std::max(0,selected(ProfileAccent)));
         found->image=file;found->imageName=name;
+        found->pictureFit=unsigned(std::max(0,selected(ProfileFit)));
+        found->availability=unsigned(std::max(0,selected(ProfileAvailability)));
+        found->notifications=selected(ProfileNotifications)!=1;
         write_settings(settings_path(),next);settings=std::move(next);cycleTimer();openProfile();
         status=file.empty() ? L"Profile picture removed. Your original file was kept." : L"Profile picture saved on this PC.";
         error=false;
@@ -1273,7 +1325,7 @@ struct Window {
             try{found->second=speedrun::load_split_image(profileImageDirectory()/file);}
             catch(const std::exception& error){std::cout<<"[launcher:profile-image] "<<error.what()<<std::endl;}
         }
-        if(found->second.frames.size()>1 && !imageAnimationTicking) {
+        if(found->second.frames.size()>1 && allowMotion() && !imageAnimationTicking) {
             imageAnimationTicking=true;SetTimer(hwnd,3,33,nullptr);
         }
         return found->second.frames.empty() ? nullptr : &found->second;
@@ -1299,14 +1351,15 @@ struct Window {
         }
         return out.empty() ? std::wstring(L"?") : out;
     }
-    void paintRoundPhoto(HDC dc,const speedrun::SplitImage& image,int cx,int cy,int radius) {
+    void paintRoundPhoto(HDC dc,const speedrun::SplitImage& image,int cx,int cy,int radius,bool fit) {
         const int side=std::max(2,radius*2);
-        const auto& frame=image.frames[image.frame_at(GetTickCount64())].rgba;
-        const double scale=std::max(double(side)/image.width,double(side)/image.height);
+        const auto& frame=image.frames[image.frame_at(allowMotion() ? GetTickCount64() : 0)].rgba;
+        const double scale=fit ? std::min(double(side)/image.width,double(side)/image.height) : std::max(double(side)/image.width,double(side)/image.height);
         std::vector<unsigned char> pixels(size_t(side)*side*4);
         for(int y=0;y<side;++y)for(int x=0;x<side;++x) {
             const double coverage=std::clamp(radius+.5-std::hypot(x+.5-radius,y+.5-radius),0.0,1.0);
             if(coverage<=0)continue;
+            if(fit && (std::abs(x+.5-side/2.0)>image.width*scale/2 || std::abs(y+.5-side/2.0)>image.height*scale/2))continue;
             const double sx=std::clamp((x+.5-side/2.0)/scale+image.width/2.0-.5,0.0,double(image.width-1));
             const double sy=std::clamp((y+.5-side/2.0)/scale+image.height/2.0-.5,0.0,double(image.height-1));
             const unsigned x0=unsigned(sx),y0=unsigned(sy),x1=std::min(x0+1,image.width-1),y1=std::min(y0+1,image.height-1);
@@ -1334,13 +1387,13 @@ struct Window {
     void avatar(HDC dc, int cx, int cy, int radius, const std::wstring &name, const std::string &key, COLORREF ring,
                 int presence = -1, bool dim = false) {
         const auto style=profileStyle(key);
-        const auto accent=style ? (style->accent==rgb_accent ? colorOf(cycling_accent(GetTickCount64())) : style->accent ? colorOf(accents[style->accent].color) : orange) : avatarTone(key);
+        const auto accent=style ? (style->accent==rgb_accent ? colorOf(cycling_accent(allowMotion() ? GetTickCount64() : 0)) : style->accent ? colorOf(accents[style->accent].color) : orange) : avatarTone(key);
         const COLORREF tone = dim ? mix(accent, panel, 150) : accent;
         ellipse(dc, cx, cy, radius + std::max(1, radius / 8), ring);
         ellipse(dc, cx, cy, radius, tone);
         const auto image=style ? profileImage(style->image) : nullptr;
         if(image) {
-            paintRoundPhoto(dc,*image,cx,cy,std::max(1,radius-std::max(1,p(2))));
+            paintRoundPhoto(dc,*image,cx,cy,std::max(1,radius-std::max(1,p(2))),style->pictureFit==1);
         } else {
         auto old = SelectObject(dc, radius >= p(18) ? fonts.strong : fonts.label);
         SetBkMode(dc, TRANSPARENT);
@@ -1475,7 +1528,7 @@ struct Window {
     }
     void place(int id, int x, int y, int w, int h, bool visible = true) {
         auto c = controls.at(id);
-        const bool pageControl = !(id >= PlayTab && id <= ControlsTab) && id != FindAction;
+        const bool pageControl = !(id >= PlayTab && id <= ControlsTab) && id != FindAction && id != OpenNotifications;
         if (pageControl) {
             y += shellHeader - pageScroll;
             const int viewportBottom = shellHeader + pageVisibleHeight();
@@ -1483,12 +1536,35 @@ struct Window {
         }
         wchar_t type[32]{};
         GetClassNameW(c, type, 32);
+        if (_wcsicmp(type,L"EDIT")==0 && !(GetWindowLongPtrW(c,GWL_STYLE)&ES_MULTILINE) && h>24) {
+            y+=(h-22)/2;h=22;
+        }
+        if (_wcsicmp(type,L"LISTBOX")==0) h=std::min(h,std::max(100,pageVisibleHeight()-40));
         int allocatedHeight = p(h);
         if (lstrcmpiW(type, L"ComboBox") == 0) {
             const auto rows = std::min<LRESULT>(8, SendMessageW(c, CB_GETCOUNT, 0, 0));
             allocatedHeight = std::max(allocatedHeight, p(36)) + int(rows) * p(34) + p(8);
             SendMessageW(c, CB_SETITEMHEIGHT, WPARAM(-1), p(h - 6));
             SendMessageW(c, CB_SETITEMHEIGHT, 0, p(34));
+            if(!comboTextWidths.count(id)) {
+                auto dc=GetDC(c);auto previous=SelectObject(dc,fonts.body);int longest=0;
+                const auto count=SendMessageW(c,CB_GETCOUNT,0,0);
+                for(LRESULT row=0;row<count;++row) {
+                    const auto length=SendMessageW(c,CB_GETLBTEXTLEN,row,0);
+                    if(length<0 || length>32767)continue;
+                    std::wstring value(size_t(length)+1,L'\0');SendMessageW(c,CB_GETLBTEXT,row,LPARAM(value.data()));
+                    SIZE size{};GetTextExtentPoint32W(dc,value.data(),int(length),&size);longest=std::max(longest,int(size.cx));
+                }
+                SelectObject(dc,previous);ReleaseDC(c,dc);comboTextWidths[id]=longest+p(48);
+            }
+            MONITORINFO screen{sizeof(screen)};GetMonitorInfoW(MonitorFromWindow(c,MONITOR_DEFAULTTONEAREST),&screen);
+            const int popupLimit=std::max(p(w),int(screen.rcWork.right-screen.rcWork.left)-p(24));
+            SendMessageW(c,CB_SETDROPPEDWIDTH,std::min(popupLimit,std::max(p(w),comboTextWidths[id])),0);
+            const int choice=selected(id);const auto length=SendMessageW(c,CB_GETLBTEXTLEN,choice,0);
+            if(length>=0 && length<32768 && (!hintText.count(id) || comboValueHints.count(id))) {
+                std::wstring value(size_t(length)+1,L'\0');SendMessageW(c,CB_GETLBTEXT,choice,LPARAM(value.data()));value.resize(size_t(length));
+                if(comboTextWidths[id]>p(w) || comboValueHints.count(id)) {hint(id,value);comboValueHints.insert(id);}
+            }
         }
         if (planning) {
             (*planning)[id] = Placement{p(x), p(y), p(w), allocatedHeight, visible};
@@ -1535,6 +1611,7 @@ struct Window {
         hint(ChooseIso, L"Choose your Budokai 2 USA ISO (Ctrl+O). You can also drop it onto the launcher.");
         hint(VerifyIso, L"Check the selected disc and required game files.");
         hint(HomeProfile, L"Customize your profile picture, initials, accent and tagline on this PC.");
+        hint(OpenNotifications,L"Friend requests and match invitations (Ctrl+Shift+N).");
         hint(HomeFriendScope,L"Show all your friends or just those who are online.");
         hint(HomeFindPlayers,L"Find players and manage friends on Online.");
         hint(HomeInvite,L"Invite the selected online friend. You can also double-click a friend to join or invite them.");
@@ -1561,7 +1638,7 @@ struct Window {
     bool navigateBack() {
         if (page < pageCount && page != savesPage && page != controlsPage)
             return false;
-        page = page == finderPage ? finderReturnPage : page == profilePage ? 0 : navigationPage();
+        page = page == finderPage ? finderReturnPage : page == profilePage ? profileReturnPage : navigationPage();
         layout();
         InvalidateRect(hwnd, nullptr, FALSE);
         SetFocus(controls.at(PlayTab + navigationPage()));
@@ -1635,7 +1712,10 @@ struct Window {
                                                           {HomeSaves, L"Saves & backups"},
                                                           {HomeSettings, L"Graphics & audio"},
                                                           {HomeArrange, L"Arrange tabs"},
-                                                          {ProfileSave, L"Save appearance"},
+                                                          {ProfileRecover,L"Undo removal"},
+                                                          {ProfileManage,L"Manage online profiles"},
+                                                          {ProfileCopyStyle,L"Copy appearance"},
+                                                          {ProfileSave, L"Save profile"},
                                                           {ProfileReset, L"Use defaults"},
                                                           {ProfileCopyId, L"Copy profile ID"},
                                                           {ProfileImageChoose, L"Choose picture…"},
@@ -1667,6 +1747,13 @@ struct Window {
                                                           {ResetDisplay, L"Reset display"},
                                                           {ResetGame, L"Reset game"},
                                                           {UndoSettings, L"Undo change"},
+                                                          {SettingsAll,L"All settings"},
+                                                          {SettingsDisplay,L"Display"},
+                                                          {SettingsGraphics,L"Graphics"},
+                                                          {SettingsGame,L"Game"},
+                                                          {SettingsLauncher,L"Launcher"},
+                                                          {OpenNotifications,L"Notifications"},
+                                                          {NavigateBack,L"Back"},
                                                           {VerifyIso, L"Verify ISO"},
                                                           {Play, L"Play"},
                                                           {LoadState, L"Load state"},
@@ -1739,8 +1826,15 @@ struct Window {
         edit(SettingsSearch, L"Find a settings section");
         list(ActionList, L"Actions", 42, false);
         combo(SaveSort, {L"Newest first", L"Oldest first", L"Name"}, 0);
+        combo(DiscordActivity,{L"Off",L"On"},settings.discordPresence ? 1 : 0);
+        combo(LauncherMotion,{L"Smooth",L"Reduced motion"},settings.reducedMotion ? 1 : 0);
+        combo(LauncherHints,{L"On",L"Off"},settings.helpHints ? 0 : 1);
         SendMessageW(controls[OnlineSearch],EM_SETLIMITTEXT,128,0);
         {std::vector<std::wstring> names;for(const auto& choice:accents)names.emplace_back(choice.name);combo(ProfileAccent,names,0);}
+        combo(ProfileAvailability,{L"Available",L"Away",L"Do not disturb"},0);
+        combo(ProfileFit,{L"Fill the circle",L"Fit the whole picture"},0);
+        combo(ProfileNotifications,{L"Sound & desktop alerts",L"Quiet — launcher inbox only"},0);
+        combo(ProfileCopyFrom,{},0);
         edit(ProfileInitials,L"Up to two letters");edit(ProfileTagline,L"A short tagline");
         SendMessageW(controls[ProfileInitials],EM_SETLIMITTEXT,2,0);
         SendMessageW(controls[ProfileTagline],EM_SETLIMITTEXT,60,0);
@@ -1863,6 +1957,7 @@ struct Window {
         SendMessageW(controls[TimingRules], WM_SETFONT, reinterpret_cast<WPARAM>(fonts.caption), TRUE);
         refreshStyleRows();
         initializeHints();
+        SendMessageW(hoverHints,TTM_ACTIVATE,settings.helpHints,0);
         SetTimer(hwnd, 1, 75, nullptr);
         refreshMods();
         layout();
@@ -1895,8 +1990,16 @@ struct Window {
         SetWindowTextW(controls[HostGame], room && roomHost ? L"Close room" : L"Host room");
         SetWindowTextW(controls[JoinRoom], room && !roomHost && !directJoin ? L"Cancel" : L"Join room");
         SetWindowTextW(controls[JoinGame], room && !roomHost && directJoin ? L"Cancel" : L"Join address");
-        EnableWindow(controls[ProfileRemove], !settings.onlineProfiles.empty() && !nameCheck);
-        EnableWindow(controls[ProfileAdd], !nameCheck);
+        const bool profileEditable=!nameCheck && !busy() && !running() && !room;
+        EnableWindow(controls[ProfileRemove], !settings.onlineProfiles.empty() && profileEditable);
+        EnableWindow(controls[ProfileAdd], profileEditable);
+        EnableWindow(controls[OnlineProfile],!settings.onlineProfiles.empty() && profileEditable);
+        EnableWindow(controls[ProfileRecover],profileEditable && std::filesystem::exists(profileRecoveryPath()));
+        EnableWindow(controls[ProfileCopyStyle],settings.onlineProfiles.size()>1 && profileEditable);
+        EnableWindow(controls[ProfileCopyFrom],settings.onlineProfiles.size()>1 && profileEditable);
+        EnableWindow(controls[OnlineName],profileEditable);
+        EnableWindow(controls[NoticeAccept],hasNotice() && !busy() && !running());
+        EnableWindow(controls[NoticeDecline],hasNotice());
         SetWindowTextW(controls[ProfileAdd], nameCheck ? L"Checking\u2026" : L"Add");
         const bool online = directory && directory->connected();
         const auto player=selectedPlayerId();
@@ -1971,6 +2074,19 @@ struct Window {
         InvalidateRect(hwnd, nullptr, FALSE);
     }
     void layout() {
+        if (layingOut) {layoutAgain=true;return;}
+        if (IsIconic(hwnd)) return;
+        layingOut=true;
+        struct FinishLayout {
+            Window& window;
+            ~FinishLayout() {
+                window.layingOut=false;
+                if (window.layoutAgain) {
+                    window.layoutAgain=false;window.layoutPending=true;
+                    PostMessageW(window.hwnd,pageClipMessage,0,0);
+                }
+            }
+        } finish{*this};
         if (dropdownOpen()) {
             if (laidOutPage == page) {
                 layoutPending = true;
@@ -1986,13 +2102,19 @@ struct Window {
         layoutPending = false;
         RECT rect{};
         GetClientRect(hwnd, &rect);
-        const int w = unscale(rect.right), clientHeight = unscale(rect.bottom);
-        const int h = pageCanvasHeight();
+        if (rect.right<=0 || rect.bottom<=0) return;
         if(laidOutPage!=page){pageScroll=0;laidOutPage=page;}
-        pageScroll=std::clamp(pageScroll,0,h-pageVisibleHeight());
-        SCROLLINFO scroll{sizeof(scroll),SIF_RANGE|SIF_PAGE|SIF_POS};
-        scroll.nMin=0;scroll.nMax=h-1;scroll.nPage=UINT(pageVisibleHeight());scroll.nPos=pageScroll;
-        SetScrollInfo(hwnd,SB_VERT,&scroll,TRUE);
+        for (unsigned pass=0;pass<3;++pass) {
+            const auto previous=rect;
+            const int canvas=pageCanvasHeight();
+            pageScroll=std::clamp(pageScroll,0,canvas-pageVisibleHeight());
+            SCROLLINFO scroll{sizeof(scroll),SIF_RANGE|SIF_PAGE|SIF_POS};
+            scroll.nMin=0;scroll.nMax=canvas-1;scroll.nPage=UINT(pageVisibleHeight());scroll.nPos=pageScroll;
+            SetScrollInfo(hwnd,SB_VERT,&scroll,TRUE);
+            GetClientRect(hwnd,&rect);
+            if (EqualRect(&previous,&rect)) break;
+        }
+        const int w = unscale(rect.right), clientHeight = unscale(rect.bottom), h = pageCanvasHeight();
         const int content = w - contentLeft - margin, right = contentLeft + content;
         std::vector<int> order{PlayTab, OnlineTab, SpeedrunTab, ModsTab, SavesTab, SettingsTab, UpdatesTab, ControlsTab};
         std::map<int, Placement> plan;
@@ -2011,61 +2133,76 @@ struct Window {
         if (!selectedIso.empty())
             hint(ChooseIso, selectedIso.wstring() + L"\nChoose another ISO with Ctrl+O, or drop it onto the launcher.");
         position(FindAction, w - margin - 218, 22, 218, 34);
-        const int dockCell = std::min(104, (w - 2 * margin - 16) / std::max(1, int(dockTabs.size())));
-        const int dockLeft = (w - dockCell * int(dockTabs.size())) / 2;
+        const ui::DockLayout dock(w,clientHeight,int(dockTabs.size()));
+        const int dockCell=dock.cell,dockLeft=dock.left;
         for (int i = 0; i < pageCount; ++i) {
             const auto tab = std::find(dockTabs.begin(), dockTabs.end(), i);
             place(PlayTab + i, dockLeft + int(tab - dockTabs.begin()) * dockCell,
-                  clientHeight - 96, dockCell, 54, tab != dockTabs.end());
+                  clientHeight - 104, dockCell, 56, tab != dockTabs.end());
         }
-        if (hasNotice()) {
-            position(NoticeDecline, contentLeft + content - 96, 64, 96, 30);
-            position(NoticeAccept, contentLeft + content - 96 - 10 - 96, 64, 96, 30);
+        position(OpenNotifications,w-margin-218-12-40,22,40,34);
+        if(page==notificationsPage && hasNotice()) {
+            position(NoticeAccept,contentLeft+24,454,160,40);
+            position(NoticeDecline,contentLeft+200,454,140,40);
         }
         if (page == finderPage) {
-            position(ActionClose, right - 160, 126, 140, 34);
+            position(ActionClose,right-166,28,166,36);
             position(ActionSearch, contentLeft + 30, 212, content - 60, 24);
             position(ActionList, contentLeft + 20, 258, content - 40, h - 366);
             if (actionRows.empty()) conceal(ActionList);
             position(ActionOpen, right - 160, h - 94, 140, 38);
+        } else if(page==notificationsPage) {
+            SetWindowTextW(controls[NavigateBack],L"Back to Online");
+            position(NavigateBack,right-166,28,166,36);
         } else if (page == 0) {
             const LoungeLayout g(content,h);
-            position(HomeFriendScope,g.left+16,154,g.friendsWidth-32,32);
-            position(FriendList,g.left+12,202,g.friendsWidth-24,std::max(80,g.bottom-370));
+            position(HomeFriendScope,g.friendsLeft+16,154,g.friendsWidth-32,32);
+            position(FriendList,g.friendsLeft+12,202,g.friendsWidth-24,std::max(80,g.friendsBottom-370));
             if(friendRows.empty())conceal(FriendList);
             const int friendAction=(g.friendsWidth-40)/2;
-            position(HomeFindPlayers,g.left+16,g.bottom-144,friendAction,30);
-            position(HomeInvite,g.left+24+friendAction,g.bottom-144,friendAction,30);
+            position(HomeFindPlayers,g.friendsLeft+16,g.friendsBottom-144,friendAction,30);
+            position(HomeInvite,g.friendsLeft+24+friendAction,g.friendsBottom-144,friendAction,30);
             SetWindowTextW(controls[HomeProfile],activeProfile() ? L"Customize profile" : L"Create profile");
-            position(HomeProfile,g.left+16,g.bottom-40,g.friendsWidth-32,28);
-            const int gameActionY=268;
-            position(Play,g.centre+20,gameActionY,140,42);
-            position(VerifyIso,g.centre+174,gameActionY+3,116,36);
-            if(!settings.speedrun && stateAge())position(LoadState,g.centreRight-134,g.gameBottom-45,114,30);
+            position(HomeProfile,g.friendsLeft+16,g.friendsBottom-40,g.friendsWidth-32,28);
+            const int gameActionY=280;
+            position(Play,g.centre+24,gameActionY,154,44);
+            position(VerifyIso,g.centre+194,gameActionY+4,120,36);
+            if(!settings.speedrun && stateAge())position(LoadState,g.centre+330,gameActionY+4,124,36);
             const int toolWidth=(g.centreWidth()-12)/2;
-            position(HomeSaves,g.centre,g.gameBottom+14,toolWidth,56);
-            position(HomeControls,g.centre+toolWidth+12,g.gameBottom+14,g.centreWidth()-toolWidth-12,56);
+            position(HomeSaves,g.centre,g.gameBottom+16,toolWidth,60);
+            position(HomeControls,g.centre+toolWidth+12,g.gameBottom+16,g.centreWidth()-toolWidth-12,60);
             position(HomeCreateRoom,g.centreRight-134,g.roomsTop+12,116,28);
             const int queryWidth=g.centreWidth()-250;
-            position(OnlineSearch,g.centre+18,g.roomsTop+56,queryWidth,32);
-            position(ClearOnlineSearch,g.centre+26+queryWidth,g.roomsTop+56,52,32);
-            position(RoomFilter,g.centreRight-164,g.roomsTop+56,146,32);
+            position(OnlineSearch,g.centre+28,g.roomsTop+61,queryWidth-20,22);
+            position(ClearOnlineSearch,g.centre+26+queryWidth,g.roomsTop+54,52,36);
+            position(RoomFilter,g.centreRight-164,g.roomsTop+54,146,36);
             SendMessageW(controls[RoomList],LB_SETITEMHEIGHT,0,p(46));
-            position(RoomList,g.centre+12,g.roomsTop+102,g.centreWidth()-24,std::max(70,g.bottom-g.roomsTop-116));
+            position(RoomList,g.centre+12,g.roomsTop+102,g.centreWidth()-24,std::max(48,g.bottom-g.roomsTop-116));
             if(roomRows.empty())conceal(RoomList);
             if(selectedRoomLocked())position(JoinPassword,g.details+20,g.bottom-104,g.detailsWidth()-40,30);
             position(JoinRoom,g.details+20,g.bottom-62,g.detailsWidth()-40,36);
             position(ReleaseNotes,g.right-136,g.notesTop+25,112,28);
         } else if (page == profilePage) {
-            const int side=contentLeft+content/3+24, width=right-side-24;
-            position(ProfileInitials,side,214,width,34);
-            position(ProfileTagline,side,294,width,34);
-            position(ProfileAccent,side,374,width,34);
-            position(ProfileSave,side,442,170,38);
-            position(ProfileReset,side+184,442,130,38);
-            position(ProfileCopyId,contentLeft+22,342,content/3-44,36);
-            position(ProfileImageChoose,contentLeft+22,394,content/3-44,34);
-            position(ProfileImageRemove,contentLeft+22,440,content/3-44,32);
+            const auto back=L"Back to "+std::wstring(tab_names[profileReturnPage]);
+            SetWindowTextW(controls[NavigateBack],back.c_str());
+            position(NavigateBack,right-166,28,166,36);
+            const int split=contentLeft+std::clamp(content/3,260,340),side=split+44,width=right-side-24;
+            position(OnlineProfile,contentLeft+24,166,std::min(340,content-460),40);
+            position(ProfileManage,right-390,166,210,40);
+            position(ProfileRecover,right-166,166,142,40);
+            position(ProfileInitials,side,330,(width-16)/2,40);
+            position(ProfileTagline,side,410,width,40);
+            position(ProfileAccent,side+(width+16)/2,330,(width-16)/2,40);
+            position(ProfileAvailability,side,490,width,40);
+            position(ProfileNotifications,side,570,width,40);
+            position(ProfileSave,side,650,160,40);
+            position(ProfileReset,side+174,650,130,40);
+            position(ProfileCopyId,contentLeft+24,480,split-contentLeft-48,36);
+            position(ProfileImageChoose,contentLeft+24,532,split-contentLeft-48,36);
+            position(ProfileImageRemove,contentLeft+24,580,split-contentLeft-48,36);
+            position(ProfileFit,contentLeft+24,664,split-contentLeft-48,40);
+            position(ProfileCopyFrom,side,794,width,40);
+            position(ProfileCopyStyle,side,850,160,40);
         } else if (page == savesPage) {
             position(BackToPlay, right - 150, 28, 150, 34);
             const int panelBottom = h - 64;
@@ -2138,13 +2275,16 @@ struct Window {
             const int profileRow = Grid::field(onlineProfileTop - 20, 0), action = 84;
             position(OnlineProfile, grid.x(1), profileRow, grid.column - action - 8, 34);
             position(ProfileRemove, grid.x(1) + grid.column - action, profileRow, action, 34);
-            position(OnlineName, grid.x(2), profileRow + 6, grid.column - action - 8, 22);
+            position(OnlineName, grid.x(2)+10, profileRow+6, grid.column-action-28, 22);
             position(ProfileAdd, grid.x(2) + grid.column - action, profileRow, action, 34);
             position(HomeProfile,grid.x(1),192,grid.column,28);
             position(ProfileCopyId,grid.x(2),192,grid.column,28);
+            if(std::filesystem::exists(profileRecoveryPath())) {
+                conceal(ProfileCopyId);position(ProfileRecover,grid.x(2),192,grid.column,28);
+            }
             const HostRow host(content);
-            position(OnlineRoom, host.x(0), HostRow::field + 6, host.column, 22);
-            position(OnlinePassword, host.x(1), HostRow::field + 6, host.column, 22);
+            position(OnlineRoom,host.x(0)+10,HostRow::field+6,host.column-20,22);
+            position(OnlinePassword,host.x(1)+10,HostRow::field+6,host.column-20,22);
             position(OnlineDelay, host.x(2), HostRow::field, host.column, 34);
             position(OnlineListed, host.x(3), HostRow::field, host.column, 34);
             position(HostGame, host.x(4), HostRow::field, host.column, 36);
@@ -2152,7 +2292,7 @@ struct Window {
             const int listTop = onlineListsTop + 90;
             const int roomWidth=roomsRight-contentLeft-40, playersWidth=right-playersLeft-40;
             const int searchWidth=roomWidth-190;
-            position(OnlineSearch,contentLeft+20,onlineListsTop+44,searchWidth-54,32);
+            position(OnlineSearch,contentLeft+30,onlineListsTop+49,searchWidth-80,22);
             position(ClearOnlineSearch,contentLeft+20+searchWidth-48,onlineListsTop+44,48,32);
             position(RoomFilter,contentLeft+20+searchWidth+10,onlineListsTop+44,180,32);
             position(PlayerFilter,playersLeft+20,onlineListsTop+44,playersWidth,32);
@@ -2160,13 +2300,13 @@ struct Window {
             position(RoomList, contentLeft + 20, listTop, roomsRight - contentLeft - 40, std::max(50, bottom - 110 - listTop));
             const int fieldWidth = (roomsRight - contentLeft - 40 - 10) / 2;
             if (selectedRoomLocked()) {
-                position(JoinPassword, contentLeft + 20, bottom - 88, fieldWidth, 22);
+                position(JoinPassword,contentLeft+30,bottom-88,fieldWidth-20,22);
                 position(JoinRoom, contentLeft + 30 + fieldWidth, bottom - 94, fieldWidth, 34);
             } else {
                 position(JoinRoom, contentLeft + 20, bottom - 94, roomsRight - contentLeft - 40, 34);
                 conceal(JoinPassword);
             }
-            position(OnlineAddress, contentLeft + 20, bottom - 42, fieldWidth, 22);
+            position(OnlineAddress,contentLeft+30,bottom-42,fieldWidth-20,22);
             position(JoinGame, contentLeft + 30 + fieldWidth, bottom - 48, fieldWidth, 34);
 
             position(PlayerList, playersLeft + 20, listTop, playersWidth, std::max(50, bottom - 60 - listTop));
@@ -2178,7 +2318,7 @@ struct Window {
                 conceal(PlayerList);
         } else if (page == overlayPage) {
             const int panelBottom = h - 64, half = (content - 52) / 2, side = contentLeft + 32 + half;
-            position(CloseOverlay, right - 20 - 150, 136, 150, 34);
+            position(CloseOverlay,right-166,28,166,36);
             position(OverlayDefaults, right - 20 - 150 - 10 - 160, 136, 160, 34);
             position(SpeedrunMode, contentLeft + 20, 238, half, 34);
             position(SplitStyleList, contentLeft + 20, 314, half, 156);
@@ -2213,7 +2353,7 @@ struct Window {
             position(OpenLogs, contentLeft + 20, 470, 170, 34);
         } else if (page == colorsPage) {
             const int panelBottom = h - 64, listWidth = std::min(560, content - 40 - 200);
-            position(CloseColors, right - 20 - 150, 136, 150, 34);
+            position(CloseColors,right-166,28,166,36);
             position(ColorList, contentLeft + 20, 228, listWidth, std::max(120, panelBottom - 20 - 228));
             const int side = contentLeft + 20 + listWidth + 20, buttonWidth = std::min(170, right - 20 - side);
             position(ColorPick, side, 228, buttonWidth, 34);
@@ -2234,7 +2374,7 @@ struct Window {
             }
         } else if (page == tabsPage) {
             const int panelBottom = h - 64, listWidth = std::min(420, content - 40 - 180);
-            position(CloseTabs, right - 20 - 150, 136, 150, 34);
+            position(CloseTabs,right-166,28,166,36);
             position(TabList, contentLeft + 20, 228, listWidth, std::min(int(dock_tab_count) * 40 + 4, panelBottom - 20 - 228));
             const int side = contentLeft + 20 + listWidth + 20;
             position(TabUp, side, 228, 150, 34);
@@ -2248,7 +2388,7 @@ struct Window {
                 position(id, x, 152, 120, 34);
                 x += 130;
             }
-            position(CloseImporter, right - 20 - 130, 152, 130, 34);
+            position(CloseImporter,right-166,28,166,36);
             position(SourceIso, right - 20 - 130, 214, 130, 34);
             position(SourceLast, right - 20 - 130 - 10 - 110, 214, 110, 34);
             position(SourceGame, right - 20 - 130 - 10 - 110 - 10 - 116, 214, 116, 34);
@@ -2271,48 +2411,40 @@ struct Window {
                 }
             }
         } else {
-            SettingsGrid grid(content, h);
+            ui::SettingsLayout grid(content);
             grid.filter(searchText(trimmed(textOf(SettingsSearch))));
-            position(SettingsSearch, contentLeft + 16, 124, content - 268, 24);
-            position(ClearSettingsSearch, right - 244, 116, 64, 38);
-            position(UndoSettings, right - 164, 116, 164, 38);
-            const int displayTop = grid.displayTop, graphicsTop = grid.graphicsTop,
-                      gameTop = grid.gameTop, updatesTop = grid.updatesTop;
-            const int half = (grid.column - 10) / 2;
-            if (displayTop >= 0) {
-            position(ResetDisplay, right - 164, displayTop + 10, 144, 30);
-            position(WindowMode, grid.x(0), grid.field(displayTop, 0), grid.column, grid.controlHeight);
-            position(Resolution, grid.x(1), grid.field(displayTop, 0), grid.column, grid.controlHeight);
-            position(Aspect, grid.x(2), grid.field(displayTop, 0), grid.column, grid.controlHeight);
-            position(Fps, grid.x(0), grid.field(displayTop, 1), grid.column, grid.controlHeight);
-            position(Vsync, grid.x(1), grid.field(displayTop, 1), grid.column, grid.controlHeight);
-            position(Audio, grid.x(2), grid.field(displayTop, 1), grid.column, grid.controlHeight);
+            position(SettingsSearch,contentLeft+10,123,content-276,24);
+            position(ClearSettingsSearch,right-244,116,64,38);
+            position(UndoSettings,right-164,116,164,38);
+            int filterX=contentLeft;
+            for(int id : {SettingsAll,SettingsDisplay,SettingsGraphics,SettingsGame,SettingsLauncher}) {
+                const int width=id==SettingsAll ? 124 : 112;
+                position(id,filterX,174,width,34);filterX+=width+8;
             }
-            if (graphicsTop >= 0) {
-            position(Renderer, grid.x(0), grid.field(graphicsTop, 0), grid.column, grid.controlHeight);
-            position(Antialiasing, grid.x(1), grid.field(graphicsTop, 0), grid.column, grid.controlHeight);
-            position(Filtering, grid.x(2), grid.field(graphicsTop, 0), grid.column, grid.controlHeight);
-            position(Upscaler, grid.x(0), grid.field(graphicsTop, 1), grid.column, grid.controlHeight);
-            position(InternalScale, grid.x(1), grid.field(graphicsTop, 1), grid.column, grid.controlHeight);
-            position(ClearImage, grid.x(2), grid.field(graphicsTop, 1), half, grid.controlHeight);
-            position(ResetGraphics, grid.x(2) + half + 10, grid.field(graphicsTop, 1), grid.column - half - 10, grid.controlHeight);
+            const std::array<std::vector<int>,4> fields{{
+                {WindowMode,Resolution,Aspect,Fps,Vsync,Audio},
+                {Renderer,Antialiasing,Filtering,Upscaler,InternalScale,ClearImage},
+                {CpuDifficulty,HdTextures,Music,FpsCounter,RandomizerMode,LoadTimes},
+                {LauncherTheme,LauncherAccent,StartPage,DiscordActivity,LauncherMotion,LauncherHints}}};
+            for(size_t group=0;group<fields.size();++group) {
+                const int top=grid.sections[group];if(top<0)continue;
+                for(size_t index=0;index<fields[group].size();++index) {
+                    const auto cell=grid.field(top,int(index));
+                    if(fields[group][index]==ClearImage) {
+                        const int half=(cell.width-10)/2;
+                        position(ClearImage,cell.x,cell.y,half,cell.height);
+                        position(ResetGraphics,cell.x+half+10,cell.y,cell.width-half-10,cell.height);
+                    } else position(fields[group][index],cell.x,cell.y,cell.width,cell.height);
+                }
             }
-            if (gameTop >= 0) {
-            position(ResetGame, right - 20 - 144 - 12 - 170, gameTop + 10, 144, 30);
-            position(CpuDifficulty, grid.x(0), grid.field(gameTop, 0), grid.column, grid.controlHeight);
-            position(HdTextures, grid.x(1), grid.field(gameTop, 0), grid.column, grid.controlHeight);
-            position(Music, grid.x(2), grid.field(gameTop, 0), grid.column, grid.controlHeight);
-            position(FpsCounter, grid.x(0), grid.field(gameTop, 1), grid.column, grid.controlHeight);
-            position(RandomizerMode, grid.x(1), grid.field(gameTop, 1), grid.column, grid.controlHeight);
-            position(LoadTimes, grid.x(2), grid.field(gameTop, 1), grid.column, grid.controlHeight);
-            position(TextureFolder, right - 20 - 170, gameTop + 10, 170, 30);
+            if(grid.sections[0]>=0) position(ResetDisplay,right-168,grid.sections[0]+12,144,32);
+            if(grid.sections[2]>=0) {
+                position(ResetGame,right-168,grid.sections[2]+12,144,32);
+                position(TextureFolder,right-350,grid.sections[2]+12,170,32);
             }
-            if (updatesTop >= 0) {
-            position(LauncherTheme, grid.x(0), grid.field(updatesTop, 0), grid.column, grid.controlHeight);
-            position(LauncherAccent, grid.x(1), grid.field(updatesTop, 0), grid.column, grid.controlHeight);
-            position(StartPage, grid.x(2), grid.field(updatesTop, 0), grid.column, grid.controlHeight);
-            position(ArrangeTabs, right - 20 - 140, updatesTop + 10, 140, 30);
-            position(OpenColors, right - 20 - 140 - 10 - 100, updatesTop + 10, 100, 30);
+            if(grid.sections[3]>=0) {
+                position(ArrangeTabs,right-168,grid.sections[3]+12,144,32);
+                position(OpenColors,right-280,grid.sections[3]+12,100,32);
             }
         }
         planning = nullptr;
@@ -2348,7 +2480,7 @@ struct Window {
             return;
         const int viewportTop = p(shellHeader), viewportBottom = p(shellHeader + pageVisibleHeight());
         for (const auto& [id, control] : controls) {
-            if ((id >= PlayTab && id <= ControlsTab) || id == FindAction)
+            if ((id >= PlayTab && id <= ControlsTab) || id == FindAction || id == OpenNotifications)
                 continue;
             RECT bounds{};
             GetWindowRect(control, &bounds);
@@ -2369,7 +2501,7 @@ struct Window {
     }
     void clipControlPaint(HDC dc, HWND control) const {
         const int id = GetDlgCtrlID(control);
-        if ((id >= PlayTab && id <= ControlsTab) || id == FindAction)
+        if ((id >= PlayTab && id <= ControlsTab) || id == FindAction || id == OpenNotifications)
             return;
         RECT bounds{};
         GetWindowRect(control, &bounds);
@@ -2394,93 +2526,71 @@ struct Window {
         text(dc,L"OpenKai2",margin+42,19,180,28,fonts.brand,ink);
         text(dc,L"Budokai 2 for Windows",margin+42,44,210,18,fonts.caption,muted);
         const auto tabs = visibleTabs();
-        const int cell = std::min(104,(w-2*margin-16)/std::max(1,int(tabs.size())));
-        const int left = (w-cell*int(tabs.size()))/2;
-        const RECT dock{p(left-8),p(h-102),p(left+cell*int(tabs.size())+8),p(h-36)};
+        const ui::DockLayout dockLayout(w,h,int(tabs.size()));
+        const int cell=dockLayout.cell,left=dockLayout.left;
+        const RECT dock{p(left-8),p(h-112),p(left+cell*int(tabs.size())+8),p(h-40)};
         box(dc,dock,sidebar,border,18);
         const int active = tabSlot(navigationPage());
         if(active>=0) {
             const int itemLeft=left+int(std::lround(dockPosition*cell));
-            const RECT item{p(itemLeft+3),p(h-96),p(itemLeft+cell-3),p(h-42)};
+            const RECT item{p(itemLeft+3),p(h-104),p(itemLeft+cell-3),p(h-48)};
             box(dc,item,mix(sidebar,ink,10),border,12);
-            fill(dc,{p(itemLeft+cell/2-7),p(h-46),p(itemLeft+cell/2+7),p(h-44)},orange);
+            fill(dc,{p(itemLeft+cell/2-7),p(h-54),p(itemLeft+cell/2+7),p(h-52)},orange);
         }
     }
-    void paintHeader(HDC dc, int w, int content) {
-        const wchar_t *titles[] = {L"Play", L"Online", L"Speedrun", L"Mods", L"Saves & backups", L"Settings", L"Updates", L"Controls", L"Import tool", L"Speedrun overlay", L"Arrange tabs", L"Colors", L"Profile", L"Find an action"};
-        const wchar_t *subtitles[] = {
-            L"",
-            L"Play versus with friends and other players over the internet.",
-            L"Dragon World and World Tournament timing, with separate splits and run logs.",
-            L"Characters, movesets and stages layered over your disc. Your ISO is never changed.",
-            L"Import, back up and restore your memory card.",
+    void paintHeader(HDC dc,int w,int content) {
+        const wchar_t* titles[]={L"Play Budokai 2",L"Online",L"Speedrun",L"Mods",L"Saves & backups",L"Settings",
+            L"Updates",L"Controls",L"Import tool",L"Speedrun overlay",L"Arrange tabs",L"Theme colors",L"Profile",L"Find an action",L"Notifications"};
+        const wchar_t* subtitles[]={
+            L"Start the game, manage your saves, or find an online match.",
+            L"Find a room, invite friends, or host a versus match.",
+            L"Categories, split records and automatic timing for Dragon World and World Tournament.",
+            L"Manage what your mods add. Your original disc stays unchanged.",
+            L"Import saves, keep recovery copies and manage your memory card.",
             L"Saved automatically. Game settings apply at the next launch.",
-            L"New versions of OpenKai2, how they are found and when they install.",
-            L"Keyboard and controller bindings for Budokai 2. They apply the next time the game starts.",
-            L"Add characters, stages and movesets from other Dragon Ball Z games. Nothing in Budokai 2 is removed.",
-            L"Pick what the in-game overlay shows. Splits, deltas and best times are tracked for you.",
-            L"Arrange the navigation dock and hide tabs you do not use.",
-            L"Every color in the launcher.",
-            L"Personalize this launcher without changing your online identity.",
-            L"Search launcher pages, settings and tools. Enter opens the selected action."};
-        if (page == 0) {
-            text(dc,L"Play with friends.",contentLeft,26,content-220,36,fonts.heading,ink);
-            text(dc,L"Browse rooms, invite a friend or play offline.",contentLeft,68,content-220,22,fonts.caption,muted);
+            L"Choose your update channel and manage new releases.",
+            L"Keyboard and controller bindings. Changes apply when the game starts.",
+            L"Choose content from another PS2 disc, then add it to a mod.",
+            L"Customize split names, images and layout. PS2 time and verification stay protected.",
+            L"Reorder the dock or hide tabs you do not use.",
+            L"Personalize your theme. Unchanged colors follow the selected palette.",
+            L"Your picture, initials and tagline are saved on this PC.",
+            L"Search pages and tools. Use the arrow keys and Enter to open a result.",
+            L"Review friend requests and match invitations."};
+        const RECT tile{p(contentLeft),p(28),p(contentLeft+40),p(68)};
+        box(dc,tile,mix(panel,orange,22),mix(border,orange,70),12);
+        const int icon=page==profilePage ? HomeProfile : page==finderPage ? FindAction : page==notificationsPage ? OpenNotifications :
+            PlayTab+(page==controlsPage || page==savesPage ? page : navigationPage());
+        navigationIcon(dc,icon,{tile.left-p(7),tile.top,tile.right,tile.bottom},orange);
+        text(dc,titles[page],contentLeft+56,27,content-264,42,fonts.title,ink,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+        text(dc,subtitles[page],contentLeft+56,74,content-56,32,fonts.caption,muted,DT_LEFT|DT_WORDBREAK|DT_NOPREFIX);
+        if(page<pageCount && page!=controlsPage && page!=savesPage) {
+            const auto label=stateLabel();const int width=measure(dc,label,fonts.caption);
+            const int left=w-margin-width-16;
+            box(dc,{p(left-22),p(34),p(w-margin),p(62)},mix(background,stateColor(),18),mix(border,stateColor(),60),9);
+            ellipse(dc,p(left-10),p(48),p(3),stateColor());
+            text(dc,label,left,39,width+6,20,fonts.caption,muted,DT_LEFT|DT_SINGLELINE|DT_NOPREFIX);
         }
-        if (page != 0) {
-            const RECT tile{p(contentLeft), p(30), p(contentLeft + 38), p(68)};
-            box(dc, tile, mix(panel, orange, 30), mix(panel, orange, 90), 10);
-            buffer.frame.halo(tile, cut(10), p(10), orange, 40);
-            navigationIcon(dc, page == finderPage ? FindAction : PlayTab +
-                (page == controlsPage || page == savesPage ? page : navigationPage()),
-                {tile.left - p(7), tile.top, tile.right, tile.bottom}, orange);
-            text(dc, titles[page], contentLeft + 52, 28, content - 252, 40, fonts.title, ink, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+    }
+    void paintNotifications(HDC dc,int h,int content) {
+        const int right=contentLeft+content;
+        panelBox(dc,contentLeft,112,right,h-56);
+        const auto notice=noticeView();
+        if(!notice) {
+            heading(dc,L"You're all caught up",contentLeft+24,144,content-48);
+            text(dc,L"Friend requests and invitations appear here. You can keep playing while new requests arrive.",
+                contentLeft+24,188,content-48,60,fonts.body,muted,DT_LEFT|DT_WORDBREAK|DT_NOPREFIX);
+            return;
         }
-        if (const auto notice = noticeView()) {
-            const COLORREF tone = notice->invite ? orange : sky;
-            const std::wstring kind = notice->invite ? L"INVITE" : L"FRIEND REQUEST";
-            const std::wstring more = notice->waiting ? L"+" + std::to_wstring(notice->waiting) + L" more" : std::wstring();
-            const int nameWidth = measure(dc, notice->name, fonts.strong);
-            const int width = std::clamp(std::max(nameWidth + 8 + measure(dc, notice->detail, fonts.caption),
-                                                  measure(dc, kind + L"   " + notice->age, fonts.label) + 90) + 64,
-                                         260, content - 260);
-            const int left = contentLeft + content - 96 - 10 - 96 - 14 - width, top = 58, bottom = 100;
-            box(dc, {p(left), p(top), p(contentLeft + content + 6), p(bottom)}, mix(panel, tone, 22), mix(panel, tone, 110), 12);
-            fill(dc, {p(left) + cut(12), p(top) + 1, p(contentLeft + content + 6) - 2, p(top) + 2}, mix(panel, tone, 70));
-            const RECT tile{p(left + 10), p(top + 7), p(left + 38), p(top + 35)};
-            box(dc, tile, mix(panel, tone, 70), tone, 8);
-            avatarGlyph(dc, tile, notice->invite ? 0 : 1, ink);
-            caps(dc, kind, left + 48, top + 6, 120, tone);
-            const int kindWidth = measure(dc, kind, fonts.label) + int(kind.size());
-            text(dc, notice->age, left + 48 + kindWidth + 10, top + 5, 90, 16, fonts.caption, muted,
-                 DT_LEFT | DT_SINGLELINE | DT_NOPREFIX);
-            if (!notice->verified) {
-                const int x = left + 48 + kindWidth + 10 + measure(dc, notice->age, fonts.caption) + 10;
-                caps(dc, L"UNVERIFIED NAME", x, top + 6, 140, red);
-            }
-            if (!more.empty()) {
-                const int moreWidth = measure(dc, more, fonts.caption) + 14;
-                const RECT pill{p(contentLeft + content - 96 - 10 - 96 - 14 - moreWidth - 8), p(top + 5),
-                                p(contentLeft + content - 96 - 10 - 96 - 14 - 8), p(top + 21)};
-                box(dc, pill, mix(panel, tone, 50), mix(panel, tone, 50), 6);
-                text(dc, more, unscale(pill.left), top + 4, moreWidth, 18, fonts.caption, ink,
-                     DT_CENTER | DT_SINGLELINE | DT_NOPREFIX);
-            }
-            text(dc, notice->name, left + 48, top + 20, nameWidth + 2, 20, fonts.strong, ink,
-                 DT_LEFT | DT_SINGLELINE | DT_NOPREFIX);
-            text(dc, notice->detail, left + 48 + nameWidth + 8, top + 22, width - 60 - nameWidth - 8, 18, fonts.caption, muted,
-                 DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
-        } else
-            text(dc, subtitles[page], contentLeft + 52, 72, content - 52, 20, fonts.caption, muted,
-                 DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
-        const auto label = stateLabel();
-        const int labelWidth = measure(dc, label, fonts.caption), left = w - margin - labelWidth - 12;
-        box(dc, {p(left - 24), p(34), p(w - margin), p(60)}, mix(background, stateColor(), 18), mix(background, stateColor(), 60), 8);
-        ellipse(dc, p(left - 12), p(47), p(3), stateColor());
-        buffer.frame.halo({p(left - 12), p(47), p(left - 11), p(48)}, 0, p(9), stateColor(), 90);
-        text(dc, label, left, 38, labelWidth + 4, 20, fonts.caption, muted, DT_LEFT | DT_SINGLELINE | DT_NOPREFIX);
-        if (page != 0)
-            rule(dc, contentLeft, 104, content);
+        caps(dc,notice->invite ? L"MATCH INVITATION" : L"FRIEND REQUEST",contentLeft+24,140,content-48,orange);
+        text(dc,notice->name,contentLeft+24,178,content-48,76,fonts.title,ink,DT_LEFT|DT_WORDBREAK|DT_END_ELLIPSIS|DT_NOPREFIX);
+        text(dc,notice->detail,contentLeft+24,262,content-48,76,fonts.body,muted,DT_LEFT|DT_WORDBREAK|DT_NOPREFIX);
+        const auto identity=notice->verified ? L"Verified identity · "+notice->age : L"Identity not verified · "+notice->age;
+        text(dc,identity,contentLeft+24,350,content-48,24,fonts.caption,notice->verified ? green : muted);
+        if(notice->invite && !disc)
+            text(dc,L"Verify your ISO on Play before joining this match.",contentLeft+24,394,content-48,36,fonts.caption,muted,DT_WORDBREAK|DT_NOPREFIX);
+        if(notice->waiting)
+            text(dc,std::to_wstring(notice->waiting)+L" more waiting",contentLeft+24,520,content-48,24,fonts.caption,muted);
     }
     void rule(HDC dc, int x, int y, int width) {
         const int steps = 24;
@@ -2547,78 +2657,89 @@ struct Window {
     }
     void paintPlay(HDC dc,int content) {
         const LoungeLayout g(content,pageCanvasHeight());
-        panelBox(dc,g.left,112,g.left+g.friendsWidth,g.bottom);
+        panelBox(dc,g.friendsLeft,112,g.friendsLeft+g.friendsWidth,g.friendsBottom);
         panelBox(dc,g.centre,112,g.centreRight,g.gameBottom);
         panelBox(dc,g.centre,g.roomsTop,g.centreRight,g.bottom);
-        panelBox(dc,g.details,112,g.right,g.bottom);
+        panelBox(dc,g.details,g.detailsTop,g.right,g.bottom);
         panelBox(dc,g.left,g.notesTop,g.right,g.notesBottom);
         paintLoungeArtwork(g);
-        heading(dc,L"Friends",g.left+18,126,g.friendsWidth-36);
+        heading(dc,L"Friends",g.friendsLeft+18,126,g.friendsWidth-36);
         if(friendRows.empty()) {
-            text(dc,homeFriendsOnly ? L"No friends online" : L"Your friends appear here.",g.left+20,226,g.friendsWidth-40,54,fonts.body,muted,DT_CENTER|DT_WORDBREAK|DT_NOPREFIX);
-            text(dc,L"Find players on Online to add a friend.",g.left+20,292,g.friendsWidth-40,56,fonts.caption,faint,DT_CENTER|DT_WORDBREAK|DT_NOPREFIX);
+            const int emptyTop=std::max(206,(202+g.friendsBottom-160)/2-26);
+            text(dc,homeFriendsOnly ? L"No friends online" : L"Your friends appear here.",g.friendsLeft+20,emptyTop,g.friendsWidth-40,32,fonts.body,muted,DT_CENTER|DT_WORDBREAK|DT_NOPREFIX);
+            text(dc,L"Find players on Online to add a friend.",g.friendsLeft+20,emptyTop+34,g.friendsWidth-40,36,fonts.caption,faint,DT_CENTER|DT_WORDBREAK|DT_NOPREFIX);
         }
-        fill(dc,{p(g.left+16),p(g.bottom-100),p(g.left+g.friendsWidth-16),p(g.bottom-99)},border);
+        fill(dc,{p(g.friendsLeft+16),p(g.friendsBottom-100),p(g.friendsLeft+g.friendsWidth-16),p(g.friendsBottom-99)},border);
         const auto profile=activeProfile();
         const auto name=profile ? wide(profile->name) : std::wstring(L"Local player");
-        if(profile)avatar(dc,p(g.left+33),p(g.bottom-70),p(16),name,profile->id,panel);
-        else {ellipse(dc,p(g.left+33),p(g.bottom-70),p(16),mix(panel,orange,25));text(dc,L"P",g.left+17,g.bottom-82,32,24,fonts.strong,orange,DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX);}
-        text(dc,name,g.left+58,g.bottom-89,g.friendsWidth-76,22,fonts.strong,ink,DT_LEFT|DT_END_ELLIPSIS|DT_SINGLELINE|DT_NOPREFIX);
-        text(dc,profile ? L"Local profile" : L"Create a profile for online play",g.left+58,g.bottom-65,g.friendsWidth-76,18,fonts.label,muted,DT_LEFT|DT_END_ELLIPSIS|DT_SINGLELINE|DT_NOPREFIX);
-        caps(dc,L"DRAGON BALL Z",g.centre+20,133,g.centreWidth()-40,muted);
-        text(dc,L"BUDOKAI 2",g.centre+20,157,g.centreWidth()-40,62,fonts.gameName,settings.launcherColors[17]>=0 ? bannerTitle : ink,DT_LEFT|DT_END_ELLIPSIS|DT_SINGLELINE|DT_NOPREFIX);
-        const int statusLeft=g.centre+20;
-        const auto detail=busy() ? progressText() : disc ? std::wstring(L"ISO verified · Ready to play") : std::wstring(L"Choose the original USA ISO to play.");
-        text(dc,detail,statusLeft,234,g.centreRight-statusLeft-20,24,fonts.caption,disc ? green : muted,DT_LEFT|DT_END_ELLIPSIS|DT_SINGLELINE|DT_NOPREFIX);
+        if(profile)avatar(dc,p(g.friendsLeft+33),p(g.friendsBottom-70),p(16),name,profile->id,panel);
+        else {ellipse(dc,p(g.friendsLeft+33),p(g.friendsBottom-70),p(16),mix(panel,orange,25));text(dc,L"P",g.friendsLeft+17,g.friendsBottom-82,32,24,fonts.strong,orange,DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX);}
+        text(dc,name,g.friendsLeft+58,g.friendsBottom-89,g.friendsWidth-76,22,fonts.strong,ink,DT_LEFT|DT_END_ELLIPSIS|DT_SINGLELINE|DT_NOPREFIX);
+        const auto style=profile ? profileStyle(profile->id) : nullptr;
+        const auto activity=directory && directory->connected() ? statusLabel(profile_status(style ? style->availability : 0,running(),room!=nullptr,roomHost)) : profile ? std::wstring(L"Offline · local profile") : std::wstring(L"Create an online profile");
+        text(dc,activity,g.friendsLeft+58,g.friendsBottom-65,g.friendsWidth-76,18,fonts.label,muted,DT_LEFT|DT_END_ELLIPSIS|DT_SINGLELINE|DT_NOPREFIX);
+        caps(dc,L"DRAGON BALL Z",g.centre+24,133,g.centreWidth()-40,muted);
+        text(dc,L"BUDOKAI 2",g.centre+24,153,g.centreWidth()-48,80,fonts.gameName,settings.launcherColors[17]>=0 ? bannerTitle : ink,DT_LEFT|DT_END_ELLIPSIS|DT_SINGLELINE|DT_NOPREFIX);
+        const int statusLeft=g.centre+24;
+        const auto mode=settings.speedrun ? L"Speedrun · "+wide(speedrun::category_label(speedrun::Category(settings.speedrun),settings.cpuDifficulty,settings.randomizer)) : std::wstring(L"Standard play");
+        const auto detail=busy() ? progressText() : disc ? L"USA disc verified · "+mode : std::wstring(L"Choose the original USA ISO to play.");
+        text(dc,detail,statusLeft,244,g.centreRight-statusLeft-24,22,fonts.caption,disc ? green : muted,DT_LEFT|DT_END_ELLIPSIS|DT_SINGLELINE|DT_NOPREFIX);
         heading(dc,L"Rooms"+(roomRows.empty() ? std::wstring() : L" · "+std::to_wstring(roomRows.size())),g.centre+18,g.roomsTop+16,g.centreWidth()-170);
         if(roomRows.empty()) {
             const bool connected=directory && directory->connected() && !directory->name_taken();
-            const int mid=(g.roomsTop+102+g.bottom)/2-24;
+            const int available=g.bottom-g.roomsTop-118;
+            const int mid=g.roomsTop+102+std::max(0,(available-62)/2);
             text(dc,connected ? L"No matching rooms" : L"You are offline",g.centre+25,mid,g.centreWidth()-50,24,fonts.strong,muted,DT_CENTER|DT_SINGLELINE|DT_NOPREFIX);
-            text(dc,connected ? L"Try another filter, or create a room." : L"Open Online to connect and find players.",g.centre+28,mid+34,g.centreWidth()-56,52,fonts.caption,faint,DT_CENTER|DT_WORDBREAK|DT_NOPREFIX);
+            text(dc,connected ? L"Try another filter, or create a room." : L"Open Online to connect and find players.",g.centre+28,mid+28,g.centreWidth()-56,available<62 ? 20 : 36,fonts.caption,faint,
+                 DT_CENTER|DT_NOPREFIX|(available<62 ? DT_SINGLELINE|DT_END_ELLIPSIS : DT_WORDBREAK));
         }
-        caps(dc,L"ROOM DETAILS",g.details+20,129,g.detailsWidth()-40,muted);
+        caps(dc,L"ROOM DETAILS",g.details+20,(g.detailsTop+17),g.detailsWidth()-40,muted);
         const auto row=SendMessageW(controls[RoomList],LB_GETCURSEL,0,0);
         const auto chosen=row>=0 && size_t(row)<roomRows.size() ? &roomRows[size_t(row)] : nullptr;
         if(chosen) {
-            avatar(dc,p(g.details+42),p(193),p(22),wide(chosen->host),chosen->host,panel);
-            text(dc,wide(chosen->name.empty() ? chosen->host+"'s room" : chosen->name),g.details+20,230,g.detailsWidth()-40,64,fonts.title,ink,DT_LEFT|DT_WORDBREAK|DT_END_ELLIPSIS|DT_NOPREFIX);
-            text(dc,L"Hosted by "+wide(chosen->host),g.details+20,299,g.detailsWidth()-40,22,fonts.caption,muted,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
-            fill(dc,{p(g.details+20),p(332),p(g.right-20),p(333)},border);
+            avatar(dc,p(g.details+42),p((g.detailsTop+81)),p(22),wide(chosen->host),chosen->host,panel);
+            text(dc,wide(chosen->name.empty() ? chosen->host+"'s room" : chosen->name),g.details+20,(g.detailsTop+118),g.detailsWidth()-40,64,fonts.title,ink,DT_LEFT|DT_WORDBREAK|DT_END_ELLIPSIS|DT_NOPREFIX);
+            text(dc,L"Hosted by "+wide(chosen->host),g.details+20,(g.detailsTop+187),g.detailsWidth()-40,22,fonts.caption,muted,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+            fill(dc,{p(g.details+20),p((g.detailsTop+220)),p(g.right-20),p((g.detailsTop+221))},border);
             const auto ping=roomPings.find(chosen->id);
             const auto latency=ping==roomPings.end() ? std::wstring(L"Checking…") : ping->second<0 ? std::wstring(L"Via relay") : std::to_wstring(ping->second)+L" ms";
             const std::wstring labels[]={L"Connection",L"Access",L"Mode",L"Version"};
             const std::wstring values[]={latency,chosen->locked ? L"Password" : L"Open room",L"Versus",chosen->version==application_version ? L"Compatible" : wide(chosen->version)};
             for(int i=0;i<4;++i) {
-                text(dc,labels[i],g.details+20,350+i*28,g.detailsWidth()/2-20,20,fonts.label,muted,DT_LEFT|DT_SINGLELINE|DT_NOPREFIX);
-                text(dc,values[i],g.details+g.detailsWidth()/2,350+i*28,g.detailsWidth()/2-20,20,fonts.label,i==0 ? green : ink,DT_RIGHT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+                text(dc,labels[i],g.details+20,(g.detailsTop+238)+i*28,g.detailsWidth()/2-20,20,fonts.label,muted,DT_LEFT|DT_SINGLELINE|DT_NOPREFIX);
+                text(dc,values[i],g.details+g.detailsWidth()/2,(g.detailsTop+238)+i*28,g.detailsWidth()/2-20,20,fonts.label,i==0 ? green : ink,DT_RIGHT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
             }
         } else {
-            text(dc,L"Choose a room",g.details+20,186,g.detailsWidth()-40,74,fonts.title,ink,DT_LEFT|DT_WORDBREAK|DT_NOPREFIX);
-            text(dc,L"Select a room to see its host, connection and access before joining.",g.details+20,282,g.detailsWidth()-40,84,fonts.body,muted,DT_LEFT|DT_WORDBREAK|DT_NOPREFIX);
+            text(dc,L"Choose a room",g.details+20,(g.detailsTop+74),g.detailsWidth()-40,74,fonts.title,ink,DT_LEFT|DT_WORDBREAK|DT_NOPREFIX);
+            text(dc,L"Select a room to see its host, connection and access before joining.",g.details+20,(g.detailsTop+170),g.detailsWidth()-40,84,fonts.body,muted,DT_LEFT|DT_WORDBREAK|DT_NOPREFIX);
         }
         text(dc,chosen && chosen->locked ? L"Enter the room password above." : L"Both players must be ready to start.",g.details+20,g.bottom-20,g.detailsWidth()-40,17,fonts.label,faint,DT_CENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
         caps(dc,L"LATEST PATCH NOTES",g.left+22,g.notesTop+12,content-184,orange);
         text(dc,application_highlights,g.left+22,g.notesTop+36,content-200,34,fonts.caption,muted,DT_LEFT|DT_WORDBREAK|DT_END_ELLIPSIS|DT_NOPREFIX);
     }
     void paintProfile(HDC dc,int h,int content) {
-        const int right=contentLeft+content,side=contentLeft+content/3;
-        panelBox(dc,contentLeft,124,side,h-64);panelBox(dc,side+12,124,right,h-64);
-        heading(dc,L"Profile",contentLeft+22,142,content/3-44);
-        const auto profile=activeProfile();
-        if(!profile)return;
+        const int right=contentLeft+content,split=contentLeft+std::clamp(content/3,260,340),side=split+44,width=right-side-24;
+        panelBox(dc,contentLeft,124,right,226);
+        heading(dc,L"Active profile",contentLeft+24,136,content-48);
+        panelBox(dc,contentLeft,246,split,916);panelBox(dc,split+20,246,right,916);
+        const auto profile=activeProfile();if(!profile)return;
         const auto style=profileStyle(profile->id);
-        avatar(dc,p(contentLeft+66),p(220),p(38),wide(profile->name),profile->id,panel);
-        text(dc,wide(profile->name),contentLeft+22,266,content/3-44,24,fonts.brand,ink,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
-        text(dc,style && !style->tagline.empty() ? wide(style->tagline) : L"No tagline set.",contentLeft+22,300,content/3-44,32,fonts.caption,muted,DT_WORDBREAK|DT_NOPREFIX);
-        heading(dc,L"Profile details",side+24,142,right-side-48);
-        text(dc,style && !style->imageName.empty() ? wide(style->imageName) : L"PNG, JPEG or animated GIF",contentLeft+22,490,content/3-44,36,fonts.caption,muted,DT_WORDBREAK|DT_END_ELLIPSIS|DT_NOPREFIX);
-        text(dc,L"Up to 16 MB. Pictures are copied; your original files are kept.",contentLeft+22,538,content/3-44,52,fonts.caption,muted,DT_WORDBREAK|DT_NOPREFIX);
-        caps(dc,L"INITIALS (WHEN NO PICTURE IS SET)",side+24,190,right-side-48);
-        caps(dc,L"TAGLINE",side+24,270,right-side-48);
-        caps(dc,L"AVATAR ACCENT",side+24,350,right-side-48);
-        text(dc,L"Your picture and appearance are saved on this PC. They are not uploaded to the online service. Your public name stays the same.",
-             side+24,500,right-side-48,48,fonts.caption,muted,DT_WORDBREAK|DT_NOPREFIX);
+        heading(dc,L"Your player card",contentLeft+24,266,split-contentLeft-48);
+        avatar(dc,p((contentLeft+split)/2),p(340),p(42),wide(profile->name),profile->id,panel);
+        text(dc,wide(profile->name),contentLeft+24,396,split-contentLeft-48,24,fonts.brand,ink,DT_CENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+        text(dc,style && !style->tagline.empty() ? wide(style->tagline) : L"Add a tagline to your player card.",contentLeft+24,430,split-contentLeft-48,36,fonts.caption,muted,DT_CENTER|DT_WORDBREAK|DT_END_ELLIPSIS|DT_NOPREFIX);
+        caps(dc,L"PICTURE FRAMING",contentLeft+24,640,split-contentLeft-48);
+        text(dc,style && !style->imageName.empty() ? wide(style->imageName) : L"PNG, JPEG or animated GIF",contentLeft+24,728,split-contentLeft-48,40,fonts.caption,muted,DT_WORDBREAK|DT_END_ELLIPSIS|DT_NOPREFIX);
+        text(dc,L"Up to 16 MB. Your original picture is kept. Pictures and card details stay on this PC.",contentLeft+24,790,split-contentLeft-48,70,fonts.caption,muted,DT_WORDBREAK|DT_NOPREFIX);
+        heading(dc,L"Appearance & notifications",side,266,width);
+        caps(dc,L"INITIALS",side,306,(width-16)/2);
+        caps(dc,L"AVATAR ACCENT",side+(width+16)/2,306,(width-16)/2);
+        caps(dc,L"TAGLINE",side,386,width);
+        caps(dc,L"ONLINE AVAILABILITY",side,466,width);
+        caps(dc,L"INVITES & FRIEND REQUESTS",side,546,width);
+        text(dc,L"Availability is shared online. Quiet mode and Do not disturb keep requests in Notifications without desktop alerts.",side,710,width,40,fonts.caption,muted,DT_WORDBREAK|DT_NOPREFIX);
+        caps(dc,L"COPY APPEARANCE FROM ANOTHER PROFILE",side,770,width);
+        text(dc,L"Copies the picture, initials, tagline and accent. Your name, friends and alert preferences stay yours.",side+174,846,width-174,48,fonts.caption,muted,DT_WORDBREAK|DT_NOPREFIX);
     }
     void paintSaves(HDC dc, int h, int content) {
         const int right = contentLeft + content, panelBottom = h - 64;
@@ -2634,7 +2755,7 @@ struct Window {
              DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
 
         panelBox(dc, contentLeft, 334, right, panelBottom);
-        editFrame(dc, SaveSearch);
+
         heading(dc, gameSaveList() ? L"Memory card" : L"Backup history", contentLeft + 20, 348, content - 390);
         if (disc)
             text(dc, std::to_wstring(gameSaveList() ? savedGames.size() : backups.size()) +
@@ -2692,7 +2813,7 @@ struct Window {
                  contentLeft + 36, middle + 4, content - 72, 38, fonts.caption, muted,
                  DT_CENTER | DT_WORDBREAK | DT_NOPREFIX);
         }
-        editFrame(dc, ModName);
+
     }
     std::wstring timingRulesBase;
     void refreshTimingRules() {
@@ -2758,7 +2879,7 @@ struct Window {
             try { found->second = speedrun::load_split_image(splitImageDirectory()/file); }
             catch (const std::exception& error) { std::cout << "[launcher:split-image] " << error.what() << std::endl; }
         }
-        if (found->second.frames.size() > 1 && !imageAnimationTicking) {
+        if (found->second.frames.size() > 1 && allowMotion() && !imageAnimationTicking) {
             imageAnimationTicking = true;SetTimer(hwnd, 3, 33, nullptr);
         }
         return found->second.frames.empty() ? nullptr : &found->second;
@@ -2768,7 +2889,7 @@ struct Window {
     }
     void paintLocalImage(HDC dc,const speedrun::SplitImage& value,RECT bounds,COLORREF backdrop,bool cover=false) {
         const auto image=&value;
-        const auto& rgba = image->frames[image->frame_at(GetTickCount64())].rgba;
+        const auto& rgba = image->frames[image->frame_at(allowMotion() ? GetTickCount64() : 0)].rgba;
         std::vector<uint32_t> pixels(size_t(image->width)*image->height);
         for (size_t i = 0; i < pixels.size(); ++i) {
             const unsigned alpha = rgba[i*4+3];
@@ -2851,8 +2972,8 @@ struct Window {
             const auto image=style ? profileImages.find(style->image) : profileImages.end();
             animated=animated || (image!=profileImages.end() && image->second.frames.size()>1);
         }
-        if (!animated) {KillTimer(hwnd,3);imageAnimationTicking=false;return;}
-        if (dropdownOpen() || IsIconic(hwnd)) return;
+        if (!animated || !allowMotion()) {KillTimer(hwnd,3);imageAnimationTicking=false;return;}
+        if (dropdownOpen() || IsIconic(hwnd) || !appActive) return;
         InvalidateRect(hwnd,nullptr,FALSE);
         const int id = page == overlayPage ? SplitStyleList : SplitList;
         if (controls.count(id) && IsWindowVisible(controls[id])) InvalidateRect(controls[id],nullptr,FALSE);
@@ -3151,7 +3272,7 @@ struct Window {
                  : selected(SpotMode) == 1 ? L"2   CHOOSE WHOSE PORTRAIT THE NEW SPOT USES"
                                            : L"2   CHOOSE A SPOT TO SHARE",
                  contentLeft + 32 + half, 278, content - 52 - half, orange);
-            editFrame(dc, EntryFilter);
+
         } else {
             auto heading = content_name;
             std::transform(heading.begin(), heading.end(), heading.begin(), ::towupper);
@@ -3428,65 +3549,37 @@ struct Window {
         const int joinTop = bottom - 6 - 103;
         fill(dc, {p(contentLeft + 20), p(joinTop), p(split - 6 - 20), p(joinTop) + 1}, mix(panel, border, 160));
     }
-    void paintSettings(HDC dc, int h, int content) {
-        const int right = contentLeft + content;
-        SettingsGrid grid(content, h);
+    void paintSettings(HDC dc,int h,int content) {
+        ui::SettingsLayout grid(content);
         grid.filter(searchText(trimmed(textOf(SettingsSearch))));
-        editFrame(dc, SettingsSearch);
-        const int displayTop = grid.displayTop, graphicsTop = grid.graphicsTop,
-                  gameTop = grid.gameTop, updatesTop = grid.updatesTop;
-        auto section = [&](int top, int rows, const wchar_t *title, const std::wstring &note, COLORREF tone) {
-            if (top < 0) return;
-            panelBox(dc, contentLeft, top, right, grid.bottom(top, rows));
-            heading(dc, title, contentLeft + 20, top + 12, 200);
-            text(dc, note, contentLeft + 20, top + 38, content - 40, 18,
-                 fonts.caption, tone, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
-        };
-        auto label = [&](int top, int row, int column, const wchar_t *value) {
-            if (top >= 0) caps(dc, value, grid.x(column), grid.label(top, row), grid.column);
-        };
-        if (displayTop < 0 && gameTop < 0 && graphicsTop < 0 && updatesTop < 0)
-            text(dc, L"No matching settings. Try display, graphics, game or launcher.", contentLeft + 20, 196,
-                 content - 40, 48, fonts.body, muted, DT_WORDBREAK | DT_NOPREFIX);
-        section(displayTop, 2, L"Display",
-                settings.windowMode ? L"Borderless uses your desktop resolution. The game draws up to 60 frames a second."
-                                    : L"Game timing stays at 60 FPS. A higher presentation cap lowers input latency.",
-                muted);
-        label(displayTop, 0, 0, L"WINDOW MODE");
-        label(displayTop, 0, 1, L"RESOLUTION");
-        label(displayTop, 0, 2, L"ASPECT RATIO");
-        label(displayTop, 1, 0, L"FRAME RATE CAP");
-        label(displayTop, 1, 1, L"VSYNC");
-        label(displayTop, 1, 2, L"GAME AUDIO");
-
-        section(graphicsTop, 2, L"Graphics", L"Renderer, filtering and upscaling", muted);
-        label(graphicsTop, 0, 0, L"RENDERER");
-        label(graphicsTop, 0, 1, L"ANTI-ALIASING");
-        label(graphicsTop, 0, 2, L"TEXTURE FILTERING");
-        label(graphicsTop, 1, 0, L"UPSCALING");
-        label(graphicsTop, 1, 1, L"INTERNAL RESOLUTION");
-        label(graphicsTop, 1, 2, L"PRESETS");
-
-        const wchar_t *const cpuNotes[] = {
-            L"The CPU plays at the Game Difficulty and COM Level set in the game's Options.",
-            L"Z1: the strongest CPU behaviour in every fight, and its hits do 10% more damage.",
-            L"Z2: the strongest CPU, 20% stronger hits, 10% less damage taken, faster Ki and a small Ki head start.",
-            L"Z3: the strongest CPU, 30% stronger hits, 20% less damage taken, much faster Ki and a Ki head start.",
-            L"Z4: 40% stronger hits, 30% less damage taken, faster Ki, slow health recovery and 40% starting Ki.",
-            L"Z5: 55% stronger hits, 40% less damage taken, very fast Ki, health recovery and 60% starting Ki.",
-            L"Z6: 70% stronger hits, half damage taken, fastest Ki, quick health recovery and full Ki at the start."};
-        section(gameTop, 2, L"Game", cpuNotes[std::min(settings.cpuDifficulty, 6u)], muted);
-        label(gameTop, 0, 0, L"CPU DIFFICULTY");
-        label(gameTop, 0, 1, L"HD TEXTURES");
-        label(gameTop, 0, 2, L"MUSIC");
-        label(gameTop, 1, 0, L"FPS COUNTER");
-        label(gameTop, 1, 1, L"RANDOMIZER");
-        label(gameTop, 1, 2, settings.speedrun ? L"PS2 LOAD TIMES (SPEEDRUN: ACCURATE)" : L"PS2 LOAD TIMES");
-
-        section(updatesTop, 1, L"Launcher", L"Colors, tab order and the page the launcher opens on", muted);
-        label(updatesTop, 0, 0, L"THEME");
-        label(updatesTop, 0, 1, L"ACCENT COLOR");
-        label(updatesTop, 0, 2, L"START ON");
+        const wchar_t* titles[]={L"Display",L"Graphics",L"Game",L"Launcher"};
+        const wchar_t* notes[]={L"Window, presentation and sound. Game simulation stays at 60 FPS.",
+            L"Renderer, image clarity and the resolution used for 3D scenes.",
+            L"Difficulty, textures and music. Speedrun categories enforce their own rules.",
+            L"Appearance, navigation and Discord activity on this PC."};
+        const std::array<std::vector<const wchar_t*>,4> labels{{
+            {L"WINDOW MODE",L"RESOLUTION",L"ASPECT RATIO",L"FRAME RATE CAP",L"VSYNC",L"GAME AUDIO"},
+            {L"RENDERER",L"ANTI-ALIASING",L"TEXTURE FILTERING",L"UPSCALING",L"INTERNAL RESOLUTION",L"IMAGE PRESETS"},
+            {L"CPU DIFFICULTY",L"HD TEXTURES",L"MUSIC",L"FPS COUNTER",L"RANDOMIZER",L"PS2 LOAD TIMES"},
+            {L"THEME",L"ACCENT COLOR",L"START ON",L"DISCORD ACTIVITY",L"INTERFACE MOTION",L"HELP HINTS"}}};
+        bool any=false;
+        for(size_t group=0;group<labels.size();++group) {
+            const int top=grid.sections[group];if(top<0)continue;any=true;
+            panelBox(dc,contentLeft,top,contentLeft+content,grid.bottom(top,ui::SettingsLayout::fields[group]));
+            text(dc,titles[group],contentLeft+24,top+14,200,26,fonts.brand,ink);
+            text(dc,notes[group],contentLeft+24,top+46,content-48,20,fonts.caption,muted,
+                 DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+            for(size_t index=0;index<labels[group].size();++index) {
+                const auto cell=grid.label(top,int(index));
+                caps(dc,labels[group][index],cell.x,cell.y,cell.width,muted);
+            }
+        }
+        if(!any) {
+            panelBox(dc,contentLeft,224,contentLeft+content,388);
+            heading(dc,L"No matching settings",contentLeft+24,248,content-48);
+            text(dc,L"Try a setting such as resolution, music or Discord, or choose a section above.",
+                 contentLeft+24,292,content-48,48,fonts.body,muted,DT_WORDBREAK|DT_NOPREFIX);
+        }
     }
     void paintSpeedrun(HDC dc, int h, int content) {
         const int right = contentLeft + content;
@@ -3633,9 +3726,11 @@ struct Window {
             heading(memory, L"Quick access", contentLeft + 20, 128, content - 220);
             text(memory, L"Type a page, setting or tool. Use the arrow keys to choose, then press Enter.",
                  contentLeft + 20, 168, content - 40, 24, fonts.caption, muted);
-            editFrame(memory, ActionSearch);
+
             if (actionRows.empty()) text(memory, L"No matching actions. Try another search.",
                 contentLeft + 40, 278, content - 80, 48, fonts.body, muted);
+        } else if(page==notificationsPage) {
+            paintNotifications(memory,pageHeight,content);
         } else if (page == 0) {
             paintPlay(memory, content);
             paintHeader(memory, w, content);
@@ -3664,6 +3759,11 @@ struct Window {
             paintSpeedrun(memory, pageHeight, content);
         else
             paintSettings(memory, pageHeight, content);
+        for(const auto& [id,control] : controls) {
+            wchar_t kind[32]{};GetClassNameW(control,kind,32);
+            if(_wcsicmp(kind,L"EDIT")==0 && !(GetWindowLongPtrW(control,GWL_STYLE)&ES_MULTILINE))
+                editFrame(memory,id);
+        }
         GdiFlush();
         const int movedRows=std::min(p(pageVisibleHeight()),int(rect.bottom)-p(shellHeader));
         std::memmove(buffer.frame.pixels+size_t(p(shellHeader))*size_t(rect.right),
@@ -3730,7 +3830,12 @@ struct Window {
         pen.SetStartCap(Gdiplus::LineCapRound);pen.SetEndCap(Gdiplus::LineCapRound);
         Gdiplus::SolidBrush brush(drawingColor(color));
         auto line=[&](float a,float b,float c,float d){g.DrawLine(&pen,a,b,c,d);};
-        if(id==FindAction){g.DrawEllipse(&pen,3.f,3.f,12.f,12.f);line(14,14,21,21);}
+        if(id==OpenNotifications) {
+            Gdiplus::GraphicsPath bell;bell.AddBezier(5.f,17.f,7.f,14.f,5.f,5.f,12.f,5.f);
+            bell.AddBezier(12.f,5.f,19.f,5.f,17.f,14.f,19.f,17.f);bell.AddLine(19.f,17.f,5.f,17.f);
+            g.DrawPath(&pen,&bell);line(10,21,14,21);line(12,2,12,5);
+        } else if(id==HomeProfile) {g.DrawEllipse(&pen,8.f,3.f,8.f,8.f);g.DrawArc(&pen,4.f,12.f,16.f,16.f,180.f,180.f);}
+        else if(id==FindAction){g.DrawEllipse(&pen,3.f,3.f,12.f,12.f);line(14,14,21,21);}
         else if(id==PlayTab){Gdiplus::PointF p[]={{7,4},{21,12},{7,20}};g.FillPolygon(&brush,p,3);}
         else if(id==OnlineTab){g.DrawEllipse(&pen,2.f,2.f,20.f,20.f);g.DrawEllipse(&pen,8.f,2.f,8.f,20.f);line(2,12,22,12);}
         else if(id==SavesTab){g.DrawRectangle(&pen,4.f,3.f,16.f,18.f);g.DrawRectangle(&pen,8.f,3.f,8.f,6.f);g.DrawRectangle(&pen,8.f,14.f,8.f,7.f);}
@@ -3761,7 +3866,9 @@ struct Window {
             const bool taskChoice = (id == TaskCharacters && importTask == Task::characters) ||
                                     (id == TaskStages && importTask == Task::stages) ||
                                     (id == TaskMovesets && importTask == Task::movesets) ||
-                                    (id == TaskCapsules && importTask == Task::capsules);
+                                    (id == TaskCapsules && importTask == Task::capsules) ||
+                                    (id>=SettingsAll && id<=SettingsLauncher && searchText(trimmed(textOf(SettingsSearch)))==
+                                        std::array<std::wstring,5>{L"",L"display",L"graphics",L"game",L"launcher"}[size_t(id-SettingsAll)]);
             const bool pressed = (item.itemState & ODS_SELECTED) != 0;
             const bool hot = hotButton == id && enabled;
             backdrop(dc, item.hwndItem, r, surface(id, r));
@@ -3794,13 +3901,16 @@ struct Window {
             SetTextColor(dc, label);
             RECT textRect = r;
             if (navigation) {
-                RECT tile{r.left+(r.right-r.left)/2-p(27),r.top+p(3),r.right,r.top+p(29)};
+                RECT tile{r.left+(r.right-r.left)/2-p(27),r.top+p(5),r.right,r.top+p(31)};
                 navigationIcon(dc,id,tile,chosen ? orange : hot ? ink : muted);
-                textRect.top=r.top+p(29);textRect.bottom=r.bottom-p(3);
+                textRect.top=r.top+p(32);textRect.bottom=r.bottom-p(5);
                 SelectObject(dc,fonts.caption);
                 SetTextColor(dc,chosen ? orange : label);
                 DrawTextW(dc,text,-1,&textRect,DT_SINGLELINE|DT_VCENTER|DT_CENTER|DT_NOPREFIX);
                 if(id==OnlineTab && noticeCount()>0)ellipse(dc,r.right-p(12),r.top+p(9),p(3),orange);
+            } else if(id==OpenNotifications) {
+                navigationIcon(dc,OpenNotifications,{r.left-p(7),r.top,r.right,r.bottom},hasNotice() ? orange : muted);
+                if(hasNotice()) ellipse(dc,r.right-p(7),r.top+p(7),p(3),orange);
             } else if (id == FindAction) {
                 navigationIcon(dc,FindAction,{r.left-p(3),r.top,r.right,r.bottom},muted);
                 textRect.left += p(44); textRect.right -= p(64);
@@ -3811,11 +3921,11 @@ struct Window {
             } else {
                 if (primary && enabled) {
                     SIZE size{}; GetTextExtentPoint32W(dc,text,int(wcslen(text)),&size);
-                    const int start = r.left + std::max(p(12),int(r.right-r.left-size.cx-p(26))/2);
+                    const int start = r.left + std::max(p(12),int(r.right-r.left-size.cx-p(32))/2);
                     const int cx = start + p(6), cy = (r.top + r.bottom) / 2, s = p(6);
                     const Gdiplus::PointF play[]={{float(cx-s/2),float(cy-s)},{float(cx+s),float(cy)},{float(cx-s/2),float(cy+s)}};
                     smoothPolygon(dc,play,3,label);
-                    textRect.left = start + p(22);
+                    textRect.left = start + p(28);
                 }
                 const bool quick = id >= HomeControls && id <= HomeArrange;
                 if (quick) {
@@ -3831,7 +3941,7 @@ struct Window {
                     DrawTextW(dc,text,-1,&textRect,DT_SINGLELINE|DT_LEFT|DT_END_ELLIPSIS|DT_NOPREFIX);
                     SelectObject(dc,fonts.caption); SetTextColor(dc,muted);
                     textRect.top += p(22); textRect.bottom = r.bottom-p(6);
-                    const wchar_t *hint = id == HomeControls ? L"Keyboard & controller" : L"Manage your memory card";
+                    const wchar_t *hint = id == HomeControls ? L"Keys & controller" : L"Memory card & backups";
                     DrawTextW(dc,hint,-1,&textRect,DT_SINGLELINE|DT_LEFT|DT_END_ELLIPSIS|DT_NOPREFIX);
                 }
                 if (!quick) DrawTextW(dc, text, -1, &textRect, DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX |
@@ -4021,7 +4131,7 @@ struct Window {
             }
         } else if (players) {
             const auto &player = playerDetails[row];
-            const bool busy = player.status == "in a match" || player.status == "hosting" || player.status == "joining";
+            const bool busy = player.status == "in a match" || player.status == "hosting" || player.status == "joining" || player.status == "away" || player.status == "do not disturb";
             title = wide(player.name);
             line = statusLabel(player.status);
             if (const auto hosted = hostingLine(player.name); !hosted.empty())
@@ -4046,7 +4156,7 @@ struct Window {
         } else {
             const auto &status = friendStatus[row];
             const bool on = !status.empty();
-            const bool busy = status == "in a match" || status == "hosting" || status == "joining";
+            const bool busy = status == "in a match" || status == "hosting" || status == "joining" || status == "away" || status == "do not disturb";
             title = wide(friendRows[row].second);
             line = on ? statusLabel(status) : L"Offline";
             if (const auto hosted = hostingLine(friendRows[row].second); on && !hosted.empty())
@@ -5158,8 +5268,8 @@ struct Window {
         ShowWindow(hwnd, SW_MINIMIZE);
     }
     void cycleTimer() {
-        const bool want = settings.launcherAccent == rgb_accent ||
-            std::any_of(settings.profileStyles.begin(),settings.profileStyles.end(),[](const auto& style){return style.accent==rgb_accent;});
+        const bool want = allowMotion() && (settings.launcherAccent == rgb_accent ||
+            std::any_of(settings.profileStyles.begin(),settings.profileStyles.end(),[](const auto& style){return style.accent==rgb_accent;}));
         if (want != cycling) {
             cycling = want;
             if (want)
@@ -5169,7 +5279,7 @@ struct Window {
         }
     }
     void cycleFrame() {
-        if (!cycling || dropdownOpen() || IsIconic(hwnd))
+        if (!cycling || dropdownOpen() || IsIconic(hwnd) || !appActive)
             return;
         apply_theme(settings.launcherTheme, settings.launcherAccent, settings.launcherColors);
         const auto now = GetTickCount64();
@@ -5186,7 +5296,7 @@ struct Window {
             }
     }
     void timer() {
-        presence.enable(true);
+        presence.enable(settings.discordPresence);
         const char* pages[]={"Choosing a game","Setting up online play","Setting up a speedrun","Managing mods","Managing saves","Configuring settings","Checking for updates","Changing controls"};
         const int shown=std::clamp(navigationPage(),0,int(std::size(pages))-1);
         presence.update(running()?"Playing Budokai 2":"In launcher",running()?"In game":page==importPage?"Importing mods":pages[shown]);
@@ -5285,7 +5395,7 @@ struct Window {
             }
             const bool idle = std::chrono::steady_clock::now() - lastInput >= std::chrono::seconds(5);
             if (!busy() && !updating() && !running() && staged &&
-                (installRequested || (settings.autoUpdates && idle && (page == 0 || page == updatesPage)))) {
+                (installRequested || (appActive && !IsIconic(hwnd) && settings.autoUpdates && idle && (page == 0 || page == updatesPage)))) {
                 try { apply_update(*staged); }
                 catch (const std::exception &e) {
                     updateStatus = wide(e.what());
@@ -5347,8 +5457,9 @@ struct Window {
         picking = true;
         struct Reset {
             bool &flag;
-            ~Reset() { flag = false; }
-        } reset{picking};
+            Window& window;
+            ~Reset() { flag = false; window.queueUiRestore(); }
+        } reset{picking,*this};
         IFileOpenDialog *dialog = nullptr;
         if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER,
                                     IID_PPV_ARGS(&dialog))))
@@ -5478,6 +5589,9 @@ struct Window {
             SendMessageW(box, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"No profile yet"));
         SendMessageW(box, CB_SETCURSEL, WPARAM(chosen < 0 ? 0 : chosen), 0);
         EnableWindow(box, !settings.onlineProfiles.empty());
+        const auto source=controls[ProfileCopyFrom];SendMessageW(source,CB_RESETCONTENT,0,0);
+        for(const auto& name:settings.onlineProfiles)SendMessageW(source,CB_ADDSTRING,0,reinterpret_cast<LPARAM>(wide(name).c_str()));
+        SendMessageW(source,CB_SETCURSEL,settings.onlineProfiles.size()>1 && chosen==0 ? 1 : 0,0);
     }
     bool saveOnline() {
         Settings next = settings;
@@ -5620,12 +5734,24 @@ struct Window {
         error = false;
         refreshEnabled();
     }
+    std::filesystem::path profileRecoveryPath() const {return settings_path().parent_path()/"profiles"/"recovery"/"last-removed.ini";}
+    void recoverProfile() {
+        auto next=settings;restore_profile(next,read_settings(profileRecoveryPath()));
+        const auto name=next.onlineName;useProfile(next,name);
+        std::error_code ignored;std::filesystem::remove(profileRecoveryPath(),ignored);
+        status=L"Profile restored with its identity, friends and appearance.";if(page==profilePage)openProfile();layout();refreshEnabled();
+    }
     void removeProfile() {
         if (settings.onlineProfiles.empty())
             return;
         const int chosen = std::clamp(selected(OnlineProfile), 0, int(settings.onlineProfiles.size()) - 1);
         Settings next = settings;
         const auto name = next.onlineProfiles[size_t(chosen)];
+        if(MessageBoxW(hwnd,(L"Remove “"+wide(name)+L"” from this PC?\n\nIts online identity, friends and appearance can be recovered with Undo removal. Game saves are kept.").c_str(),L"Remove profile",MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2)!=IDYES)return;
+        const auto identity=activeProfile();if(!identity)throw std::runtime_error("This profile has no identity");
+        const auto recovery=profile_recovery(settings,size_t(chosen),identity->id);
+        std::filesystem::create_directories(profileRecoveryPath().parent_path());
+        write_settings(profileRecoveryPath(),recovery);
         std::string owner;
         if (size_t(chosen) < next.onlineKeys.size()) {
             crypto::Seed seed{};
@@ -5644,7 +5770,8 @@ struct Window {
         settings = std::move(next);
         fillProfiles();
         reconnect();
-        status = L"Profile " + wide(name) + L" removed.";
+        status = L"Profile " + wide(name) + L" removed. Undo removal restores it.";
+        layout();
         error = false;
         refreshEnabled();
     }
@@ -5954,6 +6081,8 @@ struct Window {
         return view;
     }
     void notify(const std::wstring &title, const std::wstring &message) {
+        const auto profile=activeProfile();const auto style=profile ? profileStyle(profile->id) : nullptr;
+        if(style && (!style->notifications || style->availability==2))return;
         NOTIFYICONDATAW data{};
         data.cbSize = sizeof data;
         data.hWnd = hwnd;
@@ -6124,8 +6253,10 @@ struct Window {
         ensureOnline();
         roomTick();
         const bool runningNow = running();
-        if (directory && directory->connected() && runningNow != wasRunning)
-            directory->set_status(runningNow ? "in a match" : room ? (roomHost ? "hosting" : "joining") : "online");
+        if (directory && directory->connected()) {
+            const auto profile=activeProfile();const auto style=profile ? profileStyle(profile->id) : nullptr;
+            directory->set_status(profile_status(style ? style->availability : 0,runningNow,room!=nullptr,roomHost));
+        }
         if (!runningNow && wasRunning) {
             hostingRoom.clear();
             pendingInvitee.clear();
@@ -6345,6 +6476,7 @@ struct Window {
         error = false;
     }
     void syncOptions() {
+        if(hoverHints)SendMessageW(hoverHints,TTM_ACTIVATE,settings.helpHints,0);
         const auto resolution = std::find(sizes.begin(), sizes.end(), std::make_pair(settings.width, settings.height));
         const auto rate = std::find(rates.begin(), rates.end(), settings.fps);
         const std::pair<int,int> choices[] = {
@@ -6358,7 +6490,8 @@ struct Window {
             {CpuDifficulty,int(settings.cpuDifficulty)},{FpsCounter,settings.fpsCounter ? 1 : 0},
             {RandomizerMode,settings.randomizer ? 1 : 0},{SpeedrunRandomizer,settings.randomizer ? 1 : 0},
             {LoadTimes,settings.ps2LoadTimes ? 1 : 0},{LauncherTheme,int(settings.launcherTheme)},
-            {LauncherAccent,int(settings.launcherAccent)},{StartPage,int(settings.startPage)}};
+            {LauncherAccent,int(settings.launcherAccent)},{StartPage,int(settings.startPage)},
+            {DiscordActivity,settings.discordPresence ? 1 : 0},{LauncherMotion,settings.reducedMotion ? 1 : 0},{LauncherHints,settings.helpHints ? 0 : 1}};
         for (auto [id,value] : choices) SendMessageW(controls[id],CB_SETCURSEL,value,0);
     }
     bool keyboardShortcut(int id) {
@@ -6391,9 +6524,12 @@ struct Window {
     }
     void command(int id, int notification) {
         lastInput = std::chrono::steady_clock::now();
+        if (const auto focus=GetFocus(); focus && IsChild(hwnd,focus)) lastFocusedControl=focus;
+        if (closingDropdowns && (notification==CBN_SELCHANGE || notification==CBN_SELENDOK)) return;
         if ((id == IDOK || id == IDCANCEL) && keyboardShortcut(id))
             return;
         if (id == FindAction && notification == BN_CLICKED) { openActionFinder(); return; }
+        if(id==OpenNotifications && notification==BN_CLICKED) {page=notificationsPage;layout();InvalidateRect(hwnd,nullptr,FALSE);return;}
         if (id == ActionSearch && notification == EN_CHANGE) { refreshActions(); return; }
         if ((id == ActionOpen && notification == BN_CLICKED) || (id == ActionList && notification == LBN_DBLCLK)) {
             openSelectedAction(); return;
@@ -6407,6 +6543,11 @@ struct Window {
             pageScroll = 0; layout(); InvalidateRect(hwnd, nullptr, FALSE); return;
         }
         if (id == ClearSettingsSearch && notification == BN_CLICKED) { SetWindowTextW(controls[SettingsSearch], L""); SetFocus(controls[SettingsSearch]); return; }
+        if (id>=SettingsAll && id<=SettingsLauncher && notification==BN_CLICKED) {
+            const wchar_t* filters[]={L"",L"display",L"graphics",L"game",L"launcher"};
+            page=settingsPage;SetWindowTextW(controls[SettingsSearch],filters[id-SettingsAll]);
+            pageScroll=0;layout();InvalidateRect(hwnd,nullptr,FALSE);return;
+        }
         if (id == UndoSettings && notification == BN_CLICKED && previousSettings) {
             auto next = settings;
             preferences(next) = preferences(*previousSettings);
@@ -6498,6 +6639,22 @@ struct Window {
             saveProfileImage({},{});return;
         }
         if (notification==BN_CLICKED && id==HomeProfile) {openProfile();return;}
+        if(notification==BN_CLICKED && id==ProfileManage) {page=onlinePage;layout();focusControl(OnlineName);return;}
+        if(notification==BN_CLICKED && id==ProfileRecover) {recoverProfile();return;}
+        if(notification==BN_CLICKED && id==ProfileCopyStyle) {
+            const int index=selected(ProfileCopyFrom);const auto target=activeProfile();
+            if(!target || index<0 || size_t(index)>=settings.onlineKeys.size())return;
+            crypto::Seed seed{};if(!crypto::from_hex(settings.onlineKeys[size_t(index)],seed.data(),seed.size()))return;
+            const auto source=online::make_profile(seed,settings.onlineProfiles[size_t(index)]);
+            if(source.id==target->id){status=L"Choose a different profile to copy from.";error=false;return;}
+            const auto from=profileStyle(source.id),own=profileStyle(target->id);
+            auto copied=from ? *from : Settings::ProfileStyle{};copied.id=target->id;
+            copied.notifications=own ? own->notifications : true;copied.availability=own ? own->availability : 0;
+            Settings next=settings;
+            next.profileStyles.erase(std::remove_if(next.profileStyles.begin(),next.profileStyles.end(),[&](const auto& style){return style.id==target->id;}),next.profileStyles.end());
+            next.profileStyles.push_back(std::move(copied));write_settings(settings_path(),next);settings=std::move(next);
+            cycleTimer();openProfile();status=L"Appearance copied from "+wide(source.name)+L".";error=false;return;
+        }
         if (notification==BN_CLICKED && (id==ProfileSave || id==ProfileReset || id==ProfileCopyId)) {
             const auto profile=activeProfile();if(!profile)return;
             if(id==ProfileCopyId) {
@@ -6519,7 +6676,12 @@ struct Window {
                 next.profileStyles.erase(std::remove_if(next.profileStyles.begin(),next.profileStyles.end(),[&](const auto& s){return s.id==profile->id;}),next.profileStyles.end());
                 if(id==ProfileSave) {
                     const auto old=profileStyle(profile->id);
-                    next.profileStyles.push_back({profile->id,utf8(trimmed(textOf(ProfileInitials))),utf8(trimmed(textOf(ProfileTagline))),unsigned(std::max(0,selected(ProfileAccent))),old ? old->image : std::string(),old ? old->imageName : std::string()});
+                    Settings::ProfileStyle updated=old ? *old : Settings::ProfileStyle{};
+                    updated.id=profile->id;updated.initials=utf8(trimmed(textOf(ProfileInitials)));updated.tagline=utf8(trimmed(textOf(ProfileTagline)));
+                    updated.accent=unsigned(std::max(0,selected(ProfileAccent)));
+                    updated.availability=unsigned(std::max(0,selected(ProfileAvailability)));
+                    updated.pictureFit=unsigned(std::max(0,selected(ProfileFit)));updated.notifications=selected(ProfileNotifications)!=1;
+                    next.profileStyles.push_back(std::move(updated));
                 }
                 write_settings(settings_path(),next);settings=std::move(next);cycleTimer();openProfile();
                 status=id==ProfileSave ? L"Profile appearance saved on this PC." : L"Profile appearance reset.";error=false;
@@ -6552,6 +6714,7 @@ struct Window {
             return;
         }
         if (id >= PlayTab && id <= ControlsTab) {
+            if(dropdownOpen())suspendUi();
             if (page == id - PlayTab) {
                 SetFocus(controls[id]);
                 return;
@@ -6661,7 +6824,11 @@ struct Window {
             SetWindowTextW(controls[OnlineSearch],L"");SetFocus(controls[OnlineSearch]);return;
         }
         if(id==FocusOnlineSearch && notification==BN_CLICKED) {
-            page=onlinePage;scrollPage(0);layout();SetFocus(controls[OnlineSearch]);return;
+            if(page==settingsPage) {focusControl(SettingsSearch);return;}
+            if(page==savesPage) {focusControl(SaveSearch);return;}
+            if(page==finderPage) {focusControl(ActionSearch);return;}
+            if(page==0 || page==onlinePage) {focusControl(OnlineSearch);return;}
+            openActionFinder();return;
         }
         if((id==RoomFilter || id==PlayerFilter) && notification==CBN_SELCHANGE) {
             auto next=settings;next.onlineRoomFilter=unsigned(std::max(0,selected(RoomFilter)));
@@ -6669,6 +6836,7 @@ struct Window {
             write_settings(settings_path(),next);settings=std::move(next);refreshOnlineLists();return;
         }
         if ((id == OnlineDelay || id == OnlineListed || id == OnlineProfile) && notification == CBN_SELCHANGE) {
+            if(id==OnlineProfile && (busy() || running() || room)) {fillProfiles();return;}
             const std::string before = settings.onlineName;
             if (saveOnline())
                 status = id == OnlineDelay    ? (settings.onlineDelay ? L"Input delay saved. It is used when you host."
@@ -6681,6 +6849,7 @@ struct Window {
                 SendMessageW(controls[PlayerList],LB_SETCURSEL,WPARAM(-1),0);
                 SendMessageW(controls[FriendList],LB_SETCURSEL,WPARAM(-1),0);
                 reconnect();
+                if(page==profilePage)openProfile();
             }
             refreshEnabled();
             return;
@@ -7072,16 +7241,21 @@ struct Window {
             InvalidateRect(hwnd, nullptr, FALSE);
             return;
         }
-        if ((id == LauncherTheme || id == LauncherAccent || id == StartPage) && notification == CBN_SELCHANGE) {
+        if ((id == LauncherTheme || id == LauncherAccent || id == StartPage || id==DiscordActivity || id==LauncherMotion || id==LauncherHints) && notification == CBN_SELCHANGE) {
             previousSettings = settings;
             settings.launcherTheme = unsigned(std::max(0, selected(LauncherTheme)));
             settings.launcherAccent = unsigned(std::max(0, selected(LauncherAccent)));
             settings.startPage = unsigned(std::max(0, selected(StartPage)));
+            settings.discordPresence=selected(DiscordActivity)!=0;
+            settings.reducedMotion=selected(LauncherMotion)==1;settings.helpHints=selected(LauncherHints)==0;
+            if(hoverHints)SendMessageW(hoverHints,TTM_ACTIVATE,settings.helpHints,0);
             settings.lastPage = unsigned(std::clamp(navigationPage(), 0, int(tab_count) - 1));
-            saveLauncherLook(id == StartPage ? (settings.startPage ? L"The launcher opens on the last page you used." : L"The launcher opens on Play.")
+            saveLauncherLook(id==LauncherMotion ? (settings.reducedMotion ? L"Reduced motion on. Navigation, GIFs and cycling accents stay still." : L"Smooth motion on. Windows animation preferences are respected.") :
+                             id==LauncherHints ? (settings.helpHints ? L"Hover hints on." : L"Hover hints off. Keyboard shortcuts still work.") : id==DiscordActivity ? (settings.discordPresence ? L"Discord activity on." : L"Discord activity off.") :
+                             id == StartPage ? (settings.startPage ? L"The launcher opens on the last page you used." : L"The launcher opens on Play.")
                                              : L"Theme " + std::wstring(themes[settings.launcherTheme].name) + L" with " +
                                                    (settings.launcherAccent ? std::wstring(accents[settings.launcherAccent].name) + L" accents." : L"its own accent color."));
-            if (id != StartPage)
+            if (id == LauncherTheme || id==LauncherAccent || id==LauncherMotion)
                 restyle();
             else
                 InvalidateRect(hwnd, nullptr, FALSE);
@@ -7467,6 +7641,8 @@ LRESULT CALLBACK edit_procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
 LRESULT CALLBACK combo_procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
     auto original = reinterpret_cast<WNDPROC>(GetPropW(hwnd, L"OpenKai2.ComboProcedure"));
     auto *owner = reinterpret_cast<Window *>(GetWindowLongPtrW(GetParent(hwnd), GWLP_USERDATA));
+    if(owner && (message==WM_SETFONT || message==CB_ADDSTRING || message==CB_INSERTSTRING || message==CB_DELETESTRING || message==CB_RESETCONTENT))
+        owner->comboTextWidths.erase(GetDlgCtrlID(hwnd));
     if (message == WM_PAINT && owner) {
         PAINTSTRUCT ps;
         auto screen = BeginPaint(hwnd, &ps);
@@ -7568,6 +7744,22 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
                 PostMessageW(hwnd, pageClipMessage, 0, 0);
             self->command(LOWORD(wp), !lp && HIWORD(wp) == 1 ? BN_CLICKED : HIWORD(wp));
             return 0;
+        case WM_ACTIVATEAPP:
+            self->appActive=wp!=FALSE;
+            if (self->appActive) self->queueUiRestore();
+            else self->suspendUi();
+            return 0;
+        case WM_ACTIVATE:
+            if (LOWORD(wp)!=WA_INACTIVE) self->queueUiRestore();
+            break;
+        case WM_ENABLE:
+            if (wp) self->queueUiRestore();
+            break;
+        case WM_DISPLAYCHANGE:
+        case WM_THEMECHANGED:
+        case WM_EXITSIZEMOVE:
+            self->queueUiRestore();
+            break;
         case WM_TIMER:
             if (wp == 4)
                 self->animateDock();
@@ -7589,6 +7781,9 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
                 self->clipPageControls();
             InvalidateRect(hwnd, nullptr, FALSE);
             return 0;
+        case restoreUiMessage:
+            self->restoreUi();
+            return 0;
         case onlineChanged:
             self->finishNameCheck();
             self->refreshOnlineLists();
@@ -7598,8 +7793,10 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
             self->noticesArrived();
             return 0;
         case WM_SIZE:
+            if (wp==SIZE_MINIMIZED) {self->wasMinimized=true;return 0;}
             if (!self->controls.empty())
                 self->layout();
+            if (self->wasMinimized) {self->wasMinimized=false;self->queueUiRestore();}
             return 0;
         case WM_DROPFILES:
             self->dropped(reinterpret_cast<HDROP>(wp));
@@ -7645,6 +7842,7 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
             SetWindowPos(hwnd, nullptr, r->left, r->top, r->right - r->left, r->bottom - r->top,
                          SWP_NOZORDER | SWP_NOACTIVATE);
             self->layout();
+            self->queueUiRestore();
             return 0;
         }
         case WM_CTLCOLORBTN:
@@ -7833,6 +8031,7 @@ int run_window(const std::filesystem::path &initialIso) {
                          {FALT | FVIRTKEY, '5', ShortcutFirst + 4},
                          {FALT | FVIRTKEY, '6', ShortcutFirst + 5},
                          {FCONTROL | FVIRTKEY, 'K', FindAction},
+                         {FCONTROL | FSHIFT | FVIRTKEY, 'N', OpenNotifications},
                          {FCONTROL | FVIRTKEY, 'R', RefreshRooms},
                          {FCONTROL | FVIRTKEY, 'F', FocusOnlineSearch},
                          {FCONTROL | FVIRTKEY, 'O', ChooseIso},
@@ -7859,7 +8058,15 @@ int run_window(const std::filesystem::path &initialIso) {
         if (message.message == WM_MOUSEWHEEL && message.hwnd != hwnd &&
             !state.dropdownOpen() && state.routeWheelToControl(message.wParam, message.lParam))
             continue;
-        if ((message.message == WM_KEYDOWN || message.message == WM_SYSKEYDOWN) &&
+        const bool keyDown=message.message==WM_KEYDOWN || message.message==WM_SYSKEYDOWN;
+        const bool keyUp=message.message==WM_KEYUP || message.message==WM_SYSKEYUP;
+        const bool altKey=message.wParam==VK_MENU || message.wParam==VK_LMENU || message.wParam==VK_RMENU;
+        if(state.capturing>=0 && altKey && keyDown)state.pendingCaptureAlt=message.lParam;
+        if(state.capturing>=0 && altKey && keyUp && state.pendingCaptureAlt) {
+            const auto press=state.pendingCaptureAlt;state.pendingCaptureAlt=0;
+            if(SendMessageW(hwnd,controlKeyMessage,message.wParam,press))continue;
+        }
+        if (keyDown && !(state.capturing>=0 && (altKey || GetKeyState(VK_MENU)<0)) &&
             SendMessageW(hwnd, controlKeyMessage, message.wParam, message.lParam))
             continue;
         if (message.message == WM_RBUTTONUP && message.hwnd != hwnd &&
