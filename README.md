@@ -39,8 +39,8 @@ files.
 - **Randomizer:** a random character, with its own moves and skills, for every
   Dragon World and World Tournament fight. Works with speedruns and permadeath.
 - **Launcher:** a lounge with friends, searchable rooms and selected-room details;
-  six dock tabs, Play shortcuts for controls and saves, an action finder,
-  thirteen illustrated themes, custom
+  six dock tabs, Play shortcuts for controls and saves, keyboard shortcut help,
+  thirteen coordinated color themes, custom
   colors, local PNG/JPEG/GIF player cards, profile recovery, availability and quiet
   notifications, reduced motion, ISO verification, saves and backups,
   automatic updates and Discord activity. See [Windows](docs/windows.md).

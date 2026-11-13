@@ -86,7 +86,7 @@ void reveal_control(HWND control) {
         const WPARAM direction = bounds.top<MulDiv(76,dpi,96) ? SB_LINEUP : SB_LINEDOWN;
         SCROLLINFO before{sizeof(before),SIF_POS},after{sizeof(after),SIF_POS};
         GetScrollInfo(window,SB_VERT,&before);SendMessageW(window,WM_VSCROLL,direction,0);GetScrollInfo(window,SB_VERT,&after);
-        if(before.nPos==after.nPos) break;
+        if(before.nPos==after.nPos) std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     RECT bounds{},client{};GetWindowRect(control,&bounds);GetClientRect(window,&client);
     MapWindowPoints(nullptr,window,reinterpret_cast<POINT*>(&bounds),2);
@@ -359,7 +359,7 @@ struct FocusTarget {
 void check_shell_alignment(HWND launcher) {
     const auto dpiForWindow=reinterpret_cast<UINT(WINAPI*)(HWND)>(GetProcAddress(GetModuleHandleW(L"user32.dll"),"GetDpiForWindow"));
     const int dpi=dpiForWindow?int(dpiForWindow(launcher)):96;
-    RECT client{},field{};GetClientRect(launcher,&client);GetWindowRect(GetDlgItem(launcher,1100),&field);
+    RECT client{},field{};GetClientRect(launcher,&client);GetWindowRect(GetDlgItem(launcher,1210),&field);
     MapWindowPoints(nullptr,launcher,reinterpret_cast<POINT*>(&field),2);
     require(std::abs(field.right-(client.right-MulDiv(36,dpi,96)))<=1,
             "Scrollbar changes left the launcher header at a stale width");
@@ -400,6 +400,32 @@ int main(int argc,char** argv) {
                 wait_until([] { return updateStarted.load(); }, "Background update did not start");
                 require(IsWindowEnabled(GetDlgItem(w,110)) != FALSE,
                         "Background update check blocked choosing an ISO");
+                require(!IsWindowVisible(GetDlgItem(w,1100)),"The header action search bar is still shown");
+                {
+                    const auto field=GetDlgItem(w,140);const auto dc=GetDC(field);
+                    const auto previous=SelectObject(dc,reinterpret_cast<HFONT>(SendMessageW(field,WM_GETFONT,0,0)));
+                    wchar_t face[80]{};GetTextFaceW(dc,80,face);TEXTMETRICW metrics{};GetTextMetricsW(dc,&metrics);SelectObject(dc,previous);ReleaseDC(field,dc);
+                    const auto windowDpi=reinterpret_cast<UINT(WINAPI*)(HWND)>(GetProcAddress(GetModuleHandleW(L"user32.dll"),"GetDpiForWindow"));
+                    require(metrics.tmHeight<=MulDiv(22,windowDpi?windowDpi(w):96,96),"Launcher font line metrics exceed the field height");
+                    require(std::wstring(face)==L"OpenKai2 Display","The Budokai-style launcher font was not loaded");
+                }
+                key_press(VK_NEXT,VK_CONTROL);wait_until([&]{return IsWindowVisible(GetDlgItem(w,246));},"Next-tab shortcut did not open Online");
+                key_press(VK_PRIOR,VK_CONTROL);wait_until([&]{return IsWindowVisible(GetDlgItem(w,112));},"Previous-tab shortcut did not return to Play");
+                key_press(VK_F1);wait_until([&]{return IsWindowVisible(GetDlgItem(w,1013));},"F1 did not open Help");
+                key_press(VK_END,VK_CONTROL);reveal_control(GetDlgItem(w,1248));click(w,1248);
+                std::wstring summary;
+                wait_until([&] {
+                    if(!OpenClipboard(nullptr))return false;
+                    const auto data=GetClipboardData(CF_UNICODETEXT);
+                    if(data)if(const auto value=static_cast<const wchar_t*>(GlobalLock(data))) {summary=value;GlobalUnlock(data);}
+                    CloseClipboard();return summary.find(L"OpenKai2 v")!=std::wstring::npos;
+                },"The setup summary was not copied");
+                require(summary.find(L"Renderer:")!=std::wstring::npos && summary.find(L"UI test")==std::wstring::npos && summary.find(std::wstring(64,L'a'))==std::wstring::npos &&
+                        summary.find(L":\\")==std::wstring::npos,"The support summary is incomplete or contains private profile data");
+                key_press(VK_LEFT,VK_MENU);wait_until([&]{return IsWindowVisible(GetDlgItem(w,112));},"Help did not return to Play");
+                key_press(VK_F11);wait_until([&]{return IsZoomed(w)!=FALSE;},"F11 did not maximize the launcher");
+                key_press(VK_F11);wait_until([&]{return IsZoomed(w)==FALSE;},"F11 did not restore the launcher");
+
                 std::cout<<"[ui:stage] resize and application focus recovery"<<std::endl;
                 for(int height:{600,960,600,960}) {
                     SetWindowPos(w,nullptr,0,0,1440,height,SWP_NOZORDER|SWP_NOACTIVATE);
@@ -475,6 +501,10 @@ int main(int argc,char** argv) {
                 require(SendMessageW(GetDlgItem(w,1102),LB_GETCOUNT,0,0)==1,"Action search did not narrow the results");
                 key_press(VK_RETURN);
                 wait_until([&]{return IsWindowVisible(GetDlgItem(w,1105));},"The action finder did not open Controls");
+                const auto beforeCancel=read_settings(settings_path()).controls;
+                click(w,410);key_press(VK_ESCAPE);
+                wait_until([&]{wchar_t label[100]{};GetWindowTextW(GetDlgItem(w,410),label,100);return std::wstring(label).find(L"Press a key")==std::wstring::npos;},"Escape did not cancel binding capture");
+                require(read_settings(settings_path()).controls.keys==beforeCancel.keys,"Canceling capture changed a binding");
                 for(int id=450;id<466;++id) {
                     const auto control=GetDlgItem(w,id);reveal_control(control);
                     wchar_t label[200]{};GetWindowTextW(control,label,200);RECT bounds{};GetClientRect(control,&bounds);
@@ -511,12 +541,19 @@ int main(int argc,char** argv) {
                 }
 
                 SetWindowTextW(GetDlgItem(w,1007),L"UT");SetWindowTextW(GetDlgItem(w,1008),L"Local appearance");
-                keyboard_choice(GetDlgItem(w,1009),3);click(w,1010);
+                keyboard_choice(GetDlgItem(w,1009),3);key_press('S',VK_CONTROL);
+                wait_until([&]{const auto saved=read_settings(settings_path());return !saved.profileStyles.empty() && saved.profileStyles[0].tagline=="Local appearance";},"Ctrl+S did not save the profile");
                 const auto style=read_settings(settings_path());
                 require(style.profileStyles.size()==1 && style.profileStyles[0].initials=="UT" &&
                             style.profileStyles[0].tagline=="Local appearance" && style.profileStyles[0].accent==3 &&
                             style.onlineKeys==initial.onlineKeys && style.onlineName==initial.onlineName,
                         "Profile customization changed identity or did not persist");
+                {
+                    const auto tab=GetDlgItem(w,101);RECT bounds{};GetClientRect(tab,&bounds);
+                    const auto palette=make_theme(initial.launcherTheme,initial.launcherAccent,initial.launcherColors);
+                    const auto dc=GetDC(tab);const auto pixel=GetPixel(dc,bounds.right/2,bounds.bottom-6);ReleaseDC(tab,dc);
+                    require(pixel!=RGB(palette.accent.r,palette.accent.g,palette.accent.b),"The selected dock tab still has an underline");
+                }
                 std::cout<<"[ui:stage] profile image selection"<<std::endl;
                 const auto portrait=root/L"My profile animation.gif";
                 {std::ofstream out(portrait,std::ios::binary);out.write(reinterpret_cast<const char*>(openkai2::test_images::gif),sizeof(openkai2::test_images::gif));}
@@ -639,10 +676,10 @@ int main(int argc,char** argv) {
                 keyboard_choice(GetDlgItem(w,141),3);
                 require(read_settings(settings_path()).fps==120,"FPS was not persisted by native interaction");
                 SendMessageW(w,WM_COMMAND,MAKEWPARAM(141,CBN_SELCHANGE),LPARAM(GetDlgItem(w,141)));
-                click(w,1114);
+                key_press('Z',VK_CONTROL);wait_until([&]{return read_settings(settings_path()).fps==240;},"Ctrl+Z did not undo the settings change");
                 require(read_settings(settings_path()).fps==240 && !read_settings(settings_path()).discordPresence,
                         "Undo settings failed or changed unrelated preferences");
-                require(!IsWindowEnabled(GetDlgItem(w,1114)),"Undo stayed enabled with no previous change");
+                wait_until([&]{return !IsWindowEnabled(GetDlgItem(w,1114));},"Undo stayed enabled with no previous change");
                 keyboard_choice(GetDlgItem(w,141),3);
                 open_dropdown(GetDlgItem(w,141));key_press(VK_HOME);
                 wait_until([&]{return SendMessageW(GetDlgItem(w,141),CB_GETCURSEL,0,0)==0;},"A dropdown could not be previewed");
@@ -729,8 +766,8 @@ int main(int argc,char** argv) {
                     SetWindowPos(w,nullptr,0,0,MulDiv(1000,dpi,96),MulDiv(height,dpi,96),
                                  SWP_NOZORDER|SWP_NOACTIVATE);
                     for(int id : {140,141,142,143,144,145,146,147,149,150,151,152,153,154,
-                                  170,171,173,179,1100,1110,1111,1112,1113,1114}) {
-                        if (id!=1100) reveal_control(GetDlgItem(w,id));
+                                  170,171,173,179,1210,1110,1111,1112,1113,1114}) {
+                        if (id!=1210) reveal_control(GetDlgItem(w,id));
                         RECT bounds{},client{};GetWindowRect(GetDlgItem(w,id),&bounds);GetClientRect(w,&client);
                         MapWindowPoints(nullptr,w,reinterpret_cast<POINT*>(&bounds),2);
                         require(bounds.left>=0 && bounds.top>=0 && bounds.right<=client.right &&
@@ -738,6 +775,12 @@ int main(int argc,char** argv) {
                                 "A settings control overlaps the status footer or leaves the window");
                     }
                 }
+                keyboard_choice(GetDlgItem(w,303),7);keyboard_choice(GetDlgItem(w,302),2);
+                require(read_settings(settings_path()).launcherTheme==2 && read_settings(settings_path()).launcherAccent==0 &&
+                        read_settings(settings_path()).launcherColors==no_custom_colors(),"Choosing a named theme retained a different accent palette");
+                click(w,1114);require(read_settings(settings_path()).launcherTheme==0 && read_settings(settings_path()).launcherAccent==7,
+                        "Undo did not restore the previous theme and accent");
+                keyboard_choice(GetDlgItem(w,302),0);
                 click(w,103);
                 auto rules = GetDlgItem(w,290);
                 require(rules && IsWindowVisible(rules), "Speedrun timing rules are missing");

@@ -18,25 +18,23 @@ struct ThemeChoice {
     const wchar_t *name;
     Rgb background, sidebar, panel, accent, highlight, heroFrom, heroTo, bannerText;
     bool light;
-    unsigned banner = 0;
 };
 inline constexpr ThemeChoice themes[] = {
-    {L"Dragon Balls", {16, 20, 27}, {21, 27, 36}, {28, 37, 49}, {245, 161, 82}, {255, 211, 145}, {21, 25, 33}, {48, 37, 28}, {221, 195, 164}, false, 2},
-    {L"Capsule", {237, 242, 248}, {247, 250, 253}, {255, 255, 255}, {36, 100, 202}, {22, 63, 122}, {17, 43, 75}, {30, 75, 120}, {211, 229, 250}, true, 1},
-    {L"Dragon Radar", {12, 23, 20}, {16, 33, 27}, {23, 43, 35}, {117, 217, 166}, {219, 196, 118}, {14, 32, 25}, {37, 77, 55}, {194, 223, 205}, false, 3},
-    {L"Scouter", {27, 16, 22}, {36, 21, 30}, {48, 29, 41}, {245, 112, 121}, {255, 208, 174}, {28, 17, 25}, {76, 38, 57}, {238, 203, 208}, false, 4},
-    {L"Budokai Black", {14, 16, 19}, {20, 23, 28}, {27, 32, 39}, {230, 231, 233}, {242, 155, 75}, {21, 24, 29}, {40, 46, 54}, {200, 205, 213}, false, 5},
-    {L"Budokai Black (board)", {16, 16, 18}, {23, 23, 26}, {32, 32, 36}, {242, 103, 82}, {245, 215, 178}, {21, 21, 25}, {51, 35, 33}, {215, 201, 191}, false, 6},
-    {L"Majin Buu", {29, 21, 32}, {40, 27, 42}, {53, 36, 58}, {247, 159, 203}, {245, 204, 117}, {33, 23, 37}, {79, 44, 70}, {233, 198, 220}, false, 7},
-    {L"Babidi", {23, 20, 35}, {32, 27, 48}, {44, 37, 64}, {179, 217, 122}, {240, 198, 119}, {27, 23, 48}, {53, 40, 73}, {208, 198, 230}, false, 8},
-    {L"Majin Vegeta", {24, 22, 18}, {34, 32, 26}, {48, 44, 34}, {230, 187, 92}, {231, 127, 89}, {33, 27, 17}, {76, 52, 36}, {227, 209, 178}, false, 9},
-    {L"Saiyan Pod", {20, 23, 34}, {27, 33, 48}, {37, 45, 64}, {176, 154, 222}, {227, 188, 183}, {24, 29, 42}, {48, 57, 76}, {201, 210, 226}, false, 10},
-    {L"Spirit Bomb", {16, 28, 38}, {22, 39, 53}, {31, 52, 70}, {139, 203, 229}, {208, 236, 248}, {19, 35, 48}, {40, 81, 100}, {195, 223, 237}, false, 11},
-    {L"Flying Nimbus", {33, 27, 33}, {44, 37, 44}, {58, 48, 56}, {242, 185, 113}, {244, 219, 176}, {36, 28, 37}, {84, 59, 66}, {231, 209, 189}, false, 12},
-    {L"Potara", {16, 30, 33}, {23, 41, 45}, {33, 56, 60}, {119, 205, 196}, {225, 196, 122}, {18, 39, 42}, {43, 74, 73}, {190, 222, 216}, false, 13},
+    {L"Budokai Orange", {17,15,14}, {23,20,18}, {31,26,23}, {247,159,76}, {255,207,148}, {29,22,17}, {65,38,22}, {225,200,179}, false},
+    {L"Capsule White", {237,242,248}, {247,250,253}, {255,255,255}, {36,100,202}, {22,63,122}, {243,248,255}, {216,232,253}, {57,80,113}, true},
+    {L"Radar Green", {10,20,15}, {14,28,21}, {20,38,28}, {105,217,143}, {188,237,202}, {12,32,20}, {25,62,37}, {185,220,194}, false},
+    {L"Scouter Red", {23,12,16}, {32,17,22}, {43,24,30}, {244,112,131}, {255,187,192}, {32,14,22}, {75,28,40}, {230,192,200}, false},
+    {L"Obsidian Black", {9,10,12}, {15,16,19}, {23,24,28}, {231,233,237}, {193,199,211}, {15,16,18}, {34,36,43}, {204,209,219}, false},
+    {L"Graphite", {23,27,33}, {31,36,44}, {39,45,55}, {161,181,210}, {219,228,242}, {30,38,50}, {46,60,79}, {201,216,236}, false},
+    {L"Majin Pink", {24,14,23}, {33,20,32}, {44,28,42}, {239,160,210}, {251,210,236}, {33,17,29}, {71,34,62}, {232,195,223}, false},
+    {L"Royal Purple", {15,12,25}, {23,18,37}, {31,25,48}, {184,157,245}, {224,211,255}, {25,18,43}, {50,35,79}, {209,197,237}, false},
+    {L"Saiyan Gold", {25,20,11}, {34,28,17}, {44,36,21}, {237,198,109}, {253,224,164}, {38,28,13}, {78,56,25}, {228,207,166}, false},
+    {L"Midnight Blue", {10,16,29}, {15,23,40}, {22,32,52}, {111,153,238}, {185,209,255}, {14,25,49}, {27,47,85}, {189,206,237}, false},
+    {L"Ice Blue", {12,25,31}, {17,34,43}, {23,44,54}, {151,219,241}, {211,244,255}, {16,37,48}, {30,69,85}, {193,228,238}, false},
+    {L"Nimbus Yellow", {250,246,231}, {255,252,241}, {255,253,247}, {135,91,0}, {117,75,0}, {255,250,226}, {248,229,167}, {88,70,32}, true},
+    {L"Emerald", {9,22,23}, {13,31,33}, {19,42,44}, {65,212,191}, {160,237,220}, {12,31,34}, {22,64,65}, {177,223,218}, false},
 };
 inline constexpr unsigned theme_count = sizeof(themes) / sizeof(themes[0]);
-inline constexpr unsigned banner_picture_count = 13u;
 inline constexpr unsigned legacy_themes[] = {0, 1, 2, 3, 4, 7, 6, 2, 3, 8, 5, 9, 7, 1, 4, 5, 2, 3, 10, 9};
 constexpr unsigned legacy_theme(unsigned old) { return old < sizeof(legacy_themes) / sizeof(legacy_themes[0]) ? legacy_themes[old] : 0u; }
 inline constexpr unsigned retired_themes[] = {0, 1, 2, 0, 4, 4, 3, 0, 0, 1, 1, 1, 0, 2, 3, 4};
@@ -94,7 +92,6 @@ struct Theme {
     Rgb accent, highlight, glow, heroFrom, heroTo;
     Rgb buttonTop, buttonBottom, buttonHotTop, buttonHotBottom, buttonPressedTop, buttonPressedBottom, buttonShine, buttonInk;
     Rgb bannerTitle, bannerText, success, error, info, ball, ballStars, shadow, bannerLabel;
-    unsigned banner = 0;
 };
 
 struct ColorRole {
@@ -117,10 +114,10 @@ inline constexpr ColorRole color_roles[] = {
     {L"Glow", L"Light behind the logo and main buttons", &Theme::glow},
     {L"Main buttons", L"Play, Import and other main actions", &Theme::buttonTop},
     {L"Main button text", L"Text on main buttons", &Theme::buttonInk},
-    {L"Banner left", L"Left side of the Play banner", &Theme::heroFrom},
-    {L"Banner right", L"Right side of the Play banner", &Theme::heroTo},
-    {L"Banner title", L"The Budokai 2 title on Play", &Theme::bannerTitle},
-    {L"Banner details", L"Disc status and details on Play", &Theme::bannerText},
+    {L"Game panel left", L"Left side of the game panel", &Theme::heroFrom},
+    {L"Game panel right", L"Right side of the game panel", &Theme::heroTo},
+    {L"Game title", L"The Budokai 2 title on Play", &Theme::bannerTitle},
+    {L"Game details", L"Disc status and details on Play", &Theme::bannerText},
     {L"Success", L"Online, verified and finished states", &Theme::success},
     {L"Errors", L"Problems and warnings", &Theme::error},
     {L"Links", L"Information marks", &Theme::info},
@@ -173,10 +170,10 @@ constexpr Theme make_theme(unsigned theme, unsigned accent, const CustomColors &
         const unsigned brightness = luminance(out.accent);
         if (brightness > 100u)
             out.accent = blend(out.accent, black, (brightness - 100u) * 255u / brightness);
-        out.field = {243, 247, 252};
-        out.raised = {232, 238, 246};
+        out.field = blend(t.panel, t.background, 96);
+        out.raised = blend(t.sidebar, out.accent, 14);
         out.hover = blend(out.raised, out.accent, 18);
-        out.border = {191, 202, 218};
+        out.border = blend(t.panel, out.accent, 80);
         out.ink = {24, 35, 51};
         out.muted = {77, 94, 117};
         out.faint = {101, 117, 139};
@@ -203,11 +200,9 @@ constexpr Theme make_theme(unsigned theme, unsigned accent, const CustomColors &
     out.heroTo = t.heroTo;
     out.glow = blend(out.accent, black, 20);
     shade_main_buttons(out, out.accent);
-    out.bannerTitle = blend(Rgb{255, 246, 236}, t.bannerText, 40);
+    out.bannerTitle = out.ink;
     out.bannerText = t.bannerText;
-    out.banner = t.banner;
-    if (t.banner && !t.light)
-        out.info = blend(out.info, out.accent, 150);
+    out.info = blend(out.info, out.accent, t.light ? 0 : 100);
     out.ball = {255, 145, 26};
     out.ballStars = {220, 40, 28};
     for (unsigned role = 0; role < color_role_count; ++role) {

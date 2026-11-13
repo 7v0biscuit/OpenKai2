@@ -26,5 +26,6 @@
   "bangers-ofl.txt": "https://github.com/google/fonts/blob/9b59ea9f333c5b8a99fa44e2a698496d6cde5b8e/ofl/bangers/OFL.txt",
   "soundtouch.txt": "https://github.com/PCSX2/pcsx2/blob/dcfd663c1903025864a865d3fcf508d0caab70c7/3rdparty/soundtouch/COPYING.TXT",
   "inter-ofl.txt": "https://github.com/google/fonts/blob/main/ofl/inter/OFL.txt",
-  "barlow-condensed-ofl.txt": "https://github.com/google/fonts/blob/main/ofl/barlowcondensed/OFL.txt"
+  "barlow-condensed-ofl.txt": "https://github.com/google/fonts/blob/main/ofl/barlowcondensed/OFL.txt",
+  "openkai2-display.txt": "https://github.com/7v0biscuit/OpenKai2/tree/main/third_party/openkai2-display"
 }

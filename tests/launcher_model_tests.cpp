@@ -281,7 +281,7 @@ int main() {
         {
             using namespace openkai2::launcher;
             const auto first = make_theme(0, 0);
-            require(first.accent == themes[0].accent && first.banner == themes[0].banner && luminance(first.background)<luminance(first.panel),
+            require(first.accent == themes[0].accent && luminance(first.background)<luminance(first.panel),
                     "The default theme is not Dragon Balls");
             const auto contrast = [](Rgb a, Rgb b) {
                 const auto light = [](Rgb c) {
@@ -294,8 +294,6 @@ int main() {
                 const double x = light(a), y = light(b);
                 return (std::max(x,y) + .05) / (std::min(x,y) + .05);
             };
-            for (unsigned theme = 0; theme < theme_count; ++theme)
-                require(themes[theme].banner >= 1u && themes[theme].banner <= banner_picture_count, "A theme has no picture");
             for (unsigned theme = 0; theme < theme_count; ++theme)
                 for (unsigned accent = 0; accent < accent_count; ++accent) {
                     const auto look = make_theme(theme, accent);
@@ -355,7 +353,7 @@ int main() {
                 for (unsigned a = 0; a < theme_count; ++a)
                     for (unsigned b = a + 1; b < theme_count; ++b) {
                         const auto x = make_theme(a, 0), y = make_theme(b, 0);
-                        require(x.banner!=y.banner || distance(x.accent,y.accent)+distance(x.panel,y.panel)*4u+distance(x.heroFrom,y.heroFrom)>140u,
+                        require(distance(x.accent,y.accent)+distance(x.panel,y.panel)*4u+distance(x.heroFrom,y.heroFrom)>140u,
                                 "Two launcher themes look almost the same");
                     }
                 custom[4] = 0x1000000;

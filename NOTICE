@@ -27,11 +27,11 @@ The unmodified shader headers in third_party/fidelityfx-fsr/ retain their MIT
 notices, including Michal Drobot's shader portability contributions. This is
 FSR 1 spatial upscaling, without temporal reconstruction or frame generation.
 
-Launcher interface text uses Inter by the Inter Project Authors. Game-title
-lettering uses Barlow Condensed by the Barlow Project Authors. Both fonts are
-licensed under the SIL Open Font License 1.1 and embedded in the launcher.
-The unmodified font files and licenses are in third_party/inter/ and
-third_party/barlow-condensed/.
+Launcher lettering uses OpenKai2 Display, derived from Bangers by the Bangers
+Project Authors under the SIL Open Font License 1.1. The glyph outlines are
+unchanged; the family is renamed and Windows line metrics follow the original
+typographic metrics. The font, license and modification notes are in
+third_party/openkai2-display/, with the unmodified source in third_party/bangers/.
 
 Portable Windows bundles include third-party notices in licenses/. The source
 locations for those notices and the pinned FFmpeg build recipe are recorded in

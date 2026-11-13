@@ -12,19 +12,19 @@ Ctrl+1 to Ctrl+6) follow the visible dock order. **Arrange tabs** reorders or
 hides tabs; Play and Settings remain visible. Existing tab arrangements keep
 their relative order when the two Play tools move out of the dock.
 
-**Find an action** in the header, or **Ctrl+K**, searches pages and tools.
+**Ctrl+K** searches pages and tools from the keyboard. The header search bar is removed.
 Use the arrow keys and Enter to open a result; Esc returns to the previous page.
 Hover over a dock tab to see its keyboard shortcut. **Ctrl+O** selects an ISO,
 **F5** starts the game after verification, and **Ctrl+L** opens logs.
 **Alt+Left** or **Esc** returns from a detail page. In dropdowns, Enter confirms
 a choice and Esc cancels it; browsing the list does not change saved settings.
 
-**Play** keeps the game image, ISO verification, current release notes and
-profile shortcuts together. Theme artwork stays behind the title with a
-readability overlay. Inter is bundled for interface text and Barlow Condensed
-for the game title; both scale with Windows display scaling. The profile panel
-lets you customize your local profile. Friends appear on the left, the game
-and Play tools in the middle, and selected-room details on the right.
+**Play** keeps the game panel, ISO verification, current release notes and
+profile shortcuts together. Thirteen color palettes coordinate the launcher.
+Bundled OpenKai2 Display lettering gives the interface a Budokai-inspired comic style
+and scales with Windows display scaling. The profile panel customizes your
+local profile. Friends appear on the left, the game and Play tools in the
+middle, and selected-room details on the right.
 **Verify ISO** checks the selected disc or lets you choose another one.
 Smaller windows scroll the
 page while the header and navigation dock stay in place. The overlay editor
@@ -57,31 +57,26 @@ A message in the corner names your new character when a fight starts.
 
 ### Making the launcher your own
 
-- **Theme:** thirteen hand-printed picture themes. Each puts a drawn picture in
-  the Play banner and colors the whole launcher to match it, including the
-  title bar, scrollbars and dropdown lists.
-  - **Dragon Balls** (the default): the seven Dragon Balls on a night sky, orange accent.
-  - **Capsule** (the only light one): a Capsule Corp. blueprint of a dome and a
-    capsule with measurements and a title block, blue accent.
-  - **Dragon Radar**: the radar with its grid, sweep and two blips, green Play button.
-  - **Scouter**: a scouter lens with a reticle and a power-level reading, coral-red accent.
-  - **Budokai Black**: "武道会" in white brush lettering over a red ink sun with a
-    red "二" seal, on an all-black launcher with a white Play button.
-  - **Budokai Black (board)**: a hand-drawn Dragon World board with a capsule
-    and a Dragon Ball, all black with a red Play button.
-  - **Majin Buu**: a pink candy beam turning things into candy, pink accent.
-  - **Babidi**: a crystal ball swirling with magic, purple with a green Play button.
-  - **Majin Vegeta**: a dark golden aura crackling with lightning, black and
-    crimson with a gold Play button.
-  - **Saiyan Pod**: an attack pod streaking in over a planet, violet accent.
-  - **Spirit Bomb**: a huge glowing sphere gathering energy, sky-blue accent.
-  - **Flying Nimbus**: the golden cloud racing across a sunset, amber accent.
-  - **Potara**: the two gold earrings joined by a glowing arc, teal accent.
+- **Theme:** thirteen color palettes for the entire launcher, including its
+  title bar, fields, selection focus and game panel. Illustrated backgrounds
+  have been removed. Choose a theme to apply its complete palette; **Undo
+  change** restores your previous theme, accent and custom colors.
+  - **Budokai Orange:** warm charcoal and orange (the default).
+  - **Capsule White:** white and cool blue.
+  - **Radar Green:** forest green with bright green accents.
+  - **Scouter Red:** dark burgundy and red.
+  - **Obsidian Black:** near-black with white accents.
+  - **Graphite:** slate grey and steel blue.
+  - **Majin Pink:** plum and pink.
+  - **Royal Purple:** dark violet and lavender.
+  - **Saiyan Gold:** deep brown and gold.
+  - **Midnight Blue:** navy and blue.
+  - **Ice Blue:** dark blue-grey and icy cyan.
+  - **Nimbus Yellow:** warm cream and yellow, with ochre controls for contrast.
+  - **Emerald:** dark teal and emerald green.
 
-  Themes from older versions move to the closest one: orange, purple and grey
-  themes to Dragon Balls, blue and light themes to Capsule, green to Dragon
-  Radar, gold (including the Ki theme, removed in v0.1.102) to Majin Vegeta,
-  and red and pink to Scouter.
+  Existing theme choices keep their position in the list and use the matching
+  new color palette. Your own profile and split images remain supported.
 - **Accent color:** the theme's own color, or Orange, Gold, Red, Pink, Purple,
   Blue, Cyan, Green or White for buttons and highlights. **RGB (cycling)**
   moves slowly through every color, once round the color wheel per minute,
@@ -250,9 +245,9 @@ state was saved. A strip under the tiles lists what is new in this version, and
 The verified ISO path is remembered for the next session. The ISO remains
 required, including when a verified cache already exists.
 
-The launcher uses owner-drawn Windows controls with Segoe UI for all text and
-line icons for every tab and tile. Display lettering is reserved for the game title; controls and explanatory
-text use the interface font.
+The launcher uses owner-drawn Windows controls with bundled OpenKai2 Display lettering and a system-font fallback, plus
+line icons for every tab and tile. Comic-style headings, controls and descriptions use consistent sizes and spacing.
+Windows file dialogs keep their system appearance.
 
 **Settings** saves the renderer, frame-rate limit, window resolution,
 windowed/borderless mode, aspect ratio, VSync, FXAA, texture filtering, and spatial upscaling.
@@ -511,3 +506,21 @@ registers, tag words, queue entries, and interrupt enables at a stall.
 `[GS:sprite]` identifies large-draw formats, depth state, and worker eligibility.
 The latest retail log shows an existing save loaded successfully, followed by
 a missing draw-setup callback. Preserve the existing `mc0` files.
+
+
+### Launcher shortcuts and support tools
+
+**F1** opens Help & shortcuts. It is also available under **Settings → Launcher**.
+The header keeps the clock and Notifications; the action search bar is removed.
+**Ctrl+K** still finds a tool or setting from the keyboard.
+
+- **Ctrl+Page Up / Page Down:** move between visible dock tabs in your chosen order.
+- **Ctrl+Home / End:** scroll to the top or bottom; text fields keep their normal caret shortcuts.
+- **Ctrl+S:** save the profile you are editing, or the selected overlay split name.
+- **Ctrl+Z:** undo a settings change, or undo text editing when a text field has focus.
+- **F11:** maximize or restore the launcher.
+- **Escape:** cancel a control binding without changing it.
+
+Help includes **Copy setup summary**, **Open logs folder** and **Open ISO folder**.
+The copied summary contains the app version and launcher settings. It excludes
+profile names, identity keys and file paths.
