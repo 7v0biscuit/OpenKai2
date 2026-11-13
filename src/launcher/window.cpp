@@ -7684,6 +7684,8 @@ LRESULT CALLBACK edit_procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
 LRESULT CALLBACK combo_procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
     auto original = reinterpret_cast<WNDPROC>(GetPropW(hwnd, L"OpenKai2.ComboProcedure"));
     auto *owner = reinterpret_cast<Window *>(GetWindowLongPtrW(GetParent(hwnd), GWLP_USERDATA));
+    if ((message == WM_MOUSEWHEEL || message == WM_MOUSEHWHEEL) && !SendMessageW(hwnd, CB_GETDROPPEDSTATE, 0, 0))
+        return SendMessageW(GetParent(hwnd), message, wp, lp);
     const auto nextFocus=reinterpret_cast<HWND>(wp);
     const bool cancelling=owner && !owner->closingDropdowns && message==WM_KILLFOCUS &&
         owner->dropdownOriginal.count(GetDlgCtrlID(hwnd)) && (!nextFocus || GetAncestor(nextFocus,GA_ROOTOWNER)!=owner->hwnd);

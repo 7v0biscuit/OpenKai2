@@ -507,7 +507,16 @@ int main(int argc,char** argv) {
                         check_shell_alignment(w);
                     }
                     click(w,106);
-                    const auto fps=GetDlgItem(w,141);open_dropdown(fps);key_press(VK_HOME);
+                    const auto fps=GetDlgItem(w,141);
+                    {
+                        SetFocus(fps);RECT box{};GetWindowRect(fps,&box);
+                        const auto chosen=SendMessageW(fps,CB_GETCURSEL,0,0);
+                        const LPARAM at=MAKELPARAM((box.left+box.right)/2,(box.top+box.bottom)/2);
+                        for(const int delta:{-WHEEL_DELTA,WHEEL_DELTA})SendMessageW(fps,WM_MOUSEWHEEL,MAKEWPARAM(0,delta),at);
+                        require(SendMessageW(fps,CB_GETCURSEL,0,0)==chosen && read_settings(settings_path()).fps==240,
+                                "The mouse wheel changed a closed dropdown");
+                    }
+                    open_dropdown(fps);key_press(VK_HOME);
                     wait_until([&]{return SendMessageW(fps,CB_GETCURSEL,0,0)==0;},"The dropdown preview did not receive Home");
                     SendMessageW(w,WM_NCACTIVATE,FALSE,0);
                     require(!SendMessageW(fps,CB_GETDROPPEDSTATE,0,0) && read_settings(settings_path()).fps==240,
