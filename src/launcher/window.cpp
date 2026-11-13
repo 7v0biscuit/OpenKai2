@@ -295,7 +295,8 @@ constexpr int pageCount = 8, onlinePage = 1, speedrunPage = 2, modsPage = 3, sav
               controlsPage = 7, importPage = 8, overlayPage = 9, tabsPage = 10, colorsPage = 11,
               profilePage = 12, finderPage = 13, notificationsPage=14, helpPage=15;
 constexpr UINT controlKeyMessage = WM_APP + 40, controlClearMessage = WM_APP + 41,
-               pageClipMessage = WM_APP + 42, restoreUiMessage = WM_APP + 43;
+               pageClipMessage = WM_APP + 42, restoreUiMessage = WM_APP + 43,
+               deferredUiMessage = WM_APP + 44;
 constexpr std::array<int, 17> padChoices{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17};
 constexpr int controlsTop = 112, controlRowTop = 196;
 constexpr std::array<unsigned, 4> audioVolumes{100u, 75u, 50u, 25u};
@@ -893,6 +894,56 @@ struct Window {
     ULONGLONG dockStarted=0;
     bool homeFriendsOnly=false;
     bool layoutPending=false, forwardingWheel=false, layingOut=false, layoutAgain=false;
+    bool painting=false, repaintPending=false, dispatchingUi=false;
+    struct DeferredMessage {
+        UINT message;
+        WPARAM wp;
+        LPARAM lp;
+        RECT rectangle{};
+    };
+    std::deque<DeferredMessage> deferredMessages;
+    bool deferDuringPaint(UINT message, WPARAM wp, LPARAM lp) {
+        if (!painting) return false;
+        switch (message) {
+        case WM_COMMAND: case WM_TIMER: case WM_SIZE: case WM_DPICHANGED:
+        case WM_CLOSE: case WM_DROPFILES: case WM_MOUSEWHEEL: case WM_VSCROLL:
+        case WM_ACTIVATEAPP: case WM_ACTIVATE: case WM_NCACTIVATE:
+        case pageClipMessage: case restoreUiMessage: case onlineChanged: case onlineNotice:
+        case controlKeyMessage: case controlClearMessage:
+            break;
+        default: return false;
+        }
+        // GDI and native controls can dispatch sent messages while a frame is
+        // being drawn. Keep its fonts, page data and bitmap alive until EndPaint.
+        // A DPI message owns a temporary RECT, so retain the value, not its pointer.
+        DeferredMessage pending{message,wp,lp};
+        if (message==WM_DPICHANGED) pending.rectangle=*reinterpret_cast<const RECT*>(lp);
+        if (message==WM_ACTIVATEAPP) appActive=wp!=FALSE;
+        if (message==WM_TIMER && std::any_of(deferredMessages.begin(),deferredMessages.end(),
+            [wp](const auto& item){return item.message==WM_TIMER && item.wp==wp;})) return true;
+        deferredMessages.push_back(pending);
+        SetPropW(hwnd,L"OpenKai2.PendingUi",reinterpret_cast<HANDLE>(1));
+        return true;
+    }
+    void dispatchDeferredUi() {
+        if (painting || dispatchingUi) return;
+        dispatchingUi=true;
+        struct Dispatch {
+            Window& window;
+            ~Dispatch() {
+                window.dispatchingUi=false;
+                if (window.deferredMessages.empty()) RemovePropW(window.hwnd,L"OpenKai2.PendingUi");
+                else PostMessageW(window.hwnd,deferredUiMessage,0,0);
+            }
+        } dispatch{*this};
+        auto pending=std::move(deferredMessages);
+        deferredMessages.clear();
+        for (auto& item:pending) {
+            if (!IsWindow(hwnd)) break;
+            SendMessageW(hwnd,item.message,item.wp,item.message==WM_DPICHANGED ?
+                reinterpret_cast<LPARAM>(&item.rectangle) : item.lp);
+        }
+    }
     bool appActive=true, wasMinimized=false, restoreQueued=false, closingDropdowns=false;
     HWND lastFocusedControl{};
     void queueUiRestore() {
@@ -925,7 +976,6 @@ struct Window {
         if (!appActive || IsIconic(hwnd) || !IsWindowVisible(hwnd) || !IsWindowEnabled(hwnd) || picking || controls.empty()) return;
         ambient.clear(); paintedPage=-1; paintedScroll=-1; paintedSize={};
         layout();
-        renderFrame();
         const auto focus=GetFocus();
         if ((!focus || focus==hwnd) && lastFocusedControl && IsWindow(lastFocusedControl) &&
             IsChild(hwnd,lastFocusedControl) && IsWindowVisible(lastFocusedControl) && IsWindowEnabled(lastFocusedControl))
@@ -3005,7 +3055,6 @@ struct Window {
         apply_theme(settings.launcherTheme, settings.launcherAccent, settings.launcherColors);
         ambient.clear();
         chrome();
-        renderFrame();
         layout();
         RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_FRAME);
     }
@@ -3604,17 +3653,32 @@ struct Window {
         heading(dc, L"How runs are timed", contentLeft + 20, rulesTop + 12, content - 40);
     }
     void paint() {
+        if (painting) {
+            ValidateRect(hwnd,nullptr);
+            repaintPending=true;
+            return;
+        }
+        painting=true;
+        SetPropW(hwnd,L"OpenKai2.Painting",reinterpret_cast<HANDLE>(1));
+        struct Painting {
+            Window& window;
+            ~Painting() {
+                window.painting=false;
+                RemovePropW(window.hwnd,L"OpenKai2.Painting");
+                if (std::exchange(window.repaintPending,false)) InvalidateRect(window.hwnd,nullptr,FALSE);
+                if (!window.deferredMessages.empty()) PostMessageW(window.hwnd,deferredUiMessage,0,0);
+            }
+        } paintingScope{*this};
         PAINTSTRUCT ps{};
         auto dc = BeginPaint(hwnd, &ps);
+        struct PaintEnd { HWND window; PAINTSTRUCT& state; ~PaintEnd(){EndPaint(window,&state);} } end{hwnd,ps};
         RECT rect{};
         GetClientRect(hwnd, &rect);
         if (rect.right <= 0 || rect.bottom <= 0) {
-            EndPaint(hwnd, &ps);
             return;
         }
         const auto glowing = renderFrame();
         BitBlt(dc, 0, 0, rect.right, rect.bottom, buffer.dc, 0, 0, SRCCOPY);
-        EndPaint(hwnd, &ps);
         if (paintedPage != page || paintedScroll != pageScroll || paintedSize != std::pair<int, int>{rect.right, rect.bottom} || paintedGlow != glowing) {
             paintedPage = page;
             paintedScroll = pageScroll;
@@ -3631,12 +3695,14 @@ struct Window {
             return {};
         if (laidOutPage != page)
             pageScroll = 0;
-        pageScroll = std::clamp(pageScroll, 0, pageCanvasHeight() - pageVisibleHeight());
-        buffer.make(rect.right,std::max(int(rect.bottom),p(pageCanvasHeight())));
+        const int pageHeight=pageCanvasHeight(), visibleHeight=pageVisibleHeight();
+        pageScroll = std::clamp(pageScroll, 0, pageHeight - visibleHeight);
+        const int sourceTop=p(pageScroll), destinationTop=p(shellHeader);
+        if (buffer.frame.width!=rect.right || buffer.frame.height!=std::max(int(rect.bottom),p(pageHeight))) ambient.clear();
+        buffer.make(rect.right,std::max(int(rect.bottom),p(pageHeight)));
         auto memory = buffer.dc;
         const int w = unscale(rect.right), h = unscale(rect.bottom);
         const int content = w - contentLeft - margin;
-        const int pageHeight = pageCanvasHeight();
         const size_t pixels = size_t(buffer.frame.width) * size_t(buffer.frame.height);
         if (ambient.size() != pixels) {
             fill(memory, {0,0,rect.right,buffer.frame.height}, background);
@@ -3696,11 +3762,12 @@ struct Window {
                 editFrame(memory,id);
         }
         GdiFlush();
-        const int movedRows=std::min(p(pageVisibleHeight()),int(rect.bottom)-p(shellHeader));
-        std::memmove(buffer.frame.pixels+size_t(p(shellHeader))*size_t(rect.right),
-                     buffer.frame.pixels+size_t(p(pageScroll))*size_t(rect.right),
-                     size_t(movedRows)*size_t(rect.right)*sizeof(uint32_t));
-        fill(memory, {0, p(shellHeader + pageVisibleHeight()), rect.right, rect.bottom}, background);
+        const auto scroll=ui::ScrollCopy(buffer.frame.height,sourceTop,destinationTop,p(visibleHeight),rect.bottom);
+        if (scroll.rows>0)
+            std::memmove(buffer.frame.pixels+size_t(scroll.destination)*size_t(buffer.frame.width),
+                         buffer.frame.pixels+size_t(scroll.source)*size_t(buffer.frame.width),
+                         size_t(scroll.rows)*size_t(buffer.frame.width)*sizeof(uint32_t));
+        fill(memory, {0, p(shellHeader + visibleHeight), rect.right, rect.bottom}, background);
         paintShell(memory,h);
         const int footer = h - 26;
         fill(memory, {p(contentLeft), p(footer - 12), p(contentLeft + content), p(footer - 12) + 1}, mix(background, border, 200));
@@ -6702,7 +6769,6 @@ struct Window {
             }
             if (page == modsPage)
                 refreshMods();
-            renderFrame();
             layout();
             InvalidateRect(hwnd, nullptr, FALSE);
             SetFocus(controls[id]);
@@ -7705,6 +7771,8 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
     if (!self)
         return DefWindowProcW(hwnd, message, wp, lp);
     try {
+        if (self->deferDuringPaint(message,wp,lp))
+            return message==controlKeyMessage || message==controlClearMessage ? 1 : 0;
         switch (message) {
         case WM_CREATE:
             self->initialize();
@@ -7714,6 +7782,9 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
             return 0;
         case WM_ERASEBKGND:
             return 1;
+        case deferredUiMessage:
+            self->dispatchDeferredUi();
+            return 0;
         case WM_DRAWITEM:
             self->drawItem(*reinterpret_cast<DRAWITEMSTRUCT *>(lp));
             return TRUE;

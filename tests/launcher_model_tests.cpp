@@ -47,6 +47,22 @@ void word(std::vector<uint8_t> &b, size_t at, uint32_t v) {
 int main() {
     try {
         {
+            for (int canvas:{0,1,76,600,1040,1920})
+                for (int client:{0,1,60,600,1920})
+                    for (int source:{-1,0,192,1040,2000})
+                        for (int destination:{-1,0,76,152,2000}) {
+                            const ui::ScrollCopy copy(canvas,source,destination,1200,client);
+                            require(copy.rows>=0 && copy.source>=0 && copy.destination>=0 &&
+                                    copy.source+copy.rows<=canvas && copy.destination+copy.rows<=canvas,
+                                    "The scrolled frame copy exceeds its bitmap");
+                            require(copy.rows==0 || copy.destination+copy.rows<=client,
+                                    "The scrolled frame copy exceeds the visible client");
+                        }
+            const ui::ScrollCopy normal(1040,208,76,408,600);
+            require(normal.source==208 && normal.destination==76 && normal.rows==408,
+                    "A normal scroll copy lost visible rows");
+        }
+        {
             using namespace openkai2::launcher;
             require(std::wstring(accents[rgb_accent].name) == L"RGB (cycling)", "The RGB accent is not the last accent");
             const auto step = [](Rgb a, Rgb b) {

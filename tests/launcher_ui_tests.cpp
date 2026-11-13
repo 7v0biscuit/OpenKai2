@@ -32,6 +32,32 @@ using namespace openkai2::launcher;
 namespace {
 HWND found{};
 std::atomic<bool> updateStarted{false}, releaseUpdate{false};
+std::atomic<int> paintInterruptions{0};
+std::atomic<HWND> paintStressWindow{nullptr};
+LRESULT CALLBACK interrupt_paint(int code,WPARAM wp,LPARAM lp) {
+    static thread_local bool injecting=false;
+    const auto* event=reinterpret_cast<const CWPSTRUCT*>(lp);
+    const auto window=paintStressWindow.load();
+    if (code>=0 && !injecting && window && event->hwnd!=window &&
+        GetAncestor(event->hwnd,GA_ROOT)==window &&
+        GetPropW(window,L"OpenKai2.Painting") && paintInterruptions.load()<12) {
+        const int step=paintInterruptions.fetch_add(1);
+        injecting=true;
+        // Interrupt the canvas at a real native-control call, as a sent resize,
+        // navigation or monitor-DPI message can do on Windows.
+        SetWindowPos(window,nullptr,0,0,step%2 ? 1440 : 960,step%2 ? 960 : 600,
+                     SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);
+        RECT proposed{};GetWindowRect(window,&proposed);
+        SendMessageW(window,WM_DPICHANGED,MAKEWPARAM(96,96),reinterpret_cast<LPARAM>(&proposed));
+        proposed={}; // The deferred DPI message must have copied its temporary RECT.
+        const int page=step%2 ? 106 : 103;
+        SendMessageW(window,WM_COMMAND,MAKEWPARAM(page,BN_CLICKED),LPARAM(GetDlgItem(window,page)));
+        SendMessageW(window,WM_VSCROLL,SB_BOTTOM,0);
+        RedrawWindow(window,nullptr,nullptr,RDW_INVALIDATE|RDW_UPDATENOW);
+        injecting=false;
+    }
+    return CallNextHookEx(nullptr,code,wp,lp);
+}
 BOOL CALLBACK find_launcher(HWND w, LPARAM) {
     DWORD pid=0;GetWindowThreadProcessId(w,&pid);
     wchar_t type[100]{};GetClassNameW(w,type,100);
@@ -74,6 +100,10 @@ HWND wait_launcher() {
 void click(HWND w,int id) {
     require(GetDlgItem(w,id)!=nullptr,"Missing launcher action");
     SendMessageW(GetDlgItem(w,id),BM_CLICK,0,0);
+    const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(10);
+    while (GetPropW(w,L"OpenKai2.PendingUi") && std::chrono::steady_clock::now()<deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    require(!GetPropW(w,L"OpenKai2.PendingUi"),"A launcher action remained queued after painting");
 }
 void reveal_control(HWND control) {
     const auto window = GetAncestor(control,GA_ROOT);
@@ -427,6 +457,23 @@ int main(int argc,char** argv) {
                 key_press(VK_F11);wait_until([&]{return IsZoomed(w)==FALSE;},"F11 did not restore the launcher");
 
                 std::cout<<"[ui:stage] resize and application focus recovery"<<std::endl;
+                {
+                    std::cout<<"[ui:stage] navigation and DPI changes during painting"<<std::endl;
+                    click(w,106);
+                    paintStressWindow=w;paintInterruptions=0;
+                    const auto hook=SetWindowsHookExW(WH_CALLWNDPROC,interrupt_paint,nullptr,GetWindowThreadProcessId(w,nullptr));
+                    require(hook!=nullptr,"Cannot install the native repaint stress hook");
+                    struct Unhook {HHOOK hook;~Unhook(){UnhookWindowsHookEx(hook);paintStressWindow=nullptr;}} unhook{hook};
+                    RedrawWindow(w,nullptr,nullptr,RDW_INVALIDATE|RDW_UPDATENOW);
+                    wait_until([&]{return paintInterruptions.load()==12 && !GetPropW(w,L"OpenKai2.PendingUi");},
+                               "Reentrant resize, navigation and DPI changes did not finish");
+                    SendMessageW(w,WM_VSCROLL,SB_TOP,0);
+                    wait_until([&]{return IsWindowVisible(GetDlgItem(w,1200));},"The final deferred navigation was lost");
+                    RECT bounds{};GetWindowRect(w,&bounds);
+                    require(bounds.right-bounds.left>=960 && bounds.bottom-bounds.top>=600,
+                            "A deferred DPI change retained an expired rectangle");
+                }
+                click(w,101);
                 for(int height:{600,960,600,960}) {
                     SetWindowPos(w,nullptr,0,0,1440,height,SWP_NOZORDER|SWP_NOACTIVATE);
                     SendMessageW(w,WM_NULL,0,0);check_shell_alignment(w);

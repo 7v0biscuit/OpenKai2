@@ -9,6 +9,17 @@ namespace openkai2::launcher::ui {
 
 struct Cell { int x, y, width, height; };
 
+// Restrict a canvas scroll copy to both the bitmap and the visible client.
+// Tiny/minimized windows and DPI rounding must never produce a negative byte count.
+struct ScrollCopy {
+    int source, destination, rows;
+    ScrollCopy(int canvasHeight,int sourceTop,int destinationTop,int requestedRows,int clientHeight)
+        : source(std::clamp(sourceTop,0,std::max(0,canvasHeight))),
+          destination(std::clamp(destinationTop,0,std::max(0,canvasHeight))),
+          rows(std::max(0,std::min({requestedRows,canvasHeight-source,canvasHeight-destination,
+                                   clientHeight-destination}))) {}
+};
+
 inline bool matchesTerms(const std::wstring& text,const std::wstring& query) {
     std::wistringstream words(query);std::wstring word;
     while(words>>word) {
