@@ -23,6 +23,7 @@ disc is refused, and the game keeps running.
 
 If a state cannot be loaded, the game goes back to where it was before the load.
 
-Save states are not available while a movie plays.
+Save states are not available while a movie plays. While the game is reading
+or writing the memory card, a state waits until it has finished.
 
 Save states are off in speedrun mode.
