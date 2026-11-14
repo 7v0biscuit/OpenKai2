@@ -26,8 +26,6 @@ public:
     void WriteVram(uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t)override;
     void SnapshotVram(std::vector<uint8_t>&)const override;GSTransferSnapshot GetTransferSnapshot()const override;
     GpuRenderStats stats()const;
-    bool Checkpoint();bool Restore();
-    unsigned InternalScale()const;void FollowScale(unsigned scale);
 private:
     struct Impl;std::unique_ptr<Impl> m;
 };

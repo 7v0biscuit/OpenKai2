@@ -128,8 +128,6 @@ int main() {
         s.overlayShape = 1;
         s.randomizer = true;
         s.ps2LoadTimes = false;
-        s.runAhead = 2;
-        s.frameSmoothing = 2;
         s.launcherTheme = 3;
         s.launcherAccent = 7;
         s.startPage = 1;
@@ -239,7 +237,7 @@ int main() {
                     read.importIso == s.importIso && read.windowLeft == -1200 && read.windowTop == 40 &&
                     read.windowWidth == 1180 && read.windowHeight == 760 && read.windowMaximized &&
                     read.speedrun == 2 && read.permadeath && read.fpsCounter && read.overlayItems == (0x5u | openkai2::speedrun::overlay_required) &&
-                    read.overlayCorner == 3 && read.overlaySize == 3 && read.overlayBackground == 4 && read.overlayMargin == 2 && read.overlayShape == 1 && read.randomizer && !read.ps2LoadTimes && read.runAhead == 2 && read.frameSmoothing == 2 && read.launcherTheme == 3 && read.launcherAccent == 7 && read.startPage == 1 && read.lastPage == 4 &&
+                    read.overlayCorner == 3 && read.overlaySize == 3 && read.overlayBackground == 4 && read.overlayMargin == 2 && read.overlayShape == 1 && read.randomizer && !read.ps2LoadTimes && read.launcherTheme == 3 && read.launcherAccent == 7 && read.startPage == 1 && read.lastPage == 4 &&
                     read.tabOrder == s.tabOrder && read.hiddenTabs == s.hiddenTabs && read.launcherColors == s.launcherColors &&
                     read.overlayTitle == "My \"Any%\" run" && read.overlaySplitNames == "Raditz, Nappa ,Vegeta" &&
                     read.overlaySplits == 3 && read.onlineName == "Son Goku" &&
@@ -281,19 +279,7 @@ int main() {
             require(read_settings(root / "unchecked.ini").overlayItems & openkai2::speedrun::overlay_required,
                     "Run checks could be turned off in the settings file");
         }
-        {
-            auto smoothing = s;
-            smoothing.frameSmoothing = 3;
-            bool refused = false;
-            try {
-                write_settings(root / "bad-smoothing.ini", smoothing);
-            } catch (const std::exception &) {
-                refused = true;
-            }
-            require(refused, "An unknown motion smoothing mode was accepted");
-        }
         require(read_settings(root / "absent.ini").fps == 240, "Default frame rate cap is not 240 FPS");
-        require(read_settings(root / "absent.ini").frameSmoothing == 0, "Motion smoothing is not off by default");
         {
             std::ofstream(root / "old-look.ini") << "version 1\nlauncher_look 18 2 1 3\n";
             std::ofstream(root / "old-style.ini") << "version 1\nlauncher_style 6 0 0 2\n";

@@ -38,7 +38,6 @@ using Enum=unsigned;using UInt=unsigned;using Int=int;using Size=std::ptrdiff_t;
  X(void,BindBufferBase,(Enum,UInt,UInt)) \
  X(void,DispatchCompute,(UInt,UInt,UInt)) \
  X(void,MemoryBarrier,(Enum)) \
- X(void,CopyBufferSubData,(Enum,Enum,Size,Size,Size)) \
  X(void,Finish,())
 struct Api {
 #define DECLARE(result,name,args) using name##Proc=result(OPENKAI_GL_CALL*)args;name##Proc name=nullptr;
@@ -54,6 +53,5 @@ struct Api {
 #undef OPENKAI_GL_FUNCTIONS
 inline constexpr Enum ShaderStorageBuffer=0x90d2,DynamicDraw=0x88e8,ComputeShader=0x91b9;
 inline constexpr Enum ShaderStorageBarrier=0x2000,BufferUpdateBarrier=0x200;
-inline constexpr Enum CopyReadBuffer=0x8f36,CopyWriteBuffer=0x8f37,DynamicCopy=0x88ea;
 }
 #undef OPENKAI_GL_CALL

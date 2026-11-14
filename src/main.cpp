@@ -271,8 +271,6 @@ int main(int argc, char* argv[]) {
         }
         display.hdTextures=preferences.hdTextures;display.textureFolder=openkai2::launcher::textures_directory();
         display.borderless=preferences.windowMode!=0;display.vsync=preferences.vsync;
-        const char *smoothingEnvironment=std::getenv("OPENKAI2_SMOOTHING");
-        display.smoothing=std::min(smoothingEnvironment && *smoothingEnvironment ? unsigned(std::strtoul(smoothingEnvironment,nullptr,10)) : preferences.frameSmoothing,2u);
         openkai2::set_graphics_settings(display);
         openkai2::set_renderer_preference(renderer);
         openkai2::launcher::SessionLock gameSession;

@@ -164,7 +164,7 @@ def main():
                       patches / 'kernel-stub-state.patch',
                       patches / 'guest-clock.patch', patches / 'iop-batching.patch', patches / 'precise-pacing.patch', patches / 'gs-worker-timing.patch',
                       patches / 'hires-presentation.patch', patches / 'depth-enable.patch',
-                      patches / 'image-upload-rows.patch', patches / 't4-uploads.patch', patches / 'frame-upload.patch', patches / 'input-bindings.patch', patches / 'guest-random.patch', patches / 'pictureless-states.patch', patches / 'replay-turbo.patch', patches / 'replay-skip-drawing.patch', patches / 'memory-card-savable.patch', patches / 'frame-smoothing.patch'):
+                      patches / 'image-upload-rows.patch', patches / 't4-uploads.patch', patches / 'frame-upload.patch', patches / 'input-bindings.patch', patches / 'guest-random.patch', patches / 'pictureless-states.patch', patches / 'replay-turbo.patch', patches / 'replay-skip-drawing.patch', patches / 'memory-card-savable.patch'):
             apply_overlay_patch(temporary, patch)
         for source in temporary.rglob('*'):
             if source.is_file():

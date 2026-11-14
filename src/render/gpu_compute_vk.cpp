@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "gpu_compute.h"
 #include <algorithm>
-#include <array>
 #include <memory>
 #include <vector>
 #include <cstring>
@@ -478,41 +477,6 @@ class VulkanCompute final : public Compute {
         barrier();
     }
 
-    bool can_save_state() const override { return true; }
-
-    void save_state(size_t colorWords, size_t depthWords) override {
-        Buffer *const live[3] = {&vram_, &hiColor_, &hiDepth_};
-        const VkDeviceSize sizes[3] = {vram_.size, std::min<VkDeviceSize>(VkDeviceSize(colorWords) * 4u, hiColor_.size),
-                                       std::min<VkDeviceSize>(VkDeviceSize(depthWords) * 4u, hiDepth_.size)};
-        for (unsigned i = 0; i < 3u; ++i) {
-            savedSizes_[i] = sizes[i];
-            if (sizes[i] && saved_[i].size < sizes[i]) {
-                flush();
-                vkDeviceWaitIdle(device_);
-                free_buffer(saved_[i]);
-                saved_[i] = make_buffer(sizes[i], false);
-            }
-        }
-        barrier();
-        for (unsigned i = 0; i < 3u; ++i)
-            if (savedSizes_[i]) {
-                const VkBufferCopy copy{0, 0, savedSizes_[i]};
-                vkCmdCopyBuffer(command_, live[i]->handle, saved_[i].handle, 1, &copy);
-            }
-        barrier();
-    }
-
-    void load_state() override {
-        Buffer *const live[3] = {&vram_, &hiColor_, &hiDepth_};
-        barrier();
-        for (unsigned i = 0; i < 3u; ++i)
-            if (savedSizes_[i] && savedSizes_[i] <= live[i]->size) {
-                const VkBufferCopy copy{0, 0, savedSizes_[i]};
-                vkCmdCopyBuffer(command_, saved_[i].handle, live[i]->handle, 1, &copy);
-            }
-        barrier();
-    }
-
     void destroy() override { release(); }
 
   private:
@@ -688,7 +652,7 @@ class VulkanCompute final : public Compute {
         }
         vkQueueWaitIdle(queue_);
         for (auto *buffer : {&vram_, &tables_, &commands_, &bins_, &references_, &palette_, &job_, &readback_,
-                             &hiColor_, &hiDepth_, &hiParams_, &saved_[0], &saved_[1], &saved_[2]})
+                             &hiColor_, &hiDepth_, &hiParams_})
             free_buffer(*buffer);
         for (auto &frame : frames_) {
             free_buffer(frame.staging);
@@ -716,8 +680,6 @@ class VulkanCompute final : public Compute {
     VkDescriptorPool descriptorPool_ = VK_NULL_HANDLE;
     VkDescriptorSet rasterSet_ = VK_NULL_HANDLE, transferSet_ = VK_NULL_HANDLE;
     Buffer vram_, tables_, commands_, bins_, references_, palette_, job_, readback_, hiColor_, hiDepth_, hiParams_;
-    std::array<Buffer, 3> saved_{};
-    std::array<VkDeviceSize, 3> savedSizes_{};
     bool recording_ = false;
 };
 }
