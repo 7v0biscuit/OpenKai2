@@ -982,7 +982,7 @@ struct Window {
         if ((!focus || focus==hwnd) && lastFocusedControl && IsWindow(lastFocusedControl) &&
             IsChild(hwnd,lastFocusedControl) && IsWindowVisible(lastFocusedControl) && IsWindowEnabled(lastFocusedControl))
             SetFocus(lastFocusedControl);
-        RedrawWindow(hwnd,nullptr,nullptr,RDW_INVALIDATE|RDW_ERASE|RDW_FRAME|RDW_ALLCHILDREN);
+        (pageDirty=true),RedrawWindow(hwnd,nullptr,nullptr,RDW_INVALIDATE|RDW_ERASE|RDW_FRAME|RDW_ALLCHILDREN);
     }
     int finderFrom = 0, finderReturnPage = 0, profileReturnPage=0,helpReturnPage=0,helpOrigin=0;
     struct Action { int id; const wchar_t *name; const wchar_t *keywords; };
@@ -1037,7 +1037,7 @@ struct Window {
         }
         if (!actionRows.empty()) SendMessageW(controls[ActionList], LB_SETCURSEL, 0, 0);
         EnableWindow(controls[ActionOpen], !actionRows.empty());
-        InvalidateRect(hwnd, nullptr, FALSE);
+        (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
     }
     void openActionFinder() {
         if(page==finderPage) {SetFocus(controls[ActionSearch]);SendMessageW(controls[ActionSearch],EM_SETSEL,0,-1);return;}
@@ -1076,7 +1076,9 @@ struct Window {
             return;
         const int next=std::clamp(value,0,pageCanvasHeight()-pageVisibleHeight());
         if(next==pageScroll)return;
-        pageScroll=next;layout();dropStaleHover();
+        pageScroll=next;
+        if(!scrollControls())layout();
+        dropStaleHover();
         RedrawWindow(hwnd,nullptr,nullptr,RDW_INVALIDATE|RDW_UPDATENOW|RDW_ALLCHILDREN);
     }
     void dropStaleHover() {
@@ -1170,7 +1172,7 @@ struct Window {
         }
         if(dropdownOpen() || IsIconic(hwnd))return;
         RECT r{};GetClientRect(hwnd,&r);r.top=std::max(0L,r.bottom-p(108));r.bottom-=p(30);
-        RedrawWindow(hwnd,&r,nullptr,RDW_INVALIDATE|RDW_ALLCHILDREN);
+        (pageDirty=true),RedrawWindow(hwnd,&r,nullptr,RDW_INVALIDATE|RDW_ALLCHILDREN);
     }
     int friendCount(bool onlineOnly=false) const {
         const auto profile=activeProfile();if(!profile)return 0;
@@ -1250,7 +1252,7 @@ struct Window {
     }
     void openProfile() {
         const auto profile=activeProfile();
-        if(!profile){page=onlinePage;layout();SetFocus(controls[OnlineName]);InvalidateRect(hwnd,nullptr,FALSE);return;}
+        if(!profile){page=onlinePage;layout();SetFocus(controls[OnlineName]);(pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);return;}
         if(page!=profilePage)profileReturnPage=navigationPage();
         const auto style=profileStyle(profile->id);
         SetWindowTextW(controls[ProfileInitials],style ? wide(style->initials).c_str() : L"");
@@ -1259,7 +1261,7 @@ struct Window {
         SendMessageW(controls[ProfileFit],CB_SETCURSEL,style ? style->pictureFit : 0,0);
         SendMessageW(controls[ProfileAvailability],CB_SETCURSEL,style ? style->availability : 0,0);
         SendMessageW(controls[ProfileNotifications],CB_SETCURSEL,style && !style->notifications ? 1 : 0,0);
-        page=profilePage;layout();InvalidateRect(hwnd,nullptr,FALSE);
+        page=profilePage;layout();(pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);
     }
     std::filesystem::path profileImageDirectory() const {return settings_path().parent_path()/"profiles"/"images";}
     void saveProfileImage(const std::string& file,const std::string& name) {
@@ -1487,8 +1489,17 @@ struct Window {
     struct Placement {
         int x, y, w, h;
         bool visible;
+        bool pageControl = false, wanted = false;
+        int pageY = 0, pageH = 0, adjust = 0;
     };
     std::map<int, Placement> *planning = nullptr;
+    std::map<int, Placement> scrollPlan;
+    std::vector<int> scrollOrder;
+    int scrollPlanPage = -1;
+    std::pair<LONG, LONG> scrollPlanSize{};
+    bool scrollPlanReady = false, pageDirty = true;
+    std::vector<uint32_t> pageCache;
+    int pageCachePage = -1, pageCacheWidth = 0, pageCacheHeight = 0;
     void conceal(int id) {
         if (planning) {
             if (auto found = planning->find(id); found != planning->end())
@@ -1499,6 +1510,8 @@ struct Window {
     void place(int id, int x, int y, int w, int h, bool visible = true) {
         auto c = controls.at(id);
         const bool pageControl = !(id >= PlayTab && id <= ControlsTab) && id != FindAction && id != OpenNotifications;
+        const int pageY = y, pageH = h;
+        const bool wanted = visible;
         if (pageControl) {
             y += shellHeader - pageScroll;
             const int viewportBottom = shellHeader + pageVisibleHeight();
@@ -1537,7 +1550,8 @@ struct Window {
             }
         }
         if (planning) {
-            (*planning)[id] = Placement{p(x), p(y), p(w), allocatedHeight, visible};
+            (*planning)[id] = Placement{p(x), p(y), p(w), allocatedHeight, visible, pageControl, wanted, pageY, pageH,
+                                        pageControl ? y - (pageY + shellHeader - pageScroll) : 0};
             return;
         }
         SetWindowPos(c, nullptr, p(x), p(y), p(w), allocatedHeight,
@@ -1611,7 +1625,7 @@ struct Window {
             return false;
         page = page == helpPage ? helpReturnPage : page == finderPage ? finderReturnPage : page == profilePage ? profileReturnPage : navigationPage();
         layout();
-        InvalidateRect(hwnd, nullptr, FALSE);
+        (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
         SetFocus(controls.at(PlayTab + navigationPage()));
         return true;
     }
@@ -2044,7 +2058,7 @@ struct Window {
             if (controls.count(id)) EnableWindow(controls[id], (editingSplit || id == SplitStyleList) &&
                 (id != SplitStyleAdd || styleRowCount() < 256) &&
                 (id != SplitImageRemove || (splitStyle(size_t(styleSelection)) && !splitStyle(size_t(styleSelection))->image.empty())));
-        InvalidateRect(hwnd, nullptr, FALSE);
+        (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
     }
     void layout() {
         if (layingOut) {layoutAgain=true;return;}
@@ -2451,9 +2465,37 @@ struct Window {
             if (batch)
                 EndDeferWindowPos(batch);
         }
+        scrollPlan=plan;scrollOrder=order;scrollPlanPage=page;scrollPlanSize={rect.right,rect.bottom};scrollPlanReady=true;
         clipPageControls();
         refreshEnabled();
-        if(pageChanged)RedrawWindow(hwnd,nullptr,nullptr,RDW_INVALIDATE|RDW_UPDATENOW|RDW_ALLCHILDREN);
+        if(pageChanged)(pageDirty=true),RedrawWindow(hwnd,nullptr,nullptr,RDW_INVALIDATE|RDW_UPDATENOW|RDW_ALLCHILDREN);
+    }
+    bool scrollControls() {
+        RECT rect{};
+        GetClientRect(hwnd,&rect);
+        if (!scrollPlanReady || layoutPending || layingOut || scrollPlanPage!=page ||
+            scrollPlanSize!=std::pair<LONG,LONG>{rect.right,rect.bottom} || dropdownOpen())
+            return false;
+        const int viewportBottom=shellHeader+pageVisibleHeight();
+        auto batch=BeginDeferWindowPos(int(scrollOrder.size()));
+        for (const auto id : scrollOrder) {
+            const auto found=scrollPlan.find(id);
+            if (found==scrollPlan.end() || !found->second.pageControl) continue;
+            auto& where=found->second;
+            const int y=where.pageY+shellHeader-pageScroll;
+            where.visible=where.wanted && y+where.pageH>shellHeader && y<viewportBottom;
+            where.y=p(y+where.adjust);
+            const auto control=controls.at(id);
+            const bool shown=(GetWindowLongPtrW(control,GWL_STYLE)&WS_VISIBLE)!=0;
+            if (!where.visible && !shown) continue;
+            UINT flags=SWP_NOACTIVATE|SWP_NOCOPYBITS|SWP_NOZORDER|SWP_NOSIZE;
+            if (where.visible!=shown) flags|=where.visible?SWP_SHOWWINDOW:SWP_HIDEWINDOW;
+            if (batch) batch=DeferWindowPos(batch,control,nullptr,where.x,where.y,0,0,flags);
+        }
+        if (batch) EndDeferWindowPos(batch);
+        SetPropW(hwnd,L"OpenKai2.ScrollPos",reinterpret_cast<HANDLE>(intptr_t(pageScroll)));
+        clipPageControls();
+        return true;
     }
     void clipPageControls() {
         if (dropdownOpen())
@@ -2923,7 +2965,7 @@ struct Window {
         const auto style = splitStyle(size_t(styleSelection));
         SetWindowTextW(controls[SplitNameField], (style ? wide(style->name) : legacySplitName(size_t(styleSelection))).c_str());
         if (style && !style->image.empty()) splitImage(style->image);
-        refreshEnabled();InvalidateRect(hwnd,nullptr,FALSE);
+        refreshEnabled();(pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);
     }
     void refreshStyleRows(int selected = -1) {
         if (!controls.count(SplitStyleList)) return;
@@ -2951,7 +2993,7 @@ struct Window {
         }),next.splitStyles.end());
         next.splitStyles.push_back(std::move(style));
         write_settings(settings_path(),next);settings=std::move(next);
-        refreshSplits();refreshStyleRows();status=message;error=false;InvalidateRect(hwnd,nullptr,FALSE);
+        refreshSplits();refreshStyleRows();status=message;error=false;(pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);
     }
     void saveSplitName() {
         if (settings.speedrun) storeSplitStyle(editedStyle(),L"Split name saved. Recorded times are unchanged.");
@@ -2977,7 +3019,7 @@ struct Window {
         }
         if (!animated || !allowMotion()) {KillTimer(hwnd,3);imageAnimationTicking=false;return;}
         if (dropdownOpen() || IsIconic(hwnd) || !appActive) return;
-        InvalidateRect(hwnd,nullptr,FALSE);
+        (pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);
         const int id = page == overlayPage ? SplitStyleList : SplitList;
         if (controls.count(id) && IsWindowVisible(controls[id])) InvalidateRect(controls[id],nullptr,FALSE);
     }
@@ -3023,7 +3065,7 @@ struct Window {
         settings = std::move(next);
         status = message;
         error = false;
-        InvalidateRect(hwnd, nullptr, FALSE);
+        (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
     }
     void refreshTabs() {
         const auto list = controls[TabList];
@@ -3080,7 +3122,7 @@ struct Window {
         ambient.clear();
         chrome();
         layout();
-        RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_FRAME);
+        (pageDirty=true),RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_FRAME);
     }
     void paintUpdates(HDC dc, int h, int content) {
         const int right = contentLeft + content;
@@ -3689,7 +3731,7 @@ struct Window {
             ~Painting() {
                 window.painting=false;
                 RemovePropW(window.hwnd,L"OpenKai2.Painting");
-                if (std::exchange(window.repaintPending,false)) InvalidateRect(window.hwnd,nullptr,FALSE);
+                if (std::exchange(window.repaintPending,false)) (window.pageDirty=true),InvalidateRect(window.hwnd,nullptr,FALSE);
                 if (!window.deferredMessages.empty()) PostMessageW(window.hwnd,deferredUiMessage,0,0);
             }
         } paintingScope{*this};
@@ -3727,62 +3769,87 @@ struct Window {
         auto memory = buffer.dc;
         const int content = w - contentLeft - margin;
         const size_t pixels = size_t(buffer.frame.width) * size_t(buffer.frame.height);
-        if (ambient.size() != pixels) {
-            fill(memory, {0,0,rect.right,buffer.frame.height}, background);
-            // The content canvas spans the window; navigation lives in the dock.
-            buffer.frame.radial(rect, rect.right * 3 / 4, -p(160), p(620), ember, 12);
-            buffer.frame.radial(rect, 0, rect.bottom + p(60), p(440), orange, 5);
-            ambient.assign(buffer.frame.pixels, buffer.frame.pixels + pixels);
-        } else {
+        const bool reuse = !pageDirty && pageCachePage == page && pageCacheWidth == buffer.frame.width &&
+                           pageCacheHeight == buffer.frame.height && pageCache.size() == pixels;
+        if (reuse) {
             GdiFlush();
-            std::copy(ambient.begin(), ambient.end(), buffer.frame.pixels);
-        }
-        if (page != 0)
-            paintHeader(memory, w, content);
-        if (page == finderPage) {
-            panelBox(memory, contentLeft, 112, contentLeft + content, pageHeight - 40);
-            heading(memory, L"Quick access", contentLeft + 20, 128, content - 220);
-            text(memory, L"Type a page, setting or tool. Use the arrow keys to choose, then press Enter.",
-                 contentLeft + 20, 168, content - 40, 24, fonts.caption, muted);
+            const size_t width = size_t(buffer.frame.width), height = size_t(buffer.frame.height);
+            const auto rows = [&](size_t from, size_t to) {
+                to = std::min(to, height);
+                if (from < to)
+                    std::copy(pageCache.begin() + from * width, pageCache.begin() + to * width, buffer.frame.pixels + from * width);
+            };
+            rows(0, size_t(std::max(0, destinationTop)));
+            rows(size_t(std::max(0, sourceTop)), size_t(std::max(0, sourceTop + p(visibleHeight))));
+            for(const auto& [id,control] : controls) {
+                wchar_t kind[32]{};GetClassNameW(control,kind,32);
+                if(_wcsicmp(kind,L"EDIT")==0 && !(GetWindowLongPtrW(control,GWL_STYLE)&ES_MULTILINE))
+                    editFrame(memory,id);
+            }
+        } else {
+            if (ambient.size() != pixels) {
+                fill(memory, {0,0,rect.right,buffer.frame.height}, background);
+                // The content canvas spans the window; navigation lives in the dock.
+                buffer.frame.radial(rect, rect.right * 3 / 4, -p(160), p(620), ember, 12);
+                buffer.frame.radial(rect, 0, rect.bottom + p(60), p(440), orange, 5);
+                ambient.assign(buffer.frame.pixels, buffer.frame.pixels + pixels);
+            } else {
+                GdiFlush();
+                std::copy(ambient.begin(), ambient.end(), buffer.frame.pixels);
+            }
+            if (page != 0)
+                paintHeader(memory, w, content);
+            if (page == finderPage) {
+                panelBox(memory, contentLeft, 112, contentLeft + content, pageHeight - 40);
+                heading(memory, L"Quick access", contentLeft + 20, 128, content - 220);
+                text(memory, L"Type a page, setting or tool. Use the arrow keys to choose, then press Enter.",
+                     contentLeft + 20, 168, content - 40, 24, fonts.caption, muted);
 
-            if (actionRows.empty()) text(memory, L"No matching actions. Try another search.",
-                contentLeft + 40, 278, content - 80, 48, fonts.body, muted);
-        } else if(page==helpPage) {
-            paintHelp(memory,pageHeight,content);
-        } else if(page==notificationsPage) {
-            paintNotifications(memory,pageHeight,content);
-        } else if (page == 0) {
-            paintPlay(memory, content);
-            paintHeader(memory, w, content);
-        }
-        else if (page == profilePage)
-            paintProfile(memory,pageHeight,content);
-        else if (page == savesPage)
-            paintSaves(memory, pageHeight, content);
-        else if (page == modsPage)
-            paintMods(memory, pageHeight, content);
-        else if (page == importPage)
-            paintImport(memory, pageHeight, content);
-        else if (page == overlayPage)
-            paintOverlay(memory, pageHeight, content);
-        else if (page == tabsPage)
-            paintTabs(memory, pageHeight, content);
-        else if (page == colorsPage)
-            paintColors(memory, pageHeight, content);
-        else if (page == updatesPage)
-            paintUpdates(memory, pageHeight, content);
-        else if (page == controlsPage)
-            paintControls(memory, pageHeight, content);
-        else if (page == onlinePage)
-            paintOnline(memory, pageHeight, content);
-        else if (page == speedrunPage)
-            paintSpeedrun(memory, pageHeight, content);
-        else
-            paintSettings(memory, pageHeight, content);
-        for(const auto& [id,control] : controls) {
-            wchar_t kind[32]{};GetClassNameW(control,kind,32);
-            if(_wcsicmp(kind,L"EDIT")==0 && !(GetWindowLongPtrW(control,GWL_STYLE)&ES_MULTILINE))
-                editFrame(memory,id);
+                if (actionRows.empty()) text(memory, L"No matching actions. Try another search.",
+                    contentLeft + 40, 278, content - 80, 48, fonts.body, muted);
+            } else if(page==helpPage) {
+                paintHelp(memory,pageHeight,content);
+            } else if(page==notificationsPage) {
+                paintNotifications(memory,pageHeight,content);
+            } else if (page == 0) {
+                paintPlay(memory, content);
+                paintHeader(memory, w, content);
+            }
+            else if (page == profilePage)
+                paintProfile(memory,pageHeight,content);
+            else if (page == savesPage)
+                paintSaves(memory, pageHeight, content);
+            else if (page == modsPage)
+                paintMods(memory, pageHeight, content);
+            else if (page == importPage)
+                paintImport(memory, pageHeight, content);
+            else if (page == overlayPage)
+                paintOverlay(memory, pageHeight, content);
+            else if (page == tabsPage)
+                paintTabs(memory, pageHeight, content);
+            else if (page == colorsPage)
+                paintColors(memory, pageHeight, content);
+            else if (page == updatesPage)
+                paintUpdates(memory, pageHeight, content);
+            else if (page == controlsPage)
+                paintControls(memory, pageHeight, content);
+            else if (page == onlinePage)
+                paintOnline(memory, pageHeight, content);
+            else if (page == speedrunPage)
+                paintSpeedrun(memory, pageHeight, content);
+            else
+                paintSettings(memory, pageHeight, content);
+            for(const auto& [id,control] : controls) {
+                wchar_t kind[32]{};GetClassNameW(control,kind,32);
+                if(_wcsicmp(kind,L"EDIT")==0 && !(GetWindowLongPtrW(control,GWL_STYLE)&ES_MULTILINE))
+                    editFrame(memory,id);
+            }
+            GdiFlush();
+            pageCache.assign(buffer.frame.pixels, buffer.frame.pixels + pixels);
+            pageCachePage = page;
+            pageCacheWidth = buffer.frame.width;
+            pageCacheHeight = buffer.frame.height;
+            pageDirty = false;
         }
         GdiFlush();
         const auto scroll=ui::ScrollCopy(buffer.frame.height,sourceTop,destinationTop,p(visibleHeight),rect.bottom);
@@ -4273,7 +4340,7 @@ struct Window {
                 SendMessageW(found->second, CB_SETCURSEL, WPARAM(code == padChoices.end() ? 0 : code - padChoices.begin()), 0);
             }
         }
-        InvalidateRect(hwnd, nullptr, FALSE);
+        (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
     }
     bool saveControls(const input::Bindings &bindings, const std::wstring &message) {
         Settings next = settings;
@@ -4312,7 +4379,7 @@ struct Window {
         if (key == input::no_input || !input::valid_key(key)) {
             status = L"That key is reserved for OpenKai2 or can't be read by the game. Try another.";
             error = true;
-            InvalidateRect(hwnd, nullptr, FALSE);
+            (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
             return true;
         }
         const int slot = capturing;
@@ -4583,13 +4650,13 @@ struct Window {
             else if (page == overlayPage && settings.speedrun) attachSplitImage(image);
             else {
                 status=L"Open your Profile page or Customize overlay to add a picture.";
-                error=false;InvalidateRect(hwnd,nullptr,FALSE);
+                error=false;(pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);
             }
             return;
         }
         if (extension != L".iso") {
             status = L"Choose an ISO, or add PNG, JPEG and GIF images on your Profile or Speedrun overlay page.";
-            InvalidateRect(hwnd, nullptr, FALSE);
+            (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
             return;
         }
         if (page == importPage) {
@@ -5017,7 +5084,7 @@ struct Window {
                  L" (character ID " + std::to_wstring(added.slot) + L")." +
                  L" It loads the next time the game starts.";
         refreshMods();
-        InvalidateRect(hwnd, nullptr, FALSE);
+        (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
     }
     void importStage() {
         const auto row = SendMessageW(controls[SourceFiles], LB_GETCURSEL, 0, 0);
@@ -5309,7 +5376,7 @@ struct Window {
             ambientAt = now;
             ambient.clear();
         }
-        InvalidateRect(hwnd, nullptr, FALSE);
+        (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
         for (auto [id, control] : controls)
             if ((GetWindowLongPtrW(control, GWL_STYLE) & BS_TYPEMASK) == BS_OWNERDRAW && IsWindowVisible(control)) {
                 wchar_t kind[16]{};
@@ -5319,13 +5386,13 @@ struct Window {
     }
     void timer() {
         SYSTEMTIME local{};GetLocalTime(&local);const unsigned minute=local.wHour*60u+local.wMinute;
-        if(minute!=displayedMinute) {displayedMinute=minute;RECT header{};GetClientRect(hwnd,&header);header.bottom=p(shellHeader);InvalidateRect(hwnd,&header,FALSE);}
+        if(minute!=displayedMinute) {displayedMinute=minute;RECT header{};GetClientRect(hwnd,&header);header.bottom=p(shellHeader);(pageDirty=true),InvalidateRect(hwnd,&header,FALSE);}
         presence.enable(settings.discordPresence);
         const char* pages[]={"Choosing a game","Setting up online play","Setting up a speedrun","Managing mods","Managing saves","Configuring settings","Checking for updates","Changing controls"};
         const int shown=std::clamp(navigationPage(),0,int(std::size(pages))-1);
         presence.update(running()?"Playing Budokai 2":"In launcher",running()?"In game":page==importPage?"Importing mods":pages[shown]);
         if(presence.status()!=lastPresenceStatus && !dropdownOpen()) {
-            lastPresenceStatus=presence.status();InvalidateRect(hwnd,nullptr,FALSE);
+            lastPresenceStatus=presence.status();(pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);
         }
         onlineTick();
         cycleTimer();
@@ -5435,7 +5502,7 @@ struct Window {
                 return;
             }
         }
-        if (busy() || (updating() && page == updatesPage)) InvalidateRect(hwnd, nullptr, FALSE);
+        if (busy() || (updating() && page == updatesPage)) (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
     }
     std::filesystem::path chooseFallback(bool folder, bool iso, const wchar_t *title, bool splitImage) {
         if (folder) {
@@ -5703,7 +5770,7 @@ struct Window {
                 PostMessageW(window, onlineChanged, 0, 0);
             }).detach();
             refreshEnabled();
-            InvalidateRect(hwnd, nullptr, FALSE);
+            (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
             return;
         }
         useProfile(next, name);
@@ -5723,7 +5790,7 @@ struct Window {
             return;
         nameCheck.reset();
         refreshEnabled();
-        InvalidateRect(hwnd, nullptr, FALSE);
+        (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
         if (!state) {
             status = L"Could not reach the online service to check the name. Connect to the internet and try again.";
             error = true;
@@ -5823,7 +5890,7 @@ struct Window {
                 std::cout << "[launcher:online] could not connect: " << problem << std::endl;
             refreshOnlineLists();
             refreshEnabled();
-            InvalidateRect(hwnd, nullptr, FALSE);
+            (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
             return;
         }
         const auto profile = activeProfile();
@@ -5876,7 +5943,7 @@ struct Window {
                 opened.reset();
             return std::make_pair(std::move(opened), problem);
         });
-        InvalidateRect(hwnd, nullptr, FALSE);
+        (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
     }
     size_t playerCount() const { return directory ? directory->players().size() + 1 : 0; }
     bool isFriend(const std::string &id) const {
@@ -6049,7 +6116,7 @@ struct Window {
         else
             SetWindowTextW(controls[AddFriend], L"Remove friend");
         layout();refreshEnabled();
-        InvalidateRect(hwnd, nullptr, FALSE);
+        (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
     }
     std::string selectedPlayerId() const {
         const auto row = page==onlinePage ? SendMessageW(controls.at(PlayerList), LB_GETCURSEL, 0, 0) : -1;
@@ -6295,7 +6362,7 @@ struct Window {
                 const auto player = directory->player(pendingInvitee);
                 status = L"Invite sent to " + (player ? wide(player->name) : std::wstring(L"the player")) + L".";
                 pendingInvitee.clear();
-                InvalidateRect(hwnd, nullptr, FALSE);
+                (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
             } else if (std::chrono::steady_clock::now() > inviteDeadline) {
                 pendingInvitee.clear();
                 status = L"Your room did not open in time, so the invite was not sent.";
@@ -6383,7 +6450,7 @@ struct Window {
         status = host ? L"Opening your room\u2026" : L"Joining " + target + L"\u2026";
         error = false;
         refreshEnabled();
-        InvalidateRect(hwnd, nullptr, FALSE);
+        (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
     }
     void closeRoom(const std::wstring &message) {
         room.reset();
@@ -6394,7 +6461,7 @@ struct Window {
         status = message;
         error = false;
         refreshEnabled();
-        InvalidateRect(hwnd, nullptr, FALSE);
+        (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
     }
     void roomTick() {
         if (!room || running())
@@ -6409,7 +6476,7 @@ struct Window {
             status = next.empty() ? L"Could not connect." : next;
             error = true;
             refreshEnabled();
-            InvalidateRect(hwnd, nullptr, FALSE);
+            (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
             return;
         }
         if (state.phase == netplay::RoomPhase::ready) {
@@ -6428,14 +6495,14 @@ struct Window {
                      L" ms). Starting the match\u2026";
             error = false;
             refreshEnabled();
-            InvalidateRect(hwnd, nullptr, FALSE);
+            (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
             return;
         }
         if (!next.empty() && next != status) {
             std::cout << "[launcher:online] " << state.message << std::endl;
             status = next;
             error = false;
-            InvalidateRect(hwnd, nullptr, FALSE);
+            (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
         }
     }
     void startOnline(bool host) {
@@ -6535,7 +6602,7 @@ struct Window {
                 startOnline(false);
             } else
                 return false;
-            InvalidateRect(hwnd, nullptr, FALSE);
+            (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
             return true;
         }
         if (id == IDCANCEL && !dropdownOpen() && navigateBack())
@@ -6587,24 +6654,24 @@ struct Window {
         }
         if(id==ToggleLauncher && notification==BN_CLICKED) {ShowWindow(hwnd,IsZoomed(hwnd)?SW_RESTORE:SW_MAXIMIZE);return;}
         if (id == FindAction && notification == BN_CLICKED) { openActionFinder(); return; }
-        if(id==OpenNotifications && notification==BN_CLICKED) {page=notificationsPage;layout();InvalidateRect(hwnd,nullptr,FALSE);return;}
+        if(id==OpenNotifications && notification==BN_CLICKED) {page=notificationsPage;layout();(pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);return;}
         if (id == ActionSearch && notification == EN_CHANGE) { refreshActions(); return; }
         if ((id == ActionOpen && notification == BN_CLICKED) || (id == ActionList && notification == LBN_DBLCLK)) {
             openSelectedAction(); return;
         }
         if ((id == ActionClose || id == BackToPlay) && notification == BN_CLICKED) { navigateBack(); return; }
         if (id == SaveSearch && notification == EN_CHANGE) {
-            if (!busy()) { refreshBackups(); layout(); InvalidateRect(hwnd, nullptr, FALSE); } return;
+            if (!busy()) { refreshBackups(); layout(); (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE); } return;
         }
         if (id == ClearSaveSearch && notification == BN_CLICKED) { SetWindowTextW(controls[SaveSearch], L""); SetFocus(controls[SaveSearch]); return; }
         if (id == SettingsSearch && notification == EN_CHANGE) {
-            pageScroll = 0; layout(); InvalidateRect(hwnd, nullptr, FALSE); return;
+            pageScroll = 0; layout(); (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE); return;
         }
         if (id == ClearSettingsSearch && notification == BN_CLICKED) { SetWindowTextW(controls[SettingsSearch], L""); SetFocus(controls[SettingsSearch]); return; }
         if (id>=SettingsAll && id<=SettingsLauncher && notification==BN_CLICKED) {
             const wchar_t* filters[]={L"",L"display",L"graphics",L"game",L"launcher"};
             page=settingsPage;SetWindowTextW(controls[SettingsSearch],filters[id-SettingsAll]);
-            pageScroll=0;layout();InvalidateRect(hwnd,nullptr,FALSE);return;
+            pageScroll=0;layout();(pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);return;
         }
         if (id == UndoSettings && notification == BN_CLICKED && previousSettings) {
             auto next = settings;
@@ -6623,7 +6690,7 @@ struct Window {
             if (id == ResetGame) { settings.randomizer=false; settings.ps2LoadTimes=true;
                 SendMessageW(controls[SpeedrunRandomizer],CB_SETCURSEL,0,0); write_settings(settings_path(),settings); }
             status = id == ResetDisplay ? L"Display defaults restored. Undo is available." : L"Game defaults restored. Undo is available.";
-            layout(); InvalidateRect(hwnd,nullptr,FALSE); return;
+            layout(); (pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE); return;
         }
         if (const auto found = controls.find(id); found != controls.end() &&
             (notification == CBN_DROPDOWN || notification == CBN_CLOSEUP) &&
@@ -6660,7 +6727,7 @@ struct Window {
             }
         }
         if (id == SaveSort && notification == CBN_SELCHANGE) {
-            if (!busy()) { refreshBackups(); layout(); InvalidateRect(hwnd, nullptr, FALSE); } return;
+            if (!busy()) { refreshBackups(); layout(); (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE); } return;
         }
         if (id == SplitStyleList && notification == LBN_SELCHANGE) {selectStyleRow();return;}
         if (id == SplitNameSave && notification == BN_CLICKED) {saveSplitName();return;}
@@ -6748,14 +6815,14 @@ struct Window {
                 write_settings(settings_path(),next);settings=std::move(next);cycleTimer();openProfile();
                 status=id==ProfileSave ? L"Profile appearance saved on this PC." : L"Profile appearance reset.";error=false;
             }
-            InvalidateRect(hwnd,nullptr,FALSE);return;
+            (pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);return;
         }
         if (notification==BN_CLICKED && id>=HomeControls && id<=HomeArrange) {
             const int target=id==HomeControls ? controlsPage :
                              id==HomeSaves ? savesPage : id==HomeArrange ? tabsPage : settingsPage;
             page=target;
             if(page==tabsPage)refreshTabs();
-            layout();InvalidateRect(hwnd,nullptr,FALSE);return;
+            layout();(pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);return;
         }
         if (id >= ControlKey && id < ControlKey + int(input::button_count) && notification == BN_CLICKED) {
             beginCapture(id - ControlKey);
@@ -6793,7 +6860,7 @@ struct Window {
             if (page == modsPage)
                 refreshMods();
             layout();
-            InvalidateRect(hwnd, nullptr, FALSE);
+            (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
             SetFocus(controls[id]);
             return;
         }
@@ -6954,7 +7021,7 @@ struct Window {
         if (id == RoomList && notification == LBN_SELCHANGE) {
             SetWindowTextW(controls[JoinPassword],L"");
             layout();refreshEnabled();
-            InvalidateRect(hwnd, nullptr, FALSE);
+            (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
             if (selectedRoomLocked())
                 SetFocus(controls[JoinPassword]);
             return;
@@ -6977,7 +7044,7 @@ struct Window {
                 invitePlayer();
             else
                 status = L"Choose your Budokai 2 ISO first.", error = true;
-            InvalidateRect(hwnd, nullptr, FALSE);
+            (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
             return;
         }
         if ((id == UpdateChannel || id == AutomaticUpdates) && notification == CBN_SELCHANGE) {
@@ -7044,7 +7111,7 @@ struct Window {
             return;
         }
         if ((id == ModName || id == EntryFilter) && (notification == EN_SETFOCUS || notification == EN_KILLFOCUS)) {
-            InvalidateRect(hwnd, nullptr, FALSE);
+            (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
             return;
         }
         if (id == EntryFilter && notification == EN_CHANGE) {
@@ -7114,7 +7181,7 @@ struct Window {
             settings.ps2LoadTimes = selected(LoadTimes) == 1;
             saveLauncherLook(settings.ps2LoadTimes ? L"Load times match a real PS2 drive."
                                                    : L"Loading as fast as this PC allows. Speedrun mode always uses PS2 load times.");
-            InvalidateRect(hwnd, nullptr, FALSE);
+            (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
             return;
         }
         if ((id == RandomizerMode || id == SpeedrunRandomizer) && notification == CBN_SELCHANGE) {
@@ -7126,7 +7193,7 @@ struct Window {
                                  : L"Randomizer off.");
             refreshSplits();
             refreshTimingRules();
-            InvalidateRect(hwnd, nullptr, FALSE);
+            (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
             return;
         }
         if (id == OpenLogs && notification == BN_CLICKED) {
@@ -7154,7 +7221,7 @@ struct Window {
                 }
                 status = copied ? L"Colors copied. Paste them into a message to share this look." : L"Could not copy to the clipboard.";
                 error = !copied;
-                InvalidateRect(hwnd, nullptr, FALSE);
+                (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
                 return;
             }
             if (id == ColorPaste) {
@@ -7172,7 +7239,7 @@ struct Window {
                 if (!parse_look_code(utf8(trimmed(text)), theme, accent, colors)) {
                     status = L"The clipboard does not hold OpenKai2 colors. Copy them with Copy colors first.";
                     error = true;
-                    InvalidateRect(hwnd, nullptr, FALSE);
+                    (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
                     return;
                 }
                 settings.launcherTheme = theme;
@@ -7201,13 +7268,13 @@ struct Window {
             page = colorsPage;
             refreshColors();
             layout();
-            InvalidateRect(hwnd, nullptr, FALSE);
+            (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
             return;
         }
         if (id == CloseColors && notification == BN_CLICKED) {
             page = settingsPage;
             layout();
-            InvalidateRect(hwnd, nullptr, FALSE);
+            (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
             return;
         }
         if (((id == ColorPick || id == ColorReset || id == ColorResetAll) && notification == BN_CLICKED) ||
@@ -7222,7 +7289,7 @@ struct Window {
             } else if (row < 0 || row >= LRESULT(color_role_count)) {
                 status = L"Pick a color first.";
                 error = true;
-                InvalidateRect(hwnd, nullptr, FALSE);
+                (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
                 return;
             } else if (id == ColorReset) {
                 settings.launcherColors[size_t(row)] = -1;
@@ -7255,13 +7322,13 @@ struct Window {
             page = tabsPage;
             refreshTabs();
             layout();
-            InvalidateRect(hwnd, nullptr, FALSE);
+            (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
             return;
         }
         if (id == CloseTabs && notification == BN_CLICKED) {
             page = settingsPage;
             layout();
-            InvalidateRect(hwnd, nullptr, FALSE);
+            (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
             return;
         }
         if ((id == TabUp || id == TabDown || id == TabToggle || id == TabDefaults) && notification == BN_CLICKED) {
@@ -7274,7 +7341,7 @@ struct Window {
             } else if (row < 0 || row >= LRESULT(dock_tab_count)) {
                 status = L"Pick a tab first.";
                 error = true;
-                InvalidateRect(hwnd, nullptr, FALSE);
+                (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
                 return;
             } else {
                 const unsigned tab = settings.tabOrder[size_t(row)];
@@ -7282,7 +7349,7 @@ struct Window {
                     if ((fixed_tabs >> tab) & 1u) {
                         status = std::wstring(tab_names[tab]) + L" is always shown.";
                         error = true;
-                        InvalidateRect(hwnd, nullptr, FALSE);
+                        (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
                         return;
                     }
                     settings.hiddenTabs ^= 1u << tab;
@@ -7299,7 +7366,7 @@ struct Window {
             saveLauncherLook(message);
             refreshTabs();
             layout();
-            InvalidateRect(hwnd, nullptr, FALSE);
+            (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
             return;
         }
         if ((id == LauncherTheme || id == LauncherAccent || id == StartPage || id==DiscordActivity || id==LauncherMotion || id==LauncherHints) && notification == CBN_SELCHANGE) {
@@ -7323,7 +7390,7 @@ struct Window {
             if (id == LauncherTheme || id==LauncherAccent || id==LauncherMotion)
                 restyle();
             else
-                InvalidateRect(hwnd, nullptr, FALSE);
+                (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
             return;
         }
         if (id == OpenOverlay && notification == BN_CLICKED) {
@@ -7350,14 +7417,14 @@ struct Window {
             const auto row = SendMessageW(controls[SplitList], LB_GETCURSEL, 0, 0);
             if (row >= 0 && size_t(row) < splitBook.best().size())
                 SetWindowTextW(controls[SplitTime], wide(splitTime(splitBook.best()[size_t(row)])).c_str());
-            InvalidateRect(hwnd, nullptr, FALSE);
+            (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
             return;
         }
         if ((id == SplitSet || id == SplitAdd || id == SplitRemove || id == SplitReset) && notification == BN_CLICKED) {
             if (!settings.speedrun) {
                 status = L"Choose a speedrun category first; each category keeps its own splits.";
                 error = true;
-                InvalidateRect(hwnd, nullptr, FALSE);
+                (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
                 return;
             }
             const auto row = SendMessageW(controls[SplitList], LB_GETCURSEL, 0, 0);
@@ -7396,7 +7463,7 @@ struct Window {
             status = message;
             error = !changed;
             refreshSplits();
-            InvalidateRect(hwnd, nullptr, FALSE);
+            (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
             return;
         }
         if (id == OverlayDefaults && notification == BN_CLICKED) {
@@ -7860,7 +7927,7 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
                 self->layout();
             else
                 self->clipPageControls();
-            InvalidateRect(hwnd, nullptr, FALSE);
+            (self->pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
             return 0;
         case restoreUiMessage:
             self->restoreUi();
@@ -7987,13 +8054,13 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
         self->status = wide(e.what());
         self->error = true;
         std::cerr << "[launcher:error] " << e.what() << std::endl;
-        InvalidateRect(hwnd, nullptr, FALSE);
+        (self->pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
         return 0;
     } catch (...) {
         self->status = L"Something went wrong. Details are in launcher.log.";
         self->error = true;
         std::cerr << "[launcher:error] message=" << message << " failed with an unknown error" << std::endl;
-        InvalidateRect(hwnd, nullptr, FALSE);
+        (self->pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
         return 0;
     }
     return DefWindowProcW(hwnd, message, wp, lp);
