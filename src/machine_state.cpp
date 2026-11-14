@@ -342,8 +342,9 @@ void rollback_point(EeScheduler &scheduler) {
 
 namespace runahead {
 std::atomic<unsigned> frames{0};
+constexpr uint64_t adapt_window = 120;
 bool active = false, shown = false;
-uint64_t base = 0, shownAt = 0, lastTick = ~0ull, passes = 0, abandoned = 0;
+uint64_t base = 0, shownAt = 0, lastTick = ~0ull, passes = 0, abandoned = 0, windowFields = 0, windowLate = 0;
 std::chrono::steady_clock::time_point capturedAt{};
 std::unique_ptr<DeltaStates> states;
 
@@ -402,7 +403,24 @@ void point(EeScheduler &scheduler) {
     replay_turbo = false;
     runahead_drawing = false;
     lastTick = base;
-    if (++passes % 600 == 0)
+    ++passes;
+    if (passes % adapt_window == 0) {
+        const uint64_t fields = field_lateness.fields.load(std::memory_order_relaxed);
+        const uint64_t late = field_lateness.late.load(std::memory_order_relaxed);
+        const uint64_t seen = fields - windowFields, behind = late - windowLate;
+        windowFields = fields;
+        windowLate = late;
+        const unsigned current = frames.load(std::memory_order_relaxed);
+        if (passes > adapt_window && seen && behind * 4 > seen && current) {
+            frames = current - 1;
+            std::cout << "[runahead] " << behind << " of " << seen
+                      << " recent frames were late, so this PC cannot keep up; run-ahead is now "
+                      << (current - 1) << " frame(s)" << std::endl;
+            if (current == 1)
+                leave();
+        }
+    }
+    if (passes % 600 == 0)
         std::cout << "[runahead] passes=" << passes << " kept_ahead_at_loading=" << abandoned << std::endl;
 }
 }

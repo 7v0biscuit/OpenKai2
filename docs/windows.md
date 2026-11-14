@@ -209,8 +209,10 @@ two frames sooner than it would normally appear. The finished frame is shown at
 your monitor's next refresh, so a 240 Hz monitor shows it within about 4 ms.
 
 Run-ahead makes the PC emulate three (1 frame) or four (2 frames) frames for
-every frame shown, so it needs a fast PC; if the game slows down, use 1 frame or
-turn it off. It is off online, where rollback handles timing, and in speedrun
+every frame shown, so it needs a fast PC. If more than a quarter of recent
+frames arrive late, OpenKai2 lowers run-ahead by one frame, and turns it off if
+even 1 frame is too much, so it never slows the game down. The log notes each
+step with `[runahead] ... run-ahead is now N frame(s)`. It is off online, where rollback handles timing, and in speedrun
 mode. During loading screens and other moments the game cannot be saved,
 run-ahead pauses and the game runs normally. The log shows
 `[runahead] showing the game N frame(s) ahead` at startup. Developers can set
