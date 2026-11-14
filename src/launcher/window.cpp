@@ -156,6 +156,7 @@ enum Id {
     Filtering,
     Upscaler,
     Vsync,
+    Smoothing,
     AutoBackup,
     Aspect,
     Audio,
@@ -170,7 +171,6 @@ enum Id {
     ReleasePage,
     ResetGraphics = 170,
     TextureFolder = 171,
-    Smoothing = 172,
     ClearImage = 173,
     DiscordActivity = 174,
     SaveListKind = 175,
@@ -6973,7 +6973,7 @@ struct Window {
                     L" selected. Ctrl+click or Shift+click selects several; Ctrl+A selects all.";
             refreshEnabled(); return;
         }
-        if (((id >= Renderer && id <= Music) || (id >= SpeedrunMode && id <= FpsCounter) || id == SpeedrunCpu || id == Smoothing) &&
+        if (((id >= Renderer && id <= Music) || (id >= SpeedrunMode && id <= FpsCounter) || id == SpeedrunCpu) &&
             notification == CBN_SELCHANGE) {
             if (id == SpeedrunCpu)
                 SendMessageW(controls[CpuDifficulty], CB_SETCURSEL, selected(SpeedrunCpu), 0);
