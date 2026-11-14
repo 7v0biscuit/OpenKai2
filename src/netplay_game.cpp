@@ -229,7 +229,7 @@ void stop_game_session(std::unique_ptr<Session> &session) {
     const auto stats = session->rollback_stats();
     std::cout << "[netplay] rollback predicted=" << stats.predicted << " mispredicted=" << stats.mispredicted
               << " rollbacks=" << stats.rollbacks << " replayed_frames=" << stats.replayed << " longest=" << stats.longest
-              << " stalls=" << stats.stalls << std::endl;
+              << " stalls=" << stats.stalls << " sync_waits=" << stats.waits << " sync_frames=" << stats.waited << std::endl;
     session->stop();
     session.reset();
 }

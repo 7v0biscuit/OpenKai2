@@ -4,6 +4,7 @@
 #include "nat.h"
 #include "online.h"
 #include <algorithm>
+#include <climits>
 #include <cmath>
 #include <optional>
 #include <chrono>
@@ -13,7 +14,7 @@
 
 namespace openkai2::netplay {
 namespace {
-enum Message : uint8_t { hello = 1, welcome, reject, snapshot, input, hash, ping, pong, bye, profile, confirm, probe };
+enum Message : uint8_t { hello = 1, welcome, reject, snapshot, input, hash, ping, pong, bye, profile, confirm, probe, advantage };
 static_assert(probe == probe_message);
 constexpr uint32_t max_message = 96u << 20;
 constexpr size_t max_snapshot = 160u << 20;
@@ -638,6 +639,13 @@ void Session::read_loop() {
             changed_.notify_all();
             break;
         }
+        case advantage: {
+            const auto value = int64_t(int32_t(in.u32()));
+            std::lock_guard lock(mutex_);
+            remoteAdvantage_ = value;
+            remoteAdvantageFresh_ = true;
+            break;
+        }
         case hash: {
             const uint64_t tick = in.u64(), value = in.u64();
             std::lock_guard lock(mutex_);
@@ -679,6 +687,7 @@ void Session::read_loop() {
 
 void Session::accept_remote(uint64_t tick, const Input &value) {
     remote_[tick] = value;
+    newestRemote_ = std::max(newestRemote_, tick);
     if (const auto guess = predicted_.find(tick); guess != predicted_.end()) {
         if (guess->second != value) {
             rollbackTo_ = std::min(rollbackTo_, tick);
@@ -759,6 +768,30 @@ void Session::rollback_point() {
     machine_.capture(tick);
     std::lock_guard lock(mutex_);
     captured_ = tick;
+}
+
+std::chrono::microseconds Session::time_sync(uint64_t tick, uint64_t start, unsigned delay) {
+    if (!options_.rollback || !machine_.capture || !machine_.restore || tick <= start + delay ||
+        (tick - start) % sync_interval != 0)
+        return {};
+    int64_t local = 0;
+    unsigned frames = 0;
+    {
+        std::lock_guard lock(mutex_);
+        if (replaying_ || status_.phase != Phase::playing)
+            return {};
+        local = int64_t(tick) - int64_t(newestRemote_);
+        if (remoteAdvantageFresh_ && local - remoteAdvantage_ >= 3) {
+            frames = unsigned(std::min<int64_t>((local - remoteAdvantage_) / 2, max_sync_wait));
+            remoteAdvantageFresh_ = false;
+            ++rollbackStats_.waits;
+            rollbackStats_.waited += frames;
+        }
+    }
+    std::vector<uint8_t> payload;
+    put32(payload, uint32_t(int32_t(std::clamp<int64_t>(local, INT32_MIN, INT32_MAX))));
+    send(advantage, std::move(payload));
+    return frames ? std::chrono::microseconds(frames * 16667u + 1000u) : std::chrono::microseconds{};
 }
 
 RollbackStats Session::rollback_stats() const {
@@ -929,6 +962,8 @@ bool Session::inputs(Input &port0, Input &port1) {
         put64(payload, value);
         send(hash, std::move(payload));
     }
+    if (const auto pause = time_sync(tick, start, delay); pause.count() > 0)
+        std::this_thread::sleep_for(pause);
     std::lock_guard lock(mutex_);
     port0 = options_.host ? local : remote;
     port1 = options_.host ? remote : local;

@@ -173,6 +173,12 @@ It was built in steps:
    sound and without drawing; the frame after a replay draws normally.
 3. Done: predicted inputs and corrections in the match itself. Hash checks
    only cover frames whose inputs are confirmed on both sides.
+4. Done: time sync. Every half second each game tells the other how far ahead
+   of the other player's inputs it is running. When one game has drifted 1.5
+   frames or more ahead, for example because its PC keeps time slightly
+   faster, it waits one to three frames so both stay in step instead of the
+   faster one repeatedly running out of inputs. The end-of-match log line adds
+   `sync_waits=` and `sync_frames=`.
 
 ## Managing profiles on this PC
 

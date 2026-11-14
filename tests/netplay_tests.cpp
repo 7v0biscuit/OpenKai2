@@ -451,6 +451,7 @@ struct RollbackMachine : FakeMachine {
     std::map<uint64_t, std::pair<uint64_t, uint64_t>> snapshots;
     std::atomic<bool> restored{false};
     uint64_t restores = 0;
+    std::chrono::microseconds period{16667};
 
     Machine bindRollback() {
         Machine machine = bind();
@@ -475,8 +476,9 @@ struct RollbackMachine : FakeMachine {
     }
 };
 
-void rollback_corrects_late_inputs() {
+RollbackStats rollback_match(std::chrono::microseconds guestPeriod, uint64_t frames, RollbackStats *hostOut) {
     RollbackMachine hostMachine, guestMachine;
+    guestMachine.period = guestPeriod;
     hostMachine.host = true;
     guestMachine.host = false;
     hostMachine.tick = 300;
@@ -500,8 +502,7 @@ void rollback_corrects_late_inputs() {
     Session guest(guestOptions, guestMachine.bindRollback());
     guest.start();
 
-    static constexpr uint64_t frames = 720;
-    auto play = [](Session &session, RollbackMachine &machine, bool &ok, uint64_t &began) {
+    auto play = [frames](Session &session, RollbackMachine &machine, bool &ok, uint64_t &began) {
         ok = false;
         auto next = std::chrono::steady_clock::now();
         for (int step = 0; step < 60000; ++step) {
@@ -527,7 +528,9 @@ void rollback_corrects_late_inputs() {
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
                 next = std::chrono::steady_clock::now();
             } else if (!session.rolling_back()) {
-                next += std::chrono::microseconds(16667);
+                next += machine.period;
+                if (const auto now = std::chrono::steady_clock::now(); now - next > machine.period)
+                    next = now;
                 std::this_thread::sleep_until(next);
             }
         }
@@ -545,9 +548,9 @@ void rollback_corrects_late_inputs() {
     const auto hostStats = host.rollback_stats(), guestStats = guest.rollback_stats();
     std::cout << "rollback host predicted=" << hostStats.predicted << " mispredicted=" << hostStats.mispredicted
               << " rollbacks=" << hostStats.rollbacks << " replayed=" << hostStats.replayed << " longest=" << hostStats.longest
-              << " stalls=" << hostStats.stalls << "; guest predicted=" << guestStats.predicted
+              << " stalls=" << hostStats.stalls << " waits=" << hostStats.waits << "; guest predicted=" << guestStats.predicted
               << " mispredicted=" << guestStats.mispredicted << " rollbacks=" << guestStats.rollbacks
-              << " longest=" << guestStats.longest << " stalls=" << guestStats.stalls << '\n';
+              << " longest=" << guestStats.longest << " stalls=" << guestStats.stalls << " waits=" << guestStats.waits << '\n';
     require(hostStats.mispredicted > 10 && guestStats.mispredicted > 10 && hostStats.rollbacks > 10 && guestStats.rollbacks > 10,
             "late inputs were predicted wrongly and corrected");
     require(hostStats.longest <= max_prediction + 1u && guestStats.longest <= max_prediction + 1u, "rollbacks stay within the window");
@@ -569,6 +572,19 @@ void rollback_corrects_late_inputs() {
     require(!hostStatus.desynced && !guestStatus.desynced, "rollback reports no desync");
     host.stop();
     guest.stop();
+    if (hostOut)
+        *hostOut = hostStats;
+    return guestStats;
+}
+
+void rollback_corrects_late_inputs() { rollback_match(std::chrono::microseconds(16667), 720, nullptr); }
+
+void time_sync_slows_the_faster_player() {
+    RollbackStats host;
+    const auto guest = rollback_match(std::chrono::microseconds(15800), 900, &host);
+    require(guest.waits > 0 && guest.waited > 0, "the faster player waited for the slower one");
+    require(host.waits <= guest.waits, "the slower player did not wait more than the faster one");
+    require(guest.stalls <= 10, "time sync kept the faster player from stalling: " + std::to_string(guest.stalls));
 }
 
 void room_checks_before_launch() {
@@ -747,6 +763,7 @@ int main() {
         snapshot_round_trip();
         two_players_stay_in_step();
         rollback_corrects_late_inputs();
+        time_sync_slows_the_faster_player();
         room_checks_before_launch();
         relay_through_service();
         wrong_build_is_refused();

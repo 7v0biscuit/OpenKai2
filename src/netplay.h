@@ -2,6 +2,7 @@
 #pragma once
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
@@ -25,6 +26,8 @@ inline constexpr uint64_t hash_interval = 120;
 inline constexpr uint8_t probe_message = 12;
 inline constexpr unsigned max_prediction = 8;
 inline constexpr unsigned rollback_delay = 2;
+inline constexpr unsigned sync_interval = 30;
+inline constexpr unsigned max_sync_wait = 3;
 
 using Input = std::array<uint8_t, 6>;
 Input neutral_input();
@@ -73,7 +76,7 @@ struct Machine {
 };
 
 struct RollbackStats {
-    uint64_t predicted = 0, mispredicted = 0, rollbacks = 0, replayed = 0, longest = 0, stalls = 0;
+    uint64_t predicted = 0, mispredicted = 0, rollbacks = 0, replayed = 0, longest = 0, stalls = 0, waits = 0, waited = 0;
 };
 
 enum class Phase { connecting, syncing, playing, ended };
@@ -114,6 +117,7 @@ class Session {
     void accept_remote(uint64_t tick, const Input &value);
     void deliver_delayed();
     void rollback_point();
+    std::chrono::microseconds time_sync(uint64_t tick, uint64_t start, unsigned delay);
 
     Options options_;
     Machine machine_;
@@ -142,7 +146,9 @@ class Session {
         Input value;
     };
     std::deque<Delayed> delayed_;
-    uint64_t confirmed_ = 0, rollbackTo_ = ~0ull, frontier_ = 0, captured_ = ~0ull;
+    uint64_t confirmed_ = 0, rollbackTo_ = ~0ull, frontier_ = 0, captured_ = ~0ull, newestRemote_ = 0;
+    int64_t remoteAdvantage_ = 0;
+    bool remoteAdvantageFresh_ = false;
     bool replaying_ = false;
     RollbackStats rollbackStats_;
 };
