@@ -140,6 +140,45 @@ class OpenGlCompute final : public Compute {
 
     void finish() override { gl_.Finish(); }
 
+    bool can_save_state() const override { return true; }
+
+    void save_state(size_t colorWords, size_t depthWords) override {
+        const UInt live[3] = {buffers_[0], extra_[0], extra_[1]};
+        const size_t sizes[3] = {size_t(4u) << 20u, hires_ ? std::min(colorWords, reserved_[0]) * 4u : 0u,
+                                 hires_ ? std::min(depthWords, reserved_[1]) * 4u : 0u};
+        gl_.MemoryBarrier(ShaderStorageBarrier | BufferUpdateBarrier);
+        for (unsigned i = 0; i < 3u; ++i) {
+            savedSizes_[i] = sizes[i];
+            if (!sizes[i])
+                continue;
+            if (!saved_[i])
+                gl_.GenBuffers(1, &saved_[i]);
+            if (savedCapacity_[i] < sizes[i]) {
+                gl_.BindBuffer(CopyWriteBuffer, saved_[i]);
+                gl_.BufferData(CopyWriteBuffer, Size(sizes[i]), nullptr, DynamicCopy);
+                savedCapacity_[i] = sizes[i];
+            }
+            gl_.BindBuffer(CopyReadBuffer, live[i]);
+            gl_.BindBuffer(CopyWriteBuffer, saved_[i]);
+            gl_.CopyBufferSubData(CopyReadBuffer, CopyWriteBuffer, 0, 0, Size(sizes[i]));
+        }
+        gl_.check("GPU state save");
+    }
+
+    void load_state() override {
+        const UInt live[3] = {buffers_[0], extra_[0], extra_[1]};
+        gl_.MemoryBarrier(ShaderStorageBarrier | BufferUpdateBarrier);
+        for (unsigned i = 0; i < 3u; ++i) {
+            if (!savedSizes_[i] || !saved_[i])
+                continue;
+            gl_.BindBuffer(CopyReadBuffer, saved_[i]);
+            gl_.BindBuffer(CopyWriteBuffer, live[i]);
+            gl_.CopyBufferSubData(CopyReadBuffer, CopyWriteBuffer, 0, 0, Size(savedSizes_[i]));
+        }
+        gl_.MemoryBarrier(ShaderStorageBarrier | BufferUpdateBarrier);
+        gl_.check("GPU state load");
+    }
+
     bool hires_supported() const override { return hires_ != 0u; }
     size_t storage_word_limit() const override { return storageWords_; }
 
@@ -213,6 +252,12 @@ class OpenGlCompute final : public Compute {
     }
 
     void destroy() override {
+        for (auto &buffer : saved_)
+            if (buffer)
+                gl_.DeleteBuffers(1, &buffer);
+        saved_.fill(0u);
+        savedCapacity_.fill(0u);
+        savedSizes_.fill(0u);
         if (extra_[0])
             gl_.DeleteBuffers(int(extra_.size()), extra_.data());
         if (hires_)
@@ -247,6 +292,8 @@ class OpenGlCompute final : public Compute {
     std::array<UInt, 3> extra_{};
     UInt hires_ = 0u, seed_ = 0u, resolve_ = 0u;
     size_t reserved_[2] = {0u, 0u};
+    std::array<UInt, 3> saved_{};
+    std::array<size_t, 3> savedCapacity_{}, savedSizes_{};
     std::string description_;
     size_t storageWords_ = 0;
     std::array<UInt, 6> buffers_{};

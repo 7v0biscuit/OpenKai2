@@ -2,6 +2,7 @@
 #include "gpu_backend.h"
 #include "gpu_device.h"
 #include "gpu_layout.h"
+#include "frame_smoothing.h"
 #include "graphics_settings.h"
 #include "hd_textures.h"
 #include "runtime/gs/gs_cpu_backend.h"
@@ -128,12 +129,12 @@ struct GpuRasterBackend::Impl {
     std::array<uint32_t,12> footprintKey{};int covered[4]{};bool footprintValid=false;
     struct Shadow{uint32_t base=0,width=0,psm=0;bool used=false,valid=false;uint64_t touched=0;Pages pages,stale;};
     static constexpr unsigned shadowWidth=1024u,shadowHeight=512u,colorSlots=6u,depthSlots=3u;
-    unsigned scale=1u,maxScale=1u;bool hires=false,batchDepth=false;uint64_t shadowClock=0;
+    unsigned scale=1u,maxScale=1u;bool hires=false,batchDepth=false,follower=false;uint64_t shadowClock=0;
     struct Load{std::chrono::steady_clock::time_point at{};uint64_t busy=0,fields=0,late=0;unsigned overloaded=0,relaxed=0;
         std::chrono::steady_clock::time_point holdUntil{},raised{};std::chrono::seconds hold{20};} load;
     void adapt(){
         static const bool fixed=[]{const char* value=std::getenv("OPENKAI2_FIXED_RESOLUTION");return value && *value=='1';}();
-        if(fixed)return;
+        if(fixed || follower)return;
         const auto now=std::chrono::steady_clock::now();
         const uint64_t busy=runtime_work_total_ns(RuntimeWork::gpuDevice),fields=field_lateness.fields.load(std::memory_order_relaxed),
             late=field_lateness.late.load(std::memory_order_relaxed);
@@ -166,6 +167,35 @@ struct GpuRasterBackend::Impl {
     struct HdMemo{std::array<uint64_t,2> key{};uint64_t generation=0,result=0;Pages pages;};
     std::array<HdMemo,64> hdMemo{};uint64_t hdGeneration=1;
     static constexpr size_t hdDecodePerFrame=256u*1024u;size_t hdDecodeBudget=hdDecodePerFrame;
+    struct Saved{
+        bool valid=false;std::vector<uint8_t> memory;Pages cpuDirty,gpuDirty;bool cpuFrame=false;GSTransferCommand transfer{};
+        std::array<uint16_t,512> clut{};std::array<uint32_t,2> cbp{};uint32_t clutGeneration=0;
+        std::array<uint32_t,8> loadedPaletteKey{};Pages loadedPalettePages;bool loadedPaletteValid=false;
+        std::array<uint32_t,5> target{},sourceKey{};Pages sourcePages;bool sourceValid=false;
+        unsigned scale=1u;uint64_t shadowClock=0;std::array<Shadow,colorSlots> colorShadows{};std::array<Shadow,depthSlots> depthShadows{};
+        bool hdOn=false,hdFull=false;size_t hdHead=0;std::unordered_map<uint64_t,HdSlot> hdSlots;
+        std::unordered_map<std::array<uint64_t,4>,uint64_t,KeyHash> hdHashes;
+        std::array<uint32_t,gpu::PageCount> pageVersion{},pageHashed{};std::array<uint64_t,gpu::PageCount> pageHash{};
+        std::array<HdMemo,64> hdMemo{};uint64_t hdGeneration=1;size_t hdDecodeBudget=0;
+    } saved;
+    bool checkpoint(){
+        if(!ready() || cpuFrame)return false;
+        bool supported=false;
+        device->invoke([r=resources,&supported](gpu::Host&){supported=r->compute->can_save_state();});
+        if(!supported)return false;
+        submit();
+        auto& s=saved;s.memory.assign(vram,vram+size);s.cpuDirty=cpuDirty;s.gpuDirty=gpuDirty;s.cpuFrame=cpuFrame;s.transfer=transfer;s.clut=clut;s.cbp=cbp;s.clutGeneration=clutGeneration;s.loadedPaletteKey=loadedPaletteKey;s.loadedPalettePages=loadedPalettePages;s.loadedPaletteValid=loadedPaletteValid;s.target=target;s.sourceKey=sourceKey;s.sourcePages=sourcePages;s.sourceValid=sourceValid;s.scale=scale;s.shadowClock=shadowClock;s.colorShadows=colorShadows;s.depthShadows=depthShadows;s.hdOn=hdOn;s.hdFull=hdFull;s.hdHead=hdHead;s.hdSlots=hdSlots;s.hdHashes=hdHashes;s.pageVersion=pageVersion;s.pageHashed=pageHashed;s.pageHash=pageHash;s.hdMemo=hdMemo;s.hdGeneration=hdGeneration;s.hdDecodeBudget=hdDecodeBudget;
+        const size_t colorWords=hires ? colorSlots*slotWords() : 0u,depthWords=hires ? depthSlots*slotWords() : 0u;
+        device->post([r=resources,colorWords,depthWords](gpu::Host&){r->compute->save_state(colorWords,depthWords);});
+        s.valid=true;return true;
+    }
+    bool restore(){
+        if(!saved.valid || !resources)return false;
+        submit();
+        device->post([r=resources](gpu::Host&){r->compute->load_state();});
+        const auto& s=saved;std::memcpy(vram,s.memory.data(),std::min(s.memory.size(),size_t(size)));cpuDirty=s.cpuDirty;gpuDirty=s.gpuDirty;cpuFrame=s.cpuFrame;transfer=s.transfer;clut=s.clut;cbp=s.cbp;clutGeneration=s.clutGeneration;loadedPaletteKey=s.loadedPaletteKey;loadedPalettePages=s.loadedPalettePages;loadedPaletteValid=s.loadedPaletteValid;target=s.target;sourceKey=s.sourceKey;sourcePages=s.sourcePages;sourceValid=s.sourceValid;scale=s.scale;shadowClock=s.shadowClock;colorShadows=s.colorShadows;depthShadows=s.depthShadows;hdOn=s.hdOn;hdFull=s.hdFull;hdHead=s.hdHead;hdSlots=s.hdSlots;hdHashes=s.hdHashes;pageVersion=s.pageVersion;pageHashed=s.pageHashed;pageHash=s.pageHash;hdMemo=s.hdMemo;hdGeneration=s.hdGeneration;hdDecodeBudget=s.hdDecodeBudget;
+        cpu.TextureFlush();return true;
+    }
     uint64_t pageContent(unsigned p){
         if(!cpuDirty[p] && pageHashed[p]==pageVersion[p]+1u)return pageHash[p];
         uint64_t h=0x9e3779b97f4a7c15ull^p;const uint8_t* bytes=vram+size_t(p)*gpu::PageBytes;
@@ -784,5 +814,16 @@ std::vector<std::pair<std::string,uint64_t>> gpu_fallback_counts(){
     std::lock_guard lock(fallbackMutex);return {fallbackCounts.begin(),fallbackCounts.end()};
 }
 GpuRenderStats gpu_render_statistics(){return {totalGpuDraws.load(std::memory_order_relaxed),totalCpuDraws.load(std::memory_order_relaxed),totalBatches.load(std::memory_order_relaxed),totalTiles.load(std::memory_order_relaxed),totalUploads.load(std::memory_order_relaxed),totalReadbacks.load(std::memory_order_relaxed),totalCulled.load(std::memory_order_relaxed),totalPaletteLoads.load(std::memory_order_relaxed),totalPaletteReuses.load(std::memory_order_relaxed),totalGpuTransfers.load(std::memory_order_relaxed)};}
-std::unique_ptr<GSRasterBackend> make_raster_backend(){return std::make_unique<GpuRasterBackend>();}
+unsigned GpuRasterBackend::InternalScale()const{std::lock_guard lock(m->mutex);return m->scale;}
+void GpuRasterBackend::FollowScale(unsigned scale){
+    std::lock_guard lock(m->mutex);m->follower=true;
+    if(m->resources && scale>=1u && scale<=m->maxScale && scale!=m->scale){m->submit();m->scale=scale;m->dropShadows();}
+}
+bool GpuRasterBackend::Checkpoint(){std::lock_guard lock(m->mutex);return m->vram && m->checkpoint();}
+bool GpuRasterBackend::Restore(){std::lock_guard lock(m->mutex);return m->restore();}
+std::unique_ptr<GSRasterBackend> make_raster_backend(){
+    const unsigned smoothing=graphics_settings().smoothing;
+    if(!smoothing || renderer_preference()=="cpu")return std::make_unique<GpuRasterBackend>();
+    return make_smoothing_backend([]{return std::unique_ptr<GSRasterBackend>(std::make_unique<GpuRasterBackend>());},FrameSmoothing(std::min(smoothing,2u)));
+}
 }

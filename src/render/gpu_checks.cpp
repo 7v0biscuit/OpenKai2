@@ -4,6 +4,7 @@
 #include "gpu_backend.h"
 #include "gpu_device.h"
 #include "gpu_layout.h"
+#include "frame_smoothing.h"
 #include "graphics_settings.h"
 #include "hd_textures.h"
 #include <filesystem>
@@ -702,6 +703,32 @@ void checkHiresTextureSources(){
     pair.compare("Hi-res texture sources keep native VRAM");
     std::cout<<"GPU hi-res texture sources passed: a render target copied to the screen keeps its higher resolution.\n";
 }
+void checkCheckpoints(){
+    const auto saved=graphics_settings();
+    struct Restore{GraphicsSettings value;~Restore(){set_graphics_settings(value);}} restore{saved};
+    for(unsigned scale:{1u,2u}){
+        auto scaled=saved;scaled.internalScale=scale;scaled.hdTextures=0u;set_graphics_settings(scaled);
+        const auto shifted=[](float dx,float dy){auto t=material(5u,false);for(auto& v:t.vertices){v.x+=dx;v.y+=dy;}return t;};
+        GSPresentationRequest request{};request.pmode=1;
+        request.dispfb1=uint64_t(56)|(uint64_t(8)<<9);request.display1=(uint64_t(255)<<32)|(uint64_t(223)<<44);
+        Comparison once,again;
+        once.draw(shifted(0,0));once.draw(shifted(9,4));
+        again.draw(shifted(0,0));
+        if(!again.gpu->Checkpoint())throw std::runtime_error("GPU renderer could not take a checkpoint");
+        for(unsigned pass=1;pass<=3u;++pass){
+            if(pass>1u && !again.gpu->Restore())throw std::runtime_error("GPU renderer could not restore a checkpoint");
+            auto moved=shifted(9.0f*float(pass)/4.0f,4.0f*float(pass)/4.0f);again.gpu->Submit(moved);again.gpu->Flush();
+            again.gpu->Sync(GSSyncReason::Presentation);(void)again.gpu->Present(request);
+        }
+        if(!again.gpu->Restore())throw std::runtime_error("GPU renderer could not restore a checkpoint");
+        again.draw(shifted(9,4));
+        once.compare("Checkpoint reference");again.compare("Restored checkpoint");
+        once.gpu->Flush();once.gpu->Sync(GSSyncReason::Presentation);again.gpu->Flush();again.gpu->Sync(GSSyncReason::Presentation);
+        const auto first=once.gpu->Present(request),second=again.gpu->Present(request);
+        if(!first || first.pixels!=second.pixels)throw std::runtime_error("A restored checkpoint changed the picture at "+std::to_string(scale)+"x");
+    }
+    std::cout<<"GPU checkpoints passed: three blended passes restored exactly at 1x and 2x.\n";
+}
 void checkHdTextures(){
     const auto saved=graphics_settings();
     struct Restore{GraphicsSettings value;~Restore(){set_graphics_settings(value);hd::library().configure(hd::off,{},2u);}} restore{saved};
@@ -748,6 +775,7 @@ void checkHdTextures(){
 int run_gpu_checks(bool required){
     try{
         gpu::verify_address_tables();checkFootprints();std::cout<<"GPU swizzle address references passed.\n";
+        smoothing::verify();std::cout<<"Frame smoothing matching passed.\n";
         std::string error;
 #ifdef _WIN32
         const char* wanted=std::getenv("OPENKAI2_RENDERER");
@@ -758,7 +786,7 @@ int run_gpu_checks(bool required){
 #endif
         if(!initialized){std::cout<<"GPU checks unavailable: "<<error<<'\n';return required ? 1 : 77;}
         std::cout<<"GPU checks device: "<<gpu::current_device()->description()<<'\n';
-        checkDepthEnable();checkFlatDepth();checkDepthPlanes();checkPaletteReuse();checkPresentationReadbacks();checkEmptyTriangles();checkOffscreenTriangles();checkMaterials();checkIntegerPipeline();checkFormats();checkLines();checkCoherence();checkTransferPages();checkGpuTransfers();checkLargeTransfers();checkRebind();checkClears();checkSourceChanges();checkPartialReadbacks();checkGsWorker();checkInternalResolution();checkHiresTextureSources();checkHdTextures();
+        checkDepthEnable();checkFlatDepth();checkDepthPlanes();checkPaletteReuse();checkPresentationReadbacks();checkEmptyTriangles();checkOffscreenTriangles();checkMaterials();checkIntegerPipeline();checkFormats();checkLines();checkCoherence();checkTransferPages();checkGpuTransfers();checkLargeTransfers();checkRebind();checkClears();checkSourceChanges();checkPartialReadbacks();checkGsWorker();checkInternalResolution();checkHiresTextureSources();checkHdTextures();checkCheckpoints();
         const auto before=gpu_render_statistics().gpuDraws;verify_vector_runtime_gpu();
         if(gpu_render_statistics().gpuDraws-before!=8u)throw std::runtime_error("VIF/PATH1 integration did not execute eight GPU triangles");
         auto device=gpu::current_device();device->post([](gpu::Host&){throw std::runtime_error("GPU failure propagation fixture");});

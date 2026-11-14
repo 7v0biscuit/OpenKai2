@@ -156,6 +156,7 @@ enum Id {
     Filtering,
     Upscaler,
     Vsync,
+    Smoothing,
     AutoBackup,
     Aspect,
     Audio,
@@ -1002,7 +1003,7 @@ struct Window {
         {OpenOverlay, L"Customize speedrun overlay", L"split images png jpeg gif"},
         {ModsTab, L"Mods", L"characters stages import"},
         {SettingsTab, L"Settings", L"display graphics audio theme"},
-        {SettingsDisplay,L"Display settings",L"window resolution aspect ratio frame rate fps cap vsync volume audio fullscreen"},
+        {SettingsDisplay,L"Display settings",L"window resolution aspect ratio frame rate fps cap vsync volume audio fullscreen motion smoothing interpolation high refresh rate 120 144 240 hz"},
         {SettingsGraphics,L"Graphics settings",L"renderer anti aliasing texture filtering upscaling fsr internal resolution image"},
         {SettingsGame,L"Game settings",L"cpu difficulty music textures randomizer load times fps counter run ahead input lag latency"},
         {SettingsLauncher,L"Launcher appearance",L"theme accent colors start page discord activity"},
@@ -1019,7 +1020,7 @@ struct Window {
     static auto preferences(Settings &s) {
         return std::tie(s.renderer, s.fps, s.width, s.height, s.windowMode, s.aspect, s.antialiasing,
             s.textureFilter, s.upscaler, s.internalScale, s.hdTextures, s.music, s.vsync, s.cpuDifficulty,
-            s.audio, s.volume, s.fpsCounter, s.randomizer, s.ps2LoadTimes, s.runAhead, s.launcherTheme, s.launcherAccent,
+            s.audio, s.volume, s.fpsCounter, s.randomizer, s.ps2LoadTimes, s.runAhead, s.frameSmoothing, s.launcherTheme, s.launcherAccent,
             s.launcherColors, s.startPage, s.discordPresence, s.reducedMotion, s.helpHints);
     }
     static std::wstring searchText(std::wstring value) {
@@ -1866,6 +1867,7 @@ struct Window {
               int(std::min(settings.hdTextures, 4u)));
         combo(Music, {L"On", L"Off (voices and sound effects stay on)"}, settings.music ? 0 : 1);
         combo(Vsync, {L"Off", L"On"}, settings.vsync ? 1 : 0);
+        combo(Smoothing, {L"Off", L"Smooth", L"Low latency"}, int(std::min(settings.frameSmoothing, 2u)));
         combo(AutoBackup, {L"Off", L"On"}, settings.autoBackups ? 1 : 0);
         combo(SaveListKind,{L"Backups",L"Game saves"},0);
         {
@@ -2499,7 +2501,7 @@ struct Window {
                 position(id,filterX,174,width,34);filterX+=width+8;
             }
             const std::array<std::vector<int>,4> fields{{
-                {WindowMode,Resolution,Aspect,Fps,Vsync,Audio},
+                {WindowMode,Resolution,Aspect,Fps,Vsync,Audio,Smoothing},
                 {Renderer,Antialiasing,Filtering,Upscaler,InternalScale,ClearImage},
                 {CpuDifficulty,HdTextures,Music,FpsCounter,RandomizerMode,LoadTimes,RunAhead},
                 {LauncherTheme,LauncherAccent,StartPage,DiscordActivity,LauncherMotion,LauncherHints}}};
@@ -3687,7 +3689,7 @@ struct Window {
             L"Difficulty, textures and music. Speedrun categories enforce their own rules.",
             L"Appearance, navigation and Discord activity on this PC."};
         const std::array<std::vector<const wchar_t*>,4> labels{{
-            {L"WINDOW MODE",L"RESOLUTION",L"ASPECT RATIO",L"FRAME RATE CAP",L"VSYNC",L"GAME AUDIO"},
+            {L"WINDOW MODE",L"RESOLUTION",L"ASPECT RATIO",L"FRAME RATE CAP",L"VSYNC",L"GAME AUDIO",L"MOTION SMOOTHING"},
             {L"RENDERER",L"ANTI-ALIASING",L"TEXTURE FILTERING",L"UPSCALING",L"INTERNAL RESOLUTION",L"IMAGE PRESETS"},
             {L"CPU DIFFICULTY",L"HD TEXTURES",L"MUSIC",L"FPS COUNTER",L"RANDOMIZER",L"PS2 LOAD TIMES",L"RUN-AHEAD"},
             {L"THEME",L"ACCENT COLOR",L"START ON",L"DISCORD ACTIVITY",L"INTERFACE MOTION",L"HELP HINTS"}}};
@@ -6626,6 +6628,7 @@ struct Window {
         next.hdTextures = unsigned(std::max(0, selected(HdTextures)));
         next.music = selected(Music) != 1;
         next.vsync = selected(Vsync) != 0;
+        next.frameSmoothing = unsigned(std::clamp(selected(Smoothing), 0, 2));
         next.cpuDifficulty = unsigned(std::max(0, selected(CpuDifficulty)));
         next.autoBackups = selected(AutoBackup) != 0;
         next.speedrun = unsigned(selected(SpeedrunMode));
@@ -6659,7 +6662,7 @@ struct Window {
             {Renderer,settings.renderer=="gpu" ? 1 : settings.renderer=="vulkan" ? 2 : settings.renderer=="cpu" ? 3 : 0},
             {Resolution,int(resolution-sizes.begin())},{Fps,int(rate-rates.begin())},
             {WindowMode,int(settings.windowMode)},{Aspect,int(settings.aspect)},
-            {Vsync,settings.vsync ? 1 : 0},{Audio,audioChoice(settings)},
+            {Vsync,settings.vsync ? 1 : 0},{Audio,audioChoice(settings)},{Smoothing,int(std::min(settings.frameSmoothing,2u))},
             {Antialiasing,int(settings.antialiasing)},{Filtering,int(settings.textureFilter)},
             {Upscaler,int(settings.upscaler)},{InternalScale,settings.internalScale ? int(settings.internalScale)-1 : 4},
             {HdTextures,int(settings.hdTextures)},{Music,settings.music ? 0 : 1},
@@ -6768,7 +6771,7 @@ struct Window {
         }
         if ((id == ResetDisplay || id == ResetGame) && notification == BN_CLICKED) {
             const std::vector<std::pair<int,int>> choices = id == ResetDisplay ?
-                std::vector<std::pair<int,int>>{{WindowMode,0},{Resolution,0},{Aspect,0},{Fps,6},{Vsync,1},{Audio,1}} :
+                std::vector<std::pair<int,int>>{{WindowMode,0},{Resolution,0},{Aspect,0},{Fps,6},{Vsync,1},{Audio,1},{Smoothing,0}} :
                 std::vector<std::pair<int,int>>{{CpuDifficulty,0},{HdTextures,0},{Music,0},{FpsCounter,0},{RandomizerMode,0},{LoadTimes,1},{RunAhead,0}};
             for (auto [control, value] : choices) SendMessageW(controls[control], CB_SETCURSEL, value, 0);
             saveOptions();

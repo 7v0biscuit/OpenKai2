@@ -42,6 +42,9 @@ class Compute {
     virtual void hires_upload(size_t offsetWords, const uint32_t *source, size_t words) {
         (void)offsetWords, (void)source, (void)words;
     }
+    virtual bool can_save_state() const { return false; }
+    virtual void save_state(size_t colorWords, size_t depthWords) { (void)colorWords, (void)depthWords; }
+    virtual void load_state() {}
     virtual void destroy() = 0;
 };
 

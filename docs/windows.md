@@ -335,6 +335,41 @@ of vertical blanks in a burst. Guest cycle deadlines and interrupt order are
 preserved. Repeated window updates are not new game frames; higher caps do not
 establish higher simulation FPS or resolve slow fights.
 
+## Motion smoothing
+
+The game's logic always runs 60 steps a second: animations, physics and timers
+all count those steps, so running it faster would make the whole game faster.
+**Settings > Display > Motion smoothing** shows the game smoothly on 120, 144
+and 240 Hz monitors anyway, the way modern PC games blend their pictures
+between fixed logic steps.
+
+OpenKai2 records the triangles the game draws each frame and matches each one
+with the same triangle in the previous frame, using its texture and texture
+coordinates. Between two game frames it draws extra pictures with every matched
+triangle moved part of the way, one extra picture on a 120 or 144 Hz monitor
+and three on a 240 Hz monitor. Triangles that only appear in one of the frames,
+and whole frames where the camera cuts, are drawn as they are. The game frames
+themselves are never changed, and the game still plays at normal speed.
+
+| Mode | |
+| --- | --- |
+| **Smooth** | Blends between the last two game frames, so every extra picture lies on the real motion path, but each game frame appears one frame (about 17 ms) later. |
+| **Low latency** | Shows each game frame as soon as it is ready and projects the motion forward for the extra pictures. No added lag, but a move that stops suddenly can overshoot for a few milliseconds. |
+
+The extra pictures are drawn by a second copy of the renderer on your graphics
+card, so smoothing needs roughly twice (120 Hz) to four times (240 Hz) as much
+GPU time; internal resolution steps down automatically if the card cannot keep
+up. Extra pictures that are not ready in time are skipped. The monitor's refresh
+rate is read when the game window opens and is capped by the frame rate limit;
+smoothing turns itself off on a 60 Hz monitor and with the CPU renderer. Every
+ten seconds the log reports `[smoothing] frames=... pictures=... late=...`.
+Developers can set `OPENKAI2_SMOOTHING=0`, `1` or `2` to override the setting,
+and `OPENKAI2_DISPLAY_HZ` to override the detected refresh rate.
+`OPENKAI2_SMOOTHING_DUMP=<folder>` writes ten frames, starting at the first one
+with at least `OPENKAI2_SMOOTHING_DUMP_PRIMITIVES` (default 1500) triangles, as
+PPM images: the extra pictures, the real frame and the second renderer's copy of
+it, which must match.
+
 ## Vector execution
 
 VU1 microprograms use PCSX2's microVU native recompiler on x64. Startup records

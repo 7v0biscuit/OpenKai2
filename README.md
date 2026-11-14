@@ -38,6 +38,8 @@ files.
 - **Save states:** F5 saves and F9 loads the whole console outside speedrun and online play.
 - **Run-ahead:** optional 1 or 2 frames of run-ahead in **Settings > Game** to cut input lag
   offline, shown at your monitor's full refresh rate. See [docs/windows.md](docs/windows.md).
+- **Motion smoothing:** on 120, 144 and 240 Hz monitors, extra pictures blended between game
+  frames make motion smooth while the game keeps its normal speed (**Settings > Display**).
 - **Randomizer:** a random character, with its own moves and skills, for every
   Dragon World and World Tournament fight. Works with speedruns and permadeath.
 - **Launcher:** a lounge with friends, searchable rooms and selected-room details;

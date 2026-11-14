@@ -363,7 +363,7 @@ function(openkai2_attach_generated_sources)
     configure_file("${project_root}/src/render/fsr_source.h.in"
         "${CMAKE_CURRENT_BINARY_DIR}/openkai2_fsr_shader.h" @ONLY)
     target_sources(ps2_runtime PRIVATE "${project_root}/src/render/gpu_device.cpp"
-        "${project_root}/src/render/gpu_backend.cpp" "${project_root}/src/render/hd_textures.cpp" "${project_root}/src/render/gpu_window.cpp"
+        "${project_root}/src/render/gpu_backend.cpp" "${project_root}/src/render/frame_smoothing.cpp" "${project_root}/src/render/hd_textures.cpp" "${project_root}/src/render/gpu_window.cpp"
         "${project_root}/src/render/gpu_compute_gl.cpp" "${project_root}/src/render/gpu_compute_vk.cpp")
     find_program(OPENKAI2_GLSLANG glslangValidator)
     if(OPENKAI2_GLSLANG)
