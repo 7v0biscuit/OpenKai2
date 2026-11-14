@@ -32,7 +32,7 @@ function(openkai2_attach_generated_sources)
     set_property(SOURCE "${project_root}/src/main.cpp" TARGET_DIRECTORY ps2EntryRunner
         APPEND PROPERTY INCLUDE_DIRECTORIES "${CMAKE_BINARY_DIR}")
     add_library(openkai2_disc STATIC "${project_root}/src/disc_image.cpp" "${project_root}/src/mods/afs.cpp"
-        "${project_root}/src/mods/disc_overlay.cpp" "${project_root}/src/mods/mod_library.cpp"
+        "${project_root}/src/mods/disc_overlay.cpp" "${project_root}/src/mods/mod_library.cpp" "${project_root}/src/mods/mod_package.cpp"
         "${project_root}/src/mods/importer.cpp" "${project_root}/src/mods/roster.cpp"
         "${project_root}/src/mods/select_alternates.cpp" "${project_root}/src/mods/select_screen.cpp"
         "${project_root}/src/mods/disc_identity.cpp" "${project_root}/src/mods/budokai3.cpp" "${project_root}/src/mods/stages.cpp"

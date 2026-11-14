@@ -11,7 +11,7 @@ It can add any number of entries, and any number of mods can be enabled.
 
 ## The Mods page
 
-The launcher's **Mods** page (Ctrl+3) lists every mod in load order:
+The launcher's **Mods** page (Ctrl+4) lists every mod in load order:
 
 - **Enable / disable** switches the selected mod. Double-clicking it does the
   same.
@@ -20,6 +20,17 @@ The launcher's **Mods** page (Ctrl+3) lists every mod in load order:
 - **Create mod** makes an empty mod with the name you type.
 - **Open mods folder** opens `%LOCALAPPDATA%\OpenKai2\mods`.
 - **Import tool…** opens the import tool.
+- **Export mod…** saves the selected mod as one `.okmod` file to share.
+- **Install mod…** adds a mod from a `.okmod` or `.zip` file. The mod is
+  enabled and loads last. A package may hold the mod's folder or its contents;
+  files are checked against the package's checksums, and paths that would land
+  outside the new mod's folder are refused.
+
+When two enabled mods change the same disc file, archive entry, character slot
+or stage slot, or one replaces a whole archive another edits, the list says so:
+the later mod shows "overrides" with the earlier one's name and how many
+changes it takes over, and the earlier one shows "partly overridden by". The
+later mod wins, so move one up or down, or disable it, to choose.
 
 Changes apply the next time the game starts. While the game runs, mods are
 read-only. The startup log lists the mods it applied, in `[mods]` lines.

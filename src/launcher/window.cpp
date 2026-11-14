@@ -21,6 +21,7 @@
 #include "mods/disc_identity.h"
 #include "mods/importer.h"
 #include "mods/mod_library.h"
+#include "mods/mod_package.h"
 #include "mods/roster.h"
 #include "mods/stages.h"
 #ifndef WIN32_LEAN_AND_MEAN
@@ -172,6 +173,8 @@ enum Id {
     TextureFolder = 171,
     ImageEffect = 172,
     Brightness = 165,
+    ModInstall = 166,
+    ModExport = 167,
     ClearImage = 173,
     DiscordActivity = 174,
     SaveListKind = 175,
@@ -1731,6 +1734,8 @@ struct Window {
                                                           {ModFolder, L"Open mods folder"},
                                                           {ModCreate, L"Create mod"},
                                                           {OpenImporter, L"Import tool…"},
+                                                          {ModInstall, L"Install mod…"},
+                                                          {ModExport, L"Export mod…"},
                                                           {ModRename, L"Rename"},
                                                           {ModDelete, L"Delete mod"},
                                                           {ModRemove, L"Remove"},
@@ -2111,8 +2116,9 @@ struct Window {
             EnableWindow(controls[id], modding && chosenMod >= 0 && size_t(chosenMod) < modList.size() &&
                                            (id != ModUp || chosenMod > 0) &&
                                            (id != ModDown || size_t(chosenMod) + 1 < modList.size()));
-        for (int id : {ModCreate, OpenImporter, SourceGame, SourceIso})
+        for (int id : {ModCreate, OpenImporter, SourceGame, SourceIso, ModInstall})
             EnableWindow(controls[id], modding && (id != SourceGame || !settings.iso.empty()));
+        EnableWindow(controls[ModExport], modding && SendMessageW(controls[ModList], LB_GETCURSEL, 0, 0) >= 0);
         std::error_code missing;
         EnableWindow(controls[SourceLast], modding && !settings.importIso.empty() &&
                                                std::filesystem::is_regular_file(settings.importIso, missing) &&
@@ -2310,6 +2316,8 @@ struct Window {
             const int panelBottom = h - 64;
             position(OpenImporter, right - 20 - 140, 142, 140, 36);
             position(ModFolder, right - 20 - 140 - 12 - 160, 142, 160, 36);
+            position(ModExport, right - 20 - 140 - 12 - 160 - 12 - 130, 142, 130, 36);
+            position(ModInstall, right - 20 - 140 - 12 - 160 - 12 - 130 - 12 - 130, 142, 130, 36);
             const int half = (content - 52) / 2, contentsLeft = contentLeft + 32 + half;
             position(ModList, contentLeft + 20, 252, half, std::max(80, panelBottom - 64 - 252));
             position(ModContents, contentsLeft, 252, half, std::max(60, panelBottom - 112 - 252));
@@ -4638,6 +4646,11 @@ struct Window {
     void refreshMods(int select = -1) {
         const auto keep = SendMessageW(controls[ModList], LB_GETCURSEL, 0, 0);
         modList = mods::scan_mods(mods::default_mods_directory());
+        std::vector<mods::ModConflict> conflicts;
+        try {
+            conflicts = mods::mod_conflicts(modList);
+        } catch (const std::exception &) {
+        }
         auto list = controls[ModList];
         SendMessageW(list, LB_RESETCONTENT, 0, 0);
         for (const auto &mod : modList) {
@@ -4654,6 +4667,12 @@ struct Window {
                 label += L"   ·   " + std::to_wstring(characters) + (characters == 1 ? L" character" : L" characters");
             if (changes || !characters)
                 label += L"   ·   " + std::to_wstring(changes) + (changes == 1 ? L" file" : L" files");
+            for (const auto &conflict : conflicts)
+                if (conflict.later == mod.name)
+                    label += L"   ·   overrides " + wide(conflict.earlier) + L" (" + std::to_wstring(conflict.count) +
+                             (conflict.count == 1 ? L" change)" : L" changes)");
+                else if (conflict.earlier == mod.name)
+                    label += L"   ·   partly overridden by " + wide(conflict.later);
             SendMessageW(list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
         }
         const int chosen = select >= 0 ? select : int(keep);
@@ -5686,6 +5705,50 @@ struct Window {
                          : folder ? L"Choose an extracted save folder"
                          : iso    ? L"Choose your Budokai 2 USA ISO"
                                   : L"Import a save or backup");
+        const auto shown = dialog->Show(hwnd);
+        if (shown == HRESULT_FROM_WIN32(ERROR_CANCELLED))
+            return {};
+        if (FAILED(shown))
+            throw std::runtime_error("The Windows file picker could not open");
+        IShellItem *item = nullptr;
+        if (FAILED(dialog->GetResult(&item)))
+            throw std::runtime_error("Cannot read the selected path");
+        PWSTR name = nullptr;
+        const auto result = item->GetDisplayName(SIGDN_FILESYSPATH, &name);
+        item->Release();
+        if (FAILED(result))
+            throw std::runtime_error("The selection is not a file on disk");
+        std::filesystem::path path(name);
+        CoTaskMemFree(name);
+        return path;
+    }
+    std::filesystem::path chooseModPackage(bool saving, const std::wstring &suggested) {
+        picking = true;
+        struct Reset {
+            bool &flag;
+            Window &window;
+            ~Reset() { flag = false; window.queueUiRestore(); }
+        } reset{picking, *this};
+        IFileDialog *dialog = nullptr;
+        if (FAILED(CoCreateInstance(saving ? CLSID_FileSaveDialog : CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER,
+                                    saving ? __uuidof(IFileSaveDialog) : __uuidof(IFileOpenDialog),
+                                    reinterpret_cast<void **>(&dialog))))
+            throw std::runtime_error("The Windows file picker could not open");
+        struct Release {
+            IFileDialog *dialog;
+            ~Release() { dialog->Release(); }
+        } release{dialog};
+        DWORD flags = 0;
+        dialog->GetOptions(&flags);
+        dialog->SetOptions(flags | FOS_FORCEFILESYSTEM | FOS_NOCHANGEDIR | (saving ? FOS_OVERWRITEPROMPT : FOS_FILEMUSTEXIST));
+        const COMDLG_FILTERSPEC types[] = {{L"Mod packages (*.okmod, *.zip)", L"*.okmod;*.zip"}, {L"All files", L"*.*"}};
+        dialog->SetFileTypes(saving ? 1 : 2, types);
+        dialog->SetFileTypeIndex(1);
+        if (saving) {
+            dialog->SetDefaultExtension(L"okmod");
+            dialog->SetFileName(suggested.c_str());
+        }
+        dialog->SetTitle(saving ? L"Export the mod as a package" : L"Install a mod package");
         const auto shown = dialog->Show(hwnd);
         if (shown == HRESULT_FROM_WIN32(ERROR_CANCELLED))
             return {};
@@ -7238,6 +7301,7 @@ struct Window {
         }
         if (id == ModList && notification == LBN_SELCHANGE) {
             fillModContents();
+            refreshEnabled();
             return;
         }
         if (id == ModContents && notification == LBN_SELCHANGE) {
@@ -7778,6 +7842,43 @@ struct Window {
             error = false;
         } else if (id == OpenImporter)
             openImporter();
+        else if (id == ModInstall) {
+            const auto package = chooseModPackage(false, L"");
+            if (!package.empty()) {
+                try {
+                    const auto folder = mods::install_mod(mods::default_mods_directory(), package);
+                    refreshMods();
+                    for (size_t i = 0; i < modList.size(); ++i)
+                        if (modList[i].folder == folder)
+                            refreshMods(int(i));
+                    status = L"Installed " + package.filename().wstring() + L". It is enabled and loads last.";
+                    error = false;
+                } catch (const std::exception &failure) {
+                    status = L"Could not install the mod: " + wide(failure.what());
+                    error = true;
+                }
+            }
+        } else if (id == ModExport) {
+            const auto index = SendMessageW(controls[ModList], LB_GETCURSEL, 0, 0);
+            if (index < 0 || size_t(index) >= modList.size()) {
+                status = L"Choose a mod to export.";
+                error = true;
+            } else {
+                const auto &mod = modList[size_t(index)];
+                const auto package = chooseModPackage(true, mod.folder.filename().wstring() + L".okmod");
+                if (!package.empty()) {
+                    try {
+                        mods::export_mod(mod, package);
+                        status = L"Exported " + wide(mod.name) + L" to " + package.filename().wstring() +
+                                 L". Others can add it with Install mod.";
+                        error = false;
+                    } catch (const std::exception &failure) {
+                        status = L"Could not export the mod: " + wide(failure.what());
+                        error = true;
+                    }
+                }
+            }
+        }
         else if (id == SourceGame && game)
             showSource(game, gameRoster, gameIdentity);
         else if (id == SourceGame && !settings.iso.empty())
