@@ -7,6 +7,16 @@
 #include <iostream>
 #include <stdexcept>
 #include <vector>
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
+#include <fcntl.h>
+#include <sys/file.h>
+#include <unistd.h>
+#endif
 
 namespace fs=std::filesystem;
 using namespace openkai2::test;
@@ -86,8 +96,23 @@ int main() {
         invalid(bytes,"Incomplete multi-extent file rejected");
         write(iso,valid);
         fs::create_directory(mounted.root.parent_path()/".openkai2-lock");
-        rejected([&]{openkai2::prepare_disc(iso,cache,options);},"Concurrent cache mutation prevented");
-        fs::remove(mounted.root.parent_path()/".openkai2-lock");
+        openkai2::prepare_disc(iso,cache,options);
+        check(!fs::exists(mounted.root.parent_path()/".openkai2-lock"),"A lock left by a closed instance is cleared");
+        {
+            const auto lockFile=mounted.root.parent_path()/".openkai2-lock.file";
+#ifdef _WIN32
+            const auto held=CreateFileW(lockFile.c_str(),GENERIC_READ|GENERIC_WRITE,0,nullptr,OPEN_ALWAYS,0,nullptr);
+            check(held!=INVALID_HANDLE_VALUE,"Test holds the disc cache lock");
+            rejected([&]{openkai2::prepare_disc(iso,cache,options);},"Concurrent cache mutation prevented");
+            CloseHandle(held);
+#else
+            const int held=::open(lockFile.c_str(),O_RDWR|O_CREAT,0600);
+            check(held>=0 && ::flock(held,LOCK_EX|LOCK_NB)==0,"Test holds the disc cache lock");
+            rejected([&]{openkai2::prepare_disc(iso,cache,options);},"Concurrent cache mutation prevented");
+            ::close(held);
+#endif
+        }
+        openkai2::prepare_disc(iso,cache,options);
         fs::remove(mounted.root/"USR/DATA.BIN");
         std::error_code error;
         fs::create_symlink(hash_input,mounted.root/"USR/DATA.BIN",error);

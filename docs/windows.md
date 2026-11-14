@@ -405,9 +405,10 @@ keyed by the full ISO SHA-256. Allow space for the extracted disc contents.
 Every launch rereads the ISO and cached files, so verification time depends on
 disc size and storage speed.
 
-If verification was forcibly terminated and the next launch reports that the
-cache is in use, close all OpenKai2 instances before removing the
-`.openkai2-lock` directory inside the affected ISO hash directory.
+Only one OpenKai2 instance at a time can verify a disc. The lock is released
+automatically when that instance exits, even if it crashes or is closed during
+verification, so "Disc cache is in use" only appears while another instance is
+still running.
 
 Executable identity is checked against the known USA SHA-256. The remaining
 file hashes establish consistency with your supplied ISO; a separate trusted

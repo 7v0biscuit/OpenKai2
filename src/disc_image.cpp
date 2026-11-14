@@ -22,6 +22,10 @@
 #include <windows.h>
 
 #include <bcrypt.h>
+#else
+#include <fcntl.h>
+#include <sys/file.h>
+#include <unistd.h>
 #endif
 
 namespace openkai2 {
@@ -336,11 +340,41 @@ void make_safe_directory(const std::filesystem::path& path) {
 }
 
 struct CacheLock {
-    std::filesystem::path path;
-    explicit CacheLock(const std::filesystem::path& root) : path(root/".openkai2-lock") {
-        if (!std::filesystem::create_directory(path)) fail("Disc cache is in use; close other instances first");
+#ifdef _WIN32
+    HANDLE handle = INVALID_HANDLE_VALUE;
+    explicit CacheLock(const std::filesystem::path& root) {
+        handle = CreateFileW((root/".openkai2-lock.file").c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_ALWAYS,
+                             FILE_ATTRIBUTE_HIDDEN | FILE_FLAG_DELETE_ON_CLOSE, nullptr);
+        if (handle == INVALID_HANDLE_VALUE) {
+            if (GetLastError() == ERROR_SHARING_VIOLATION) fail("Disc cache is in use; close other instances first");
+            fail("Cannot lock the disc cache");
+        }
+        try { prepare_work(root); } catch (...) { CloseHandle(handle); throw; }
     }
-    ~CacheLock() { std::error_code ignored; std::filesystem::remove(path,ignored); }
+    ~CacheLock() { std::error_code ignored; std::filesystem::remove_all(path,ignored); CloseHandle(handle); }
+#else
+    int descriptor = -1;
+    explicit CacheLock(const std::filesystem::path& root) {
+        descriptor = ::open((root/".openkai2-lock.file").c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+        if (descriptor < 0) fail("Cannot lock the disc cache");
+        if (::flock(descriptor, LOCK_EX | LOCK_NB) != 0) {
+            ::close(descriptor);
+            fail("Disc cache is in use; close other instances first");
+        }
+        try { prepare_work(root); } catch (...) { ::close(descriptor); throw; }
+    }
+    ~CacheLock() { std::error_code ignored; std::filesystem::remove_all(path,ignored); ::close(descriptor); }
+#endif
+    void prepare_work(const std::filesystem::path& root) {
+        std::error_code ignored;
+        std::filesystem::remove_all(root/".openkai2-lock",ignored);
+        path=root/".openkai2-work";
+        std::filesystem::remove_all(path,ignored);
+        if (!std::filesystem::create_directory(path)) fail("Cannot prepare the disc cache");
+    }
+    std::filesystem::path path;
+    CacheLock(const CacheLock&) = delete;
+    CacheLock& operator=(const CacheLock&) = delete;
 };
 }
 
