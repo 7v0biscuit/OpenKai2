@@ -139,7 +139,7 @@ class Session {
     std::deque<std::vector<uint8_t>> outgoing_;
     std::condition_variable outgoingReady_;
     std::map<uint64_t, Input> remote_, local_;
-    std::map<uint64_t, uint64_t> remoteHashes_, localHashes_;
+    std::map<uint64_t, uint64_t> remoteHashes_, localHashes_, provisionalHashes_;
     std::vector<uint8_t> snapshot_;
     bool snapshotReady_ = false, wantSnapshot_ = false, locked_ = false;
     uint64_t startTick_ = 0, lastSent_ = 0, cachedTick_ = ~0ull;

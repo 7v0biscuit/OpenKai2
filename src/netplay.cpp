@@ -775,6 +775,7 @@ void Session::rollback_point() {
         replaying_ = true;
         for (auto it = predicted_.lower_bound(from); it != predicted_.end();)
             it = predicted_.erase(it);
+        provisionalHashes_.erase(provisionalHashes_.upper_bound(from), provisionalHashes_.end());
         ++rollbackStats_.rollbacks;
         rollbackStats_.replayed += tick - from;
         rollbackStats_.longest = std::max(rollbackStats_.longest, tick - from);
@@ -818,6 +819,7 @@ bool Session::resync_point(uint64_t tick) {
             ++rollbackStats_.resyncs;
             localHashes_.clear();
             remoteHashes_.clear();
+            provisionalHashes_.clear();
             status_.desynced = false;
         }
         std::vector<uint8_t> payload;
@@ -857,6 +859,7 @@ bool Session::resync_point(uint64_t tick) {
         generation_ = generation;
         localHashes_.clear();
         remoteHashes_.clear();
+        provisionalHashes_.clear();
         status_.desynced = false;
         ++rollbackStats_.resyncs;
         rollbackTo_ = ~0ull;
@@ -1045,28 +1048,31 @@ bool Session::inputs(Input &port0, Input &port1) {
         if (!(predicting ? remote_or_predict(tick, remote) : wait_remote(tick, remote)))
             return false;
     }
-    bool settled = true;
+    if (tick > start && (tick - start) % hash_interval == 0 && machine_.hash) {
+        const uint64_t value = machine_.hash();
+        std::lock_guard lock(mutex_);
+        provisionalHashes_[tick] = value;
+    }
+    std::vector<std::vector<uint8_t>> confirmedHashes;
     {
         std::lock_guard lock(mutex_);
-        settled = rollbackTo_ >= tick && (predicted_.empty() || predicted_.begin()->first >= tick);
-    }
-    if (settled && tick > start && (tick - start) % hash_interval == 0 && machine_.hash) {
-        const uint64_t value = machine_.hash();
-        {
-            std::lock_guard lock(mutex_);
-            localHashes_[tick] = value;
-            if (auto found = remoteHashes_.find(tick); found != remoteHashes_.end() && found->second != value)
-                mark_desync(tick, start);
-        }
-        std::vector<uint8_t> payload;
-        put64(payload, tick);
-        put64(payload, value);
-        {
-            std::lock_guard lock(mutex_);
+        for (auto it = provisionalHashes_.begin(); it != provisionalHashes_.end();) {
+            const uint64_t at = it->first, value = it->second;
+            if (confirmed_ + 1 < at || rollbackTo_ < at)
+                break;
+            localHashes_[at] = value;
+            if (auto found = remoteHashes_.find(at); found != remoteHashes_.end() && found->second != value)
+                mark_desync(at, start);
+            std::vector<uint8_t> payload;
+            put64(payload, at);
+            put64(payload, value);
             put32(payload, generation_);
+            confirmedHashes.push_back(std::move(payload));
+            it = provisionalHashes_.erase(it);
         }
-        send(hash, std::move(payload));
     }
+    for (auto &payload : confirmedHashes)
+        send(hash, std::move(payload));
     if (const auto pause = time_sync(tick, start, delay); pause.count() > 0)
         std::this_thread::sleep_for(pause);
     std::lock_guard lock(mutex_);
