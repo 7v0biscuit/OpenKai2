@@ -20,7 +20,7 @@ class PresentationFilter {
     bool cacheValid_ = false;
     uint64_t processed_ = 0, reused_ = 0;
     Shader edge_{}, cubic_{}, linear_{}, easu_{}, rcas_{}, lanczos_{}, sharp_{}, downsample_{}, fxaaHigh_{}, fxaaUltra_{};
-    Shader sharpenFx_{}, vibranceFx_{}, scanlineFx_{};
+    Shader sharpenFx_{}, vibranceFx_{}, scanlineFx_{}, glowFx_{}, gradeFx_{}, nfaa_{}, dlaa_{}, mitchell_{};
     RenderTexture2D target_{}, fsrTarget_{}, output_{}, effectTarget_{};
 };
 int test_presentation_filters();

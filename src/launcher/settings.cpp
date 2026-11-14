@@ -49,13 +49,13 @@ std::filesystem::path settings_path() {
 }
 void validate_settings(const Settings &s) {
     if (s.fps > 240 || s.width < 640 || s.width > 7680 || s.height < 448 || s.height > 4320 ||
-        s.windowMode > 1 || s.antialiasing > 3 || s.textureFilter > 2 || s.upscaler > 5 ||
+        s.windowMode > 1 || s.antialiasing > 5 || s.textureFilter > 2 || s.upscaler > 7 ||
         s.aspect > 3 || s.internalScale > 4 || s.hdTextures > 4 || s.volume > 100 || s.cpuDifficulty > 6 || s.windowWidth < 0 || s.windowHeight < 0 ||
         s.windowWidth > 32768 || s.windowHeight > 32768 || s.updateChannel > 1 || s.speedrun >= speedrun::category_count || s.overlayItems > speedrun::overlay_all || s.overlayCorner > 3 ||
         s.overlaySize > 3 || s.overlayBackground > 4 || s.overlayMargin > 2 || s.overlayShape > 1 || s.overlayTitle.size() > 192 || s.overlaySplitNames.size() > 2400 || s.overlaySplits > 3 || s.overlayDecimals > 3 ||
         std::any_of(s.overlayColors.begin(), s.overlayColors.end(), [](unsigned c) { return c >= speedrun::overlay_color_count; }) || (s.renderer != "auto" && s.renderer != "gpu" && s.renderer != "vulkan" && s.renderer != "cpu"))
         throw std::runtime_error("Invalid graphics settings");
-    if (s.onlinePort < 1 || s.onlinePort > 65535 || s.onlineDelay > 8 || s.runAhead > 2 || s.imageEffect > 3 || s.onlineVisibility > 2 || s.onlineKeys.size() > 32 || s.onlineName.size() > 64 ||
+    if (s.onlinePort < 1 || s.onlinePort > 65535 || s.onlineDelay > 8 || s.runAhead > 2 || s.imageEffect > 5 || s.brightness > 3 || s.onlineVisibility > 2 || s.onlineKeys.size() > 32 || s.onlineName.size() > 64 ||
         s.onlineAddress.size() > 255 || s.onlineRoom.size() > 64 || s.onlinePassword.size() > 64 ||
         s.onlineLobby.size() > 255 || s.onlineProfiles.size() > 32 || s.onlineRoomFilter > 2 || s.onlinePlayerFilter > 1)
         throw std::runtime_error("Invalid online settings");
@@ -229,6 +229,8 @@ Settings read_settings(const std::filesystem::path &file) {
             row >> s.runAhead;
         else if (key == "image_effect")
             row >> s.imageEffect;
+        else if (key == "brightness")
+            row >> s.brightness;
         else if (key == "overlay")
         {
             row >> s.overlayItems >> s.overlayCorner >> s.overlaySize >> s.overlayBackground >> s.overlaySplits;
@@ -379,7 +381,7 @@ void write_settings(const std::filesystem::path &file, const Settings &s) {
     for (int32_t value : s.launcherColors)
         out << ' ' << value;
     out << "\nspeedrun " << s.speedrun << ' ' << s.permadeath
-        << "\nrandomizer " << s.randomizer << "\nps2_load_times " << s.ps2LoadTimes << "\nrun_ahead " << s.runAhead << "\nimage_effect " << s.imageEffect;
+        << "\nrandomizer " << s.randomizer << "\nps2_load_times " << s.ps2LoadTimes << "\nrun_ahead " << s.runAhead << "\nimage_effect " << s.imageEffect << "\nbrightness " << s.brightness;
     for (const auto &[name, values] : {std::pair{"controls_keys", &s.controls.keys}, {"controls_alternate", &s.controls.alternate},
                                        {"controls_pad", &s.controls.pad}}) {
         out << '\n' << name;

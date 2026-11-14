@@ -48,6 +48,34 @@ void main(){
  finalColor=vec4(clamp(v,0.0,1.0),1.0)*fragColor*colDiffuse;
 }
 )GLSL";
+constexpr const char *glowSource = R"GLSL(#version 330
+in vec2 fragTexCoord; in vec4 fragColor;
+uniform sampler2D texture0; uniform vec4 colDiffuse;
+uniform vec2 sourceSize; uniform vec2 contentMax;
+out vec4 finalColor;
+vec3 readAt(vec2 uv){return texture(texture0,clamp(uv,0.5/sourceSize,contentMax-0.5/sourceSize)).rgb;}
+void main(){
+ vec2 p=fragTexCoord,d=1.0/sourceSize;
+ vec3 c=readAt(p),glow=vec3(0.0);float total=0.0;
+ for(int y=-3;y<=3;++y)for(int x=-3;x<=3;++x){
+  float w=exp(-float(x*x+y*y)/8.0);
+  vec3 s=readAt(p+vec2(float(x),float(y))*d*2.0);
+  glow+=max(s-vec3(0.55),vec3(0.0))*w;total+=w;
+ }
+ glow/=total;
+ finalColor=vec4(clamp(c+glow*0.9,0.0,1.0),1.0)*fragColor*colDiffuse;
+}
+)GLSL";
+constexpr const char *gradeSource = R"GLSL(#version 330
+in vec2 fragTexCoord; in vec4 fragColor;
+uniform sampler2D texture0; uniform vec4 colDiffuse;
+uniform vec2 sourceSize; uniform vec2 contentMax; uniform float exponent;
+out vec4 finalColor;
+void main(){
+ vec3 c=texture(texture0,clamp(fragTexCoord,0.5/sourceSize,contentMax-0.5/sourceSize)).rgb;
+ finalColor=vec4(pow(clamp(c,0.0,1.0),vec3(exponent)),1.0)*fragColor*colDiffuse;
+}
+)GLSL";
 constexpr const char *scanlineSource = R"GLSL(#version 330
 in vec2 fragTexCoord; in vec4 fragColor;
 uniform sampler2D texture0; uniform vec4 colDiffuse;
@@ -149,6 +177,55 @@ void main(){vec2 pos=fragTexCoord*sourceSize-0.5,base=floor(pos),f=fract(pos);
  vec3 top=mix(texel(base),texel(base+vec2(1,0)),f.x),bottom=mix(texel(base+vec2(0,1)),texel(base+vec2(1,1)),f.x);
  finalColor=vec4(mix(top,bottom,f.y),1.0)*fragColor*colDiffuse;
 })GLSL";
+constexpr const char *nfaaSource = R"GLSL(#version 330
+in vec2 fragTexCoord; in vec4 fragColor;
+uniform sampler2D texture0; uniform vec4 colDiffuse;
+uniform vec2 sourceSize; uniform vec2 contentMax;
+out vec4 finalColor;
+vec3 readAt(vec2 uv){return texture(texture0,clamp(uv,0.5/sourceSize,contentMax-0.5/sourceSize)).rgb;}
+float luma(vec3 c){return dot(c,vec3(0.299,0.587,0.114));}
+void main(){
+ vec2 p=fragTexCoord,d=1.0/sourceSize;
+ vec3 c=readAt(p);
+ float t=luma(readAt(p+vec2(0,-d.y))),b=luma(readAt(p+vec2(0,d.y))),l=luma(readAt(p+vec2(-d.x,0))),r=luma(readAt(p+vec2(d.x,0)));
+ vec2 n=vec2(t-b,r-l);
+ float strength=length(n);
+ if(strength<0.04){finalColor=vec4(c,1.0)*fragColor*colDiffuse;return;}
+ n=n/strength*min(strength*6.0,1.0)*d;
+ vec3 s=c+readAt(p+n*0.5)+readAt(p-n*0.5)+readAt(p+n)+readAt(p-n);
+ finalColor=vec4(s/5.0,1.0)*fragColor*colDiffuse;
+}
+)GLSL";
+constexpr const char *dlaaSource = R"GLSL(#version 330
+in vec2 fragTexCoord; in vec4 fragColor;
+uniform sampler2D texture0; uniform vec4 colDiffuse;
+uniform vec2 sourceSize; uniform vec2 contentMax;
+out vec4 finalColor;
+vec3 readAt(vec2 uv){return texture(texture0,clamp(uv,0.5/sourceSize,contentMax-0.5/sourceSize)).rgb;}
+float luma(vec3 c){return dot(c,vec3(0.299,0.587,0.114));}
+void main(){
+ vec2 p=fragTexCoord,d=1.0/sourceSize;
+ vec3 c=readAt(p);
+ float gx=abs(luma(readAt(p+vec2(d.x,0)))-luma(readAt(p-vec2(d.x,0))));
+ float gy=abs(luma(readAt(p+vec2(0,d.y)))-luma(readAt(p-vec2(0,d.y))));
+ float contrast=max(gx,gy);
+ vec2 along=gx>gy ? vec2(0,d.y) : vec2(d.x,0);
+ vec3 blur=c*0.28+(readAt(p+along)+readAt(p-along))*0.22+(readAt(p+along*2.0)+readAt(p-along*2.0))*0.10+(readAt(p+along*3.0)+readAt(p-along*3.0))*0.04;
+ float amount=smoothstep(0.05,0.25,contrast);
+ finalColor=vec4(mix(c,blur,amount),1.0)*fragColor*colDiffuse;
+}
+)GLSL";
+constexpr const char *mitchellSource = R"GLSL(#version 330
+in vec2 fragTexCoord; in vec4 fragColor;
+uniform sampler2D texture0; uniform vec4 colDiffuse;
+uniform vec2 sourceSize; uniform vec2 contentMax;
+out vec4 finalColor;
+float kernel(float x){x=abs(x);return x<1.0 ? ((7.0*x-12.0)*x*x+16.0/3.0)/6.0 : (x<2.0 ? (((-7.0/3.0*x+12.0)*x-20.0)*x+32.0/3.0)/6.0 : 0.0);}
+void main(){vec2 pos=fragTexCoord*sourceSize-0.5,base=floor(pos),f=fract(pos);vec3 sum=vec3(0);float total=0.0;
+ for(int y=-1;y<=2;++y)for(int x=-1;x<=2;++x){vec2 uv=(base+vec2(x,y)+0.5)/sourceSize;float w=kernel(float(x)-f.x)*kernel(float(y)-f.y);
+  sum+=texture(texture0,clamp(uv,0.5/sourceSize,contentMax-0.5/sourceSize)).rgb*w;total+=w;}
+ finalColor=vec4(clamp(sum/total,0.0,1.0),1.0)*fragColor*colDiffuse;
+})GLSL";
 constexpr const char *cubicSource = R"GLSL(#version 330
 in vec2 fragTexCoord; in vec4 fragColor;
 uniform sampler2D texture0; uniform vec4 colDiffuse;
@@ -241,7 +318,7 @@ void PresentationFilter::drawCached(Rectangle destination) {
 }
 void PresentationFilter::draw(Texture2D frame, Rectangle source, Rectangle destination, uint64_t generation) {
     const auto& settings=graphics_settings();
-    if(!generation || (!settings.antialiasing && settings.upscaler<2u && !settings.effect) ||
+    if(!generation || (!settings.antialiasing && settings.upscaler<2u && !settings.effect && settings.brightness==1u) ||
        destination.width<=0 || destination.height<=0){
         cacheValid_=false;drawImage(frame,source,destination,false);return;
     }
@@ -249,7 +326,7 @@ void PresentationFilter::draw(Texture2D frame, Rectangle source, Rectangle desti
     const int w=std::max(1,int(std::round(destination.width))),h=std::max(1,int(std::round(destination.height)));
     const std::array<uint64_t,12> key={generation,frame.id,uint64_t(frame.width),uint64_t(frame.height),
         bits(source.x),bits(source.y),bits(source.width),bits(source.height),uint64_t(w),uint64_t(h),
-        settings.antialiasing,settings.upscaler|(uint64_t(settings.effect)<<8u)};
+        settings.antialiasing,settings.upscaler|(uint64_t(settings.effect)<<8u)|(uint64_t(settings.brightness)<<16u)};
     if(cacheValid_ && key==cacheKey_){++reused_;drawCached(destination);return;}
     cacheValid_=false;
     if(output_.texture.width!=w || output_.texture.height!=h){
@@ -260,14 +337,15 @@ void PresentationFilter::draw(Texture2D frame, Rectangle source, Rectangle desti
     }
     drawImage(frame,source,{0,0,float(w),float(h)},true);
     if(settings.effect)applyEffect(settings.effect,w,h,std::abs(source.height));
+    if(settings.brightness!=1u)applyEffect(100u+settings.brightness,w,h,std::abs(source.height));
     cacheKey_=key;cacheValid_=true;++processed_;drawCached(destination);
 }
 void PresentationFilter::drawImage(Texture2D frame, Rectangle source, Rectangle destination, bool cacheOutput) {
     const auto &s = graphics_settings();
     if (s.antialiasing) {
-        Shader &smoothing = s.antialiasing == 3 ? fxaaUltra_ : s.antialiasing == 2 ? fxaaHigh_ : edge_;
+        Shader &smoothing = s.antialiasing == 5 ? dlaa_ : s.antialiasing == 4 ? nfaa_ : s.antialiasing == 3 ? fxaaUltra_ : s.antialiasing == 2 ? fxaaHigh_ : edge_;
         if (!smoothing.id)
-            smoothing = shader(s.antialiasing == 3 ? fxaaUltraSource.c_str() : s.antialiasing == 2 ? fxaaHighSource.c_str() : edgeSource);
+            smoothing = shader(s.antialiasing == 5 ? dlaaSource : s.antialiasing == 4 ? nfaaSource : s.antialiasing == 3 ? fxaaUltraSource.c_str() : s.antialiasing == 2 ? fxaaHighSource.c_str() : edgeSource);
         const auto w = int(source.width), h = int(source.height);
         if (target_.texture.width != w || target_.texture.height != h) {
             if (target_.id)
@@ -305,6 +383,17 @@ void PresentationFilter::drawImage(Texture2D frame, Rectangle source, Rectangle 
         drawFsr(frame, source, destination, cacheOutput);
         return;
     }
+    if (s.upscaler == 7) {
+        const float sw = source.width, sh = std::abs(source.height);
+        const float k = std::max(1.0f, std::floor(std::min(destination.width / sw, destination.height / sh)));
+        const Rectangle fitted{destination.x + std::floor((destination.width - sw * k) * 0.5f),
+                               destination.y + std::floor((destination.height - sh * k) * 0.5f), sw * k, sh * k};
+        SetTextureFilter(frame, TEXTURE_FILTER_POINT);
+        if(cacheOutput){BeginTextureMode(output_);ClearBackground(BLACK);}
+        DrawTexturePro(frame,source,fitted,{0,0},0,WHITE);
+        if(cacheOutput)EndTextureMode();
+        return;
+    }
     const bool cubic = s.upscaler == 2;
     SetTextureFilter(frame, s.upscaler == 1 ? TEXTURE_FILTER_BILINEAR : TEXTURE_FILTER_POINT);
     const bool clampLinear = s.upscaler == 1 && (source.width < float(frame.width) ||
@@ -319,6 +408,9 @@ void PresentationFilter::drawImage(Texture2D frame, Rectangle source, Rectangle 
     } else if (s.upscaler == 5) {
         if (!sharp_.id)sharp_ = shader(sharpSource);
         dimensions(sharp_,frame,source);selected=sharp_;
+    } else if (s.upscaler == 6) {
+        if (!mitchell_.id)mitchell_ = shader(mitchellSource);
+        dimensions(mitchell_,frame,source);selected=mitchell_;
     } else if (clampLinear) {
         if (!linear_.id)linear_ = shader(linearSource);
         dimensions(linear_,frame,source);selected=linear_;
@@ -353,8 +445,15 @@ bool PresentationFilter::sharpenAfterDownsample(Texture2D frame, Rectangle sourc
     return true;
 }
 void PresentationFilter::applyEffect(unsigned effect, int w, int h, float gameRows) {
-    Shader &selected=effect==1 ? sharpenFx_ : effect==2 ? vibranceFx_ : scanlineFx_;
-    if(!selected.id)selected=shader(effect==1 ? sharpenSource : effect==2 ? vibranceSource : scanlineSource);
+    if(effect==4){applyEffect(1,w,h,gameRows);applyEffect(2,w,h,gameRows);return;}
+    const bool grading=effect>=100u;
+    Shader &selected=grading ? gradeFx_ : effect==1 ? sharpenFx_ : effect==2 ? vibranceFx_ : effect==5 ? glowFx_ : scanlineFx_;
+    if(!selected.id)selected=shader(grading ? gradeSource : effect==1 ? sharpenSource : effect==2 ? vibranceSource : effect==5 ? glowSource : scanlineSource);
+    if(grading){
+        constexpr float exponents[]={1.18f,1.0f,0.84f,0.7f};
+        const float exponent=exponents[std::min(effect-100u,3u)];
+        SetShaderValue(selected,GetShaderLocation(selected,"exponent"),&exponent,SHADER_UNIFORM_FLOAT);
+    }
     if(effectTarget_.texture.width!=w || effectTarget_.texture.height!=h){
         if(effectTarget_.id)UnloadRenderTexture(effectTarget_);
         effectTarget_=LoadRenderTexture(w,h);
@@ -412,7 +511,7 @@ void PresentationFilter::close() {
     if(output_.id){UnloadRenderTexture(output_);output_={};}
     if(fsrTarget_.id){UnloadRenderTexture(fsrTarget_);fsrTarget_={};}
     if(effectTarget_.id){UnloadRenderTexture(effectTarget_);effectTarget_={};}
-    for(Shader* fx:{&sharpenFx_,&vibranceFx_,&scanlineFx_})if(fx->id){UnloadShader(*fx);*fx={};}
+    for(Shader* fx:{&sharpenFx_,&vibranceFx_,&scanlineFx_,&glowFx_,&gradeFx_,&nfaa_,&dlaa_,&mitchell_})if(fx->id){UnloadShader(*fx);*fx={};}
     if(easu_.id){UnloadShader(easu_);easu_={};}
     if(lanczos_.id){UnloadShader(lanczos_);lanczos_={};}
     if(sharp_.id){UnloadShader(sharp_);sharp_={};}
@@ -476,7 +575,7 @@ int test_presentation_filters() {
             EndDrawing();
             return result;
         };
-        for (unsigned effect = 1; effect < 4; ++effect) {
+        for (unsigned effect = 1; effect < 6; ++effect) {
             const auto plain = draw(0, 1, 500u + effect * 2u), styled = draw(0, 1, 501u + effect * 2u, effect);
             require(plain.size() == styled.size(), "Image effect changed the output size");
             unsigned changed = 0, lit = 0;
@@ -493,8 +592,39 @@ int test_presentation_filters() {
             require(lit > 400u, "Image effect blanked the picture");
             require(changed > 0u, "Image effect did not change the picture");
         }
-        for (unsigned aa = 0; aa < 4; ++aa)
-            for (unsigned scaler = 0; scaler < 6; ++scaler) {
+        for (unsigned level : {0u, 2u, 3u}) {
+            auto settings = saved;
+            settings.antialiasing = 0;
+            settings.upscaler = 1;
+            settings.effect = 0;
+            settings.brightness = 1;
+            set_graphics_settings(settings);
+            const auto normal = draw(0, 1, 700u + level * 2u);
+            settings.brightness = level;
+            set_graphics_settings(settings);
+            BeginDrawing();
+            ClearBackground(BLACK);
+            filter.draw(source, activeSource, outputRect, 701u + level * 2u);
+            rlDrawRenderBatchActive();
+            Image shot = LoadImageFromScreen();
+            auto *colors = LoadImageColors(shot);
+            long sumNormal = 0, sumGraded = 0;
+            for (int i = 0; i < shot.width * shot.height; ++i) {
+                sumGraded += colors[i].r + colors[i].g + colors[i].b;
+                sumNormal += normal[size_t(i)].r + normal[size_t(i)].g + normal[size_t(i)].b;
+            }
+            UnloadImageColors(colors);
+            UnloadImage(shot);
+            EndDrawing();
+            require(level == 0u ? sumGraded < sumNormal : sumGraded > sumNormal, "Brightness did not change the picture in the chosen direction");
+        }
+        {
+            auto settings = saved;
+            settings.brightness = 1;
+            set_graphics_settings(settings);
+        }
+        for (unsigned aa = 0; aa < 6; ++aa)
+            for (unsigned scaler = 0; scaler < 8; ++scaler) {
                 auto result = draw(aa, scaler);
                 require(result.size() == 80u * 64u, "Display output dimensions changed");
                 for (unsigned y = 0; y < 64; ++y)
@@ -516,6 +646,33 @@ int test_presentation_filters() {
         for (size_t i = 0; i < fsr.size(); ++i)
             if (std::abs(int(fsr[i].r) - int(bilinear[i].r)) > 8) ++changed;
         require(changed > 16, "FSR did not produce edge-adaptive output distinct from bilinear");
+        {
+            const auto plainEdge = draw(0, 0);
+            for (unsigned aa = 1; aa < 6; ++aa) {
+                const auto smoothed = draw(aa, 0);
+                unsigned softened = 0;
+                for (size_t i = 0; i < smoothed.size(); ++i)
+                    if (std::abs(int(smoothed[i].r) - int(plainEdge[i].r)) > 8) ++softened;
+                require(softened > 8, "An anti-aliasing mode left the hard diagonal edge unchanged");
+            }
+            const auto mitchellOut = draw(0, 6), cubicRef = draw(0, 2);
+            unsigned mitchellDiff = 0;
+            for (size_t i = 0; i < mitchellOut.size(); ++i)
+                if (std::abs(int(mitchellOut[i].r) - int(cubicRef[i].r)) > 2) ++mitchellDiff;
+            require(mitchellDiff > 8, "Mitchell matched Catmull-Rom bicubic exactly");
+            outputRect = {16, 8, 40, 40};
+            const auto integerFit = draw(0, 7);
+            outputRect = {16, 8, 48, 48};
+            unsigned grey = 0, outside = 0;
+            for (unsigned y = 0; y < 64; ++y)
+                for (unsigned x = 0; x < 80; ++x) {
+                    const auto c = integerFit[y * 80 + x];
+                    if (c.r > 8 && c.r < 247) ++grey;
+                    if ((x < 20 || x >= 52 || y < 12 || y >= 44) && (c.r | c.g | c.b)) ++outside;
+                }
+            require(grey == 0, "Integer scaling blurred pixels");
+            require(outside == 0, "Integer scaling drew past the largest whole-number size");
+        }
         const auto cubicOut = draw(0, 2), lanczosOut = draw(0, 4), integerSharp = draw(0, 5), integerNearest = draw(0, 0);
         require([&] {
             for (size_t i = 0; i < integerSharp.size(); ++i)
@@ -608,7 +765,7 @@ int test_presentation_filters() {
         UnloadTexture(source);
         CloseWindow();
         set_graphics_settings(saved);
-        std::cout << "Display filter comparisons passed: sharpen, vibrant colors and CRT scanline effects, all twenty-four AA/scaler combinations (FXAA, FXAA High and FXAA Ultra) (including FSR 1 EASU/RCAS, Lanczos and sharp pixels), content "
+        std::cout << "Display filter comparisons passed: sharpen, vibrant colors, CRT scanline, combined and soft glow effects, brightness levels, all forty-eight AA/scaler combinations (FXAA, FXAA High, FXAA Ultra, NFAA and DLAA) (including FSR 1 EASU/RCAS, Lanczos, sharp pixels, Mitchell and integer scaling), every anti-aliasing mode smoothing a hard edge, distinct upscaler output, content "
                      "bounds, orientation, letterboxing, downscaling of larger frames, native-size edge smoothing and completion-aware filter reuse.\n";
         return 0;
     } catch (...) {

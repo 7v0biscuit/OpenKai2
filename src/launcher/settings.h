@@ -39,6 +39,7 @@ struct Settings {
     bool ps2LoadTimes = true;
     unsigned runAhead = 0;
     unsigned imageEffect = 0;
+    unsigned brightness = 1;
     input::Bindings controls;
     unsigned overlayItems = speedrun::overlay_defaults;
     unsigned overlayCorner = 0, overlaySize = 1, overlayBackground = 1, overlaySplits = 1;

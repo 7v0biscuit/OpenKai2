@@ -262,7 +262,7 @@ int main(int argc, char* argv[]) {
         display.textureFilter=preferences.textureFilter;display.upscaler=preferences.upscaler;
         display.antialiasing=preferences.antialiasing;display.aspect=preferences.aspect;display.internalScale=preferences.internalScale;
         display.automaticScale=display.internalScale==0u;
-        display.effect=std::min(preferences.imageEffect,3u);
+        display.effect=std::min(preferences.imageEffect,5u);display.brightness=std::min(preferences.brightness,3u);
         if(display.internalScale==0u){
             unsigned target=preferences.height;
 #ifdef _WIN32

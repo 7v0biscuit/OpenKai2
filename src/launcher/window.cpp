@@ -171,6 +171,7 @@ enum Id {
     ResetGraphics = 170,
     TextureFolder = 171,
     ImageEffect = 172,
+    Brightness = 165,
     ClearImage = 173,
     DiscordActivity = 174,
     SaveListKind = 175,
@@ -1004,7 +1005,7 @@ struct Window {
         {ModsTab, L"Mods", L"characters stages import"},
         {SettingsTab, L"Settings", L"display graphics audio theme"},
         {SettingsDisplay,L"Display settings",L"window resolution aspect ratio frame rate fps cap vsync volume audio fullscreen"},
-        {SettingsGraphics,L"Graphics settings",L"renderer anti aliasing texture filtering upscaling fsr internal resolution image effect sharpen vibrant colors crt scanlines retro"},
+        {SettingsGraphics,L"Graphics settings",L"renderer anti aliasing texture filtering upscaling fsr internal resolution image effect sharpen vibrant colors crt scanlines retro glow bloom brightness gamma"},
         {SettingsGame,L"Game settings",L"cpu difficulty music textures randomizer load times fps counter run ahead input lag latency"},
         {SettingsLauncher,L"Launcher appearance",L"theme accent colors start page discord activity"},
         {ArrangeTabs, L"Arrange tabs", L"dock navigation order hide"},
@@ -1020,7 +1021,7 @@ struct Window {
     static auto preferences(Settings &s) {
         return std::tie(s.renderer, s.fps, s.width, s.height, s.windowMode, s.aspect, s.antialiasing,
             s.textureFilter, s.upscaler, s.internalScale, s.hdTextures, s.music, s.vsync, s.cpuDifficulty,
-            s.audio, s.volume, s.fpsCounter, s.randomizer, s.ps2LoadTimes, s.runAhead, s.imageEffect, s.launcherTheme, s.launcherAccent,
+            s.audio, s.volume, s.fpsCounter, s.randomizer, s.ps2LoadTimes, s.runAhead, s.imageEffect, s.brightness, s.launcherTheme, s.launcherAccent,
             s.launcherColors, s.startPage, s.discordPresence, s.reducedMotion, s.helpHints);
     }
     static std::wstring searchText(std::wstring value) {
@@ -1857,17 +1858,18 @@ struct Window {
         combo(Resolution, resolutions,
               int(std::find(sizes.begin(), sizes.end(), size) - sizes.begin()));
         combo(WindowMode, {L"Windowed", L"Borderless fullscreen"}, int(settings.windowMode));
-        combo(Antialiasing, {L"Off", L"FXAA", L"FXAA High", L"FXAA Ultra"}, int(std::min(settings.antialiasing, 3u)));
+        combo(Antialiasing, {L"Off", L"FXAA", L"FXAA High", L"FXAA Ultra", L"NFAA", L"DLAA (long edges)"}, int(std::min(settings.antialiasing, 5u)));
         combo(Filtering, {L"Game default", L"Nearest (sharp)", L"Bilinear (3D surfaces)"},
               int(settings.textureFilter));
-        combo(Upscaler, {L"Nearest", L"Bilinear", L"Bicubic", L"AMD FSR 1", L"Lanczos", L"Sharp pixels"}, int(settings.upscaler));
+        combo(Upscaler, {L"Nearest", L"Bilinear", L"Bicubic", L"AMD FSR 1", L"Lanczos", L"Sharp pixels", L"Mitchell (smooth)", L"Integer scaling"}, int(std::min(settings.upscaler, 7u)));
         combo(InternalScale, {L"Native (1x)", L"2x native", L"3x native", L"4x native", L"Auto (match display)"},
               settings.internalScale == 0 ? 4 : int(std::clamp(settings.internalScale, 1u, 4u) - 1u));
         combo(HdTextures, {L"Off", L"Upscaled from your disc", L"Texture packs", L"Texture packs, upscale the rest", L"Dump textures for pack makers"},
               int(std::min(settings.hdTextures, 4u)));
         combo(Music, {L"On", L"Off (voices and sound effects stay on)"}, settings.music ? 0 : 1);
         combo(Vsync, {L"Off", L"On"}, settings.vsync ? 1 : 0);
-        combo(ImageEffect, {L"None", L"Sharpen", L"Vibrant colors", L"CRT scanlines"}, int(std::min(settings.imageEffect, 3u)));
+        combo(ImageEffect, {L"None", L"Sharpen", L"Vibrant colors", L"CRT scanlines", L"Sharpen + vibrant", L"Soft glow"}, int(std::min(settings.imageEffect, 5u)));
+        combo(Brightness, {L"Darker", L"Normal", L"Brighter", L"Much brighter"}, int(std::min(settings.brightness, 3u)));
         combo(AutoBackup, {L"Off", L"On"}, settings.autoBackups ? 1 : 0);
         combo(SaveListKind,{L"Backups",L"Game saves"},0);
         {
@@ -2502,7 +2504,7 @@ struct Window {
             }
             const std::array<std::vector<int>,4> fields{{
                 {WindowMode,Resolution,Aspect,Fps,Vsync,Audio},
-                {Renderer,Antialiasing,Filtering,Upscaler,InternalScale,ImageEffect,ClearImage},
+                {Renderer,Antialiasing,Filtering,Upscaler,InternalScale,ImageEffect,Brightness,ClearImage},
                 {CpuDifficulty,HdTextures,Music,FpsCounter,RandomizerMode,LoadTimes,RunAhead},
                 {LauncherTheme,LauncherAccent,StartPage,DiscordActivity,LauncherMotion,LauncherHints}}};
             for(size_t group=0;group<fields.size();++group) {
@@ -3690,7 +3692,7 @@ struct Window {
             L"Appearance, navigation and Discord activity on this PC."};
         const std::array<std::vector<const wchar_t*>,4> labels{{
             {L"WINDOW MODE",L"RESOLUTION",L"ASPECT RATIO",L"FRAME RATE CAP",L"VSYNC",L"GAME AUDIO"},
-            {L"RENDERER",L"ANTI-ALIASING",L"TEXTURE FILTERING",L"UPSCALING",L"INTERNAL RESOLUTION",L"IMAGE EFFECT",L"IMAGE PRESETS"},
+            {L"RENDERER",L"ANTI-ALIASING",L"TEXTURE FILTERING",L"UPSCALING",L"INTERNAL RESOLUTION",L"IMAGE EFFECT",L"BRIGHTNESS",L"IMAGE PRESETS"},
             {L"CPU DIFFICULTY",L"HD TEXTURES",L"MUSIC",L"FPS COUNTER",L"RANDOMIZER",L"PS2 LOAD TIMES",L"RUN-AHEAD"},
             {L"THEME",L"ACCENT COLOR",L"START ON",L"DISCORD ACTIVITY",L"INTERFACE MOTION",L"HELP HINTS"}}};
         bool any=false;
@@ -6628,7 +6630,8 @@ struct Window {
         next.hdTextures = unsigned(std::max(0, selected(HdTextures)));
         next.music = selected(Music) != 1;
         next.vsync = selected(Vsync) != 0;
-        next.imageEffect = unsigned(std::clamp(selected(ImageEffect), 0, 3));
+        next.imageEffect = unsigned(std::clamp(selected(ImageEffect), 0, 5));
+        next.brightness = unsigned(std::clamp(selected(Brightness), 0, 3));
         next.cpuDifficulty = unsigned(std::max(0, selected(CpuDifficulty)));
         next.autoBackups = selected(AutoBackup) != 0;
         next.speedrun = unsigned(selected(SpeedrunMode));
@@ -6662,7 +6665,7 @@ struct Window {
             {Renderer,settings.renderer=="gpu" ? 1 : settings.renderer=="vulkan" ? 2 : settings.renderer=="cpu" ? 3 : 0},
             {Resolution,int(resolution-sizes.begin())},{Fps,int(rate-rates.begin())},
             {WindowMode,int(settings.windowMode)},{Aspect,int(settings.aspect)},
-            {Vsync,settings.vsync ? 1 : 0},{Audio,audioChoice(settings)},{ImageEffect,int(std::min(settings.imageEffect,3u))},
+            {Vsync,settings.vsync ? 1 : 0},{Audio,audioChoice(settings)},{ImageEffect,int(std::min(settings.imageEffect,5u))},{Brightness,int(std::min(settings.brightness,3u))},
             {Antialiasing,int(settings.antialiasing)},{Filtering,int(settings.textureFilter)},
             {Upscaler,int(settings.upscaler)},{InternalScale,settings.internalScale ? int(settings.internalScale)-1 : 4},
             {HdTextures,int(settings.hdTextures)},{Music,settings.music ? 0 : 1},
@@ -6976,7 +6979,7 @@ struct Window {
                     L" selected. Ctrl+click or Shift+click selects several; Ctrl+A selects all.";
             refreshEnabled(); return;
         }
-        if (((id >= Renderer && id <= Music) || (id >= SpeedrunMode && id <= FpsCounter) || id == SpeedrunCpu || id == ImageEffect) &&
+        if (((id >= Renderer && id <= Music) || (id >= SpeedrunMode && id <= FpsCounter) || id == SpeedrunCpu || id == ImageEffect || id == Brightness) &&
             notification == CBN_SELCHANGE) {
             if (id == SpeedrunCpu)
                 SendMessageW(controls[CpuDifficulty], CB_SETCURSEL, selected(SpeedrunCpu), 0);
@@ -7174,12 +7177,12 @@ struct Window {
             next.windowMode = defaults.windowMode; next.antialiasing = defaults.antialiasing;
             next.textureFilter = defaults.textureFilter; next.upscaler = defaults.upscaler;
             next.aspect = defaults.aspect; next.vsync = defaults.vsync; next.renderer = defaults.renderer;
-            next.internalScale = defaults.internalScale; next.hdTextures = defaults.hdTextures; next.imageEffect = defaults.imageEffect;
+            next.internalScale = defaults.internalScale; next.hdTextures = defaults.hdTextures; next.imageEffect = defaults.imageEffect; next.brightness = defaults.brightness;
             write_settings(settings_path(), next);
             previousSettings = settings;
             settings = std::move(next);
             const std::pair<int, int> choices[] = {{Renderer, 0}, {Fps, 6}, {Resolution, 0},
-                {WindowMode, 0}, {Antialiasing, 0}, {Filtering, 0}, {Upscaler, 1}, {Vsync, 1}, {Aspect, 0}, {InternalScale, 4}, {HdTextures, 0}, {ImageEffect, 0}};
+                {WindowMode, 0}, {Antialiasing, 0}, {Filtering, 0}, {Upscaler, 1}, {Vsync, 1}, {Aspect, 0}, {InternalScale, 4}, {HdTextures, 0}, {ImageEffect, 0}, {Brightness, 1}};
             for (auto [control, value] : choices) SendMessageW(controls[control], CB_SETCURSEL, value, 0);
             status = L"Display and graphics settings restored. Your disc, saves and update choices were kept.";
             error = false;

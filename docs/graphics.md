@@ -92,12 +92,25 @@ some effects, keep their original look.
 | FXAA | Fast smoothing of the sharpest edges |
 | FXAA High | Follows each edge a few pixels further, so long edges are smoother |
 | FXAA Ultra | Follows edges furthest and also smooths small details; the softest picture |
+| NFAA | Blends each edge pixel along the edge's direction only, so outlines smooth without softening flat areas or text |
+| DLAA (long edges) | Finds whether an edge runs mostly across or up and down and blends up to three pixels along it, strongest on long, nearly straight edges such as the horizon and stage geometry |
 
 Anti-aliasing runs before the picture is scaled to the window. Internal
 resolution 2x or higher also smooths edges, because the picture is averaged
 down to the window.
 
 ## Upscaling
+
+| Choice | What it does |
+|---|---|
+| Nearest | Repeats pixels; blocky but exact |
+| Bilinear | Blends the four nearest pixels; soft |
+| Bicubic | Catmull-Rom over sixteen pixels; sharper than bilinear |
+| AMD FSR 1 | Edge-adaptive upscaling followed by FSR sharpening |
+| Lanczos | A wider windowed-sinc filter; the sharpest smooth option |
+| Sharp pixels | Keeps pixels square and only blends their borders |
+| Mitchell (smooth) | A softer bicubic with less ringing around outlines |
+| Integer scaling | Draws the picture at the largest whole-number multiple that fits, centred with black borders, so every pixel is the same size. The game picture is 448 lines tall, so a window needs to be at least 896 pixels tall (1080p fullscreen) for 2x; in a 720p window it is shown at 1x |
 
 The upscaler scales the game picture to the window when the picture is smaller
 than the window, for example at Native in a large window. When the picture is
@@ -114,8 +127,14 @@ resolutions.
 | Sharpen | Strengthens fine detail and outlines without halos: each pixel is pushed away from its neighbours but never past their brightest or darkest value |
 | Vibrant colors | Raises the saturation of dull colors more than already strong ones, with a slight contrast lift |
 | CRT scanlines | Dark gaps between the game's 448 lines and a gentle vignette, like a CRT television |
+| Sharpen + vibrant | Both of the above, sharpening first |
+| Soft glow | Bright areas such as energy blasts, auras and the sky bleed softly into their surroundings |
 
-The effect is the last step, after anti-aliasing and scaling, and works with
+**Brightness** (Darker, Normal, Brighter, Much brighter) adjusts the picture's
+gamma: dark areas brighten most while white stays white, so night stages and
+dim monitors become easier to read without washing out the picture.
+
+The effect and brightness are the last steps, after anti-aliasing and scaling, and work with
 every renderer. It is in **Settings > Graphics** and applies at the next launch.
 
 ### Making a texture pack
