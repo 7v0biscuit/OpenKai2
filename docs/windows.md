@@ -199,6 +199,23 @@ always uses PS2 load times so every run is timed the same; the choice is
 greyed out while a speedrun category is selected. Developers can also set
 `OPENKAI2_DISC_TIMING=instant` for immediate reads.
 
+**Settings > Game > Run-ahead** lowers input lag. Budokai 2's game logic runs at
+60 frames a second, and like most fighting games it takes a frame or more after
+a button press before the screen shows the result. With run-ahead on, OpenKai2
+saves the game at the end of each frame, runs the next one or two frames
+instantly and silently with your current buttons, shows the newest one, and
+then rewinds and runs the real next frame with sound. You see the game one or
+two frames sooner than it would normally appear. The finished frame is shown at
+your monitor's next refresh, so a 240 Hz monitor shows it within about 4 ms.
+
+Run-ahead makes the PC emulate three (1 frame) or four (2 frames) frames for
+every frame shown, so it needs a fast PC; if the game slows down, use 1 frame or
+turn it off. It is off online, where rollback handles timing, and in speedrun
+mode. During loading screens and other moments the game cannot be saved,
+run-ahead pauses and the game runs normally. The log shows
+`[runahead] showing the game N frame(s) ahead` at startup. Developers can set
+`OPENKAI2_RUNAHEAD=0`, `1` or `2` to override the setting.
+
 ## Controls and saving
 
 By default, arrows or WASD move, **X or Space is Cross/confirm**, **V is Triangle/back**,

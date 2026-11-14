@@ -37,6 +37,7 @@ struct Settings {
     bool fpsCounter = false;
     bool randomizer = false;
     bool ps2LoadTimes = true;
+    unsigned runAhead = 0;
     input::Bindings controls;
     unsigned overlayItems = speedrun::overlay_defaults;
     unsigned overlayCorner = 0, overlaySize = 1, overlayBackground = 1, overlaySplits = 1;

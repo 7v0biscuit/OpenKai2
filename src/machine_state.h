@@ -30,6 +30,8 @@ void request_machine_load(std::vector<uint8_t> data, std::function<void(MachineS
                           MachineStatePurpose purpose = MachineStatePurpose::manual);
 bool machine_state_pending();
 void machine_state_point(EeScheduler &scheduler);
+void configure_run_ahead(unsigned frames);
+unsigned run_ahead_frames();
 void set_machine_memory(const uint8_t *rdram, size_t bytes);
 uint64_t machine_memory_hash();
 

@@ -9,11 +9,14 @@
 #include <sstream>
 
 namespace openkai2 {
-namespace { thread_local FramePresenter* fieldPresenter=nullptr; std::atomic<uint64_t> latestFrame{0}; }
+namespace { thread_local FramePresenter* fieldPresenter=nullptr; std::atomic<uint64_t> latestFrame{0}; std::atomic<bool> fieldsHidden{false}; }
 uint64_t latest_presented_frame() noexcept { return latestFrame.load(std::memory_order_acquire); }
 FieldPresentationScope::FieldPresentationScope(FramePresenter& presenter):previous_(fieldPresenter){fieldPresenter=&presenter;}
 FieldPresentationScope::~FieldPresentationScope(){fieldPresenter=previous_;}
-void present_guest_field(uint64_t tick){if(fieldPresenter)fieldPresenter->request(tick);}
+void present_guest_field(uint64_t tick){if(fieldPresenter && !fieldsHidden.load(std::memory_order_relaxed))fieldPresenter->request(tick);}
+void hide_guest_fields(bool hidden) noexcept { fieldsHidden.store(hidden,std::memory_order_relaxed); }
+bool guest_fields_hidden() noexcept { return fieldsHidden.load(std::memory_order_relaxed); }
+bool wait_for_guest_fields(std::chrono::steady_clock::duration timeout){return !fieldPresenter || fieldPresenter->wait_latched(timeout);}
 FramePresenter::FramePresenter(std::function<void(uint64_t)> render)
     :render_(std::move(render)),worker_([this]{run();}) {}
 FramePresenter::~FramePresenter() { stop(); }
@@ -24,6 +27,10 @@ void FramePresenter::request(uint64_t tick) {
         tick_=tick;haveTick_=true;++requested_;
     }
     ready_.notify_one();
+}
+bool FramePresenter::wait_latched(std::chrono::steady_clock::duration timeout) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    return frameReady_.wait_for(lock,timeout,[&]{return stopping_ || completed()==requested_;});
 }
 bool FramePresenter::wait_for_frame(uint64_t previous, std::chrono::steady_clock::duration timeout) {
     std::unique_lock<std::mutex> lock(mutex_);

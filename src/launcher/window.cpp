@@ -272,6 +272,7 @@ enum Id {
     OpenColors,
     RandomizerMode,
     LoadTimes,
+    RunAhead,
     SpeedrunRandomizer,
     ColorCopy,
     ColorPaste,
@@ -1003,7 +1004,7 @@ struct Window {
         {SettingsTab, L"Settings", L"display graphics audio theme"},
         {SettingsDisplay,L"Display settings",L"window resolution aspect ratio frame rate fps cap vsync volume audio fullscreen"},
         {SettingsGraphics,L"Graphics settings",L"renderer anti aliasing texture filtering upscaling fsr internal resolution image"},
-        {SettingsGame,L"Game settings",L"cpu difficulty music textures randomizer load times fps counter"},
+        {SettingsGame,L"Game settings",L"cpu difficulty music textures randomizer load times fps counter run ahead input lag latency"},
         {SettingsLauncher,L"Launcher appearance",L"theme accent colors start page discord activity"},
         {ArrangeTabs, L"Arrange tabs", L"dock navigation order hide"},
         {UpdatesTab, L"Updates", L"release patch notes download"},
@@ -1018,7 +1019,7 @@ struct Window {
     static auto preferences(Settings &s) {
         return std::tie(s.renderer, s.fps, s.width, s.height, s.windowMode, s.aspect, s.antialiasing,
             s.textureFilter, s.upscaler, s.internalScale, s.hdTextures, s.music, s.vsync, s.cpuDifficulty,
-            s.audio, s.volume, s.fpsCounter, s.randomizer, s.ps2LoadTimes, s.launcherTheme, s.launcherAccent,
+            s.audio, s.volume, s.fpsCounter, s.randomizer, s.ps2LoadTimes, s.runAhead, s.launcherTheme, s.launcherAccent,
             s.launcherColors, s.startPage, s.discordPresence, s.reducedMotion, s.helpHints);
     }
     static std::wstring searchText(std::wstring value) {
@@ -1968,6 +1969,7 @@ struct Window {
         combo(StartPage, {L"Play", L"Last page used"}, int(std::min(settings.startPage, 1u)));
         combo(RandomizerMode, {L"Off", L"On"}, settings.randomizer ? 1 : 0);
         combo(LoadTimes, {L"Fastest (this PC)", L"Accurate (PS2)"}, settings.ps2LoadTimes ? 1 : 0);
+        combo(RunAhead, {L"Off", L"1 frame", L"2 frames"}, int(std::min(settings.runAhead, 2u)));
         {
             std::vector<std::wstring> padNames;
             for (int code : padChoices)
@@ -2124,6 +2126,8 @@ struct Window {
         EnableWindow(controls[Permadeath], settings.speedrun != 0 && !speedrun::tournament(speedrun::Category(settings.speedrun)));
         EnableWindow(controls[LoadTimes], settings.speedrun == 0);
         SendMessageW(controls[LoadTimes], CB_SETCURSEL, settings.speedrun || settings.ps2LoadTimes ? 1 : 0, 0);
+        EnableWindow(controls[RunAhead], settings.speedrun == 0);
+        SendMessageW(controls[RunAhead], CB_SETCURSEL, settings.speedrun ? 0 : int(std::min(settings.runAhead, 2u)), 0);
         for (int id : {UpdateChannel, AutomaticUpdates, CheckUpdates, InstallUpdate})
             EnableWindow(controls[id], !updating() &&
                          (id != InstallUpdate || (!busy() && !running() &&
@@ -2497,7 +2501,7 @@ struct Window {
             const std::array<std::vector<int>,4> fields{{
                 {WindowMode,Resolution,Aspect,Fps,Vsync,Audio},
                 {Renderer,Antialiasing,Filtering,Upscaler,InternalScale,ClearImage},
-                {CpuDifficulty,HdTextures,Music,FpsCounter,RandomizerMode,LoadTimes},
+                {CpuDifficulty,HdTextures,Music,FpsCounter,RandomizerMode,LoadTimes,RunAhead},
                 {LauncherTheme,LauncherAccent,StartPage,DiscordActivity,LauncherMotion,LauncherHints}}};
             for(size_t group=0;group<fields.size();++group) {
                 const int top=grid.sections[group];if(top<0)continue;
@@ -3685,7 +3689,7 @@ struct Window {
         const std::array<std::vector<const wchar_t*>,4> labels{{
             {L"WINDOW MODE",L"RESOLUTION",L"ASPECT RATIO",L"FRAME RATE CAP",L"VSYNC",L"GAME AUDIO"},
             {L"RENDERER",L"ANTI-ALIASING",L"TEXTURE FILTERING",L"UPSCALING",L"INTERNAL RESOLUTION",L"IMAGE PRESETS"},
-            {L"CPU DIFFICULTY",L"HD TEXTURES",L"MUSIC",L"FPS COUNTER",L"RANDOMIZER",L"PS2 LOAD TIMES"},
+            {L"CPU DIFFICULTY",L"HD TEXTURES",L"MUSIC",L"FPS COUNTER",L"RANDOMIZER",L"PS2 LOAD TIMES",L"RUN-AHEAD"},
             {L"THEME",L"ACCENT COLOR",L"START ON",L"DISCORD ACTIVITY",L"INTERFACE MOTION",L"HELP HINTS"}}};
         bool any=false;
         for(size_t group=0;group<labels.size();++group) {
@@ -6661,7 +6665,7 @@ struct Window {
             {HdTextures,int(settings.hdTextures)},{Music,settings.music ? 0 : 1},
             {CpuDifficulty,int(settings.cpuDifficulty)},{FpsCounter,settings.fpsCounter ? 1 : 0},
             {RandomizerMode,settings.randomizer ? 1 : 0},{SpeedrunRandomizer,settings.randomizer ? 1 : 0},
-            {LoadTimes,settings.ps2LoadTimes ? 1 : 0},{LauncherTheme,int(settings.launcherTheme)},
+            {LoadTimes,settings.ps2LoadTimes ? 1 : 0},{RunAhead,int(std::min(settings.runAhead,2u))},{LauncherTheme,int(settings.launcherTheme)},
             {LauncherAccent,int(settings.launcherAccent)},{StartPage,int(settings.startPage)},
             {DiscordActivity,settings.discordPresence ? 1 : 0},{LauncherMotion,settings.reducedMotion ? 1 : 0},{LauncherHints,settings.helpHints ? 0 : 1}};
         for (auto [id,value] : choices) SendMessageW(controls[id],CB_SETCURSEL,value,0);
@@ -6765,10 +6769,10 @@ struct Window {
         if ((id == ResetDisplay || id == ResetGame) && notification == BN_CLICKED) {
             const std::vector<std::pair<int,int>> choices = id == ResetDisplay ?
                 std::vector<std::pair<int,int>>{{WindowMode,0},{Resolution,0},{Aspect,0},{Fps,6},{Vsync,1},{Audio,1}} :
-                std::vector<std::pair<int,int>>{{CpuDifficulty,0},{HdTextures,0},{Music,0},{FpsCounter,0},{RandomizerMode,0},{LoadTimes,1}};
+                std::vector<std::pair<int,int>>{{CpuDifficulty,0},{HdTextures,0},{Music,0},{FpsCounter,0},{RandomizerMode,0},{LoadTimes,1},{RunAhead,0}};
             for (auto [control, value] : choices) SendMessageW(controls[control], CB_SETCURSEL, value, 0);
             saveOptions();
-            if (id == ResetGame) { settings.randomizer=false; settings.ps2LoadTimes=true;
+            if (id == ResetGame) { settings.randomizer=false; settings.ps2LoadTimes=true; settings.runAhead=0;
                 SendMessageW(controls[SpeedrunRandomizer],CB_SETCURSEL,0,0); write_settings(settings_path(),settings); }
             status = id == ResetDisplay ? L"Display defaults restored. Undo is available." : L"Game defaults restored. Undo is available.";
             layout(); (pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE); return;
@@ -7255,6 +7259,16 @@ struct Window {
             const size_t slot = size_t(id - ShortcutFirst);
             if (slot < shown.size())
                 command(PlayTab + shown[slot], BN_CLICKED);
+            return;
+        }
+        if (id == RunAhead && notification == CBN_SELCHANGE) {
+            if (page == settingsPage) previousSettings = settings;
+            settings.runAhead = unsigned(std::clamp(selected(RunAhead), 0, 2));
+            saveLauncherLook(settings.runAhead ? L"Run-ahead shows the game " + std::to_wstring(settings.runAhead) +
+                                                     (settings.runAhead == 1 ? L" frame" : L" frames") +
+                                                     L" ahead to cut input lag. It needs a faster PC and is off online and in speedrun mode."
+                                               : L"Run-ahead is off.");
+            (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
             return;
         }
         if (id == LoadTimes && notification == CBN_SELCHANGE) {

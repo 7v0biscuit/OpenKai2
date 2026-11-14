@@ -36,6 +36,8 @@ files.
   friends, invites, a room browser and room passwords. Both games run in lockstep
   and check that they stay in sync. [Experimental]
 - **Save states:** F5 saves and F9 loads the whole console outside speedrun and online play.
+- **Run-ahead:** optional 1 or 2 frames of run-ahead in **Settings > Game** to cut input lag
+  offline, shown at your monitor's full refresh rate. See [docs/windows.md](docs/windows.md).
 - **Randomizer:** a random character, with its own moves and skills, for every
   Dragon World and World Tournament fight. Works with speedruns and permadeath.
 - **Launcher:** a lounge with friends, searchable rooms and selected-room details;

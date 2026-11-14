@@ -435,6 +435,12 @@ int main(int argc, char* argv[]) {
                 !runtime.replaceFunction(cd_seek_entry, timedCdSeek) || !runtime.replaceFunction(cd_sync_entry, timedCdSync))
                 throw std::runtime_error("Cannot bind the disc reads");
             std::cout << "[cdvd:timing] game reads " << (eeDisc.enabled() ? (preferences.ps2LoadTimes ? "take PS2 drive time (4x DVD CAV, 30/100 ms seeks)" : online.enabled ? "take PS2 drive time so both players stay in sync" : "take PS2 drive time because speedrun mode requires it") : "are as fast as this PC allows") << std::endl;
+            const char *runAheadEnvironment=std::getenv("OPENKAI2_RUNAHEAD");
+            unsigned runAhead=runAheadEnvironment && *runAheadEnvironment ? unsigned(std::strtoul(runAheadEnvironment,nullptr,10)) : preferences.runAhead;
+            if (speedrun || online.enabled) runAhead=0;
+            openkai2::configure_run_ahead(runAhead);
+            if (openkai2::run_ahead_frames())
+                std::cout << "[runahead] showing the game " << openkai2::run_ahead_frames() << " frame(s) ahead to cut input lag" << std::endl;
         }
         struct RestoreDiscReads {
             PS2Runtime& runtime;

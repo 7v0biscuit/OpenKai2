@@ -20,6 +20,7 @@ public:
     FramePresenter& operator=(const FramePresenter&)=delete;
     void request(uint64_t tick);
     bool wait_for_frame(uint64_t previous, std::chrono::steady_clock::duration timeout);
+    bool wait_latched(std::chrono::steady_clock::duration timeout);
     uint64_t completed() const { return completed_.load(std::memory_order_acquire); }
     uint64_t rendered() const { return rendered_.load(std::memory_order_relaxed); }
     uint64_t work_us() const { return workUs_.load(std::memory_order_relaxed); }
@@ -51,6 +52,9 @@ private:
     FramePresenter* previous_;
 };
 void present_guest_field(uint64_t tick);
+void hide_guest_fields(bool hidden) noexcept;
+bool guest_fields_hidden() noexcept;
+bool wait_for_guest_fields(std::chrono::steady_clock::duration timeout);
 uint64_t latest_presented_frame() noexcept;
 void verify_frame_presenter();
 }

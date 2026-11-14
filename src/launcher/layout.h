@@ -33,7 +33,7 @@ struct SettingsLayout {
     static constexpr int top=224, padding=24, gap=16, header=68, row=72, fieldHeight=40;
     int left, width, columns, column;
     std::array<int,4> sections{};
-    static constexpr std::array<int,4> fields{6,6,6,6};
+    static constexpr std::array<int,4> fields{6,6,7,6};
 
     explicit SettingsLayout(int contentWidth,int contentLeft=36) : left(contentLeft),width(contentWidth),
         columns(contentWidth<1040 ? 2 : 3),column((contentWidth-2*padding-(columns-1)*gap)/columns) {
@@ -49,7 +49,7 @@ struct SettingsLayout {
         static const wchar_t* words[]={
             L"display window mode resolution aspect ratio frame rate cap fps vsync audio volume",
             L"graphics renderer anti aliasing texture filtering upscaling presets fsr internal resolution",
-            L"game cpu difficulty hd textures music randomizer ps2 load times counter",
+            L"game cpu difficulty hd textures music randomizer ps2 load times counter run ahead input lag latency",
             L"launcher theme accent colors tabs start page appearance discord activity privacy animation reduced motion help hints tooltips"};
         int next=top;
         for(size_t i=0;i<sections.size();++i) {

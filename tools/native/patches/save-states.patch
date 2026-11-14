@@ -104,7 +104,7 @@
 +            int64_t later = std::chrono::duration_cast<std::chrono::nanoseconds>(deadline.hostDeadline - now).count();
 +            archive(deadline.deadlineCycle, later, deadline.event, deadline.sequence);
 +            if (archive.loading())
-+                deadline.hostDeadline = now + std::chrono::nanoseconds(later);
++                deadline.hostDeadline = now + std::chrono::nanoseconds(later - openkai2::restore_rebase_ns.load(std::memory_order_relaxed));
 +        }
 +        if (archive.loading())
 +            updateNextDeadline();

@@ -3,6 +3,7 @@
 #include "disc_image.h"
 #include "host_input.h"
 #include "delta_states.h"
+#include "frame_presenter.h"
 #include "netplay.h"
 #include "simulation_pacing.h"
 #include "state_archive.h"
@@ -339,6 +340,81 @@ void rollback_point(EeScheduler &scheduler) {
 }
 }
 
+namespace runahead {
+std::atomic<unsigned> frames{0};
+bool active = false, shown = false;
+uint64_t base = 0, shownAt = 0, lastTick = ~0ull, passes = 0, abandoned = 0;
+std::chrono::steady_clock::time_point capturedAt{};
+std::unique_ptr<DeltaStates> states;
+
+void leave() {
+    if (active)
+        ++abandoned;
+    active = shown = false;
+    replay_turbo = false;
+    runahead_drawing = false;
+    hide_guest_fields(false);
+}
+
+void point(EeScheduler &scheduler) {
+    const uint64_t tick = scheduler.currentVSyncTick();
+    if (tick == lastTick)
+        return;
+    lastTick = tick;
+    const unsigned ahead = frames.load(std::memory_order_relaxed);
+    if (!states)
+        states = std::make_unique<DeltaStates>(4u, std::clamp(std::thread::hardware_concurrency(), 2u, 4u) - 1u);
+    states->pictureless(true);
+    const auto serialize = [&](StateArchive &archive) { serialize_machine(scheduler, archive); };
+    if (!active) {
+        if (states->size() && tick <= states->newest())
+            states->clear();
+        states->capture(tick, serialize);
+        capturedAt = std::chrono::steady_clock::now();
+        base = tick;
+        active = true;
+        shown = false;
+        hide_guest_fields(true);
+        runahead_drawing = true;
+        replay_turbo = true;
+        return;
+    }
+    if (!shown) {
+        if (tick >= base + ahead) {
+            shown = true;
+            shownAt = tick;
+            hide_guest_fields(false);
+        }
+        return;
+    }
+    if (tick <= shownAt)
+        return;
+    hide_guest_fields(true);
+    wait_for_guest_fields(std::chrono::milliseconds(100));
+    restore_rebase_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - capturedAt).count();
+    const bool restored = states->restore(base, serialize);
+    restore_rebase_ns = 0;
+    if (!restored) {
+        leave();
+        return;
+    }
+    active = shown = false;
+    replay_turbo = false;
+    runahead_drawing = false;
+    lastTick = base;
+    if (++passes % 600 == 0)
+        std::cout << "[runahead] passes=" << passes << " kept_ahead_at_loading=" << abandoned << std::endl;
+}
+}
+
+void configure_run_ahead(unsigned frames) {
+    runahead::frames = std::min(frames, 3u);
+    if (!frames)
+        runahead::leave();
+}
+
+unsigned run_ahead_frames() { return runahead::frames.load(std::memory_order_relaxed); }
+
 uint64_t machine_memory_hash() { return machineMemory ? hash_memory() : 0; }
 
 void set_machine_memory(const uint8_t *rdram, size_t bytes) {
@@ -395,10 +471,17 @@ bool machine_state_pending() {
 void machine_state_point(EeScheduler &scheduler) {
     const bool pendingRequest = hasPending.load(std::memory_order_acquire);
     auto *session = netplay::active();
-    if (!probe::enabled && !probe::rollbackEnabled && !pendingRequest && !session)
+    const bool runAhead = runahead::frames.load(std::memory_order_relaxed) && !session && !probe::enabled && !probe::rollbackEnabled;
+    if (!probe::enabled && !probe::rollbackEnabled && !pendingRequest && !session && !runAhead && !runahead::active)
         return;
     std::string reason;
     const bool savable = scheduler.stateSavable(&reason);
+    if (runahead::active && (!runAhead || pendingRequest || !savable))
+        runahead::leave();
+    if (runAhead && savable && !pendingRequest)
+        runahead::point(scheduler);
+    else if (!runahead::active)
+        hide_guest_fields(false);
     if (probe::enabled && savable)
         probe::point(scheduler);
     if (probe::rollbackEnabled && savable)
