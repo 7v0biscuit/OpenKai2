@@ -452,6 +452,7 @@ struct RollbackMachine : FakeMachine {
     std::atomic<bool> restored{false};
     uint64_t restores = 0;
     std::chrono::microseconds period{16667};
+    uint64_t corruptAfter = 0;
 
     Machine bindRollback() {
         Machine machine = bind();
@@ -472,13 +473,15 @@ struct RollbackMachine : FakeMachine {
             return true;
         };
         machine.replaying = [](bool) {};
+        machine.forget = [this] { snapshots.clear(); };
         return machine;
     }
 };
 
-RollbackStats rollback_match(std::chrono::microseconds guestPeriod, uint64_t frames, RollbackStats *hostOut) {
+RollbackStats rollback_match(std::chrono::microseconds guestPeriod, uint64_t frames, RollbackStats *hostOut, uint64_t guestCorruptAfter = 0) {
     RollbackMachine hostMachine, guestMachine;
     guestMachine.period = guestPeriod;
+    guestMachine.corruptAfter = guestCorruptAfter;
     hostMachine.host = true;
     guestMachine.host = false;
     hostMachine.tick = 300;
@@ -517,6 +520,8 @@ RollbackStats rollback_match(std::chrono::microseconds guestPeriod, uint64_t fra
                     began = machine.tick;
                 machine.seen[machine.tick] = {port0, port1};
                 machine.sum = machine.sum * 31 + port0[0] * 7 + port1[0];
+                if (machine.corruptAfter && machine.tick == began + machine.corruptAfter)
+                    machine.sum ^= 0x5555;
             }
             session.state_point();
             if (status.phase == Phase::playing && machine.tick >= began + frames && !session.rolling_back()) {
@@ -581,6 +586,13 @@ RollbackStats rollback_match(std::chrono::microseconds guestPeriod, uint64_t fra
 }
 
 void rollback_corrects_late_inputs() { rollback_match(std::chrono::microseconds(16667), 720, nullptr); }
+
+void desync_recovers_with_a_fresh_state() {
+    RollbackStats host;
+    const auto guest = rollback_match(std::chrono::microseconds(16667), 900, &host, 300);
+    require(host.resyncs == 1 && guest.resyncs == 1, "an out-of-sync match recovered once from the host's state: host " +
+                                                         std::to_string(host.resyncs) + " guest " + std::to_string(guest.resyncs));
+}
 
 void time_sync_slows_the_faster_player() {
     RollbackStats host;
@@ -767,6 +779,7 @@ int main() {
         two_players_stay_in_step();
         rollback_corrects_late_inputs();
         time_sync_slows_the_faster_player();
+        desync_recovers_with_a_fresh_state();
         room_checks_before_launch();
         relay_through_service();
         wrong_build_is_refused();

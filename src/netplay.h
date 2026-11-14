@@ -29,6 +29,7 @@ inline constexpr unsigned rollback_delay = 2;
 inline constexpr unsigned sync_interval = 30;
 inline constexpr unsigned max_sync_wait = 3;
 inline constexpr unsigned rollback_display_frames = 120;
+inline constexpr unsigned max_resyncs = 3;
 
 using Input = std::array<uint8_t, 6>;
 Input neutral_input();
@@ -74,10 +75,11 @@ struct Machine {
     std::function<void(uint64_t)> capture;
     std::function<bool(uint64_t)> restore;
     std::function<void(bool)> replaying;
+    std::function<void()> forget;
 };
 
 struct RollbackStats {
-    uint64_t predicted = 0, mispredicted = 0, rollbacks = 0, replayed = 0, longest = 0, stalls = 0, waits = 0, waited = 0;
+    uint64_t predicted = 0, mispredicted = 0, rollbacks = 0, replayed = 0, longest = 0, stalls = 0, waits = 0, waited = 0, resyncs = 0;
 };
 
 enum class Phase { connecting, syncing, playing, ended };
@@ -119,6 +121,8 @@ class Session {
     void accept_remote(uint64_t tick, const Input &value);
     void deliver_delayed();
     void rollback_point();
+    bool resync_point(uint64_t tick);
+    void mark_desync(uint64_t tick, uint64_t start);
     std::chrono::microseconds time_sync(uint64_t tick, uint64_t start, unsigned delay);
 
     Options options_;
@@ -151,6 +155,9 @@ class Session {
     uint64_t confirmed_ = 0, rollbackTo_ = ~0ull, frontier_ = 0, captured_ = ~0ull, newestRemote_ = 0;
     int64_t remoteAdvantage_ = 0;
     uint64_t recentRollback_ = 0, recentRollbackAt_ = 0;
+    bool resyncWanted_ = false, resyncReady_ = false;
+    uint32_t generation_ = 0, resyncGeneration_ = 0;
+    std::vector<uint8_t> resyncData_;
     bool remoteAdvantageFresh_ = false;
     bool replaying_ = false;
     RollbackStats rollbackStats_;

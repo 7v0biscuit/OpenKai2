@@ -15,6 +15,7 @@
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
+#include <atomic>
 #include <memory>
 #include <thread>
 
@@ -160,8 +161,19 @@ std::unique_ptr<Session> start_game_session(PS2Runtime &runtime, const Arguments
         if (!archive.finished())
             throw std::runtime_error("The host's game state does not match this build");
     };
-    machine.hash = [&runtime, host = arguments.host] {
-        const uint64_t value = machine_memory_hash();
+    const char *desyncTest = std::getenv("OPENKAI2_NETPLAY_DESYNC_TEST");
+    const auto corrupting = std::make_shared<std::atomic<int>>(!arguments.host && desyncTest && *desyncTest == '1' ? 0 : -1);
+    machine.load = [load = machine.load, corrupting](const std::vector<uint8_t> &body) {
+        load(body);
+        if (corrupting->load() > 1)
+            corrupting->store(-1);
+    };
+    machine.hash = [&runtime, host = arguments.host, corrupting] {
+        uint64_t value = machine_memory_hash();
+        if (corrupting->load() >= 0 && corrupting->fetch_add(1) + 1 >= 2) {
+            value ^= 1u;
+            std::cout << "[netplay] desync test: reporting a wrong memory check" << std::endl;
+        }
         if (const char *dump = std::getenv("OPENKAI2_NETPLAY_DUMP"); dump && *dump) {
             const auto tick = runtime.eeScheduler().currentVSyncTick();
             std::ofstream out(std::filesystem::path(dump) / ((host ? "host-" : "join-") + std::to_string(tick) + ".bin"),
@@ -206,6 +218,7 @@ std::unique_ptr<Session> start_game_session(PS2Runtime &runtime, const Arguments
         };
         machine.restore = [states, serialize](uint64_t tick) { return states->restore(tick, serialize); };
         machine.replaying = [](bool on) { replay_turbo.store(on, std::memory_order_relaxed); };
+        machine.forget = [states] { states->clear(); };
     }
     machine.read_cards = [root] { return read_card_files(root); };
     machine.write_cards = [root](const std::vector<CardFile> &files) { write_card_files(root, files); };
@@ -229,7 +242,8 @@ void stop_game_session(std::unique_ptr<Session> &session) {
     const auto stats = session->rollback_stats();
     std::cout << "[netplay] rollback predicted=" << stats.predicted << " mispredicted=" << stats.mispredicted
               << " rollbacks=" << stats.rollbacks << " replayed_frames=" << stats.replayed << " longest=" << stats.longest
-              << " stalls=" << stats.stalls << " sync_waits=" << stats.waits << " sync_frames=" << stats.waited << std::endl;
+              << " stalls=" << stats.stalls << " sync_waits=" << stats.waits << " sync_frames=" << stats.waited
+              << " resyncs=" << stats.resyncs << std::endl;
     session->stop();
     session.reset();
 }

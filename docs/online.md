@@ -88,7 +88,9 @@ When both games start, they connect again with a one-time key from the room, and
 the host sends its memory card and full game state, so both games start the
 same. Your controls work while the games link up. The games then exchange button presses a few frames ahead
 and use rollback to hide the delay (see below). Every two seconds they compare memory; if they ever differ,
-the in-game bar shows **out of sync**. The bar at the top shows the opponent,
+the in-game bar shows **out of sync** and the host sends its full game state to
+the other player, who continues from it, so the match carries on in sync. This
+happens at most three times per match. The bar at the top shows the opponent,
 ping and input delay. While the game is correcting late inputs it also shows
 **rollback N**, the most frames it has had to replay in the last two seconds;
 it disappears again when the connection is steady.
@@ -181,6 +183,12 @@ It was built in steps:
    faster, it waits one to three frames so both stay in step instead of the
    faster one repeatedly running out of inputs. The end-of-match log line adds
    `sync_waits=` and `sync_frames=`.
+5. Done: recovery from going out of sync. When the memory check finds a
+   difference, the host waits at its next frame for the other player's real
+   inputs, then sends its full game state and memory card. The other game
+   loads it and replays any frames it had already run ahead, exactly like a
+   rollback. Memory checks made before the recovery are ignored. The
+   end-of-match log line adds `resyncs=`.
 
 ## Managing profiles on this PC
 

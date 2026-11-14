@@ -14,7 +14,7 @@
 
 namespace openkai2::netplay {
 namespace {
-enum Message : uint8_t { hello = 1, welcome, reject, snapshot, input, hash, ping, pong, bye, profile, confirm, probe, advantage };
+enum Message : uint8_t { hello = 1, welcome, reject, snapshot, input, hash, ping, pong, bye, profile, confirm, probe, advantage, resync };
 static_assert(probe == probe_message);
 constexpr uint32_t max_message = 96u << 20;
 constexpr size_t max_snapshot = 160u << 20;
@@ -650,15 +650,26 @@ void Session::read_loop() {
         }
         case hash: {
             const uint64_t tick = in.u64(), value = in.u64();
+            const uint32_t generation = in.u32();
             std::lock_guard lock(mutex_);
+            if (generation != generation_)
+                break;
             remoteHashes_[tick] = value;
-            if (auto found = localHashes_.find(tick); found != localHashes_.end() && found->second != value && !status_.desynced) {
-                status_.desynced = true;
-                status_.desync_tick = tick;
-                std::cerr << "[netplay] out of sync at frame " << tick - startTick_ << '\n';
-            }
+            if (auto found = localHashes_.find(tick); found != localHashes_.end() && found->second != value)
+                mark_desync(tick, startTick_);
             break;
         }
+        case resync:
+            if (!options_.host) {
+                const uint32_t generation = in.u32();
+                if (!in.ok)
+                    break;
+                std::lock_guard lock(mutex_);
+                resyncGeneration_ = generation;
+                resyncData_.assign(payload.begin() + std::ptrdiff_t(in.at), payload.end());
+                resyncReady_ = true;
+            }
+            break;
         case snapshot:
             if (!options_.host) {
                 std::lock_guard lock(mutex_);
@@ -747,6 +758,8 @@ void Session::rollback_point() {
     }
     if (finished && machine_.replaying)
         machine_.replaying(false);
+    if (resync_point(tick))
+        return;
     if (target != ~0ull) {
         const uint64_t from = target > start ? target - 1 : start;
         if (!machine_.restore(from)) {
@@ -774,6 +787,92 @@ void Session::rollback_point() {
     machine_.capture(tick);
     std::lock_guard lock(mutex_);
     captured_ = tick;
+}
+
+void Session::mark_desync(uint64_t tick, uint64_t start) {
+    if (status_.desynced)
+        return;
+    status_.desynced = true;
+    status_.desync_tick = tick;
+    std::cerr << "[netplay] out of sync at frame " << tick - start << '\n';
+    if (options_.host && options_.rollback && rollbackStats_.resyncs < max_resyncs)
+        resyncWanted_ = true;
+}
+
+bool Session::resync_point(uint64_t tick) {
+    if (options_.host) {
+        {
+            std::lock_guard lock(mutex_);
+            if (!resyncWanted_ || replaying_ || rollbackTo_ <= tick)
+                return false;
+        }
+        Input confirmed{};
+        if (!wait_remote(tick, confirmed))
+            return false;
+        {
+            std::lock_guard lock(mutex_);
+            if (confirmed_ < tick || rollbackTo_ <= tick)
+                return false;
+            resyncWanted_ = false;
+            ++generation_;
+            ++rollbackStats_.resyncs;
+            localHashes_.clear();
+            remoteHashes_.clear();
+            status_.desynced = false;
+        }
+        std::vector<uint8_t> payload;
+        {
+            std::lock_guard lock(mutex_);
+            put32(payload, generation_);
+        }
+        const auto packed = pack_snapshot(machine_.read_cards(), machine_.save());
+        payload.insert(payload.end(), packed.begin(), packed.end());
+        send(resync, std::move(payload));
+        std::cerr << "[netplay] sent a fresh game state at frame " << tick << " to recover from going out of sync\n";
+        return false;
+    }
+    std::vector<uint8_t> packed;
+    uint32_t generation = 0;
+    {
+        std::lock_guard lock(mutex_);
+        if (!resyncReady_)
+            return false;
+        resyncReady_ = false;
+        packed = std::move(resyncData_);
+        generation = resyncGeneration_;
+    }
+    std::vector<CardFile> files;
+    std::vector<uint8_t> state;
+    if (!unpack_snapshot(packed, files, state))
+        throw std::runtime_error("The host sent a damaged game state");
+    machine_.write_cards(files);
+    machine_.load(state);
+    if (machine_.forget)
+        machine_.forget();
+    const uint64_t loaded = machine_.tick();
+    machine_.capture(loaded);
+    bool replay = false;
+    {
+        std::lock_guard lock(mutex_);
+        generation_ = generation;
+        localHashes_.clear();
+        remoteHashes_.clear();
+        status_.desynced = false;
+        ++rollbackStats_.resyncs;
+        rollbackTo_ = ~0ull;
+        cachedTick_ = ~0ull;
+        captured_ = loaded;
+        for (auto it = predicted_.upper_bound(loaded); it != predicted_.end();)
+            it = predicted_.erase(it);
+        frontier_ = std::max(frontier_, tick);
+        replay = tick > loaded;
+        if (replay)
+            replaying_ = true;
+    }
+    if (replay && machine_.replaying)
+        machine_.replaying(true);
+    std::cerr << "[netplay] loaded the host's game state at frame " << loaded << " to recover from going out of sync\n";
+    return true;
 }
 
 std::chrono::microseconds Session::time_sync(uint64_t tick, uint64_t start, unsigned delay) {
@@ -956,16 +1055,16 @@ bool Session::inputs(Input &port0, Input &port1) {
         {
             std::lock_guard lock(mutex_);
             localHashes_[tick] = value;
-            if (auto found = remoteHashes_.find(tick); found != remoteHashes_.end() && found->second != value &&
-                                                         !status_.desynced) {
-                status_.desynced = true;
-                status_.desync_tick = tick;
-                std::cerr << "[netplay] out of sync at frame " << tick - start << '\n';
-            }
+            if (auto found = remoteHashes_.find(tick); found != remoteHashes_.end() && found->second != value)
+                mark_desync(tick, start);
         }
         std::vector<uint8_t> payload;
         put64(payload, tick);
         put64(payload, value);
+        {
+            std::lock_guard lock(mutex_);
+            put32(payload, generation_);
+        }
         send(hash, std::move(payload));
     }
     if (const auto pause = time_sync(tick, start, delay); pause.count() > 0)
