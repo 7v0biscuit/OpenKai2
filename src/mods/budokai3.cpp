@@ -861,43 +861,140 @@ std::vector<uint8_t> merge_motions(const std::vector<std::vector<uint8_t>> &pack
     return out;
 }
 
-std::vector<uint8_t> merge_move_scripts(const std::vector<uint8_t> &shared, const std::vector<uint8_t> &own,
-                                        uint32_t sharedMotions) {
-    struct Entry {
-        std::vector<uint8_t> record;
-        std::vector<std::pair<uint32_t, std::vector<uint8_t>>> commands;
-    };
-    std::map<uint32_t, Entry> entries;
-    for (const auto *script : {&shared, &own}) {
-        const auto &b = *script;
-        if (b.size() < 32 || std::memcmp(b.data(), "#BSK", 4) != 0)
-            throw std::runtime_error("A move script is not a #BSK");
-        const uint32_t count = read32(b, 16);
-        for (uint32_t i = 0; i < count && 0x20 + (i + 1) * 4 <= b.size(); ++i) {
-            const uint32_t at = read32(b, 0x20 + i * 4);
-            if (!at || size_t(at) + 48 > b.size())
-                continue;
-            Entry entry;
-            entry.record.assign(b.begin() + at, b.begin() + at + 48);
-            const uint32_t commands = read32(entry.record, 40), list = read32(entry.record, 44);
-            for (uint32_t k = 0; k < commands && size_t(list) + (k + 1) * 8 <= b.size(); ++k) {
-                const uint32_t head = read32(b, list + k * 8), data = read32(b, list + k * 8 + 4);
-                const size_t bytes = size_t(head >> 16) * 16;
-                if (size_t(data) + bytes > b.size())
-                    throw std::runtime_error("A move command runs past its script");
-                entry.commands.push_back({head, std::vector<uint8_t>(b.begin() + data, b.begin() + data + bytes)});
-            }
-            const uint32_t motion = read32(entry.record, 0), bank = motion >> 16, index = motion & 0xFFFFu;
-            if (script == &shared && bank == 0)
-                write32(entry.record, 0, 1u << 16 | index);
-            else if (script == &own && bank == 3)
-                write32(entry.record, 0, 1u << 16 | (sharedMotions + index));
-            else if (script == &own && bank == 0)
-                write32(entry.record, 0, 1u << 16 | index);
-            entries[i] = std::move(entry);
+namespace {
+struct ScriptEntry {
+    std::vector<uint8_t> record;
+    std::vector<std::pair<uint32_t, std::vector<uint8_t>>> commands;
+};
+
+std::map<uint32_t, ScriptEntry> script_entries(const std::vector<uint8_t> &b) {
+    if (b.size() < 32 || std::memcmp(b.data(), "#BSK", 4) != 0)
+        throw std::runtime_error("A move script is not a #BSK");
+    std::map<uint32_t, ScriptEntry> entries;
+    const uint32_t count = read32(b, 16);
+    for (uint32_t i = 0; i < count && 0x20 + (i + 1) * 4 <= b.size(); ++i) {
+        const uint32_t at = read32(b, 0x20 + i * 4);
+        if (!at || size_t(at) + 48 > b.size())
+            continue;
+        ScriptEntry entry;
+        entry.record.assign(b.begin() + at, b.begin() + at + 48);
+        const uint32_t commands = read32(entry.record, 40), list = read32(entry.record, 44);
+        for (uint32_t k = 0; k < commands && size_t(list) + (k + 1) * 8 <= b.size(); ++k) {
+            const uint32_t head = read32(b, list + k * 8), data = read32(b, list + k * 8 + 4);
+            const size_t bytes = size_t(head >> 16) * 16;
+            if (size_t(data) + bytes > b.size())
+                throw std::runtime_error("A move command runs past its script");
+            entry.commands.push_back({head, std::vector<uint8_t>(b.begin() + data, b.begin() + data + bytes)});
         }
+        entries[i] = std::move(entry);
     }
-    const uint32_t count = std::max(read32(shared, 16), read32(own, 16));
+    return entries;
+}
+
+std::map<uint32_t, ScriptEntry> merged_entries(const std::vector<uint8_t> &shared, const std::vector<uint8_t> &own,
+                                               uint32_t sharedMotions) {
+    std::map<uint32_t, ScriptEntry> entries;
+    for (const auto *script : {&shared, &own})
+        for (auto &[index, entry] : script_entries(*script)) {
+            const uint32_t motion = read32(entry.record, 0), bank = motion >> 16, at = motion & 0xFFFFu;
+            if (script == &shared && bank == 0)
+                write32(entry.record, 0, 1u << 16 | at);
+            else if (script == &own && bank == 3)
+                write32(entry.record, 0, 1u << 16 | (sharedMotions + at));
+            else if (script == &own && bank == 0)
+                write32(entry.record, 0, 1u << 16 | at);
+            entries[index] = std::move(entry);
+        }
+    return entries;
+}
+
+std::vector<uint64_t> item_keys(const ScriptEntry &entry) {
+    std::vector<uint64_t> keys;
+    for (const auto &[head, data] : entry.commands)
+        for (size_t at = 0; at + 16 <= data.size(); at += 16) {
+            uint64_t h = 1469598103934665603ull ^ (head & 0xFFFFu);
+            for (size_t i = 0; i < 16; ++i)
+                h = (h ^ data[at + i]) * 1099511628211ull;
+            keys.push_back(h);
+        }
+    std::sort(keys.begin(), keys.end());
+    return keys;
+}
+
+double item_overlap(const std::vector<uint64_t> &a, const std::vector<uint64_t> &b) {
+    size_t common = 0;
+    for (size_t i = 0, j = 0; i < a.size() && j < b.size();)
+        if (a[i] == b[j])
+            ++common, ++i, ++j;
+        else if (a[i] < b[j])
+            ++i;
+        else
+            ++j;
+    const size_t total = std::max({a.size(), b.size(), size_t(1)});
+    return double(common) / double(total);
+}
+
+std::map<uint32_t, uint32_t> align_entries(const std::map<uint32_t, ScriptEntry> &ours,
+                                           const std::map<uint32_t, ScriptEntry> &theirs) {
+    std::vector<uint32_t> a, b;
+    std::vector<std::vector<uint64_t>> ka, kb;
+    for (const auto &[index, entry] : ours)
+        a.push_back(index), ka.push_back(item_keys(entry));
+    for (const auto &[index, entry] : theirs)
+        b.push_back(index), kb.push_back(item_keys(entry));
+    const size_t n = a.size(), m = b.size();
+    constexpr float gap = -0.15f;
+    std::vector<float> score((n + 1) * (m + 1), 0.0f);
+    std::vector<uint8_t> step((n + 1) * (m + 1), 0);
+    const auto at = [m](size_t i, size_t j) { return i * (m + 1) + j; };
+    for (size_t i = 1; i <= n; ++i)
+        score[at(i, 0)] = score[at(i - 1, 0)] + gap, step[at(i, 0)] = 1;
+    for (size_t j = 1; j <= m; ++j)
+        score[at(0, j)] = score[at(0, j - 1)] + gap, step[at(0, j)] = 2;
+    for (size_t i = 1; i <= n; ++i)
+        for (size_t j = 1; j <= m; ++j) {
+            const double overlap = item_overlap(ka[i - 1], kb[j - 1]);
+            const float pair = overlap > 0.0 ? float(overlap * 2.0 - 0.5) : -1.0f;
+            const float diagonal = score[at(i - 1, j - 1)] + pair, up = score[at(i - 1, j)] + gap,
+                        left = score[at(i, j - 1)] + gap;
+            if (diagonal >= up && diagonal >= left)
+                score[at(i, j)] = diagonal, step[at(i, j)] = 0;
+            else if (up >= left)
+                score[at(i, j)] = up, step[at(i, j)] = 1;
+            else
+                score[at(i, j)] = left, step[at(i, j)] = 2;
+        }
+    std::map<uint32_t, uint32_t> renumber;
+    for (size_t i = n, j = m; i > 0 || j > 0;) {
+        const uint8_t s = step[at(i, j)];
+        if (i > 0 && j > 0 && s == 0) {
+            if (item_overlap(ka[i - 1], kb[j - 1]) >= 0.5)
+                renumber[a[i - 1]] = b[j - 1];
+            --i, --j;
+        } else if (i > 0 && (j == 0 || s == 1))
+            --i;
+        else
+            --j;
+    }
+    return renumber;
+}
+}
+
+std::map<uint32_t, uint32_t> align_move_scripts(const std::vector<uint8_t> &budokai2, const std::vector<uint8_t> &shared,
+                                                const std::vector<uint8_t> &own, uint32_t sharedMotions) {
+    return align_entries(script_entries(budokai2), merged_entries(shared, own, sharedMotions));
+}
+
+std::vector<uint8_t> merge_move_scripts(const std::vector<uint8_t> &shared, const std::vector<uint8_t> &own,
+                                        uint32_t sharedMotions, const std::map<uint32_t, uint32_t> &renumber) {
+    const auto merged = merged_entries(shared, own, sharedMotions);
+    auto entries = merged;
+    uint32_t count = std::max(read32(shared, 16), read32(own, 16));
+    for (const auto &[budokai2, budokai3] : renumber)
+        if (const auto found = merged.find(budokai3); found != merged.end()) {
+            entries[budokai2] = found->second;
+            count = std::max(count, budokai2 + 1);
+        }
     size_t commandCount = 0;
     for (const auto &[index, entry] : entries)
         commandCount += entry.commands.size();
@@ -953,10 +1050,26 @@ std::optional<Budokai3Moveset> budokai3_moveset(SourceDisc &budokai3, size_t mod
     if (sharedMotions.empty() || ownMotionsPack.empty() || sharedScript.empty() || ownScript.empty())
         return std::nullopt;
     const auto extra = amb_part(game.read_entry(roster_archive, ownMotions), 1);
+    std::map<uint32_t, uint32_t> renumber;
+    try {
+        std::vector<uint8_t> gokuScript;
+        const auto gokuFile = game.read_entry(roster_archive, budokai2_goku_moves);
+        for (uint32_t part = 0; part < 8 && gokuScript.empty(); ++part) {
+            const auto piece = amb_part(gokuFile, part);
+            if (piece.size() >= 16 && std::memcmp(piece.data(), "#BSK", 4) == 0 && read32(piece, 12) == 3)
+                gokuScript = piece;
+        }
+        const auto gokuOwn = amb_part(budokai3.read_entry(roster_archive, budokai3_goku_own_moves), 0);
+        if (!gokuScript.empty() && gokuOwn.size() >= 16 && std::memcmp(gokuOwn.data(), "#BSK", 4) == 0 && read32(gokuOwn, 12) == 4)
+            renumber = align_move_scripts(gokuScript, sharedScript, gokuOwn, read32(sharedMotions, 16));
+    } catch (const std::exception &) {
+        renumber.clear();
+    }
     Budokai3Moveset moveset;
+    moveset.renumbered = renumber.size();
     moveset.motions = amb_of({merge_motions({sharedMotions, ownMotionsPack}), extra}, {3, 3});
     moveset.moves = amb_of({amb_part(effects, 0), amb_part(effects, 2),
-                            merge_move_scripts(sharedScript, ownScript, read32(sharedMotions, 16)),
+                            merge_move_scripts(sharedScript, ownScript, read32(sharedMotions, 16), renumber),
                             amb_part(effects, 3)},
                            {5, 0xFFFFFFFFu, 0xFFFFFFFFu, 8});
     return moveset;

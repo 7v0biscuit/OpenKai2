@@ -250,10 +250,10 @@ void budokai3_moves_are_merged() {
                 std::memcmp(merged.data() + get32(merged.data() + 28), "XGOK_BODY", 9) == 0,
             "Motions were not merged onto the model's bones by name");
 
-    const auto script = [](uint32_t index, uint32_t motion) {
+    const auto script = [](uint32_t index, uint32_t motion, uint8_t fill = 0x7A, uint32_t version = 4) {
         Bytes b(0x20 + (index + 1) * 4, 0);
         std::memcpy(b.data(), "#BSK", 4);
-        put32(b, 12, 4);
+        put32(b, 12, version);
         put32(b, 16, index + 1);
         put32(b, 20, 0x20);
         b.resize((b.size() + 15) / 16 * 16, 0);
@@ -267,7 +267,7 @@ void budokai3_moves_are_merged() {
         b.resize(b.size() + 8, 0);
         put32(b, uint32_t(b.size() - 8), 0x10005);
         put32(b, uint32_t(b.size() - 4), uint32_t(b.size()));
-        b.insert(b.end(), 16, 0x7A);
+        b.insert(b.end(), 16, fill);
         put32(b, 28, uint32_t(b.size()));
         b.insert(b.end(), 8, 0xEE);
         return b;
@@ -278,6 +278,14 @@ void budokai3_moves_are_merged() {
                 get32(record(2)) == (1u << 16 | 104) && get32(moves.data() + 0x20 + 4) == 0 &&
                 moves[get32(moves.data() + get32(record(2) + 44) + 4)] == 0x7A && moves.back() == 0xEE,
             "Budokai 3 move scripts were not merged into one Budokai 2 script");
+    const auto renumbered = merge_move_scripts(script(0, 5), script(2, 3u << 16 | 4), 100, {{1, 2}});
+    const auto at = [&](uint32_t index) { return renumbered.data() + get32(renumbered.data() + 0x20 + index * 4); };
+    require(get32(renumbered.data() + 16) == 3 && get32(at(1)) == (1u << 16 | 104) && get32(at(2)) == (1u << 16 | 104) &&
+                get32(at(0)) == (1u << 16 | 5),
+            "A renumbered Budokai 3 entry was not filed under its Budokai 2 number");
+    const auto aligned = align_move_scripts(script(1, 1u << 16 | 9, 0x5C, 3), script(0, 5, 0x7A), script(3, 3u << 16 | 4, 0x5C), 100);
+    require(aligned.size() == 1 && aligned.at(1) == 3,
+            "Move entries were not lined up by their shared command items");
 }
 
 int main() {

@@ -3,6 +3,7 @@
 #include "mods/importer.h"
 #include "mods/roster.h"
 #include <array>
+#include <map>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -43,14 +44,17 @@ std::string model_materials(SourceDisc &disc, size_t entry);
 
 void bake_budokai3_shading(std::vector<uint8_t> &model);
 
-inline constexpr size_t budokai3_shared_moves = 165u;
+inline constexpr size_t budokai3_shared_moves = 165u, budokai2_goku_moves = 173u, budokai3_goku_own_moves = 356u;
 inline constexpr uint32_t moves_field = 0x1D8u, motions_field = 0x1B4u;
 struct Budokai3Moveset {
     std::vector<uint8_t> moves, motions;
+    size_t renumbered = 0;
 };
 std::vector<uint8_t> merge_motions(const std::vector<std::vector<uint8_t>> &packs);
 std::vector<uint8_t> merge_move_scripts(const std::vector<uint8_t> &shared, const std::vector<uint8_t> &own,
-                                        uint32_t sharedMotions);
+                                        uint32_t sharedMotions, const std::map<uint32_t, uint32_t> &renumber = {});
+std::map<uint32_t, uint32_t> align_move_scripts(const std::vector<uint8_t> &budokai2, const std::vector<uint8_t> &shared,
+                                                const std::vector<uint8_t> &own, uint32_t sharedMotions);
 std::optional<Budokai3Moveset> budokai3_moveset(SourceDisc &budokai3, size_t model, SourceDisc &game,
                                                 size_t ownMotions);
 std::vector<uint8_t> model_for_budokai2(SourceDisc &disc, size_t entry);

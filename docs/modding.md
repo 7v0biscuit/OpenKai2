@@ -121,9 +121,24 @@ What is known about converting Budokai 3 movesets:
   `0x1D8` (moves) and `0x1B4` (motions) point at the converted files. The
   wearer's second motion pack is kept.
 
+- Entry numbers: Budokai 2's code asks for a move by its entry number, and
+  Budokai 3 renumbered many entries. The importer lines them up using Goku,
+  who is in both games: it reads Budokai 2 Goku's script from your Budokai 2
+  disc and Budokai 3 Goku's merged script from the Budokai 3 disc, scores every
+  pair of entries by how many 16-byte command items they share, and aligns the
+  two lists in order, allowing entries to be missing on either side. Pairs that
+  share at least half their items are a match, and the converted entry is
+  filed under the Budokai 2 number as well as kept at its own. The same table
+  applies to every Budokai 3 character, since the numbering belongs to the
+  game, not the character. For Goku this lines up 269 entries, and of the 625
+  numbers Budokai 2 uses, 270 now hold a matching entry instead of 138, with
+  none worse off. Numbers with no match keep the Budokai 3 entry of that
+  number, as before.
+
 Checked in a fight with Budokai 3 Goku: he stands, walks, dashes, jumps and
-fights in his Budokai 3 animations. Entry numbers that moved between the games
-are not lined up yet, so some buttons do another move.
+fights in his Budokai 3 animations. Moves Budokai 3 does differently from
+Budokai 2, or that Budokai 2's code numbers in a way Budokai 3 lacks, can still
+do another move.
 
 ### Stages and capsules
 
