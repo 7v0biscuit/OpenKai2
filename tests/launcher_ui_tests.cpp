@@ -460,6 +460,35 @@ int main(int argc,char** argv) {
                     POINT middle{client.right/2,client.bottom/2};ClientToScreen(w,&middle);
                     SendMessageW(w,WM_MOUSEWHEEL,MAKEWPARAM(0,WORD(short(-WHEEL_DELTA))),MAKELPARAM(middle.x,middle.y));
                     require(reinterpret_cast<intptr_t>(GetPropW(w,L"OpenKai2.ScrollPos"))>top,"The mouse wheel did not scroll the page");
+                    {
+                        const auto palette=make_theme(initial.launcherTheme,initial.launcherAccent,initial.launcherColors);
+                        const auto dpiForWindow=reinterpret_cast<UINT(WINAPI*)(HWND)>(GetProcAddress(GetModuleHandleW(L"user32.dll"),"GetDpiForWindow"));
+                        const int dpi=dpiForWindow?int(dpiForWindow(w)):96;
+                        int examined=0;
+                        for(int step=0;step<4;++step) {
+                            SendMessageW(w,WM_MOUSEWHEEL,MAKEWPARAM(0,WORD(short(step<2?-WHEEL_DELTA:WHEEL_DELTA))),MAKELPARAM(middle.x,middle.y));
+                            struct Scan{HWND w;int dpi;COLORREF field;int checked;HWND bad;} scan{w,dpi,RGB(palette.field.r,palette.field.g,palette.field.b),0,nullptr};
+                            EnumChildWindows(w,[](HWND child,LPARAM data)->BOOL{
+                                auto& s=*reinterpret_cast<Scan*>(data);
+                                wchar_t kind[32]{};GetClassNameW(child,kind,32);
+                                if(_wcsicmp(kind,L"ComboBox")!=0 || !IsWindowVisible(child) || !IsWindowEnabled(child) || GetFocus()==child)return TRUE;
+                                RECT box{},client{};GetWindowRect(child,&box);GetClientRect(s.w,&client);
+                                MapWindowPoints(nullptr,s.w,reinterpret_cast<POINT*>(&box),2);
+                                if(box.top<MulDiv(80,s.dpi,96) || box.bottom>client.bottom-MulDiv(120,s.dpi,96))return TRUE;
+                                RECT screen{};GetWindowRect(child,&screen);POINT cursor{};
+                                if(GetCursorPos(&cursor) && PtInRect(&screen,cursor))return TRUE;
+                                RECT field{};GetClientRect(child,&field);
+                                const auto dc=GetDC(child);const auto pixel=GetPixel(dc,MulDiv(8,s.dpi,96),field.bottom/2);ReleaseDC(child,dc);
+                                ++s.checked;
+                                if(pixel!=s.field && !s.bad)s.bad=child;
+                                return TRUE;
+                            },reinterpret_cast<LPARAM>(&scan));
+                            require(!scan.bad,"A dropdown showed stale page content right after a wheel scroll");
+                            examined+=scan.checked;
+                        }
+                        require(examined>0,"No dropdown was in view to check after scrolling");
+                        SendMessageW(w,WM_VSCROLL,SB_TOP,0);
+                    }
                     SendMessageW(w,WM_VSCROLL,SB_TOP,0);
                     require(reinterpret_cast<intptr_t>(GetPropW(w,L"OpenKai2.ScrollPos"))==0,"Scrolling to the top did not reach the top");
                     click(w,101);

@@ -1076,8 +1076,19 @@ struct Window {
             return;
         const int next=std::clamp(value,0,pageCanvasHeight()-pageVisibleHeight());
         if(next==pageScroll)return;
-        pageScroll=next;layout();
+        pageScroll=next;layout();dropStaleHover();
         RedrawWindow(hwnd,nullptr,nullptr,RDW_INVALIDATE|RDW_UPDATENOW|RDW_ALLCHILDREN);
+    }
+    void dropStaleHover() {
+        POINT cursor{};
+        if (!GetCursorPos(&cursor)) return;
+        const auto under=[&](HWND control){RECT box{};GetWindowRect(control,&box);return PtInRect(&box,cursor)!=FALSE;};
+        if (hotButton) {
+            const auto found=controls.find(hotButton);
+            if (found==controls.end() || !under(found->second)) hotButton=0;
+        }
+        for (const auto& [id,control] : controls)
+            if (GetPropW(control,L"OpenKai2.Hot") && !under(control)) RemovePropW(control,L"OpenKai2.Hot");
     }
     void focusControl(int id) {
         if(dropdownOpen())suspendUi();
@@ -8074,7 +8085,7 @@ int run_window(const std::filesystem::path &initialIso) {
     }
     const auto fitted=fitWindowToMonitor({left,top,left+width,top+height});
     left=fitted.left;top=fitted.top;width=fitted.right-fitted.left;height=fitted.bottom-fitted.top;
-    auto hwnd = CreateWindowExW(0, type.lpszClassName, L"OpenKai2", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, left, top,
+    auto hwnd = CreateWindowExW(WS_EX_COMPOSITED, type.lpszClassName, L"OpenKai2", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, left, top,
                                 width, height, nullptr, nullptr, type.hInstance, &state);
     if (!hwnd)
         throw std::runtime_error("Cannot open the launcher window");
