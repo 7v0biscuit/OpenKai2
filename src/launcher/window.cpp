@@ -1076,7 +1076,8 @@ struct Window {
             return;
         const int next=std::clamp(value,0,pageCanvasHeight()-pageVisibleHeight());
         if(next==pageScroll)return;
-        pageScroll=next;layout();InvalidateRect(hwnd,nullptr,FALSE);
+        pageScroll=next;layout();
+        RedrawWindow(hwnd,nullptr,nullptr,RDW_INVALIDATE|RDW_UPDATENOW|RDW_ALLCHILDREN);
     }
     void focusControl(int id) {
         if(dropdownOpen())suspendUi();
@@ -1418,7 +1419,8 @@ struct Window {
         RECT bounds{};
         GetWindowRect(control, &bounds);
         MapWindowPoints(nullptr, hwnd, reinterpret_cast<POINT *>(&bounds), 2);
-        if (buffer.dc && bounds.right <= buffer.frame.width && bounds.bottom <= buffer.frame.height)
+        const bool current = paintedScroll == pageScroll && paintedPage == page;
+        if (current && buffer.dc && bounds.right <= buffer.frame.width && bounds.bottom <= buffer.frame.height)
             BitBlt(dc, r.left, r.top, r.right - r.left, r.bottom - r.top, buffer.dc, bounds.left + r.left,
                    bounds.top + r.top, SRCCOPY);
         else
