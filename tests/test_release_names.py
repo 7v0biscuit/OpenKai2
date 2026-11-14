@@ -103,3 +103,20 @@ class ReleaseNames(unittest.TestCase):
         edit = next(c for c in self.calls if c[:2] == ('release', 'edit'))
         self.assertEqual(edit[:5], ('release', 'edit', 'v0.1.10', '--title', 'v0.1.10'))
         self.assertFalse(self.deleted())
+
+    def test_titles_drop_a_zero_patch_number(self):
+        self.assertEqual(NAMES.display_title('v0.4.0'), 'v0.4')
+        self.assertEqual(NAMES.display_title('v1.0.0'), 'v1.0')
+        self.assertEqual(NAMES.display_title('v0.3.10'), 'v0.3.10')
+        self.assertEqual(NAMES.display_title('v0.4.1'), 'v0.4.1')
+
+    def test_zero_patch_release_is_titled_without_it(self):
+        self.after = dict(assets=self.assets, tagName='v0.4.0', name='v0.4', isDraft=False)
+        def command(*args):
+            self.calls.append(args)
+            if args[:3] == ('release', 'view', 'v0.4.0'):
+                return json.dumps(self.after)
+            return ''
+        NAMES.synchronize('v0.4.0', {'v0.4.0'}, command)
+        edit = next(c for c in self.calls if c[:2] == ('release', 'edit'))
+        self.assertEqual(edit[:5], ('release', 'edit', 'v0.4.0', '--title', 'v0.4'))

@@ -126,7 +126,7 @@ jobs:
           PY
           VERSION=$(python -c 'import json; print(json.load(open("../packaging/windows/release-input.json"))["version"])')
           TAG="v$VERSION"
-          TITLE=$(python -c 'import json; c=json.load(open("../packaging/windows/release-input.json")); print("v" + c["version"])')
+          TITLE=$(python -c 'import sys; sys.path.insert(0, "../tools/releases"); import sync_notes; print(sync_notes.display_title(sys.argv[1]))' "$TAG")
           # A manual run from main creates the version tag on the dispatched
           # commit when the release is published; tag pushes reuse their tag.
           TARGET=(--verify-tag)

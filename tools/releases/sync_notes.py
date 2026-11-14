@@ -15,6 +15,13 @@ def version_tag(tag):
     return 'v' + match[1] if match else None
 
 
+def display_title(tag):
+    match = re.fullmatch(r'v(\d+)\.(\d+)\.(\d+)', tag)
+    if match and match[3] == '0':
+        return f'v{match[1]}.{match[2]}'
+    return tag
+
+
 def gh(*arguments):
     for attempt in range(4):
         result = subprocess.run(['gh', *arguments], text=True, capture_output=True)
@@ -51,7 +58,8 @@ def synchronize(tag, published_tags, command=gh, notes_root=ROOT / 'docs/release
                 raise RuntimeError(f'{target} points to a different commit; preserved without changes')
         else:
             raise RuntimeError(f'Create {target} at {commit} before synchronizing {tag}')
-    arguments = ['release', 'edit', tag, '--title', target]
+    title = display_title(target)
+    arguments = ['release', 'edit', tag, '--title', title]
     if target != tag:
         arguments += ['--tag', target]
     notes = notes_root / (target[1:] + '.md')
@@ -59,7 +67,7 @@ def synchronize(tag, published_tags, command=gh, notes_root=ROOT / 'docs/release
         arguments += ['--notes-file', str(notes)]
     command(*arguments)
     after = json.loads(command('release', 'view', target, '--json', 'assets,tagName,name,isDraft'))
-    if (after['tagName'] != target or after['name'] != target or after['isDraft']
+    if (after['tagName'] != target or after['name'] != title or after['isDraft']
             or assets_of(before) != assets_of(after)):
         raise RuntimeError(f'Release verification failed for {target}; original tag retained')
     if target != tag:

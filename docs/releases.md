@@ -1,6 +1,8 @@
 # Windows release packaging
 
 Tags and display titles use only the semantic version, such as `v0.1.11`.
+A release whose patch number is 0 is titled without it: tag `v0.4.0` is named
+`v0.4`.
 Set `version` without the leading `v` in `packaging/windows/release-input.json`
 and add the corresponding notes under `docs/release-notes/<version>.md`.
 
