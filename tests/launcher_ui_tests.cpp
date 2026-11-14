@@ -467,6 +467,7 @@ int main(int argc,char** argv) {
                         int examined=0;
                         for(int step=0;step<4;++step) {
                             SendMessageW(w,WM_MOUSEWHEEL,MAKEWPARAM(0,WORD(short(step<2?-WHEEL_DELTA:WHEEL_DELTA))),MAKELPARAM(middle.x,middle.y));
+                            wait_until([&]{return GetPropW(w,L"OpenKai2.Gliding")==nullptr;},"Smooth scrolling did not settle");
                             struct Scan{HWND w;int dpi;COLORREF field;int checked;HWND bad;} scan{w,dpi,RGB(palette.field.r,palette.field.g,palette.field.b),0,nullptr};
                             EnumChildWindows(w,[](HWND child,LPARAM data)->BOOL{
                                 auto& s=*reinterpret_cast<Scan*>(data);

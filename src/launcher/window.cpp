@@ -53,6 +53,9 @@
 #include <utility>
 #include <memory>
 #include <mutex>
+#include <atomic>
+#include <condition_variable>
+#include <thread>
 #include <optional>
 #include <set>
 #include <shellapi.h>
@@ -296,7 +299,7 @@ constexpr int pageCount = 8, onlinePage = 1, speedrunPage = 2, modsPage = 3, sav
               profilePage = 12, finderPage = 13, notificationsPage=14, helpPage=15;
 constexpr UINT controlKeyMessage = WM_APP + 40, controlClearMessage = WM_APP + 41,
                pageClipMessage = WM_APP + 42, restoreUiMessage = WM_APP + 43,
-               deferredUiMessage = WM_APP + 44;
+               deferredUiMessage = WM_APP + 44, glideMessage = WM_APP + 45;
 constexpr std::array<int, 17> padChoices{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17};
 constexpr int controlsTop = 112, controlRowTop = 196;
 constexpr std::array<unsigned, 4> audioVolumes{100u, 75u, 50u, 25u};
@@ -1072,6 +1075,77 @@ struct Window {
                         page == settingsPage ? settingsHeight : page == profilePage ? 980 : page == 0 ? (width<1100 ? 1040 : 740) : page == savesPage ? 780 : 680, pageVisibleHeight());
     }
     void scrollPage(int value) {
+        scrollGliding=false;
+        glideActive=false;
+        RemovePropW(hwnd,L"OpenKai2.Gliding");
+        scrollPageNow(value);
+    }
+    int scrollReported() const {
+        if (scrollGliding) SetPropW(hwnd,L"OpenKai2.Gliding",reinterpret_cast<HANDLE>(1));
+        else RemovePropW(hwnd,L"OpenKai2.Gliding");
+        return scrollGliding ? scrollGoal : pageScroll;
+    }
+    void glideTo(int value) {
+        const int target=std::clamp(value,0,std::max(0,pageCanvasHeight()-pageVisibleHeight()));
+        if (!allowMotion() || dropdownOpen() || IsIconic(hwnd)) {
+            scrollPage(target);
+            return;
+        }
+        if (!scrollGliding) {
+            scrollAt=pageScroll;
+            scrollTickAt=std::chrono::steady_clock::now();
+        }
+        scrollGoal=target;
+        scrollGliding=target!=pageScroll || std::abs(scrollAt-target)>=0.5;
+        SetPropW(hwnd,L"OpenKai2.ScrollPos",reinterpret_cast<HANDLE>(intptr_t(scrollReported())));
+        if (!scrollGliding) return;
+        {
+            std::lock_guard lock(glideMutex);
+            glideActive=true;
+        }
+        if (!glideThread.joinable()) glideThread=std::thread([this]{glideLoop();});
+        glideWake.notify_one();
+    }
+    void glideStep() {
+        glideTickPending=false;
+        if (!scrollGliding) {glideActive=false;return;}
+        if (dropdownOpen()) {scrollPage(scrollGoal);return;}
+        const auto now=std::chrono::steady_clock::now();
+        const double elapsed=std::clamp(std::chrono::duration<double>(now-scrollTickAt).count(),0.0,0.1);
+        scrollTickAt=now;
+        scrollAt+=(scrollGoal-scrollAt)*(1.0-std::exp(-elapsed/0.055));
+        if (std::abs(scrollGoal-scrollAt)<0.5) {scrollAt=scrollGoal;scrollGliding=false;glideActive=false;}
+        scrollPageNow(int(std::lround(scrollAt)));
+        if (pageScroll!=int(std::lround(scrollAt))) {scrollGliding=false;glideActive=false;}
+        SetPropW(hwnd,L"OpenKai2.ScrollPos",reinterpret_cast<HANDLE>(intptr_t(scrollReported())));
+    }
+    void glideLoop() {
+        using Flush=HRESULT(WINAPI*)();
+        const auto module=LoadLibraryW(L"dwmapi.dll");
+        const auto flush=module?reinterpret_cast<Flush>(reinterpret_cast<void*>(GetProcAddress(module,"DwmFlush"))):nullptr;
+        std::unique_lock lock(glideMutex);
+        while (!glideStop) {
+            glideWake.wait(lock,[this]{return glideStop || glideActive;});
+            if (glideStop) break;
+            lock.unlock();
+            const auto began=std::chrono::steady_clock::now();
+            if (!flush || FAILED(flush()) || std::chrono::steady_clock::now()-began<std::chrono::microseconds(500))
+                std::this_thread::sleep_until(began+std::chrono::microseconds(4000));
+            if (glideActive && !glideTickPending.exchange(true)) PostMessageW(hwnd,glideMessage,0,0);
+            lock.lock();
+        }
+        lock.unlock();
+        if (module) FreeLibrary(module);
+    }
+    void stopGlideThread() {
+        {
+            std::lock_guard lock(glideMutex);
+            glideStop=true;
+        }
+        glideWake.notify_one();
+        if (glideThread.joinable()) glideThread.join();
+    }
+    void scrollPageNow(int value) {
         if (dropdownOpen())
             return;
         const int next=std::clamp(value,0,pageCanvasHeight()-pageVisibleHeight());
@@ -1497,7 +1571,14 @@ struct Window {
     std::vector<int> scrollOrder;
     int scrollPlanPage = -1;
     std::pair<LONG, LONG> scrollPlanSize{};
-    bool scrollPlanReady = false, pageDirty = true;
+    bool scrollPlanReady = false, pageDirty = true, scrollGliding = false;
+    double scrollAt = 0;
+    int scrollGoal = 0;
+    std::chrono::steady_clock::time_point scrollTickAt{};
+    std::thread glideThread;
+    std::mutex glideMutex;
+    std::condition_variable glideWake;
+    std::atomic<bool> glideActive{false}, glideTickPending{false}, glideStop{false};
     std::vector<uint32_t> pageCache;
     int pageCachePage = -1, pageCacheWidth = 0, pageCacheHeight = 0;
     void conceal(int id) {
@@ -2091,12 +2172,12 @@ struct Window {
         GetClientRect(hwnd, &rect);
         if (rect.right<=0 || rect.bottom<=0) return;
         const bool pageChanged=laidOutPage!=page;
-        if(pageChanged){pageScroll=0;laidOutPage=page;}
+        if(pageChanged){pageScroll=0;laidOutPage=page;scrollGliding=false;glideActive=false;}
         for (unsigned pass=0;pass<3;++pass) {
             const auto previous=rect;
             const int canvas=pageCanvasHeight();
             pageScroll=std::clamp(pageScroll,0,canvas-pageVisibleHeight());
-            SetPropW(hwnd,L"OpenKai2.ScrollPos",reinterpret_cast<HANDLE>(intptr_t(pageScroll)));
+            SetPropW(hwnd,L"OpenKai2.ScrollPos",reinterpret_cast<HANDLE>(intptr_t(scrollReported())));
             SetPropW(hwnd,L"OpenKai2.ScrollMax",reinterpret_cast<HANDLE>(intptr_t(canvas-1)));
             SetPropW(hwnd,L"OpenKai2.ScrollPage",reinterpret_cast<HANDLE>(intptr_t(pageVisibleHeight())));
             GetClientRect(hwnd,&rect);
@@ -2493,7 +2574,7 @@ struct Window {
             if (batch) batch=DeferWindowPos(batch,control,nullptr,where.x,where.y,0,0,flags);
         }
         if (batch) EndDeferWindowPos(batch);
-        SetPropW(hwnd,L"OpenKai2.ScrollPos",reinterpret_cast<HANDLE>(intptr_t(pageScroll)));
+        SetPropW(hwnd,L"OpenKai2.ScrollPos",reinterpret_cast<HANDLE>(intptr_t(scrollReported())));
         clipPageControls();
         return true;
     }
@@ -7958,7 +8039,11 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
             self->wheelRemainder -= steps*WHEEL_DELTA;
             UINT lines=3;SystemParametersInfoW(SPI_GETWHEELSCROLLLINES,0,&lines,0);
             const int distance=lines==WHEEL_PAGESCROLL ? self->pageVisibleHeight()-40 : int(std::min(lines,1000u))*18;
-            self->scrollPage(self->pageScroll-steps*distance);
+            if (steps) self->glideTo(self->scrollReported()-steps*distance);
+            return 0;
+        }
+        case glideMessage: {
+            self->glideStep();
             return 0;
         }
         case WM_VSCROLL: {
@@ -8037,6 +8122,7 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
             DestroyWindow(hwnd);
             return 0;
         case WM_DESTROY:
+            self->stopGlideThread();
             KillTimer(hwnd, 1);
             KillTimer(hwnd, 2);
             self->removeTray();
