@@ -14,11 +14,14 @@ class PresentationFilter {
     void drawImage(Texture2D frame, Rectangle source, Rectangle destination, bool cacheOutput);
     void drawFsr(Texture2D frame, Rectangle source, Rectangle destination, bool cacheOutput);
     void drawCached(Rectangle destination);
+    bool sharpenAfterDownsample(Texture2D frame, Rectangle source, Rectangle destination);
+    void applyEffect(unsigned effect, int w, int h, float gameRows);
     std::array<uint64_t,12> cacheKey_{};
     bool cacheValid_ = false;
     uint64_t processed_ = 0, reused_ = 0;
     Shader edge_{}, cubic_{}, linear_{}, easu_{}, rcas_{}, lanczos_{}, sharp_{}, downsample_{}, fxaaHigh_{}, fxaaUltra_{};
-    RenderTexture2D target_{}, fsrTarget_{}, output_{};
+    Shader sharpenFx_{}, vibranceFx_{}, scanlineFx_{};
+    RenderTexture2D target_{}, fsrTarget_{}, output_{}, effectTarget_{};
 };
 int test_presentation_filters();
 }

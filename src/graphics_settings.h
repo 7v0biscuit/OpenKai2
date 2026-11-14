@@ -7,9 +7,9 @@ namespace openkai2 {
 struct GraphicsSettings {
     unsigned width = 1280, height = 720;
     unsigned textureFilter = 0, upscaler = 1, antialiasing = 0;
-    unsigned aspect = 0, internalScale = 1, hdTextures = 0;
+    unsigned aspect = 0, internalScale = 1, hdTextures = 0, effect = 0;
     std::filesystem::path textureFolder;
-    bool borderless = false, vsync = true;
+    bool borderless = false, vsync = true, automaticScale = false;
 };
 constexpr unsigned automatic_internal_scale(unsigned displayHeight, bool hdTextures) {
     const unsigned scale = std::clamp((displayHeight + 447u) / 448u, 1u, 4u);

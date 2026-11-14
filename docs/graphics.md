@@ -37,7 +37,9 @@ graphics card cannot hold the chosen size at all, the game uses the largest
 size that fits and notes it in `startup.log`
 (`internal_resolution=4x does not fit this GPU; using 3x`).
 
-The chosen resolution is a maximum. When the graphics card cannot keep up and
+If you choose Native, 2x, 3x or 4x yourself, the game keeps exactly that
+resolution for the whole session, even when it runs below 60 FPS. With **Auto**
+the chosen resolution is a maximum: when the graphics card cannot keep up and
 the game starts falling behind 60 FPS (the card is busy more than 85% of the
 time and more than a tenth of frames are late, for two seconds in a row), the
 game lowers the internal resolution by one step, down to Native if needed.
@@ -94,6 +96,27 @@ some effects, keep their original look.
 Anti-aliasing runs before the picture is scaled to the window. Internal
 resolution 2x or higher also smooths edges, because the picture is averaged
 down to the window.
+
+## Upscaling
+
+The upscaler scales the game picture to the window when the picture is smaller
+than the window, for example at Native in a large window. When the picture is
+larger than the window, as with Auto internal resolution, it is averaged down
+instead; with **AMD FSR 1** chosen, FSR's sharpening pass then restores detail
+lost in the averaging, so the choice still matters at high internal
+resolutions.
+
+## Image effect
+
+| Choice | What it does |
+|---|---|
+| None | The picture as drawn |
+| Sharpen | Strengthens fine detail and outlines without halos: each pixel is pushed away from its neighbours but never past their brightest or darkest value |
+| Vibrant colors | Raises the saturation of dull colors more than already strong ones, with a slight contrast lift |
+| CRT scanlines | Dark gaps between the game's 448 lines and a gentle vignette, like a CRT television |
+
+The effect is the last step, after anti-aliasing and scaling, and works with
+every renderer. It is in **Settings > Graphics** and applies at the next launch.
 
 ### Making a texture pack
 

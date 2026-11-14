@@ -133,7 +133,7 @@ struct GpuRasterBackend::Impl {
         std::chrono::steady_clock::time_point holdUntil{},raised{};std::chrono::seconds hold{20};} load;
     void adapt(){
         static const bool fixed=[]{const char* value=std::getenv("OPENKAI2_FIXED_RESOLUTION");return value && *value=='1';}();
-        if(fixed)return;
+        if(fixed || !graphics_settings().automaticScale)return;
         const auto now=std::chrono::steady_clock::now();
         const uint64_t busy=runtime_work_total_ns(RuntimeWork::gpuDevice),fields=field_lateness.fields.load(std::memory_order_relaxed),
             late=field_lateness.late.load(std::memory_order_relaxed);
