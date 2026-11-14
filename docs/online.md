@@ -159,7 +159,9 @@ the other player's buttons for a frame have not arrived yet, the game repeats
 their last known buttons and keeps running. If the real buttons turn out
 different, the game returns to the last correct frame and replays up to the
 present without drawing or sound. It runs up to 8 frames ahead of the other
-player before it waits. Set `OPENKAI2_NETPLAY_ROLLBACK=0` on both PCs to go
+player before it waits. Rollback keeps working through loading screens. In the
+few frames the game cannot be saved, such as while it uses the memory card, it
+waits for the other player's buttons instead of guessing. Set `OPENKAI2_NETPLAY_ROLLBACK=0` on both PCs to go
 back to plain lockstep. `OPENKAI2_NETPLAY_LAG_MS` adds artificial delay to
 received inputs for testing. When a match ends, `startup.log` reports
 `[netplay] rollback predicted=... mispredicted=... rollbacks=...`.
@@ -170,7 +172,9 @@ It was built in steps:
    save states that replay exactly. `OPENKAI2_ROLLBACK_TEST=start,frames,depth`
    makes the game snapshot every frame, roll back `depth` frames every
    `3 * depth` frames, replay them, and report in `startup.log` whether the
-   replayed frames matched (`[rollback] ... differing=0`).
+   replayed frames matched (`[rollback] ... differing=0`). It also rolls back
+   over every stretch of frames the game could not save, except movies, and
+   logs each one (`[rollback] replayed N frames across a stretch ...`).
 2. Done: rollback snapshots leave the picture out and compare memory on
    several CPU cores (about 1.4 ms per snapshot on an idle four-core test
    machine). Rolled-back frames replay without waiting for real time, without

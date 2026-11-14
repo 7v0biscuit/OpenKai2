@@ -238,10 +238,12 @@ void point(EeScheduler &scheduler) {
 
 bool rollbackEnabled = false, rollbackDone = false;
 uint64_t rollbackStart = 1800, rollbackFrames = 600, rollbackDepth = 4, rollbackLast = ~0ull, rollbackHighest = 0, rollbackRolled = 0;
+bool rollbackMovie = false;
+uint64_t rollbackGapFrames = 0;
 std::unique_ptr<DeltaStates> rollbackStates;
 std::map<uint64_t, uint64_t> rollbackHashes;
 struct RollbackTotals {
-    uint64_t captures = 0, pages = 0, small = 0, rollbacks = 0, compared = 0, differing = 0, firstDifference = 0;
+    uint64_t captures = 0, pages = 0, small = 0, rollbacks = 0, compared = 0, differing = 0, firstDifference = 0, gapRollbacks = 0, longestGap = 0;
     double captureMs = 0, captureMax = 0, restoreMs = 0, restoreMax = 0, compareMs = 0, replayMs = 0;
     std::chrono::steady_clock::time_point replayBegan{};
 } rollbackTotals;
@@ -277,17 +279,24 @@ void rollback_point(EeScheduler &scheduler) {
     rollbackLast = tick;
     auto &totals = rollbackTotals;
     const uint64_t hash = hash_memory();
+    bool matched = true;
     if (const auto known = rollbackHashes.find(tick); known != rollbackHashes.end()) {
         ++totals.compared;
-        if (known->second != hash && !totals.differing++)
+        matched = known->second == hash;
+        if (!matched && !totals.differing++)
             totals.firstDifference = tick - rollbackStart;
     } else
         rollbackHashes[tick] = hash;
     if (replay_turbo.load() && tick >= rollbackHighest) {
         replay_turbo = false;
         totals.replayMs += milliseconds(totals.replayBegan);
+        if (rollbackGapFrames)
+            std::cerr << "[rollback] replayed " << rollbackGapFrames << " frames across a stretch that could not be saved in "
+                      << milliseconds(totals.replayBegan) << " ms, " << (matched ? "same" : "DIFFERENT") << " result\n";
+        rollbackGapFrames = 0;
     }
     const auto serialize = [&](StateArchive &archive) { serialize_machine(scheduler, archive); };
+    const uint64_t before = rollbackStates->size() ? rollbackStates->newest() : 0;
     auto began = std::chrono::steady_clock::now();
     rollbackStates->capture(tick, serialize);
     double elapsed = milliseconds(began);
@@ -308,7 +317,8 @@ void rollback_point(EeScheduler &scheduler) {
         std::cerr << "[rollback] frames=" << frame << " depth=" << rollbackDepth << " captures=" << totals.captures
                   << " capture_avg_ms=" << totals.captureMs / captures << " capture_max_ms=" << totals.captureMax
                   << " memory_compare_avg_ms=" << totals.compareMs / captures << " changed_pages_avg=" << double(totals.pages) / captures << " other_state_bytes=" << totals.small
-                  << " rollbacks=" << totals.rollbacks << " restore_avg_ms=" << totals.restoreMs / rollbacks
+                  << " rollbacks=" << totals.rollbacks << " across_unsavable=" << totals.gapRollbacks << " longest_unsavable=" << totals.longestGap
+                  << " restore_avg_ms=" << totals.restoreMs / rollbacks
                   << " restore_max_ms=" << totals.restoreMax << " replay_avg_ms=" << totals.replayMs / rollbacks
                   << " replay_skipped_draw_packets=" << replay_skipped_packets.load() << " resimulated_frames_compared=" << totals.compared
                   << " differing=" << totals.differing;
@@ -319,10 +329,18 @@ void rollback_point(EeScheduler &scheduler) {
     }
     rollbackHighest = std::max(rollbackHighest, tick);
     buttons = pattern(frame);
-    if (tick > rollbackRolled && frame % (rollbackDepth * 3u) == rollbackDepth * 3u - 1u && rollbackStates->holds(tick - rollbackDepth)) {
+    const bool acrossGap = tick > rollbackRolled && !rollbackMovie && before >= rollbackStart && before + 1u < tick && rollbackStates->holds(before);
+    rollbackMovie = false;
+    if (acrossGap || (tick > rollbackRolled && frame % (rollbackDepth * 3u) == rollbackDepth * 3u - 1u && rollbackStates->holds(tick - rollbackDepth))) {
+        const uint64_t target = acrossGap ? before : tick - rollbackDepth;
         rollbackRolled = tick;
+        if (acrossGap) {
+            ++totals.gapRollbacks;
+            totals.longestGap = std::max(totals.longestGap, tick - before);
+            rollbackGapFrames = tick - before;
+        }
         began = std::chrono::steady_clock::now();
-        const bool restored = rollbackStates->restore(tick - rollbackDepth, serialize);
+        const bool restored = rollbackStates->restore(target, serialize);
         elapsed = milliseconds(began);
         if (!restored)
             throw std::runtime_error("Rollback test could not restore a kept frame");
@@ -331,12 +349,21 @@ void rollback_point(EeScheduler &scheduler) {
         ++totals.rollbacks;
         totals.replayBegan = std::chrono::steady_clock::now();
         replay_turbo = true;
-        rollbackLast = tick - rollbackDepth;
+        rollbackLast = target;
         buttons = pattern(rollbackLast - rollbackStart);
         if (hash_memory() != rollbackHashes[rollbackLast] && !totals.differing++)
             totals.firstDifference = rollbackLast - rollbackStart;
         ++totals.compared;
     }
+}
+
+void rollback_unsavable(EeScheduler &scheduler, bool movie) {
+    if (rollbackDone || rollbackLast == ~0ull)
+        return;
+    const uint64_t tick = scheduler.currentVSyncTick();
+    rollbackMovie = rollbackMovie || movie;
+    if (tick > rollbackStart)
+        buttons = pattern(tick - rollbackStart);
 }
 }
 
@@ -504,6 +531,8 @@ void machine_state_point(EeScheduler &scheduler) {
         probe::point(scheduler);
     if (probe::rollbackEnabled && savable)
         probe::rollback_point(scheduler);
+    else if (probe::rollbackEnabled)
+        probe::rollback_unsavable(scheduler, reason == "a movie is playing");
     if (session && savable)
         session->state_point();
     if (!pendingRequest)
