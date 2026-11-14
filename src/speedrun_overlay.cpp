@@ -485,6 +485,8 @@ struct Overlay {
         if (status.phase == net::Phase::playing) {
             text = "Online  vs " + status.opponent + "   " + std::to_string(status.ping_ms) + " ms   delay " +
                    std::to_string(status.delay);
+            if (status.rollback_frames)
+                text += "   rollback " + std::to_string(status.rollback_frames);
             if (status.waiting)
                 text += "   waiting for " + status.opponent;
         } else {

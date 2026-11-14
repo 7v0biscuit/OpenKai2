@@ -293,7 +293,9 @@ void Session::stop() {
 
 Status Session::status() const {
     std::lock_guard lock(mutex_);
-    return status_;
+    Status current = status_;
+    current.rollback_frames = recentRollbackAt_ + rollback_display_frames >= frontier_ ? recentRollback_ : 0;
+    return current;
 }
 
 void Session::end(const std::string &message) {
@@ -763,6 +765,10 @@ void Session::rollback_point() {
         ++rollbackStats_.rollbacks;
         rollbackStats_.replayed += tick - from;
         rollbackStats_.longest = std::max(rollbackStats_.longest, tick - from);
+        if (recentRollbackAt_ + rollback_display_frames < tick)
+            recentRollback_ = 0;
+        recentRollback_ = std::max<uint64_t>(recentRollback_, tick - from);
+        recentRollbackAt_ = tick;
         return;
     }
     machine_.capture(tick);

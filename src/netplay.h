@@ -28,6 +28,7 @@ inline constexpr unsigned max_prediction = 8;
 inline constexpr unsigned rollback_delay = 2;
 inline constexpr unsigned sync_interval = 30;
 inline constexpr unsigned max_sync_wait = 3;
+inline constexpr unsigned rollback_display_frames = 120;
 
 using Input = std::array<uint8_t, 6>;
 Input neutral_input();
@@ -85,6 +86,7 @@ struct Status {
     Phase phase = Phase::connecting;
     std::string opponent, message;
     unsigned delay = 0, ping_ms = 0;
+    uint64_t rollback_frames = 0;
     bool waiting = false, desynced = false;
     uint64_t desync_tick = 0;
 };
@@ -148,6 +150,7 @@ class Session {
     std::deque<Delayed> delayed_;
     uint64_t confirmed_ = 0, rollbackTo_ = ~0ull, frontier_ = 0, captured_ = ~0ull, newestRemote_ = 0;
     int64_t remoteAdvantage_ = 0;
+    uint64_t recentRollback_ = 0, recentRollbackAt_ = 0;
     bool remoteAdvantageFresh_ = false;
     bool replaying_ = false;
     RollbackStats rollbackStats_;

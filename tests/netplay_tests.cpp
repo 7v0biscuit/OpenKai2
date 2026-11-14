@@ -554,6 +554,9 @@ RollbackStats rollback_match(std::chrono::microseconds guestPeriod, uint64_t fra
     require(hostStats.mispredicted > 10 && guestStats.mispredicted > 10 && hostStats.rollbacks > 10 && guestStats.rollbacks > 10,
             "late inputs were predicted wrongly and corrected");
     require(hostStats.longest <= max_prediction + 1u && guestStats.longest <= max_prediction + 1u, "rollbacks stay within the window");
+    require(std::max(hostStatus.rollback_frames, guestStatus.rollback_frames) > 0 &&
+                hostStatus.rollback_frames <= max_prediction + 1u && guestStatus.rollback_frames <= max_prediction + 1u,
+            "the online bar reports the recent rollback depth");
     const uint64_t settled = hostBegan + frames - 30;
     size_t compared = 0, pressed0 = 0, pressed1 = 0;
     for (const auto &[tick, inputs] : hostMachine.seen) {

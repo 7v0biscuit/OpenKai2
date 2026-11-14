@@ -89,7 +89,9 @@ the host sends its memory card and full game state, so both games start the
 same. Your controls work while the games link up. The games then exchange button presses a few frames ahead
 and use rollback to hide the delay (see below). Every two seconds they compare memory; if they ever differ,
 the in-game bar shows **out of sync**. The bar at the top shows the opponent,
-ping and input delay.
+ping and input delay. While the game is correcting late inputs it also shows
+**rollback N**, the most frames it has had to replay in the last two seconds;
+it disappears again when the connection is steady.
 
 Both players need the same OpenKai2 version and Budokai 2 disc. Mods, save states,
 the randomizer and speedrun mode are off online. **Music off** is ignored online,
