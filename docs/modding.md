@@ -555,8 +555,12 @@ mods/
 - **There are 24 unused IDs to fill** (1, 13, 14, 19 and 43 to 62), so 24
   added characters at most. ID 63 is Random, and the game keeps character IDs
   in single bytes beside it.
-- **New spots borrow a portrait.** The sprite sheet has one portrait per
-  original spot; adding portraits needs the sheet's format mapped.
+- **New spots borrow a portrait and show Random's name.** The sprite sheet
+  (`DATA_CMN` entry 901, an `#AMA` of 120 sprites whose frames point at
+  texture pages in another file) has one portrait per original spot. The name
+  shown over the 3D model follows the spot too: a character put on spot 1 with
+  `select` shows spot 1's original name, and a new spot, numbered from 29 where
+  Random was, shows Random's. The sprite it is drawn from is not found yet.
 - **Not every character table is mapped.** Data the record does not name, such
   as select-screen voice lines, story scenes and skill capsules, stays the base
   character's.
