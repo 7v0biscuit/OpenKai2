@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstring>
 #include <map>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 
@@ -1056,15 +1057,98 @@ std::vector<uint8_t> merge_move_scripts(const std::vector<uint8_t> &shared, cons
     return out;
 }
 
-std::optional<Budokai3Moveset> budokai3_moveset(SourceDisc &budokai3, size_t model, SourceDisc &game,
-                                                size_t ownMotions) {
+std::map<uint32_t, uint32_t> combine_renumbers(const std::vector<std::map<uint32_t, uint32_t>> &tables,
+                                               const std::map<uint32_t, uint32_t> &own) {
+    std::map<uint32_t, std::map<uint32_t, int>> votes;
+    for (const auto &table : tables)
+        for (const auto &[budokai2, budokai3] : table)
+            ++votes[budokai2][budokai3];
+    auto combined = own;
+    for (const auto &[budokai2, choices] : votes) {
+        int total = 0, best = 0;
+        uint32_t chosen = 0;
+        for (const auto &[budokai3, count] : choices) {
+            total += count;
+            if (count > best)
+                best = count, chosen = budokai3;
+        }
+        if (best >= 3 && best * 2 > total)
+            combined.emplace(budokai2, chosen);
+    }
+    return combined;
+}
+
+namespace {
+std::vector<uint8_t> script_part(const std::vector<uint8_t> &file, uint32_t version) {
+    for (uint32_t part = 0; part < 8; ++part) {
+        auto piece = amb_part(file, part);
+        if (piece.size() >= 16 && std::memcmp(piece.data(), "#BSK", 4) == 0 && read32(piece, 12) == version)
+            return piece;
+    }
+    return {};
+}
+
+std::optional<size_t> own_script_entry(SourceDisc &budokai3, size_t model) {
     const auto &entries = budokai3.entries(roster_archive);
-    std::optional<size_t> scriptEntry, effectsEntry;
+    std::optional<size_t> found;
     for (size_t entry = model > 8 ? model - 8 : 0; entry < model && entry < entries.size(); ++entry) {
         const auto first = amb_part(budokai3.read_entry(roster_archive, entry), 0);
         if (first.size() >= 16 && std::memcmp(first.data(), "#BSK", 4) == 0 && read32(first, 12) == 4)
-            scriptEntry = entry;
-        else if (first.size() >= 4 && std::memcmp(first.data(), "#AMC", 4) == 0)
+            found = entry;
+    }
+    return found;
+}
+
+std::map<uint32_t, uint32_t> roster_renumber(SourceDisc &budokai3, size_t model, SourceDisc &game,
+                                             const std::vector<uint8_t> &sharedScript, uint32_t sharedMotions,
+                                             bool &ownMatched) {
+    ownMatched = false;
+    const auto models = read_budokai3_models(budokai3);
+    const auto roster = read_disc_roster(game);
+    if (!models || !roster)
+        return {};
+    std::string imported;
+    for (const auto &character : models->characters)
+        if (!character.files.empty() && character.files.front().second == model)
+            imported = character.internal;
+    std::map<std::string, size_t> budokai2Scripts;
+    for (const auto &character : roster->characters)
+        for (const auto &[field, entry] : character.files)
+            if (field == moves_field)
+                budokai2Scripts.emplace(character.internal, entry);
+    std::vector<std::map<uint32_t, uint32_t>> tables;
+    std::map<uint32_t, uint32_t> own;
+    std::set<std::string> done;
+    for (const auto &character : models->characters) {
+        const auto counterpart = budokai2Scripts.find(character.internal);
+        if (character.files.empty() || counterpart == budokai2Scripts.end() || !done.insert(character.internal).second)
+            continue;
+        const auto scriptEntry = own_script_entry(budokai3, character.files.front().second);
+        if (!scriptEntry)
+            continue;
+        const auto theirs = amb_part(budokai3.read_entry(roster_archive, *scriptEntry), 0);
+        const auto ours = script_part(game.read_entry(roster_archive, counterpart->second), 3);
+        if (ours.empty())
+            continue;
+        tables.push_back(align_move_scripts(ours, sharedScript, theirs, sharedMotions));
+        if (character.internal == imported) {
+            own = tables.back();
+            ownMatched = true;
+        }
+    }
+    if (tables.empty())
+        return {};
+    return combine_renumbers(tables, own);
+}
+}
+
+std::optional<Budokai3Moveset> budokai3_moveset(SourceDisc &budokai3, size_t model, SourceDisc &game,
+                                                size_t ownMotions) {
+    const auto &entries = budokai3.entries(roster_archive);
+    std::optional<size_t> scriptEntry = own_script_entry(budokai3, model), effectsEntry;
+    for (size_t entry = model > 8 ? model - 8 : 0; entry < model && entry < entries.size(); ++entry) {
+        const auto first = amb_part(budokai3.read_entry(roster_archive, entry), 0);
+        if (first.size() >= 4 && std::memcmp(first.data(), "#AMC", 4) == 0)
             effectsEntry = entry;
     }
     if (!scriptEntry || !effectsEntry)
@@ -1078,22 +1162,26 @@ std::optional<Budokai3Moveset> budokai3_moveset(SourceDisc &budokai3, size_t mod
         return std::nullopt;
     const auto extra = amb_part(game.read_entry(roster_archive, ownMotions), 1);
     std::map<uint32_t, uint32_t> renumber;
+    bool ownMatched = false;
     try {
-        std::vector<uint8_t> gokuScript;
-        const auto gokuFile = game.read_entry(roster_archive, budokai2_goku_moves);
-        for (uint32_t part = 0; part < 8 && gokuScript.empty(); ++part) {
-            const auto piece = amb_part(gokuFile, part);
-            if (piece.size() >= 16 && std::memcmp(piece.data(), "#BSK", 4) == 0 && read32(piece, 12) == 3)
-                gokuScript = piece;
-        }
-        const auto gokuOwn = amb_part(budokai3.read_entry(roster_archive, budokai3_goku_own_moves), 0);
-        if (!gokuScript.empty() && gokuOwn.size() >= 16 && std::memcmp(gokuOwn.data(), "#BSK", 4) == 0 && read32(gokuOwn, 12) == 4)
-            renumber = align_move_scripts(gokuScript, sharedScript, gokuOwn, read32(sharedMotions, 16));
+        renumber = roster_renumber(budokai3, model, game, sharedScript, read32(sharedMotions, 16), ownMatched);
     } catch (const std::exception &) {
         renumber.clear();
     }
+    if (renumber.empty()) {
+        try {
+            const auto gokuScript = script_part(game.read_entry(roster_archive, budokai2_goku_moves), 3);
+            const auto gokuOwn = amb_part(budokai3.read_entry(roster_archive, budokai3_goku_own_moves), 0);
+            if (!gokuScript.empty() && gokuOwn.size() >= 16 && std::memcmp(gokuOwn.data(), "#BSK", 4) == 0 &&
+                read32(gokuOwn, 12) == 4)
+                renumber = align_move_scripts(gokuScript, sharedScript, gokuOwn, read32(sharedMotions, 16));
+        } catch (const std::exception &) {
+            renumber.clear();
+        }
+    }
     Budokai3Moveset moveset;
     moveset.renumbered = renumber.size();
+    moveset.ownMatched = ownMatched;
     moveset.motions = amb_of({merge_motions({sharedMotions, ownMotionsPack}), extra}, {3, 3});
     moveset.moves = amb_of({amb_part(effects, 0), amb_part(effects, 2),
                             merge_move_scripts(sharedScript, ownScript, read32(sharedMotions, 16), renumber),

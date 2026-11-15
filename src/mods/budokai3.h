@@ -54,7 +54,10 @@ std::optional<uint32_t> budokai3_voice_bank(SourceDisc &disc, uint32_t character
 struct Budokai3Moveset {
     std::vector<uint8_t> moves, motions;
     size_t renumbered = 0;
+    bool ownMatched = false;
 };
+std::map<uint32_t, uint32_t> combine_renumbers(const std::vector<std::map<uint32_t, uint32_t>> &tables,
+                                               const std::map<uint32_t, uint32_t> &own = {});
 std::vector<uint8_t> merge_motions(const std::vector<std::vector<uint8_t>> &packs);
 std::vector<uint8_t> merge_move_scripts(const std::vector<uint8_t> &shared, const std::vector<uint8_t> &own,
                                         uint32_t sharedMotions, const std::map<uint32_t, uint32_t> &renumber = {});

@@ -287,6 +287,13 @@ void budokai3_moves_are_merged() {
     const auto aligned = align_move_scripts(script(1, 1u << 16 | 9, 0x5C, 3), script(0, 5, 0x7A), script(3, 3u << 16 | 4, 0x5C), 100);
     require(aligned.size() == 1 && aligned.at(1) == 3,
             "Move entries were not lined up by their shared command items");
+    const std::vector<std::map<uint32_t, uint32_t>> tables = {
+        {{12, 16}, {512, 520}}, {{12, 16}, {512, 530}}, {{12, 16}, {512, 540}}, {{12, 17}, {600, 601}}};
+    const auto combined = combine_renumbers(tables, {{512, 513}});
+    require(combined.at(12) == 16 && combined.at(512) == 513 && !combined.count(600) && combined.size() == 2,
+            "Move numbers were not chosen by majority with the character's own alignment first");
+    require(!combine_renumbers({{{5, 6}}, {{5, 7}}, {{5, 6}}, {{5, 7}}}).count(5),
+            "A tied vote picked a move number");
 }
 
 int main() {

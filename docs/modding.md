@@ -122,17 +122,22 @@ What is known about converting Budokai 3 movesets:
   wearer's second motion pack is kept.
 
 - Entry numbers: Budokai 2's code asks for a move by its entry number, and
-  Budokai 3 renumbered many entries. The importer lines them up using Goku,
-  who is in both games: it reads Budokai 2 Goku's script from your Budokai 2
-  disc and Budokai 3 Goku's merged script from the Budokai 3 disc, scores every
-  pair of entries by how many 16-byte command items they share, and aligns the
-  two lists in order, allowing entries to be missing on either side. Pairs that
+  Budokai 3 renumbered many entries. For one character, the importer reads its
+  Budokai 2 script and its merged Budokai 3 script, scores every pair of
+  entries by how many 16-byte command items they share, and aligns the two
+  lists in order, allowing entries to be missing on either side. Pairs that
   share at least half their items are a match, and the converted entry is
-  filed under the Budokai 2 number as well as kept at its own. The same table
-  applies to every Budokai 3 character, since the numbering belongs to the
-  game, not the character. For Goku this lines up 269 entries, and of the 625
-  numbers Budokai 2 uses, 270 now hold a matching entry instead of 138, with
-  none worse off. Numbers with no match keep the Budokai 3 entry of that
+  filed under the Budokai 2 number as well as kept at its own.
+- It does this for all 31 characters in both games and takes a vote. Numbers
+  below 512 are numbered the same way for everyone (358 becomes 375 for 30
+  characters, 12 becomes 16 for 27), so a number takes the Budokai 3 entry most
+  characters agree on, when at least 3 do and they are more than half. Numbers
+  from 512 up are each character's own special moves and do not agree, so a
+  character who is in both games uses its own alignment first, and the vote
+  fills the rest. Goku now has 290 numbers matched instead of 275 and Vegeta
+  299, with his own specials instead of Goku's. A character only in Budokai 3
+  gets the 231 voted numbers; the 59 more that Goku's table gave were all
+  Goku's own specials. Numbers with no match keep the Budokai 3 entry of that
   number, as before.
 
 Checked in a fight with Budokai 3 Goku: he stands, walks, dashes, jumps and
