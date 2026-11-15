@@ -44,9 +44,18 @@ uint32_t capsule_seen(uint32_t stack) {
     return active <= capsule_original_count ? stack : capsule_seen_buffer - 0x80u;
 }
 
+uint32_t capsule_backup_address(uint32_t original) {
+    return active <= capsule_original_count ? original : capsule_backup_moved + (original - capsule_backup);
+}
+
+uint32_t capsule_inventory_bytes(uint32_t original) {
+    return active <= capsule_original_count ? original : original - capsule_original_count + active;
+}
+
 void configure_capsules(uint32_t count) {
     const uint32_t room = (capsule_moved_limit - capsule_moved_file - capsule_head_bytes) / capsule_record_bytes;
-    if (count > room || count > capsule_seen_limit - capsule_seen_buffer || capsule_inventory + count > capsule_file + capsule_head_bytes + capsule_original_count * capsule_record_bytes)
+    if (count > room || count > capsule_seen_limit - capsule_seen_buffer ||
+        capsule_backup_moved + capsule_backup_bytes - capsule_original_count + count > capsule_seen_buffer - 0x80u || capsule_inventory + count > capsule_file + capsule_head_bytes + capsule_original_count * capsule_record_bytes)
         throw std::runtime_error("The capsule table holds " + std::to_string(count) + " capsules; at most " +
                                  std::to_string(room) + " fit");
     active = std::max(count, capsule_original_count);

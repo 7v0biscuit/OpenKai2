@@ -103,6 +103,20 @@ EDITS.append(('sub_00280510_0x280510', 0x280a18, 'ADD32(GPR_U32(ctx, 29), 128)',
 EDITS.append(('sub_00280510_0x280510', 0x280a38, 'ADD32(GPR_U32(ctx, 16), GPR_U32(ctx, 29))',
               'ADD32(GPR_U32(ctx, 16), openkai2::mods::capsule_seen(GPR_U32(ctx, 29)))'))
 
+BACKUP = [
+    ('sub_00236CE0_0x236ce0', 0x2373a4), ('sub_002377D0_0x2377d0', 0x237c3c), ('sub_00238160_0x238160', 0x23818c),
+    ('sub_002386B0_0x2386b0', 0x2386e4), ('sub_0027ACF0_0x27acf0', 0x27b298), ('sub_0027ACF0_0x27acf0', 0x27b2ac),
+    ('sub_0027ACF0_0x27acf0', 0x27b2ec), ('sub_0027ACF0_0x27acf0', 0x27b320), ('sub_00292CD0_0x292cd0', 0x293af8),
+    ('sub_00292CD0_0x292cd0', 0x293b14), ('sub_00292CD0_0x292cd0', 0x293b3c), ('sub_00292CD0_0x292cd0', 0x293ba4),
+    ('sub_00292CD0_0x292cd0', 0x295fc0), ('sub_00292CD0_0x292cd0', 0x295fd4), ('sub_00292CD0_0x292cd0', 0x295ffc),
+    ('sub_00292CD0_0x292cd0', 0x29605c), ('sub_002A1880_0x2a1880', 0x2a18d0),
+]
+for name, address in BACKUP:
+    EDITS.append((name, address, re.compile(r'ADD32\(GPR_U32\(ctx, \d+\), %d\)' % (-26544 & 0xFFFFFFFF)),
+                  'openkai2::mods::capsule_backup_address(0x699850u)'))
+for name, address in [('sub_00238160_0x238160', 0x238194), ('sub_002386B0_0x2386b0', 0x2386f0)]:
+    EDITS.append((name, address, 'ADD32(GPR_U32(ctx, 0), 528)', 'openkai2::mods::capsule_inventory_bytes(528)'))
+
 
 HOOKS = [('sub_002334E0_0x2334e0', 0x2334e0, 'openkai2::mods::capsule_extra_load(rdram, GPR_U32(ctx, 4));'),
          ('sub_00233810_0x233810', 0x233810, 'openkai2::mods::capsule_extra_save(rdram, GPR_U32(ctx, 5));')]

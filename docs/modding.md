@@ -546,12 +546,28 @@ Numbers `0x1CD` to `0x1E9` unlock characters through the byte table at
 
 Budokai 3 keeps its capsules in `USR/DATA_USA.AFS` entry 4, a version 2 `#SKA`
 of 596 records of 40 bytes: the same 8-byte mask (numbered by Budokai 3's
-characters), the same fields in the same order, and 8 more bytes at the end.
-595 records are used and 518 can be owned. None is byte for byte the same as a
-Budokai 2 record. Adding them to Budokai 2 means more capsule numbers than 520
-in the game, its menus and its save, a character mask renumbered to Budokai 2's
-IDs, and for skills a move number in Budokai 2's numbering; this is not done
-yet. Capsule names are not plain text on either disc.
+characters), the same head bytes `0x08` to `0x0F`, and a 24-byte tail in place
+of Budokai 2's 16. In the tail the effect amounts are 16-bit (`0x16` and
+`0x18`), and the effect numbers and icon numbers at `0x14` and `0x15` differ from
+Budokai 2's: a capsule with the same category byte (`0x09`) and amounts has a
+different effect number in each game. 595 records are used and 518 can be owned.
+None is byte for byte the same as a Budokai 2 record.
+
+A mod whose entry 851 holds more than 520 records moves the table to `0xB0000`
+and keeps the owned counts past 520 in `openkai2-capsules.bin` beside the
+memory card. Three more places still hold exactly 520 counts:
+
+- the copy of the inventory at `0x699850` (`0x210` bytes, made at `0x238160`
+  and restored at `0x2386B0`), which Edit Skills in versus mode reads; with a
+  larger table it moves to `0xE8000` and grows with the table;
+- the memory-card save images at `0x69A800`, `0xAB0` bytes each, with the
+  counts at `0x89E`. The Skill List, the shop and 20 other functions read the
+  counts straight from these, so capsules past 520 do not show there yet;
+- the capsule names, which are pre-drawn images looked up by capsule number
+  (read at `0x281C78`), so a capsule past 520 has no name yet.
+
+A character mask also has to be renumbered to Budokai 2's IDs, and a skill
+needs a move number in Budokai 2's numbering.
 
 ## Mod folder layout
 

@@ -955,7 +955,8 @@ int main() {
 
         {
             require(capsule_count() == capsule_original_count && capsule_address(0x694AA0u) == 0x694AA0u &&
-                        capsule_list_bytes(2080) == 2080 && capsule_seen(0x1000u) == 0x1000u,
+                        capsule_list_bytes(2080) == 2080 && capsule_seen(0x1000u) == 0x1000u &&
+                        capsule_backup_address(capsule_backup) == capsule_backup && capsule_inventory_bytes(528) == 528,
                     "The unmodded capsule table moved");
             Bytes table(capsule_head_bytes + 600 * capsule_record_bytes, 0);
             std::memcpy(table.data(), "#SKA", 4);
@@ -967,7 +968,8 @@ int main() {
                     "A capsule table was misread");
             configure_capsules(600);
             require(capsule_count() == 600 && capsule_address(0x694AA0u) == capsule_moved_file + 0x20 &&
-                        capsule_list_bytes(2080) == 2400 && capsule_seen(0x1000u) == capsule_seen_buffer - 0x80,
+                        capsule_list_bytes(2080) == 2400 && capsule_seen(0x1000u) == capsule_seen_buffer - 0x80 &&
+                        capsule_backup_address(capsule_backup) == capsule_backup_moved && capsule_inventory_bytes(528) == 608,
                     "A larger capsule table did not move");
             const auto store = root / "mc0" / capsule_store_name;
             write_capsule_store(store, Bytes{1, 2, 3});
