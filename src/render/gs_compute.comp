@@ -241,12 +241,14 @@ void main(){
 #elif defined(SEED)
 void main(){
     uint scale=params[0],width=params[2],height=params[6];
-    uint hx=gl_WorkGroupID.x*8u+gl_LocalInvocationID.x,hy=gl_WorkGroupID.y*8u+gl_LocalInvocationID.y;
+    uint hx=gl_WorkGroupID.x*8u+gl_LocalInvocationID.x,hy=params[7]+gl_WorkGroupID.y*8u+gl_LocalInvocationID.y;
     if(hx>=width || hy>=height)return;
     ivec2 position=ivec2(hx/scale,hy/scale);
     uint psm=params[8],count=tables[psm*8u+3u];
     if(params[9]!=4294967295u){
         uint bits=bitAddress(psm,params[9],params[10],position);
+        uint page=(bits>>16u)&511u;
+        if(((params[14u+(page>>5u)]>>(page&31u))&1u)==0u)return;
         uint value=memory[bits>>5u]>>(bits&31u);
         if(count==16u)value&=65535u;
         hiColor[params[1]+hy*params[2]+hx]=value;
@@ -255,6 +257,8 @@ void main(){
         uint depthPsm=params[11],depthCount=tables[depthPsm*8u+3u];
         uint mask=depthCount==32u ? 4294967295u : (1u<<depthCount)-1u;
         uint bits=bitAddress(depthPsm,params[12],params[10],position);
+        uint page=(bits>>16u)&511u;
+        if(((params[14u+(page>>5u)]>>(page&31u))&1u)==0u)return;
         hiDepth[params[3]+hy*params[4]+hx]=(memory[bits>>5u]>>(bits&31u))&mask;
     }
 }

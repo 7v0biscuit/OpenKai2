@@ -258,6 +258,17 @@ struct GpuRasterBackend::Impl {
         }
         shadows[chosen].touched=++shadowClock;return chosen;
     }
+    unsigned seedRows(std::vector<uint32_t>& params,const Pages& pages,uint32_t psm,uint32_t base,uint32_t width)const{
+        constexpr unsigned strip=8u;unsigned first=shadowHeight,last=0u;
+        for(unsigned y=0;y<shadowHeight;y+=strip)if((gpu::rectangle_pages(psm,base,width,0u,y,width*64u,strip)&pages).any()){first=std::min(first,y);last=y+strip;}
+        if(first>=last)return 0u;
+        params[7]=first*scale;
+        for(unsigned word=0;word<gpu::PageCount/32u;++word){
+            uint32_t bits=0u;for(unsigned bit=0;bit<32u;++bit)if(pages[word*32u+bit])bits|=1u<<bit;
+            params.push_back(bits);
+        }
+        return ((last-first)*scale+7u)/8u;
+    }
     std::vector<uint32_t> shadowParams(unsigned color,unsigned depth,bool hasDepth,uint32_t width)const{
         const uint32_t stride=width*64u*scale;
         return {scale,uint32_t(color*slotWords()),stride,uint32_t(depth*slotWords()),stride,hasDepth ? 1u : 0u,shadowHeight*scale,0u,
@@ -324,20 +335,25 @@ struct GpuRasterBackend::Impl {
         if(palette.empty())palette.push_back(0u);
         const size_t commandWords=commands.size();
         statistics.tiles+=activeTiles.size();++statistics.batches;totalTiles.fetch_add(activeTiles.size(),std::memory_order_relaxed);totalBatches.fetch_add(1u,std::memory_order_relaxed);
-        std::vector<uint32_t> hiresParams,seedColor,seedDepth;unsigned groups=0u,seedX=0u,seedY=0u;
+        std::vector<uint32_t> hiresParams,seedColor,seedDepth;unsigned groups=0u,seedX=0u,seedColorY=0u,seedDepthY=0u;
         if(hires){
             if(target[2]>0u && target[2]*64u<=shadowWidth){
                 const unsigned color=acquireShadow(colorShadows,target[0],target[2],target[4]);
                 const bool useDepth=batchDepth;
                 const unsigned depth=useDepth ? acquireShadow(depthShadows,target[1],target[2],target[3]) : 0u;
                 hiresParams=shadowParams(color,depth,useDepth,target[2]);
-                seedX=(target[2]*64u*scale+7u)/8u;seedY=(shadowHeight*scale+7u)/8u;
+                seedX=(target[2]*64u*scale+7u)/8u;
                 auto& colorShadow=colorShadows[color];
                 if(!colorShadow.valid || (colorShadow.stale&batchWrites).any()){
-                    seedColor=hiresParams;seedColor[5]=0u;seedColor[8]=target[4];seedColor[9]=target[0];colorShadow.valid=true;colorShadow.stale.reset();
+                    seedColor=hiresParams;seedColor[5]=0u;seedColor[8]=target[4];seedColor[9]=target[0];
+                    seedColorY=seedRows(seedColor,colorShadow.valid ? colorShadow.stale&colorShadow.pages : colorShadow.pages,target[4],target[0],target[2]);
+                    colorShadow.valid=true;colorShadow.stale.reset();
                 }
                 if(useDepth && (!depthShadows[depth].valid || depthShadows[depth].stale.any())){
-                    seedDepth=hiresParams;seedDepth[5]=1u;seedDepth[9]=4294967295u;seedDepth[11]=target[3];seedDepth[12]=target[1];depthShadows[depth].valid=true;depthShadows[depth].stale.reset();
+                    auto& depthShadow=depthShadows[depth];
+                    seedDepth=hiresParams;seedDepth[5]=1u;seedDepth[9]=4294967295u;seedDepth[11]=target[3];seedDepth[12]=target[1];
+                    seedDepthY=seedRows(seedDepth,depthShadow.valid ? depthShadow.stale&depthShadow.pages : depthShadow.pages,target[3],target[1],target[2]);
+                    depthShadow.valid=true;depthShadow.stale.reset();
                 }
                 for(unsigned i=0;i<colorSlots;++i)if(i!=color && colorShadows[i].used)colorShadows[i].stale|=colorShadows[i].pages&batchWrites;
                 for(unsigned i=0;i<depthSlots;++i)if((!useDepth || i!=depth) && depthShadows[i].used)depthShadows[i].stale|=depthShadows[i].pages&batchWrites;
@@ -345,9 +361,9 @@ struct GpuRasterBackend::Impl {
             }else invalidateShadows(batchWrites);
         }
         device->post([r=resources,cmd=std::move(commands),bins=std::move(bins),refs=std::move(refs),colors=std::move(palette),
-                      hiresParams=std::move(hiresParams),seedColor=std::move(seedColor),seedDepth=std::move(seedDepth),groups,seedX,seedY](gpu::Host&){
-            if(!seedColor.empty())r->compute->hires_seed(seedColor,seedX,seedY);
-            if(!seedDepth.empty())r->compute->hires_seed(seedDepth,seedX,seedY);
+                      hiresParams=std::move(hiresParams),seedColor=std::move(seedColor),seedDepth=std::move(seedDepth),groups,seedX,seedColorY,seedDepthY](gpu::Host&){
+            if(!seedColor.empty())r->compute->hires_seed(seedColor,seedX,seedColorY);
+            if(!seedDepth.empty())r->compute->hires_seed(seedDepth,seedX,seedDepthY);
             r->compute->raster(cmd,bins,refs,colors);
             if(groups)r->compute->hires_raster(hiresParams,groups);
         });commands.clear();commands.reserve(commandWords);palette.clear();++hdGeneration;activeTiles.clear();paletteOffsets.clear();references=0u;batchWrites.reset();batchSources.reset();batchDepth=false;
