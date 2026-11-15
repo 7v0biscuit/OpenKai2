@@ -345,10 +345,29 @@ select = 5                 ; take over spot 5 (0 to 28)
 alternate = 5              ; or share spot 5; R2 switches between them
 new_cell = yes             ; or add a spot of its own before Random
 icon = 5                   ; the spot whose portrait a new spot shows
+voice = add:my_voice.bin   ; a USR/DATA_US.AFS entry this mod adds, or a number
 ```
 
 The changes are made in memory after the executable loads and are listed in
 the startup log as `[mods] roster:` and `[mods] select:` lines. Later mods win.
+
+A fighter's voice is a sound bank in `USR/DATA_US.AFS`: an `#AMB` of three
+files (the samples, an `IECS` head and an `IECS` sequence file). The fight
+loads the entry in the record's word at `0x1DC` (Goku 0x61, Krillin 0x6D; read
+at `0x1D2F88`). `voice` sets that word, and an `add:` name is looked up among
+the entries mods add to `USR/DATA_US.AFS` rather than `DATA_CMN.AFS`.
+
+Budokai 3's banks have the same layout and version. Budokai 3 keeps a 372-byte
+record per character at `0x428C60`, in the same order as its character records
+at `0x447440`; the word at `0x24` is the character's bank in
+`USR/DATA_USA.AFS` and the word at `0x2C` is always `0x64080000`. Krillin's,
+Raditz's, Nappa's and Cell's banks are byte for byte the size of Budokai 2's.
+When the import tool adds a whole Budokai 3 model as a new character, it copies
+the character's bank and sets `voice`. The 44 characters in that table have a
+bank; fusions and the characters after them keep their base character's voice.
+A Krillin copy with Broly's bank loads it and fights with sound; the lines
+were not checked by ear. Which sound a move asks for comes from the moveset, so
+with a Budokai 2 moveset a move may play a different line from the same voice.
 
 A filled ID also takes its base character's entries in the other tables the
 game indexes by character ID, where the unused IDs hold nothing:
@@ -539,7 +558,8 @@ mods/
 - **New spots borrow a portrait.** The sprite sheet has one portrait per
   original spot; adding portraits needs the sheet's format mapped.
 - **Not every character table is mapped.** Data the record does not name, such
-  as voices, story scenes and skill capsules, stays the base character's.
+  as select-screen voice lines, story scenes and skill capsules, stays the base
+  character's.
 - **Stages, movesets and capsules are not mapped yet**, in any game. Stage and
   capsule names are images and text on the disc, not in the executable.
 - Only ISO9660 disc images are read. Files that span several extents are not

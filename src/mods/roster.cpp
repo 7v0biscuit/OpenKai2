@@ -188,7 +188,7 @@ RosterSection parse_section(const std::vector<std::string> &lines) {
                 section.shared_cells.push_back(*cell);
         } else if (key == "new_cell")
             section.new_cell = lower(value) == "yes";
-        else if (key.rfind("file.", 0) == 0 && lower(value).rfind("add:", 0) == 0)
+        else if ((key.rfind("file.", 0) == 0 || key == "voice") && lower(value).rfind("add:", 0) == 0)
             section.added.push_back(trim(value.substr(4)));
     }
     return section;
@@ -288,6 +288,8 @@ void append_roster(const fs::path &mod, const RosterCharacter &character,
         out << "new_cell = yes\n";
     if (character.icon_cell)
         out << "icon = " << *character.icon_cell << '\n';
+    if (character.voice)
+        out << "voice = " << *character.voice << '\n';
     out.close();
     if (!out)
         throw std::runtime_error("Cannot write " + (mod / "roster.ini").string());
@@ -311,6 +313,7 @@ int32_t roster_offset(int32_t product) {
 std::vector<RosterCharacter> load_roster(const std::vector<fs::path> &mods, const DiscOverlay::Summary &overlay) {
     const auto key = IsoIndex::key(roster_archive).value_or(std::string());
     const auto added = overlay.added.find(key);
+    const auto voices = overlay.added.find(IsoIndex::key(voice_archive).value_or(std::string()));
     std::vector<RosterCharacter> characters;
     for (const auto &mod : mods) {
         const auto file = mod / "roster.ini";
@@ -360,7 +363,21 @@ std::vector<RosterCharacter> load_roster(const std::vector<fs::path> &mods, cons
                         return found->second;
                 throw std::runtime_error(where + ": no enabled mod adds " + text.substr(4) + " to " + roster_archive);
             };
-            if (name == "slot") {
+            if (name == "voice") {
+                RosterField field;
+                field.offset = voice_field;
+                if (lower(value).rfind("add:", 0) != 0) {
+                    field.value = number(value, where);
+                } else {
+                    const auto wanted = lower(trim(value.substr(4)));
+                    if (voices == overlay.added.end() || !voices->second.count(wanted))
+                        throw std::runtime_error(where + ": no enabled mod adds " + value.substr(4) + " to " +
+                                                 voice_archive);
+                    field.value = voices->second.at(wanted);
+                }
+                current->voice = value;
+                current->fields.push_back(field);
+            } else if (name == "slot") {
                 current->slot = number(value, where);
                 if (current->slot >= roster_slots)
                     throw std::runtime_error(where + ": slot must be 0 to " + std::to_string(roster_slots - 1));

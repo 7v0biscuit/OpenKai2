@@ -23,6 +23,8 @@ inline constexpr uint32_t roster_select_cells = 29u;
 inline constexpr const char *roster_archive = "USR/DATA_CMN.AFS";
 inline constexpr uint32_t roster_id_cells = 0x3A4100u;
 inline constexpr uint32_t roster_costumes = 0x37B310u;
+inline constexpr const char *voice_archive = "USR/DATA_US.AFS";
+inline constexpr uint32_t voice_field = 0x1DCu;
 
 struct RosterIdTable {
     uint32_t address, bytes, count;
@@ -59,6 +61,7 @@ struct RosterCharacter {
     std::vector<uint32_t> alternate_cells;
     bool new_cell = false;
     std::optional<uint32_t> icon_cell;
+    std::optional<std::string> voice;
 };
 
 inline constexpr uint32_t roster_files_begin = 0x74u, roster_files_end = 0x1E4u;

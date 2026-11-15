@@ -46,6 +46,11 @@ void bake_budokai3_shading(std::vector<uint8_t> &model);
 
 inline constexpr size_t budokai3_shared_moves = 165u, budokai2_goku_moves = 173u, budokai3_goku_own_moves = 356u;
 inline constexpr uint32_t moves_field = 0x1D8u, motions_field = 0x1B4u;
+inline constexpr uint32_t budokai3_fighters = 0x428C60u, budokai3_fighter_bytes = 372u, budokai3_fighter_count = 44u;
+inline constexpr uint32_t budokai3_fighter_voice = 0x24u, budokai3_fighter_mark = 0x2Cu;
+inline constexpr uint32_t budokai3_fighter_mark_value = 0x64080000u;
+inline constexpr const char *budokai3_voice_archive = "USR/DATA_USA.AFS";
+std::optional<uint32_t> budokai3_voice_bank(SourceDisc &disc, uint32_t character);
 struct Budokai3Moveset {
     std::vector<uint8_t> moves, motions;
     size_t renumbered = 0;

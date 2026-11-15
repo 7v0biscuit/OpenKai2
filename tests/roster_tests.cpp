@@ -919,6 +919,39 @@ int main() {
         }
         require(baseless, "ID 55 was accepted without a base");
 
+        {
+            DiscOverlay::Summary voiced = overlay;
+            voiced.added["USR/DATA_US.AFS"]["broly_voice.bin"] = 1275;
+            const auto voiceMod = root / "voiced";
+            fs::create_directories(voiceMod / "afs" / "USR" / "DATA_US.AFS" / "add");
+            write(voiceMod / "afs" / "USR" / "DATA_US.AFS" / "add" / "broly_voice.bin", Bytes(4, 1));
+            RosterCharacter speaker;
+            speaker.slot = 60;
+            speaker.base = 4;
+            speaker.name = "BROLY";
+            speaker.voice = "add:broly_voice.bin";
+            append_roster(voiceMod, speaker, {});
+            const auto loaded = load_roster({voiceMod}, voiced);
+            require(loaded.size() == 1 && loaded[0].fields.size() == 1 && loaded[0].fields[0].offset == voice_field &&
+                        loaded[0].fields[0].value == 1275 && read_roster_sections(voiceMod)[0].added ==
+                                                                  std::vector<std::string>{"broly_voice.bin"},
+                    "A voice from DATA_US was not set in the record");
+            auto voiceRam = memory_image();
+            apply_roster(voiceRam.data(), voiceRam.size(), loaded);
+            require(get32(voiceRam.data() + roster_record_address(60) + voice_field) == 1275,
+                    "The record's voice bank field was not written");
+            bool missing = false;
+            try {
+                load_roster({voiceMod}, overlay);
+            } catch (const std::runtime_error &error) {
+                missing = std::string(error.what()).find("USR/DATA_US.AFS") != std::string::npos;
+            }
+            require(missing, "A voice no mod adds was accepted");
+            require(remove_roster_character(voiceMod, 60) == 1 &&
+                        !fs::exists(voiceMod / "afs" / "USR" / "DATA_US.AFS" / "add" / "broly_voice.bin"),
+                    "Removing the character left its voice file");
+        }
+
         file(root / "bad" / "roster.ini", "[character]\nslot = 13\nselect = 29\n");
         bool rejected = false;
         try {

@@ -5134,8 +5134,24 @@ struct Window {
         const auto mod = importMod(model.name);
         startModJob(Job::importMod, L"Importing…",
                     [disc = source, game = game, entry, own, versions, targets, mod, added, costumes, summary, ownMoves,
-                     wearerMotions, stem](const std::shared_ptr<Progress> &progress) {
+                     wearerMotions, stem, force, character = model.id](const std::shared_ptr<Progress> &progress) mutable {
                         std::vector<std::pair<uint32_t, std::string>> moveFields;
+                        std::wstring voiceNote;
+                        if (force) {
+                            report(progress, L"Importing the voice", 0, 1);
+                            if (const auto bank = mods::budokai3_voice_bank(*disc, character >> 8)) {
+                                mods::ImportTarget target = targets.front();
+                                target.file = mods::voice_archive;
+                                target.name = stem + "_" + std::to_string(entry) + "_voice.bin";
+                                target.source = utf8(disc->image().filename().wstring()) + ":" +
+                                                mods::budokai3_voice_archive + "#" + std::to_string(*bank);
+                                const auto written =
+                                    mods::import_bytes(mod, target, disc->read_entry(mods::budokai3_voice_archive, *bank));
+                                for (auto &character : added)
+                                    character.voice = "add:" + written.filename().string();
+                                voiceNote = L" It has its own Budokai 3 fight voice.";
+                            }
+                        }
                         if (ownMoves) {
                             report(progress, L"Converting the Budokai 3 moves", 0, 1);
                             const auto moveset = mods::budokai3_moveset(*disc, entry, *game, wearerMotions);
@@ -5162,7 +5178,7 @@ struct Window {
                         }
                         report(progress, L"Importing the model", versions.size(), versions.size());
                         Result result{Job::importMod};
-                        result.message = summary + L" It loads the next time the game starts.";
+                        result.message = summary + voiceNote + L" It loads the next time the game starts.";
                         return result;
                     });
     }

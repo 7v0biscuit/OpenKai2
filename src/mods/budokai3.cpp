@@ -111,6 +111,33 @@ bool textures_fit(const ModelShape &model, const ModelShape &wearer) {
     return !wearer.textures.empty() && !match_textures(model.textures, wearer.textures).empty();
 }
 
+std::optional<uint32_t> budokai3_voice_bank(SourceDisc &disc, uint32_t character) {
+    if (character >= budokai3_fighter_count)
+        return std::nullopt;
+    std::vector<uint8_t> elf;
+    try {
+        elf = disc.read_file("SLUS_209.98");
+    } catch (const std::runtime_error &) {
+        return std::nullopt;
+    }
+    const auto image = load_executable(elf);
+    if (!image)
+        return std::nullopt;
+    const auto word = [&](uint32_t at) {
+        const auto &memory = image->memory;
+        return image->contains(at, 4) ? memory[at] | memory[at + 1] << 8 | memory[at + 2] << 16 |
+                                            uint32_t(memory[at + 3]) << 24
+                                      : 0u;
+    };
+    const uint32_t record = budokai3_fighters + character * budokai3_fighter_bytes;
+    if (word(record + budokai3_fighter_mark) != budokai3_fighter_mark_value)
+        return std::nullopt;
+    const auto bank = word(record + budokai3_fighter_voice);
+    if (!bank || bank >= disc.entries(budokai3_voice_archive).size())
+        return std::nullopt;
+    return bank;
+}
+
 std::optional<DiscRoster> read_budokai3_models(SourceDisc &disc) {
     std::vector<uint8_t> elf;
     try {
