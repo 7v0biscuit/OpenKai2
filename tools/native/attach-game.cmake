@@ -34,7 +34,7 @@ function(openkai2_attach_generated_sources)
     add_library(openkai2_disc STATIC "${project_root}/src/disc_image.cpp" "${project_root}/src/mods/afs.cpp"
         "${project_root}/src/mods/disc_overlay.cpp" "${project_root}/src/mods/mod_library.cpp" "${project_root}/src/mods/mod_package.cpp"
         "${project_root}/src/mods/importer.cpp" "${project_root}/src/mods/roster.cpp"
-        "${project_root}/src/mods/select_alternates.cpp" "${project_root}/src/mods/select_screen.cpp"
+        "${project_root}/src/mods/select_alternates.cpp" "${project_root}/src/mods/select_screen.cpp" "${project_root}/src/mods/capsules.cpp"
         "${project_root}/src/mods/disc_identity.cpp" "${project_root}/src/mods/budokai3.cpp" "${project_root}/src/mods/stages.cpp"
         "${project_root}/src/cpu_difficulty.cpp" "${project_root}/src/randomizer.cpp" "${project_root}/src/speedrun_rules.cpp")
     target_include_directories(openkai2_disc PUBLIC "${project_root}/src")
@@ -111,6 +111,10 @@ function(openkai2_attach_generated_sources)
             --directory "$ENV{OPENKAI2_WORK_DIR}/budokai2-native/output"
             COMMAND_ERROR_IS_FATAL ANY)
         execute_process(COMMAND "${Python3_EXECUTABLE}"
+            "${project_root}/tools/native/patch-capsules.py"
+            --directory "$ENV{OPENKAI2_WORK_DIR}/budokai2-native/output"
+            COMMAND_ERROR_IS_FATAL ANY)
+        execute_process(COMMAND "${Python3_EXECUTABLE}"
             "${project_root}/tools/native/patch-ee-branches.py"
             --directory "$ENV{OPENKAI2_WORK_DIR}/budokai2-native/output"
             COMMAND_ERROR_IS_FATAL ANY)
@@ -129,6 +133,7 @@ function(openkai2_attach_generated_sources)
         "${project_root}/tools/native/patch-projection.py"
         "${project_root}/tools/native/patch-vector-macros.py"
         "${project_root}/tools/native/patch-select-screen.py"
+        "${project_root}/tools/native/patch-capsules.py"
         "${project_root}/tools/native/patch-ee-branches.py"
         "${project_root}/tools/native/patch-tail-jumps.py"
         "${project_root}/tools/native/patch-fpu-sqrt.py")

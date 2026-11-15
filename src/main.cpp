@@ -8,6 +8,7 @@
 #include "mods/disc_overlay.h"
 #include "mods/mod_library.h"
 #include "mods/roster.h"
+#include "mods/capsules.h"
 #include "mods/stages.h"
 #include "mods/select_alternates.h"
 #include "mods/select_screen.h"
@@ -398,6 +399,14 @@ int main(int argc, char* argv[]) {
             std::cout << "[mods] " << line << std::endl;
         for (const auto& line : openkai2::mods::configure_select_screen(runtime.memory().getRDRAM(),PS2_RAM_SIZE,roster))
             std::cout << "[mods] " << line << std::endl;
+        try {
+            openkai2::mods::set_capsule_store(paths.mcRoot / openkai2::mods::capsule_store_name);
+            for (const auto& line : openkai2::mods::install_capsules(mods))
+                std::cout << "[mods] " << line << std::endl;
+        } catch (const std::exception& error) {
+            openkai2::mods::configure_capsules(openkai2::mods::capsule_original_count);
+            std::cout << "[mods] capsules: " << error.what() << std::endl;
+        }
         std::vector<std::string> stageNotes;
         const auto stages=openkai2::mods::load_stage_mods(mods,applied,&stageNotes);
         for (const auto& note : stageNotes) std::cout << "[mods] " << note << std::endl;

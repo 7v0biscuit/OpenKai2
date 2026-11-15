@@ -4,6 +4,7 @@
 #include "mods/budokai3.h"
 #include "mods/disc_identity.h"
 #include "mods/roster.h"
+#include "mods/capsules.h"
 #include "mods/select_alternates.h"
 #include "mods/select_screen.h"
 #include "mods/stages.h"
@@ -950,6 +951,46 @@ int main() {
             require(remove_roster_character(voiceMod, 60) == 1 &&
                         !fs::exists(voiceMod / "afs" / "USR" / "DATA_US.AFS" / "add" / "broly_voice.bin"),
                     "Removing the character left its voice file");
+        }
+
+        {
+            require(capsule_count() == capsule_original_count && capsule_address(0x694AA0u) == 0x694AA0u &&
+                        capsule_list_bytes(2080) == 2080 && capsule_seen(0x1000u) == 0x1000u,
+                    "The unmodded capsule table moved");
+            Bytes table(capsule_head_bytes + 600 * capsule_record_bytes, 0);
+            std::memcpy(table.data(), "#SKA", 4);
+            put32(table, 0x04, capsule_head_bytes);
+            put32(table, 0x10, 600);
+            put32(table, 0x14, capsule_record_bytes);
+            const auto read = read_capsule_table(table);
+            require(read && read->count == 600 && !read_capsule_table(Bytes(table.begin(), table.end() - 1)),
+                    "A capsule table was misread");
+            configure_capsules(600);
+            require(capsule_count() == 600 && capsule_address(0x694AA0u) == capsule_moved_file + 0x20 &&
+                        capsule_list_bytes(2080) == 2400 && capsule_seen(0x1000u) == capsule_seen_buffer - 0x80,
+                    "A larger capsule table did not move");
+            const auto store = root / "mc0" / capsule_store_name;
+            write_capsule_store(store, Bytes{1, 2, 3});
+            require(read_capsule_store(store, 600).size() == 80 && read_capsule_store(store, 600)[2] == 3 &&
+                        read_capsule_store(store, 521) == Bytes{1},
+                    "Owned capsule counts past 520 were not kept");
+            Bytes ram(0x700000, 0);
+            set_capsule_store(store);
+            capsule_extra_load(ram.data(), capsule_progress);
+            require(ram[capsule_inventory + capsule_original_count + 1] == 2, "Owned capsules past 520 were not loaded");
+            ram[capsule_inventory + capsule_original_count + 5] = 9;
+            capsule_extra_save(ram.data(), capsule_progress);
+            require(read_capsule_store(store, 600)[5] == 9, "Owned capsules past 520 were not saved");
+            capsule_extra_save(ram.data(), 0x660000u);
+            configure_capsules(capsule_original_count);
+            set_capsule_store({});
+            bool refused = false;
+            try {
+                configure_capsules(100000);
+            } catch (const std::runtime_error &) {
+                refused = true;
+            }
+            require(refused && capsule_count() == capsule_original_count, "An oversized capsule table was accepted");
         }
 
         file(root / "bad" / "roster.ini", "[character]\nslot = 13\nselect = 29\n");
