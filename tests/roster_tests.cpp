@@ -871,10 +871,53 @@ int main() {
         require(id_table_row(44) == 0 && id_table_row(13) == 13 && id_table_row(45) == 45 &&
                     id_table_row(4) == 4,
                 "A filled ID past the move-effects table does not read its base's row");
+        require(roster_row(44, 43) == 0 && roster_row(44, 53) == 44 && roster_row(13, 43) == 13 && roster_row(45, 43) == 45,
+                "A filled ID past a table does not read its base's row");
         require(voice_row(44, 36) == 0 && voice_row(44, 32) == 0 && voice_row(13, 36) == 13 && voice_row(35, 36) == 35,
                 "A filled ID past the voice tables does not read its base's voices");
         reset_select_screen();
         require(id_table_row(44) == 44, "A reset select screen kept a move-effects row");
+
+        require(roster_slot_unused(53) && roster_slot_unused(62) && !roster_slot_unused(63) && !roster_slot_unused(2),
+                "IDs 53 to 62 are not offered as free slots");
+        std::vector<uint32_t> full;
+        for (uint32_t id = 0; id < roster_slots; ++id)
+            if (roster_slot_unused(id) && id != 62)
+                full.push_back(id);
+        require(full.size() == 23 && free_roster_slot(full) == 62u && !free_roster_slot([&] {
+                    auto all = full;
+                    all.push_back(62);
+                    return all;
+                }()),
+                "The last free slot is not ID 62");
+        require(roster_offset(0) == 0 && roster_offset(52 * 712) == 52 * 712 && roster_offset(-712) == -712 &&
+                    roster_offset(63 * 712) == 63 * 712 && roster_offset(53 * 712 + 4) == 53 * 712 + 4 &&
+                    uint32_t(roster_records + roster_offset(53 * 712)) == roster_extra_records &&
+                    uint32_t(roster_records + roster_offset(62 * 712)) == roster_extra_records + 9 * 712,
+                "Records past ID 52 are not read from the added area");
+        file(root / "high" / "roster.ini", "[character]\nslot = 60\nbase = 4\nname = KRILLIN 60\nnew_cell = yes\n");
+        auto high = load_roster({root / "high"}, overlay);
+        auto highRam = memory_image();
+        apply_roster(highRam.data(), highRam.size(), high);
+        const auto highLines = configure_select_screen(highRam.data(), highRam.size(), high);
+        require(std::string(reinterpret_cast<const char *>(highRam.data() + roster_record_address(60))) == "KRILLIN 60" &&
+                    std::equal(highRam.begin() + roster_record_address(60) + roster_name_bytes,
+                               highRam.begin() + roster_record_address(60) + roster_record_bytes,
+                               highRam.begin() + roster_record_address(4) + roster_name_bytes) &&
+                    highRam[roster_select_grid + 29] == 60 && highRam[roster_id_cells + 60] == 29 &&
+                    highRam[roster_costumes + 60] == highRam[roster_costumes + 4] && id_table_row(60) == 4 &&
+                    voice_row(60, 36) == 4 && preview_row(60) == 4 && roster_row(60, 53) == 4 &&
+                    roster_row(60, 57) == 4 && roster_row(60, 43) == 4 && roster_row(4, 53) == 4 && roster_row(61, 53) == 61,
+                "ID 60 did not get its own record, spot and its base's tables");
+        reset_select_screen();
+        file(root / "baseless" / "roster.ini", "[character]\nslot = 55\nname = NOBODY\n");
+        bool baseless = false;
+        try {
+            load_roster({root / "baseless"}, overlay);
+        } catch (const std::runtime_error &error) {
+            baseless = std::string(error.what()).find("needs a base") != std::string::npos;
+        }
+        require(baseless, "ID 55 was accepted without a base");
 
         file(root / "bad" / "roster.ini", "[character]\nslot = 13\nselect = 29\n");
         bool rejected = false;

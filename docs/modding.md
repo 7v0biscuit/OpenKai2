@@ -322,7 +322,13 @@ on the spot of the last character chosen. Each spot shows sprite 36 + its
 number from one sprite sheet, `DATA_CMN` entry 901.
 
 IDs 1, 13, 14, 19 and 43 to 52 have names but no data, and the game never
-shows them. A mod fills one with `roster.ini`:
+shows them. IDs 53 to 62 have no record in the executable at all; OpenKai2
+keeps their records at `0xA0000`, in memory below the executable that the
+game never uses, and the translated code that finds a record by ID (every
+multiply by 712 that indexes `0x389D40`) goes through `roster_offset`
+(`src/mods/roster.h`), which points IDs 53 to 62 there. ID 63 (`0x3F`) is
+Random, so 62 is the last. A mod fills an ID with `roster.ini`; IDs 53 to 62
+need a `base`:
 
 ```
 [character]
@@ -349,8 +355,18 @@ game indexes by character ID, where the unused IDs hold nothing:
 | `0x376F30` | 12 bytes | IDs 0 to 40 | per form, the index of the move effects its attacks use (read at `0x20B340`); unused IDs hold -1, so their special moves draw nothing and hit nothing |
 | `0x378850` | 4 bytes | IDs 0 to 31 | voice clips in `ADX_US.AFS`, as `(2 << 16) \| entry` |
 | `0x3788D0`, `0x378960` | 4 bytes | IDs 0 to 35 | voice files in `ADX_US.AFS`, as `(2 << 16) \| entry` |
-| `0x377120` | 4 bytes | IDs 0 to 52 | the `DATA_US.AFS` entry of the name plate |
+| `0x377120` | 4 bytes | IDs 0 to 52 | the `DATA_US.AFS` entry of the name plate (IDs 53 to 62 read their base's through `id_table_row`, at `0x20BD20` and `0x20C3B0`) |
 | `0x3A1D60` | 20 bytes | IDs 0 to 40 | hair physics per costume (read at `0x200AC0`) |
+| `0x3743A0` | 4 bytes | IDs 0 to 56 | a `DATA_US.AFS` entry loaded for each fighter (read at `0x1C7940`) |
+| `0x378FF0` | 16 bytes | IDs 0 to 42 | the fight HUD's portrait: a `DATA_US.AFS` entry and its layout (read at `0x267DC0`) |
+| `0x377AC0` | 24 bytes | IDs 0 to 52 | the aura of each form: its type (one of 7 handlers at `0x377330`), colour and size (read at `0x211970`) |
+
+The last three, and the name plates of IDs 53 to 62, are read through
+`roster_row` (`src/mods/select_screen.h`): a filled ID past a table's end, or
+any filled ID from 53 to 62, reads its base character's row. Without it an ID
+past the portrait table loaded entry 0 and showed no portrait in the fight
+HUD, and IDs 53 to 62 loaded garbage entries or called an aura handler that
+does not exist.
 
 IDs 43 to 52 lie past the move-effects and hair tables. The translated
 code that reads them (`0x20B340`, `0x20BA60` and `0x20C3B0` for move effects,
@@ -505,7 +521,9 @@ mods/
 
 ## Limits
 
-- **There are 14 unused IDs to fill**, so 14 added characters at most.
+- **There are 24 unused IDs to fill** (1, 13, 14, 19 and 43 to 62), so 24
+  added characters at most. ID 63 is Random, and the game keeps character IDs
+  in single bytes beside it.
 - **New spots borrow a portrait.** The sprite sheet has one portrait per
   original spot; adding portraits needs the sheet's format mapped.
 - **Not every character table is mapped.** Data the record does not name, such

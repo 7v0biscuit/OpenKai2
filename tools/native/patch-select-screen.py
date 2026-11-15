@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""Let the translated character select screen grow past 30 cells.
+"""Let the translated character select screen grow past 30 cells, and let
+character IDs 53 to 62 have records of their own.
 
 Each edit swaps a constant in one translated instruction for a call into
 src/mods/select_screen.h. The calls return the original constants unless a
-roster mod adds select-screen spots, so the unmodded screen is unchanged.
+roster mod adds select-screen spots or characters, so the unmodded game is
+unchanged.
 """
 import argparse
 import re
@@ -77,6 +79,36 @@ for address, count in [(0x24a14c, 32), (0x24a184, 36), (0x24a1c0, 36)]:
     EDITS.append(('sub_0024A0C0_0x24a0c0', address, 'SLL32(GPR_U32(ctx, 3), 2)',
                   f'SLL32(openkai2::mods::voice_row(GPR_U32(ctx, 3), {count}), 2)'))
 
+ROSTER_RECORDS = [
+    ('sub_001D6F20_0x1d6f20', [0x1d6fd4]), ('sub_001E7570_0x1e7570', [0x1e767c]),
+    ('sub_001EA290_0x1ea290', [0x1ea3f0]), ('sub_0022F410_0x22f410', [0x22f554]),
+    ('sub_002401D0_0x2401d0', [0x24050c]),
+    ('sub_00246780_0x246780', [0x246a60 + 0x14 * i for i in range(8)]),
+    ('sub_0024EE30_0x24ee30', [0x24f310, 0x24f708]),
+    ('sub_00260360_0x260360', [0x260580 + 0x14 * i for i in range(8)]),
+    ('sub_00264090_0x264090', [0x264270 + 0x14 * i for i in range(8)]),
+    ('sub_00264450_0x264450', [0x2646b0 + 0x14 * i for i in range(8)]),
+    ('sub_002AF000_0x2af000', [0x2af1d8]), ('sub_002AF4E0_0x2af4e0', [0x2af6d4]),
+    ('sub_002B5320_0x2b5320', [0x2b5488]),
+]
+for name, addresses in ROSTER_RECORDS:
+    for address in addresses:
+        EDITS.append((name, address, '(int32_t)result); }', 'openkai2::mods::roster_offset((int32_t)result)); }'))
+for name, address, register in [('sub_0020BD20_0x20bd20', 0x20bd2c, 5), ('sub_0020C3B0_0x20c3b0', 0x20c45c, 4),
+                                ('sub_0020C3B0_0x20c3b0', 0x20c4d4, 4)]:
+    EDITS.append((name, address, f'SLL32(GPR_U32(ctx, {register}), 2)',
+                  f'SLL32(openkai2::mods::roster_row(GPR_U32(ctx, {register}), 53), 2)'))
+PREVIOUS = {address: f'SLL32(openkai2::mods::id_table_row(GPR_U32(ctx, {register})), 2)'
+            for address, register in [(0x20bd2c, 5), (0x20c45c, 4), (0x20c4d4, 4)]}
+EDITS.append(('sub_001C7940_0x1c7940', 0x1c7988, 'SLL32(GPR_U32(ctx, 18), 2)',
+              'SLL32(openkai2::mods::roster_row(GPR_U32(ctx, 18), 57), 2)'))
+for address, register, field in [(0x2119ac, 10, '4480'), (0x211a08, 8, '4294942412')]:
+    load = f'READ16(ADD32(GPR_U32(ctx, {4 if register == 10 else 1}), {field}))'
+    EDITS.append(('sub_00211970_0x211970', address, f'(int16_t){load}',
+                  f'(int32_t)openkai2::mods::roster_row((uint32_t)(int32_t)(int16_t){load}, 53)'))
+EDITS.append(('sub_00267DC0_0x267dc0', 0x267e9c, 'ADD32(GPR_U32(ctx, 19), 1)',
+              'ADD32(openkai2::mods::roster_row(GPR_U32(ctx, 19), 43), 1)'))
+
 
 def patch(text, edits):
     """Applies the edits for one file. Each edit already made is checked, not
@@ -91,6 +123,8 @@ def patch(text, edits):
         block = text[start:end]
         if block.count(replacement) == 1:
             continue
+        if address in PREVIOUS and block.count(PREVIOUS[address]) == 1:
+            original = PREVIOUS[address]
         if block.count(original) != 1:
             raise ValueError(f'Instruction 0x{address:x} does not hold {original!r} once')
         text = text[:start] + block.replace(original, replacement) + text[end:]

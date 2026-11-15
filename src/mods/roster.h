@@ -15,6 +15,8 @@ namespace openkai2::mods {
 inline constexpr uint32_t roster_records = 0x389D40u;
 inline constexpr uint32_t roster_record_bytes = 712u;
 inline constexpr uint32_t roster_count = 53u;
+inline constexpr uint32_t roster_slots = 63u;
+inline constexpr uint32_t roster_extra_records = 0x000A0000u;
 inline constexpr uint32_t roster_name_bytes = 32u;
 inline constexpr uint32_t roster_select_grid = 0x3A4140u;
 inline constexpr uint32_t roster_select_cells = 29u;
@@ -37,6 +39,8 @@ inline constexpr RosterIdTable roster_id_tables[] = {
 
 
 bool roster_slot_unused(uint32_t id);
+uint32_t roster_record_address(uint32_t id);
+int32_t roster_offset(int32_t product);
 
 struct RosterField {
     uint32_t offset = 0;

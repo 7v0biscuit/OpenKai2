@@ -11,6 +11,7 @@ struct Layout {
     std::array<uint8_t, select_cells_max> icons{};
     std::array<uint8_t, 64> preview{};
     std::array<uint8_t, 64> base{};
+    std::array<uint8_t, 64> owner{};
 } layout;
 }
 
@@ -63,6 +64,12 @@ uint32_t voice_row(uint32_t id, uint32_t count) {
     return layout.base[id] - 1u;
 }
 
+uint32_t roster_row(uint32_t id, uint32_t count) {
+    if ((id < count && id < roster_count) || id >= layout.owner.size() || !layout.owner[id] || layout.owner[id] - 1u >= count)
+        return id;
+    return layout.owner[id] - 1u;
+}
+
 void reset_select_screen() { layout = Layout{}; }
 
 std::vector<std::string> configure_select_screen(uint8_t *memory, size_t bytes,
@@ -78,6 +85,8 @@ std::vector<std::string> configure_select_screen(uint8_t *memory, size_t bytes,
             next.preview[character.slot] = uint8_t((*character.base < preview_ids ? *character.base : 36u) + 1u);
         if (character.slot < next.base.size() && character.base && *character.base < roster_id_tables[0].count)
             next.base[character.slot] = uint8_t(*character.base + 1u);
+        if (character.slot < next.owner.size() && character.base && *character.base < roster_count)
+            next.owner[character.slot] = uint8_t(*character.base + 1u);
         if (character.new_cell &&
             std::none_of(added.begin(), added.end(), [&](const auto *other) { return other->slot == character.slot; }))
             added.push_back(&character);

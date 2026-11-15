@@ -4691,7 +4691,7 @@ struct Window {
         }
         freeIds = 0;
         const auto taken = mods::roster_slots_in_use(folders);
-        for (uint32_t id = 0; id < mods::roster_count; ++id)
+        for (uint32_t id = 0; id < mods::roster_slots; ++id)
             if (mods::roster_slot_unused(id) && std::find(taken.begin(), taken.end(), id) == taken.end())
                 ++freeIds;
         auto target = controls[TargetMod];

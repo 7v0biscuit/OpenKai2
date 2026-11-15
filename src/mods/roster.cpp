@@ -46,7 +46,7 @@ uint32_t offset(const std::string &text, const std::string &where) {
         throw std::runtime_error(where + ": offset " + text + " is outside the record after its name");
     return value;
 }
-uint8_t *record(uint8_t *memory, uint32_t id) { return memory + roster_records + id * roster_record_bytes; }
+uint8_t *record(uint8_t *memory, uint32_t id) { return memory + roster_record_address(id); }
 std::string name_of(const uint8_t *record) {
     const auto *text = reinterpret_cast<const char *>(record);
     return std::string(text, strnlen(text, roster_name_bytes));
@@ -139,7 +139,7 @@ std::vector<uint32_t> roster_slots_in_use(const std::vector<fs::path> &mods) {
 }
 
 std::optional<uint32_t> free_roster_slot(const std::vector<uint32_t> &taken) {
-    for (uint32_t id = 0; id < roster_count; ++id)
+    for (uint32_t id = 0; id < roster_slots; ++id)
         if (roster_slot_unused(id) && std::find(taken.begin(), taken.end(), id) == taken.end())
             return id;
     return std::nullopt;
@@ -293,7 +293,20 @@ void append_roster(const fs::path &mod, const RosterCharacter &character,
         throw std::runtime_error("Cannot write " + (mod / "roster.ini").string());
 }
 
-bool roster_slot_unused(uint32_t id) { return id == 1 || id == 13 || id == 14 || id == 19 || (id >= 43 && id < roster_count); }
+bool roster_slot_unused(uint32_t id) { return id == 1 || id == 13 || id == 14 || id == 19 || (id >= 43 && id < roster_slots); }
+
+uint32_t roster_record_address(uint32_t id) {
+    if (id < roster_count)
+        return roster_records + id * roster_record_bytes;
+    return roster_extra_records + (id - roster_count) * roster_record_bytes;
+}
+
+int32_t roster_offset(int32_t product) {
+    if (product < int32_t(roster_count * roster_record_bytes) || product >= int32_t(roster_slots * roster_record_bytes) ||
+        product % int32_t(roster_record_bytes))
+        return product;
+    return int32_t(roster_record_address(uint32_t(product) / roster_record_bytes) - roster_records);
+}
 
 std::vector<RosterCharacter> load_roster(const std::vector<fs::path> &mods, const DiscOverlay::Summary &overlay) {
     const auto key = IsoIndex::key(roster_archive).value_or(std::string());
@@ -311,6 +324,8 @@ std::vector<RosterCharacter> load_roster(const std::vector<fs::path> &mods, cons
                 return;
             if (!slotted)
                 throw std::runtime_error(where + ": the [character] section has no slot");
+            if (current->slot >= roster_count && !current->base)
+                throw std::runtime_error(where + ": slot " + std::to_string(current->slot) + " needs a base");
             characters.push_back(std::move(*current));
             current.reset();
         };
@@ -347,8 +362,8 @@ std::vector<RosterCharacter> load_roster(const std::vector<fs::path> &mods, cons
             };
             if (name == "slot") {
                 current->slot = number(value, where);
-                if (current->slot >= roster_count)
-                    throw std::runtime_error(where + ": slot must be 0 to " + std::to_string(roster_count - 1));
+                if (current->slot >= roster_slots)
+                    throw std::runtime_error(where + ": slot must be 0 to " + std::to_string(roster_slots - 1));
                 slotted = true;
             } else if (name == "base") {
                 current->base = number(value, where);
