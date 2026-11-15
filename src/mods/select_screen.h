@@ -25,6 +25,7 @@ uint32_t preview_row(uint32_t id);
 uint32_t id_table_row(uint32_t id);
 uint32_t voice_row(uint32_t id, uint32_t count);
 uint32_t roster_row(uint32_t id, uint32_t count);
+uint32_t portrait_row(uint32_t id, uint32_t count);
 
 std::vector<std::string> configure_select_screen(uint8_t *memory, size_t bytes,
                                                  const std::vector<RosterCharacter> &characters);

@@ -881,6 +881,8 @@ int main() {
                 "A filled ID past the move-effects table does not read its base's row");
         require(roster_row(44, 43) == 0 && roster_row(44, 53) == 44 && roster_row(13, 43) == 13 && roster_row(45, 43) == 45,
                 "A filled ID past a table does not read its base's row");
+        require(portrait_row(13, 43) == 4 && portrait_row(44, 43) == 0 && portrait_row(4, 43) == 4 && portrait_row(14, 43) == 14,
+                "A filled unused ID does not show its base's fight portrait");
         require(voice_row(44, 36) == 0 && voice_row(44, 32) == 0 && voice_row(13, 36) == 13 && voice_row(35, 36) == 35,
                 "A filled ID past the voice tables does not read its base's voices");
         reset_select_screen();

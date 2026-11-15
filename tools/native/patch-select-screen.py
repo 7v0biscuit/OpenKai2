@@ -107,13 +107,15 @@ EDITS.append(('sub_002B45B0_0x2b45b0', 0x2b4708, 'ADD32(GPR_U32(ctx, 0), 29)',
 PREVIOUS = {address: f'SLL32(openkai2::mods::id_table_row(GPR_U32(ctx, {register})), 2)'
             for address, register in [(0x20bd2c, 5), (0x20c45c, 4), (0x20c4d4, 4)]}
 EDITS.append(('sub_001C7940_0x1c7940', 0x1c7988, 'SLL32(GPR_U32(ctx, 18), 2)',
-              'SLL32(openkai2::mods::roster_row(GPR_U32(ctx, 18), 57), 2)'))
+              'SLL32(openkai2::mods::portrait_row(GPR_U32(ctx, 18), 57), 2)'))
+PREVIOUS[0x1c7988] = 'SLL32(openkai2::mods::roster_row(GPR_U32(ctx, 18), 57), 2)'
 for address, register, field in [(0x2119ac, 10, '4480'), (0x211a08, 8, '4294942412')]:
     load = f'READ16(ADD32(GPR_U32(ctx, {4 if register == 10 else 1}), {field}))'
     EDITS.append(('sub_00211970_0x211970', address, f'(int16_t){load}',
                   f'(int32_t)openkai2::mods::roster_row((uint32_t)(int32_t)(int16_t){load}, 53)'))
 EDITS.append(('sub_00267DC0_0x267dc0', 0x267e9c, 'ADD32(GPR_U32(ctx, 19), 1)',
-              'ADD32(openkai2::mods::roster_row(GPR_U32(ctx, 19), 43), 1)'))
+              'ADD32(openkai2::mods::portrait_row(GPR_U32(ctx, 19), 43), 1)'))
+PREVIOUS[0x267e9c] = 'ADD32(openkai2::mods::roster_row(GPR_U32(ctx, 19), 43), 1)'
 
 
 def patch(text, edits):

@@ -70,6 +70,12 @@ uint32_t roster_row(uint32_t id, uint32_t count) {
     return layout.owner[id] - 1u;
 }
 
+uint32_t portrait_row(uint32_t id, uint32_t count) {
+    if (id < layout.owner.size() && layout.owner[id] && layout.owner[id] - 1u < count && roster_slot_unused(id))
+        return layout.owner[id] - 1u;
+    return roster_row(id, count);
+}
+
 void reset_select_screen() { layout = Layout{}; }
 
 std::vector<std::string> configure_select_screen(uint8_t *memory, size_t bytes,

@@ -393,7 +393,11 @@ The last three, and the name plates of IDs 53 to 62, are read through
 any filled ID from 53 to 62, reads its base character's row. Without it an ID
 past the portrait table loaded entry 0 and showed no portrait in the fight
 HUD, and IDs 53 to 62 loaded garbage entries or called an aura handler that
-does not exist.
+does not exist. The fighter entry and the HUD portrait go through
+`portrait_row` instead, which also sends a filled unused ID below the table's
+end (1, 13, 14, 19, 43 to 52) to its base's row: those IDs have placeholder
+rows of their own, so an added character in ID 1 showed another character's
+face in the fight HUD until its fighter entry came from its base.
 
 IDs 43 to 52 lie past the move-effects and hair tables. The translated
 code that reads them (`0x20B340`, `0x20BA60` and `0x20C3B0` for move effects,
