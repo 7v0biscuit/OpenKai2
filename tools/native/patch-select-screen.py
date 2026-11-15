@@ -98,6 +98,12 @@ for name, address, register in [('sub_0020BD20_0x20bd20', 0x20bd2c, 5), ('sub_00
                                 ('sub_0020C3B0_0x20c3b0', 0x20c4d4, 4)]:
     EDITS.append((name, address, f'SLL32(GPR_U32(ctx, {register}), 2)',
                   f'SLL32(openkai2::mods::roster_row(GPR_U32(ctx, {register}), 53), 2)'))
+for address in [0x2b1a38, 0x2b1a9c, 0x2b1b98, 0x2b1c00, 0x2b1cf8, 0x2b1d5c, 0x2b1e60, 0x2b1ec4, 0x2b1fc0, 0x2b2024,
+                0x2b2130, 0x2b2210]:
+    EDITS.append(('sub_002B19B0_0x2b19b0', address, 'ADD32(GPR_U32(ctx, 0), 29)',
+                  'ADD32(GPR_U32(ctx, 0), openkai2::mods::select_last())'))
+EDITS.append(('sub_002B45B0_0x2b45b0', 0x2b4708, 'ADD32(GPR_U32(ctx, 0), 29)',
+              'ADD32(GPR_U32(ctx, 0), openkai2::mods::select_last())'))
 PREVIOUS = {address: f'SLL32(openkai2::mods::id_table_row(GPR_U32(ctx, {register})), 2)'
             for address, register in [(0x20bd2c, 5), (0x20c45c, 4), (0x20c4d4, 4)]}
 EDITS.append(('sub_001C7940_0x1c7940', 0x1c7988, 'SLL32(GPR_U32(ctx, 18), 2)',
