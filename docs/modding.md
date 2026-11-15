@@ -534,10 +534,24 @@ may equip it; byte `0x0D` is how many you can own, and 106 records have 0 there.
 Numbers `0x1CD` to `0x1E9` unlock characters through the byte table at
 `0x379E03`, and `0x1FE` onwards unlock stages (read at `0x283680`).
 
+| Offset | What it holds |
+|--------|---------------|
+| `0x00` | 8-byte mask of the character IDs that may equip it; 0 for everyone |
+| `0x08` | the kind: `0x21` skills (a move), `0x11`, `0x12`, `0x13`, `0x14` and `0x17` other capsules, 0 for unlocks and unused numbers |
+| `0x0B` | flags; bits `0x10`, `0x20` and `0x40` say where the capsule applies (read at `0x1EF060`) |
+| `0x0D` | how many you can own |
+| `0x14` | the effect: an index into the 14 handlers at `0x3943F0` (read at `0x1EF060`), or for a skill the move it grants |
+| `0x15` | the effect's sub-kind (`0x15` and `0x16` scale a stat, read at `0x1EA8F0`) |
+| `0x16`, `0x17` | the effect's amounts |
+
 Budokai 3 keeps its capsules in `USR/DATA_USA.AFS` entry 4, a version 2 `#SKA`
-of 596 records of 40 bytes: a 16-byte character mask, then the same fields as
-Budokai 2's in the same order. Adding them to Budokai 2 means more capsule
-numbers than 520 in the game, its menus and its save; this is not done yet.
+of 596 records of 40 bytes: the same 8-byte mask (numbered by Budokai 3's
+characters), the same fields in the same order, and 8 more bytes at the end.
+595 records are used and 518 can be owned. None is byte for byte the same as a
+Budokai 2 record. Adding them to Budokai 2 means more capsule numbers than 520
+in the game, its menus and its save, a character mask renumbered to Budokai 2's
+IDs, and for skills a move number in Budokai 2's numbering; this is not done
+yet. Capsule names are not plain text on either disc.
 
 ## Mod folder layout
 
