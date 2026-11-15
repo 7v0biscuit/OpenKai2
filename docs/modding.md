@@ -523,6 +523,22 @@ of the map (`#MDD`), its `#MAD` and `#MAS`, the `#SPX` and the stage's own
 `#AMB` pack; the second an `#AMB` of the other three files. They are the eight
 files a Budokai 2 stage names, with the same versions.
 
+## Capsules
+
+Budokai 2's capsules are `DATA_CMN.AFS` entry 851, a `#SKA` file: a 32-byte
+head (version 1, 520 records of 32 bytes) and then the records. The game copies
+them to `0x694AA0` and numbers capsules 0 to 519 everywhere: the save keeps how
+many of each you own at `0x89E`, and twelve functions loop over exactly 520
+(`slti ..., 0x208`). A record starts with an 8-byte mask of the characters who
+may equip it; byte `0x0D` is how many you can own, and 106 records have 0 there.
+Numbers `0x1CD` to `0x1E9` unlock characters through the byte table at
+`0x379E03`, and `0x1FE` onwards unlock stages (read at `0x283680`).
+
+Budokai 3 keeps its capsules in `USR/DATA_USA.AFS` entry 4, a version 2 `#SKA`
+of 596 records of 40 bytes: a 16-byte character mask, then the same fields as
+Budokai 2's in the same order. Adding them to Budokai 2 means more capsule
+numbers than 520 in the game, its menus and its save; this is not done yet.
+
 ## Mod folder layout
 
 A mod is a folder in the mods folder. You can build one by hand:
