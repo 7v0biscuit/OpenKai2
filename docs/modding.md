@@ -143,7 +143,10 @@ do another move.
 ### Stages and capsules
 
 The **Stages** tab lists the source disc's stages, Budokai 2's or Budokai 3's,
-with the `DATA_CMN.AFS` entries each uses. They cannot be imported yet (see
+with the `DATA_CMN.AFS` entries each uses. A Budokai 3 stage can be imported
+in place of ISLAND B, TOWN B, R&R BASE B or SNOW B. To play it, pick ISLAND,
+TOWN, R&R BASE or SNOW on the stage select screen and confirm with Circle (C on
+the keyboard) instead of Cross. Its particle effects are left out (see
 [Stages](#stages)). Capsules are not mapped in any game yet.
 
 ### Budokai 3 models
@@ -474,16 +477,25 @@ file.40 = add:stage_budo_40.bin
 
 Values are `DATA_CMN.AFS` entry numbers or `add:` names, as in `roster.ini`.
 At start-up the record takes the files and name and its `0x60` word becomes 0;
-the startup log has a `[mods] stage:` line for it. Later mods win a slot. The
-stage select screen still shows the B stage's own name and picture.
+the startup log has a `[mods] stage:` line for it. Later mods win a slot.
+
+The B stages have no spot of their own on the stage select screen. Its ten
+spots are listed at `0x3A4220`, two bytes each: the stage a spot plays, and
+the stage it plays when you confirm with Circle instead of Cross (read at
+`0x2B0900`). ISLAND, TOWN, R&R BASE and SNOW have ISLAND B, TOWN B,
+R&R BASE B and SNOW B as their Circle stage; the other spots and Random play
+the same stage either way. So a stage imported into TOWN B is played by
+picking TOWN and pressing Circle (C on the keyboard). The spot still shows
+TOWN's name and picture.
 
 The import tool's **Stages** tab does this for Budokai 3 discs: choose a stage
 on the left and a B stage on the right. It unpacks the stage's two packs into
 the eight files in Budokai 2's order (by their `#MDD`, `#MAD`, `#MAS`, `#AMB`
 and `#SPX` marks, then the second pack's three files) and marks texture packs
 inside version 1. The Mods page lists a mod's stages, and **Remove** puts the
-B stage back. This is checked by unit tests, not yet in game; adding stages
-beyond the 13 records still needs the stage select screen mapped.
+B stage back. A Budokai 3 ROCK imported into TOWN B loads and plays a full
+fight. Adding stages beyond the 13 records, or spots of their own, still needs
+the stage select screen's spot count and pictures mapped.
 
 Budokai 3 keeps 17 stage records of 92 bytes at `0x44AE50`, starting with BUDO
 (its seventh, GOKU, is at `0x44B078`). A record starts with a 16-byte name; the

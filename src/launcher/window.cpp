@@ -3505,6 +3505,14 @@ struct Window {
             return wide(mods::stage_display_name((*gameStages)[record].internal));
         return record < std::size(names) ? wide(mods::stage_display_name(names[record])) : L"stage " + std::to_wstring(record);
     }
+    std::wstring stageHow(uint32_t record) const {
+        static const uint32_t bases[] = {0, 1, 4, 5};
+        const uint32_t base = record >= mods::stage_first_variant && record < mods::stage_count
+                                  ? bases[record - mods::stage_first_variant]
+                                  : record;
+        return L"To play it, pick " + stageName(base) +
+               L" on the stage select screen and confirm with Circle (C on the keyboard) instead of Cross.";
+    }
     std::optional<std::string> stageProblem(size_t row) const {
         if (row < sourceStageProblems.size() && sourceStageProblems[row])
             return sourceStageProblems[row];
@@ -3525,8 +3533,8 @@ struct Window {
         const auto into = choice > 0 && size_t(choice) <= modList.size() ? L"Saved into " + wide(modList[size_t(choice - 1)].name) + L"."
                                                                          : std::wstring(L"Saved as a new mod.");
         return wide(mods::stage_display_name(stage.internal)) + L" from Budokai 3 replaces " + stageName(record) +
-               L", a copy of another stage, so no stage is lost. Choose " + stageName(record) +
-               L" on the stage select screen to play it. Stage imports are experimental: its particle effects "
+               L", a copy of another stage, so no stage is lost. " + stageHow(record) +
+               L" Stage imports are experimental: its particle effects "
                L"are left out, and if the fight doesn't load, remove the stage on the Mods page. " + into;
     }
     std::wstring plan() const {
@@ -5212,7 +5220,7 @@ struct Window {
         const auto mod = importMod(shown + " stage");
         const auto iso = utf8(source->image().filename().wstring());
         const auto summary = L"Added " + wide(shown) + L" from Budokai 3 in place of " + stageName(record) +
-                             L". Choose " + stageName(record) + L" on the stage select screen to play it.";
+                             L". " + stageHow(record);
         startModJob(Job::importMod, L"Importing…",
                     [disc = source, stage, record, stem, name, iso, mod, summary](const std::shared_ptr<Progress> &progress) {
                         report(progress, L"Unpacking the stage", 0, 9);
