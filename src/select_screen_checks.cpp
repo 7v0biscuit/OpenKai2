@@ -141,7 +141,11 @@ void verify_select_screen(PS2Runtime &runtime, uint8_t *ram) {
     };
     require(portrait(3) == 39 && portrait(32) == 36 + 29, "an original cell or Random lost its portrait");
     require(portrait(29) == 36 + 4 && portrait(31) == 36 + 7, "an added cell did not borrow its portrait");
+    require(mods::select_label(0) == 67 && mods::select_label(3) == 71 && mods::select_label(32) == 97,
+            "an original cell or Random lost its name");
+    require(mods::select_label(29) == 72 && mods::select_label(31) == 75, "an added cell is named Random");
     mods::reset_select_screen();
     require(portrait(29) == 36 + 29 && portrait(3) == 39, "the unmodded wheel changed its portraits");
+    require(mods::select_label(29) == 97 && mods::select_label(28) == 96, "the unmodded wheel changed its names");
 }
 }

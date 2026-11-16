@@ -18,6 +18,7 @@ uint32_t select_cells();
 uint32_t select_last();
 uint32_t select_offset(uint32_t original);
 uint32_t select_icon(uint32_t cell);
+uint32_t select_label(uint32_t cell);
 uint64_t select_random_bit();
 uint64_t select_extra_mask();
 uint32_t preview_id(uint32_t id);

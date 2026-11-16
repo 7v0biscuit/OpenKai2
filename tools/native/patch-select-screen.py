@@ -51,6 +51,11 @@ for address, name, register in [(0x2abfb8, 'sub_002ABF10_0x2abf10', 7), (0x2ae1a
                   f'GPR_U64(ctx, {register}) | openkai2::mods::select_extra_mask());'))
 EDITS.append(('sub_002A9E10_0x2a9e10', 0x2a9e64, 'ADD32(GPR_U32(ctx, 7), 36)',
               'ADD32(openkai2::mods::select_icon(GPR_U32(ctx, 7)), 36)'))
+DELAY_SLOTS = {0x2abd64, 0x2abeb4, 0x2ac53c}
+for name, address, register in [('sub_002AA6E0_0x2aa6e0', 0x2aa880, 3), ('sub_002ABC70_0x2abc70', 0x2abd64, 6),
+                                ('sub_002ABDC0_0x2abdc0', 0x2abeb4, 6), ('sub_002ABF10_0x2abf10', 0x2ac53c, 2)]:
+    EDITS.append((name, address, f'ADD32(GPR_U32(ctx, {register}), 68)',
+                  f'openkai2::mods::select_label(GPR_U32(ctx, {register}))'))
 for address, name, register in [(0x2af114, 'sub_002AF000_0x2af000', 18), (0x2af5a4, 'sub_002AF4E0_0x2af4e0', 16)]:
     EDITS.append((name, address, 'ADD32(GPR_U32(ctx, 0), 36)',
                   f'openkai2::mods::preview_id(GPR_U32(ctx, {register}))'))
@@ -121,21 +126,27 @@ PREVIOUS[0x267e9c] = 'ADD32(openkai2::mods::roster_row(GPR_U32(ctx, 19), 43), 1)
 def patch(text, edits):
     """Applies the edits for one file. Each edit already made is checked, not
     changed, so files patched by an earlier version gain only the new edits."""
-    for _, address, original, replacement in edits:
+    for _, address, wanted, replacement in edits:
         comment = f'    // 0x{address:x}:'
-        start = text.find(comment)
-        if start < 0 or text.find(comment, start + 1) >= 0:
+        starts = []
+        at = text.find(comment)
+        while at >= 0:
+            starts.append(at)
+            at = text.find(comment, at + 1)
+        if not starts or (len(starts) > 1 and address not in DELAY_SLOTS):
             raise ValueError(f'Instruction 0x{address:x} is missing or repeated')
-        end = text.find('\n    // 0x', start + len(comment))
-        end = len(text) if end < 0 else end
-        block = text[start:end]
-        if block.count(replacement) == 1:
-            continue
-        if address in PREVIOUS and block.count(PREVIOUS[address]) == 1:
-            original = PREVIOUS[address]
-        if block.count(original) != 1:
-            raise ValueError(f'Instruction 0x{address:x} does not hold {original!r} once')
-        text = text[:start] + block.replace(original, replacement) + text[end:]
+        for start in reversed(starts):
+            end = text.find('// 0x', start + len(comment))
+            end = len(text) if end < 0 else text.rfind('\n', start, end)
+            block = text[start:end]
+            if block.count(replacement) == 1:
+                continue
+            original = wanted
+            if address in PREVIOUS and block.count(PREVIOUS[address]) == 1:
+                original = PREVIOUS[address]
+            if block.count(original) != 1:
+                raise ValueError(f'Instruction 0x{address:x} does not hold {original!r} once')
+            text = text[:start] + block.replace(original, replacement) + text[end:]
     if MARKER not in text:
         text = INCLUDE + MARKER + '\n' + text
     return text

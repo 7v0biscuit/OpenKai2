@@ -37,6 +37,11 @@ uint32_t select_icon(uint32_t cell) {
     return cell < select_cells_max ? layout.icons[cell] : 0;
 }
 
+uint32_t select_label(uint32_t cell) {
+    const uint32_t icon = select_icon(cell);
+    return icon ? 68u + icon : 67u;
+}
+
 uint64_t select_random_bit() { return uint64_t(1) << (layout.cells - 1); }
 
 uint64_t select_extra_mask() {

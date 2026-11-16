@@ -59,7 +59,7 @@ At the top, choose what to add: **Characters**, **Stages**, **Movesets** or
    - **Share a spot**: press R2 (Right Shift) on that spot to switch between
      the characters it holds.
    - **Add a new spot (experimental)**: it gets a spot of its own before
-     Random, showing the portrait of the spot you chose.
+     Random, showing the portrait and name of the spot you chose.
 3. Under **Save to**, keep **New mod** or pick an existing mod. A new mod is
    named after the character.
 4. Read the sentence beside **Import**, which says what will happen, then
@@ -416,8 +416,8 @@ A character goes on the select screen in one of three ways:
   game but cannot be picked on the select screen. The import tool never does
   this; it is for mods made by hand.
 - **`new_cell`** adds a spot to the wheel, before Random, for up to 34 extra
-  spots. New spots are always unlocked and show the portrait of the spot
-  named by `icon`, or of their base character's spot. This changes the select
+  spots. New spots are always unlocked and show the portrait and name of the
+  spot named by `icon`, or of their base character's spot. This changes the select
   screen's code (`tools/native/patch-select-screen.py`). It is experimental:
   report anything odd on the select screen, with `startup.log`.
 
@@ -610,12 +610,15 @@ mods/
 - **There are 24 unused IDs to fill** (1, 13, 14, 19 and 43 to 62), so 24
   added characters at most. ID 63 is Random, and the game keeps character IDs
   in single bytes beside it.
-- **New spots borrow a portrait and show Random's name.** The sprite sheet
-  (`DATA_CMN` entry 901, an `#AMA` of 120 sprites whose frames point at
-  texture pages in another file) has one portrait per original spot. The name
-  shown over the 3D model follows the spot too: a character put on spot 1 with
-  `select` shows spot 1's original name, and a new spot, numbered from 29 where
-  Random was, shows Random's. The sprite it is drawn from is not found yet.
+- **New spots borrow a portrait and a name.** The sprite sheet (`DATA_CMN`
+  entry 901, an `#AMA` of 120 sprites whose frames point at texture pages in
+  another file) has one portrait per original spot, sprite 36 + the spot, and
+  one name per spot: sprite 67 for spot 0 and 68 + the spot for the others,
+  with Random's at 97. The name shown over the 3D model follows the spot, so a
+  character put on spot 1 with `select` shows spot 1's original name. A new
+  spot shows the name of the spot it takes its portrait from; the translated
+  code that picks the name (`0x2AA880`, `0x2ABD64`, `0x2ABEB4` and `0x2AC53C`)
+  goes through `select_label` (`src/mods/select_screen.h`).
 - **Not every character table is mapped.** Data the record does not name, such
   as select-screen voice lines, story scenes and skill capsules, stays the base
   character's.
