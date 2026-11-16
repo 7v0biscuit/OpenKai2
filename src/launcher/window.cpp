@@ -5157,6 +5157,10 @@ struct Window {
                             const auto moveset = mods::budokai3_moveset(*disc, entry, *game, wearerMotions);
                             if (!moveset)
                                 throw std::runtime_error("This Budokai 3 model has no move script next to it to convert");
+                            voiceNote += L" " + std::to_wstring(moveset->renumbered) +
+                                         (moveset->ownMatched
+                                              ? L" of its moves were matched to Budokai 2's move numbers, using its own Budokai 2 moveset."
+                                              : L" of its moves were matched to Budokai 2's move numbers; it is not in Budokai 2, so some special moves may do another move.");
                             for (const auto &[field, bytes, label] :
                                  {std::tuple{mods::moves_field, &moveset->moves, "moves"},
                                   std::tuple{mods::motions_field, &moveset->motions, "motions"}}) {
