@@ -1,0 +1,232 @@
+--- a/include/runtime/gs/gs_frontend.h
++++ b/include/runtime/gs/gs_frontend.h
+@@ -7,6 +7,7 @@
+ #include <condition_variable>
+ #include <cstddef>
+ #include <cstdint>
++#include <functional>
+ #include <memory>
+ #include <mutex>
+ #include <thread>
+@@ -117,6 +118,9 @@
+     void processGIFPacket(const uint8_t *data, uint32_t sizeBytes);
+     void fence();
+     void startWorker();
++    void setFieldCallback(std::function<void(uint64_t)> callback);
++    void beginField();
++    bool endField(uint64_t tick);
+     bool processNativePackedGIFPacket(const uint8_t *data, uint32_t sizeBytes);
+     void uploadImageNative(uint64_t bitbltbuf,
+                            uint64_t trxpos,
+@@ -266,6 +270,15 @@
+     std::condition_variable m_queueReady, m_queueDrained;
+     std::vector<uint8_t> m_pending, m_working;
+     bool m_workerBusy = false, m_workerWake = false, m_stopWorker = false;
++
++    void enqueueCommandLocked(uint32_t kind, const void *payload, uint32_t size);
++    void finishField(const uint8_t *payload);
++    std::mutex m_fieldMutex;
++    std::function<void(uint64_t)> m_fieldCallback;
++    bool m_fieldsQueued = false;
++    uint64_t m_fieldsSent = 0, m_fieldsDone = 0;
++    GSPresentationRequest m_fieldRequest{};
++    bool m_hasFieldRequest = false;
+ };
+ 
+ #endif
+--- a/runtime/gs/gs_frontend.cpp
++++ b/runtime/gs/gs_frontend.cpp
+@@ -202,6 +202,17 @@
+                 uploadImageNative(registers[0], registers[1], registers[2], registers[3],
+                                   payload + sizeof(registers), size - sizeof(registers));
+             }
++            else if (kind == 2u)
++                finishField(payload);
++            else if (kind == 3u)
++            {
++                uint32_t clear[2];
++                std::memcpy(clear, payload, sizeof(clear));
++                std::lock_guard<std::recursive_mutex> state(m_stateMutex);
++                if (m_backend)
++                    m_backend->ClearFramebuffer((clear[0] & 0x80000000u) ? activeContext() : m_ctx[(clear[0] & 1u) ? 1 : 0],
++                                                clear[1]);
++            }
+             else
+                 processGIFPacketNow(payload, size);
+             offset += 16u + ((size + 15u) & ~15u);
+@@ -215,6 +226,93 @@
+     }
+ }
+ 
++void GS::enqueueCommandLocked(uint32_t kind, const void *payload, uint32_t size)
++{
++    const size_t at = m_pending.size();
++    m_pending.resize(at + 16u + ((size + 15u) & ~15u));
++    std::memcpy(m_pending.data() + at, &size, sizeof(size));
++    std::memcpy(m_pending.data() + at + 4u, &kind, sizeof(kind));
++    std::memcpy(m_pending.data() + at + 16u, payload, size);
++    if (!m_workerBusy && !m_workerWake)
++    {
++        m_workerWake = true;
++        m_queueReady.notify_one();
++    }
++}
++
++void GS::setFieldCallback(std::function<void(uint64_t)> callback)
++{
++    fence();
++    std::lock_guard<std::mutex> lock(m_fieldMutex);
++    m_fieldCallback = std::move(callback);
++}
++
++void GS::beginField()
++{
++    if (!m_worker.joinable() || onWorker())
++        return;
++    bool queued = false;
++    {
++        std::lock_guard<std::mutex> lock(m_fieldMutex);
++        queued = static_cast<bool>(m_fieldCallback);
++    }
++    if (!queued)
++    {
++        fence();
++        return;
++    }
++    std::unique_lock<std::mutex> lock(m_queueMutex);
++    if (m_fieldsDone >= m_fieldsSent)
++        return;
++    openkai2::RuntimeWorkTimer wait(openkai2::RuntimeWork::gsFence);
++    m_queueDrained.wait(lock, [this]() { return m_fieldsDone >= m_fieldsSent; });
++}
++
++bool GS::endField(uint64_t tick)
++{
++    if (!m_worker.joinable() || onWorker() || !m_privRegs)
++        return false;
++    {
++        std::lock_guard<std::mutex> lock(m_fieldMutex);
++        if (!m_fieldCallback)
++            return false;
++    }
++    const uint64_t field[] = {tick, m_privRegs->pmode, m_privRegs->smode2, m_privRegs->dispfb1, m_privRegs->display1,
++                              m_privRegs->dispfb2, m_privRegs->display2, m_privRegs->bgcolor};
++    std::lock_guard<std::mutex> lock(m_queueMutex);
++    ++m_fieldsSent;
++    enqueueCommandLocked(2u, field, sizeof(field));
++    return true;
++}
++
++void GS::finishField(const uint8_t *payload)
++{
++    uint64_t field[8];
++    std::memcpy(field, payload, sizeof(field));
++    {
++        std::lock_guard<std::recursive_mutex> state(m_stateMutex);
++        GSPresentationRequest request = buildPresentationRequestUnlocked();
++        request.pmode = field[1];
++        request.smode2 = field[2];
++        request.dispfb1 = field[3];
++        request.display1 = field[4];
++        request.dispfb2 = field[5];
++        request.display2 = field[6];
++        request.bgcolor = field[7];
++        request.vsyncTick = field[0];
++        m_fieldRequest = request;
++        m_hasFieldRequest = true;
++    }
++    {
++        std::lock_guard<std::mutex> lock(m_queueMutex);
++        ++m_fieldsDone;
++        m_queueDrained.notify_all();
++    }
++    std::lock_guard<std::mutex> lock(m_fieldMutex);
++    if (m_fieldCallback)
++        m_fieldCallback(field[0]);
++}
++
+ void GS::fence()
+ {
+     if (!m_worker.joinable() || onWorker())
+@@ -259,6 +357,7 @@
+ {
+     fence();
+     std::lock_guard<std::recursive_mutex> lock(m_stateMutex);
++    m_hasFieldRequest = false;
+     std::memset(m_ctx, 0, sizeof(m_ctx));
+     m_prim = {};
+     m_primRegister = {};
+@@ -674,7 +773,7 @@
+             m_hostPresentationWidth = m_hostPresentationHeight = 0u;
+             return;
+         }
+-        request = buildPresentationRequestUnlocked();
++        request = m_hasFieldRequest ? m_fieldRequest : buildPresentationRequestUnlocked();
+     }
+ 
+     PresentationFrame frame{};
+@@ -1818,6 +1917,13 @@
+ 
+ bool GS::clearFramebufferContext(uint32_t contextIndex, uint32_t rgba)
+ {
++    if (m_worker.joinable() && !onWorker())
++    {
++        const uint32_t clear[] = {contextIndex != 0u ? 1u : 0u, rgba};
++        std::lock_guard<std::mutex> lock(m_queueMutex);
++        enqueueCommandLocked(3u, clear, sizeof(clear));
++        return true;
++    }
+     fence();
+     std::lock_guard<std::recursive_mutex> lock(m_stateMutex);
+     return m_backend && m_backend->ClearFramebuffer(m_ctx[(contextIndex != 0u) ? 1 : 0], rgba);
+@@ -1825,6 +1931,13 @@
+ 
+ bool GS::clearActiveFramebuffer(uint32_t rgba)
+ {
++    if (m_worker.joinable() && !onWorker())
++    {
++        const uint32_t clear[] = {0x80000000u, rgba};
++        std::lock_guard<std::mutex> lock(m_queueMutex);
++        enqueueCommandLocked(3u, clear, sizeof(clear));
++        return true;
++    }
+     fence();
+     std::lock_guard<std::recursive_mutex> lock(m_stateMutex);
+     return m_backend && m_backend->ClearFramebuffer(activeContext(), rgba);
+--- a/Kernel/EeScheduler.cpp
++++ b/Kernel/EeScheduler.cpp
+@@ -1925,8 +1925,7 @@
+         requestStop();
+         break;
+     case EeEventType::VBlankStart:
+-        // A field is presented from what the GS has drawn by its start.
+-        m_runtime.gs().fence();
++        m_runtime.gs().beginField();
+         ++m_vsyncTick;
+         m_runtime.memory().gs().vsyncTick.store(m_vsyncTick, std::memory_order_release);
+         if ((m_vsyncTick & 1u) != 0u)
+@@ -1969,7 +1968,8 @@
+         dispatchIrq(false, 3u);
+         // The field scans out after VBlank, once the game's VBlank handlers
+         // have chosen its buffer; presenting at VBlank start raced the flip.
+-        openkai2::present_guest_field(m_vsyncTick);
++        if (!m_runtime.gs().endField(m_vsyncTick))
++            openkai2::present_guest_field(m_vsyncTick);
+         break;
+     case EeEventType::Dmac:
+         break;
+--- a/runtime/ps2_runtime.cpp
++++ b/runtime/ps2_runtime.cpp
+@@ -2417,6 +2417,12 @@
+     openkai2::reset_guest_progress();
+     openkai2::GuestStallDiagnostics guestStallDiagnostics;
+     openkai2::FramePresenter presenter([this](uint64_t) { m_gs.latchHostPresentationFrame(); });
++    struct FieldLink
++    {
++        GS &gs;
++        ~FieldLink() { gs.setFieldCallback({}); }
++    } fieldLink{m_gs};
++    m_gs.setFieldCallback([&presenter](uint64_t tick) { openkai2::present_field(presenter, tick); });
+     openkai2::reset_host_input();
+     openkai2::poll_host_input();
+     std::atomic<bool> gameThreadFinished{false};

@@ -52,6 +52,7 @@ private:
     FramePresenter* previous_;
 };
 void present_guest_field(uint64_t tick);
+void present_field(FramePresenter& presenter,uint64_t tick);
 void hide_guest_fields(bool hidden) noexcept;
 bool guest_fields_hidden() noexcept;
 bool wait_for_guest_fields(std::chrono::steady_clock::duration timeout);

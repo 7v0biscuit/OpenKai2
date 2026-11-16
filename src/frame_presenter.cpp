@@ -14,6 +14,7 @@ uint64_t latest_presented_frame() noexcept { return latestFrame.load(std::memory
 FieldPresentationScope::FieldPresentationScope(FramePresenter& presenter):previous_(fieldPresenter){fieldPresenter=&presenter;}
 FieldPresentationScope::~FieldPresentationScope(){fieldPresenter=previous_;}
 void present_guest_field(uint64_t tick){if(fieldPresenter && !fieldsHidden.load(std::memory_order_relaxed))fieldPresenter->request(tick);}
+void present_field(FramePresenter& presenter,uint64_t tick){if(!fieldsHidden.load(std::memory_order_relaxed))presenter.request(tick);}
 void hide_guest_fields(bool hidden) noexcept { fieldsHidden.store(hidden,std::memory_order_relaxed); }
 bool guest_fields_hidden() noexcept { return fieldsHidden.load(std::memory_order_relaxed); }
 bool wait_for_guest_fields(std::chrono::steady_clock::duration timeout){return !fieldPresenter || fieldPresenter->wait_latched(timeout);}
