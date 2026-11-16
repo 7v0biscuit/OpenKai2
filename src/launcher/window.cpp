@@ -855,6 +855,7 @@ struct Window {
     std::unique_ptr<netplay::Room> room;
     bool roomHost = false;
     std::string lastRoomMessage;
+    bool roomLaunched = false;
     bool directJoin = false;
     std::string joinAddress, joinRoomId;
     uint16_t roomPort = 0;
@@ -5585,6 +5586,11 @@ struct Window {
                     updateError = true;
                 } else {
                     if (activeJob == Job::verify || activeJob == Job::launch) disc.reset();
+                    if (activeJob == Job::launch && room && roomLaunched) {
+                        room.reset();
+                        hostingRoom.clear();
+                        roomLaunched = false;
+                    }
                     status = wide(e.what());
                     error = true;
                     if (activeJob == Job::deleteSaves || activeJob == Job::deleteBackups) refreshBackups();
@@ -6624,6 +6630,7 @@ struct Window {
             roomPort = port;
         }
         roomHost = host;
+        roomLaunched = false;
         room = std::make_unique<netplay::Room>(options);
         room->start();
         if (directory && directory->connected())
@@ -6666,7 +6673,8 @@ struct Window {
             (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
             return;
         }
-        if (state.phase == netplay::RoomPhase::ready) {
+        if (state.phase == netplay::RoomPhase::ready && !roomLaunched) {
+            roomLaunched = true;
             std::wstring arguments = L" --netplay=" +
                                      (roomHost ? L"host:" + std::to_wstring(state.port)
                                       : state.relayed ? L"join:127.0.0.1:" + std::to_wstring(state.local_port)
