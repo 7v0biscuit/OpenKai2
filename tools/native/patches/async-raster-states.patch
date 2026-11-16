@@ -1,0 +1,11 @@
+--- a/runtime/gs/gs_frontend.cpp
++++ b/runtime/gs/gs_frontend.cpp
+@@ -247,6 +247,8 @@ void GS::serializeState(StateArchive &archive)
+     if (archive.loading() && m_localMemoryStorage && vram.size() == m_localMemorySize)
+     {
+         std::lock_guard<std::mutex> backendLock(m_backendLifetimeMutex);
++        if (m_backend)
++            m_backend->Sync(GSSyncReason::Reset);
+         std::memcpy(m_localMemoryStorage, vram.data(), vram.size());
+         if (m_backend)
+             m_backend->Initialize(m_localMemoryStorage, m_localMemorySize);

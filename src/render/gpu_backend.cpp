@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "gpu_backend.h"
+#include "async_backend.h"
 #include "gpu_device.h"
 #include "gpu_layout.h"
 #include "graphics_settings.h"
@@ -800,5 +801,8 @@ std::vector<std::pair<std::string,uint64_t>> gpu_fallback_counts(){
     std::lock_guard lock(fallbackMutex);return {fallbackCounts.begin(),fallbackCounts.end()};
 }
 GpuRenderStats gpu_render_statistics(){return {totalGpuDraws.load(std::memory_order_relaxed),totalCpuDraws.load(std::memory_order_relaxed),totalBatches.load(std::memory_order_relaxed),totalTiles.load(std::memory_order_relaxed),totalUploads.load(std::memory_order_relaxed),totalReadbacks.load(std::memory_order_relaxed),totalCulled.load(std::memory_order_relaxed),totalPaletteLoads.load(std::memory_order_relaxed),totalPaletteReuses.load(std::memory_order_relaxed),totalGpuTransfers.load(std::memory_order_relaxed)};}
-std::unique_ptr<GSRasterBackend> make_raster_backend(){return std::make_unique<GpuRasterBackend>();}
+std::unique_ptr<GSRasterBackend> make_raster_backend(){
+    if(asynchronous_raster_enabled())return std::make_unique<AsyncRasterBackend>(std::make_unique<GpuRasterBackend>());
+    return std::make_unique<GpuRasterBackend>();
+}
 }

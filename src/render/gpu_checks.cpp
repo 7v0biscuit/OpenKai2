@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include "gpu_checks.h"
 #include "gpu_backend.h"
+#include "async_backend.h"
 #include "gpu_device.h"
 #include "gpu_layout.h"
 #include "graphics_settings.h"
@@ -558,18 +559,20 @@ std::vector<std::vector<uint64_t>> gifStrips(unsigned count){
     }
     return packets;
 }
-std::unique_ptr<GS> gifTarget(std::vector<uint8_t>& vram){
+std::unique_ptr<GS> gifTarget(std::vector<uint8_t>& vram,bool queued=false){
     auto gs=std::make_unique<GS>();
-    gs->init(vram.data(),uint32_t(vram.size()));gs->setRasterBackend(std::make_unique<GpuRasterBackend>());
+    std::unique_ptr<GSRasterBackend> backend=std::make_unique<GpuRasterBackend>();
+    if(queued)backend=std::make_unique<AsyncRasterBackend>(std::move(backend),64u);
+    gs->init(vram.data(),uint32_t(vram.size()));gs->setRasterBackend(std::move(backend));
     gs->writeRegister(0x4cu,56u|(uint64_t(8u)<<16u));gs->writeRegister(0x4eu,168u|(1ull<<32u));
     gs->writeRegister(0x40u,(511ull<<16u)|(447ull<<48u));gs->writeRegister(0x47u,0x30000u);
     gs->writeRegister(0x06u,uint64_t(10240u)|(uint64_t(2u)<<14u)|(uint64_t(7u)<<26u)|(uint64_t(7u)<<30u)|(1ull<<34u));
     return gs;
 }
-void checkGsWorker(){
+void checkGsWorker(bool queued){
     const auto packets=gifStrips(600u);
     std::vector<uint8_t> direct(gpu::VramBytes,0x35u),threaded(gpu::VramBytes,0x35u);
-    auto reference=gifTarget(direct),worker=gifTarget(threaded);worker->startWorker();
+    auto reference=gifTarget(direct),worker=gifTarget(threaded,queued);worker->startWorker();
     for(GS* gs:{worker.get(),reference.get()})for(unsigned i=0;i<packets.size();++i){
         const auto& packet=packets[i];
         gs->processGIFPacket(reinterpret_cast<const uint8_t*>(packet.data()),uint32_t(packet.size()*8u));
@@ -813,7 +816,7 @@ int run_gpu_checks(bool required){
 #endif
         if(!initialized){std::cout<<"GPU checks unavailable: "<<error<<'\n';return required ? 1 : 77;}
         std::cout<<"GPU checks device: "<<gpu::current_device()->description()<<'\n';
-        checkDepthEnable();checkFlatDepth();checkDepthPlanes();checkPaletteReuse();checkPresentationReadbacks();checkEmptyTriangles();checkOffscreenTriangles();checkMaterials();checkIntegerPipeline();checkFormats();checkLines();checkCoherence();checkTransferPages();checkGpuTransfers();checkLargeTransfers();checkRebind();checkClears();checkSourceChanges();checkPartialReadbacks();checkGsWorker();checkInternalResolution();checkHiresTextureSources();checkPartialShadowSeeds();checkHiresOrdering();checkHdTextures();
+        checkDepthEnable();checkFlatDepth();checkDepthPlanes();checkPaletteReuse();checkPresentationReadbacks();checkEmptyTriangles();checkOffscreenTriangles();checkMaterials();checkIntegerPipeline();checkFormats();checkLines();checkCoherence();checkTransferPages();checkGpuTransfers();checkLargeTransfers();checkRebind();checkClears();checkSourceChanges();checkPartialReadbacks();checkGsWorker(false);checkGsWorker(true);checkInternalResolution();checkHiresTextureSources();checkPartialShadowSeeds();checkHiresOrdering();checkHdTextures();
         const auto before=gpu_render_statistics().gpuDraws;verify_vector_runtime_gpu();
         if(gpu_render_statistics().gpuDraws-before!=8u)throw std::runtime_error("VIF/PATH1 integration did not execute eight GPU triangles");
         auto device=gpu::current_device();device->post([](gpu::Host&){throw std::runtime_error("GPU failure propagation fixture");});
@@ -919,8 +922,10 @@ int benchmark_gs_replay(const char* path,unsigned passes,unsigned scale,unsigned
 #endif
         {auto settings=graphics_settings();settings.internalScale=scale;settings.hdTextures=hdMode;if(folder)settings.textureFolder=folder;set_graphics_settings(settings);}
         std::vector<uint8_t> vram(gpu::VramBytes,0x35u);auto gs=std::make_unique<GS>();
-        auto backendOwner=std::make_unique<GpuRasterBackend>();auto* backend=backendOwner.get();
-        gs->init(vram.data(),uint32_t(vram.size()));gs->setRasterBackend(std::move(backendOwner));
+        auto backendOwner=std::make_unique<GpuRasterBackend>();GSRasterBackend* backend=backendOwner.get();
+        std::unique_ptr<GSRasterBackend> installed=std::move(backendOwner);
+        if(std::getenv("OPENKAI2_ASYNC")){installed=std::make_unique<AsyncRasterBackend>(std::move(installed));backend=installed.get();}
+        gs->init(vram.data(),uint32_t(vram.size()));gs->setRasterBackend(std::move(installed));
         uint64_t packets=0,uploads=0;
         const auto play=[&]{
             for(size_t offset=0;offset+16u<=stream.size();){

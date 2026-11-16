@@ -30,6 +30,7 @@
 #endif
 #include "openkai2_build_revision.h"
 #include "runtime_checks.h"
+#include "render/async_backend.h"
 #include "render/gpu_backend.h"
 #include "render/gpu_checks.h"
 #include "runtime_layout.h"
@@ -276,6 +277,7 @@ int main(int argc, char* argv[]) {
         display.borderless=preferences.windowMode!=0;display.vsync=preferences.vsync;
         openkai2::set_graphics_settings(display);
         openkai2::set_renderer_preference(renderer);
+        openkai2::set_asynchronous_raster(true);
         openkai2::launcher::SessionLock gameSession;
         openkai2::DiscordPresence presence;
         presence.enable(preferences.discordPresence);
