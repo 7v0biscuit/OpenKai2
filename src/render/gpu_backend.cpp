@@ -144,7 +144,7 @@ struct GpuRasterBackend::Impl {
         const double used=double(busy-load.busy)/1e9/seconds;
         const double counted=double(fields-load.fields),behind=counted>0.0 ? double(late-load.late)/counted : 0.0;
         load.at=now;load.busy=busy;load.fields=fields;load.late=late;
-        load.overloaded=used>0.85 && behind>0.1 ? load.overloaded+1u : 0u;
+        load.overloaded=(used>0.85 && behind>0.1) || (used>0.6 && behind>0.3) ? load.overloaded+1u : 0u;
         load.relaxed=used<0.55 && behind<0.02 ? load.relaxed+1u : 0u;
         if(load.overloaded>=2u && scale>1u){
             if(now-load.raised<std::chrono::seconds(30))load.hold=std::min(load.hold*2,std::chrono::seconds(300));

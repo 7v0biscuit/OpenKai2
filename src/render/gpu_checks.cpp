@@ -732,6 +732,31 @@ void checkPartialShadowSeeds(){
     pair.compare("Partial shadow seeds keep native VRAM");
     std::cout<<"GPU partial shadow seeds passed: a CPU write refreshes its own pages and the rest keeps its higher resolution.\n";
 }
+void checkHiresOrdering(){
+    const auto saved=graphics_settings();auto scaled=saved;scaled.internalScale=2u;set_graphics_settings(scaled);
+    struct Restore{GraphicsSettings value;~Restore(){set_graphics_settings(value);}} restore{saved};
+    Comparison pair(false);
+    for(unsigned i=0;i<150u;++i){
+        auto s=material(0u,true);auto& st=s.state;st.prim.tme=false;st.prim.iip=false;st.context.scissor={0u,127u,0u,127u};
+        const float x=float((i*7u)%48u),y=float((i*11u)%48u);
+        s.vertices[0].x=x;s.vertices[0].y=y;s.vertices[1].x=x+float(5u+i%9u);s.vertices[1].y=y+float(4u+i%7u);
+        for(auto& v:s.vertices){v.r=uint8_t(i*37u);v.g=uint8_t(i*91u);v.b=uint8_t(i*53u);v.a=uint8_t(32u+(i*29u)%96u);}
+        pair.draw(s);
+    }
+    GSPresentationRequest request{};request.pmode=1;
+    request.dispfb1=uint64_t(56)|(uint64_t(8)<<9);
+    request.display1=(uint64_t(127)<<32)|(uint64_t(127)<<44);
+    pair.gpu->Sync(GSSyncReason::Presentation);
+    const auto hi=pair.gpu->Present(request),native=pair.cpu->Present(request);
+    if(!native || hi.width!=native.width*2u || hi.height!=native.height*2u)throw std::runtime_error("Overlapping sprites were not presented at 2x");
+    const unsigned stride=native.stride ? native.stride : 640u;
+    const auto at=[](const PresentationFrame& f,unsigned rowStride,unsigned x,unsigned y){uint32_t px;std::memcpy(&px,f.pixels.data()+(size_t(y)*rowStride+x)*4u,4u);return px&0xffffffu;};
+    for(unsigned y=0;y<64u;++y)for(unsigned x=0;x<64u;++x)for(unsigned sy=0;sy<2u;++sy)for(unsigned sx=0;sx<2u;++sx)
+        if(at(hi,hi.width,x*2u+sx,y*2u+sy)!=at(native,stride,x,y))
+            throw std::runtime_error("Blended sprites drew in the wrong order at 2x at "+std::to_string(x)+","+std::to_string(y));
+    pair.compare("Overlapping sprites keep native VRAM");
+    std::cout<<"GPU hi-res ordering passed: 150 overlapping blended sprites in one area match the native result at 2x.\n";
+}
 void checkHdTextures(){
     const auto saved=graphics_settings();
     struct Restore{GraphicsSettings value;~Restore(){set_graphics_settings(value);hd::library().configure(hd::off,{},2u);}} restore{saved};
@@ -788,7 +813,7 @@ int run_gpu_checks(bool required){
 #endif
         if(!initialized){std::cout<<"GPU checks unavailable: "<<error<<'\n';return required ? 1 : 77;}
         std::cout<<"GPU checks device: "<<gpu::current_device()->description()<<'\n';
-        checkDepthEnable();checkFlatDepth();checkDepthPlanes();checkPaletteReuse();checkPresentationReadbacks();checkEmptyTriangles();checkOffscreenTriangles();checkMaterials();checkIntegerPipeline();checkFormats();checkLines();checkCoherence();checkTransferPages();checkGpuTransfers();checkLargeTransfers();checkRebind();checkClears();checkSourceChanges();checkPartialReadbacks();checkGsWorker();checkInternalResolution();checkHiresTextureSources();checkPartialShadowSeeds();checkHdTextures();
+        checkDepthEnable();checkFlatDepth();checkDepthPlanes();checkPaletteReuse();checkPresentationReadbacks();checkEmptyTriangles();checkOffscreenTriangles();checkMaterials();checkIntegerPipeline();checkFormats();checkLines();checkCoherence();checkTransferPages();checkGpuTransfers();checkLargeTransfers();checkRebind();checkClears();checkSourceChanges();checkPartialReadbacks();checkGsWorker();checkInternalResolution();checkHiresTextureSources();checkPartialShadowSeeds();checkHiresOrdering();checkHdTextures();
         const auto before=gpu_render_statistics().gpuDraws;verify_vector_runtime_gpu();
         if(gpu_render_statistics().gpuDraws-before!=8u)throw std::runtime_error("VIF/PATH1 integration did not execute eight GPU triangles");
         auto device=gpu::current_device();device->post([](gpu::Host&){throw std::runtime_error("GPU failure propagation fixture");});
