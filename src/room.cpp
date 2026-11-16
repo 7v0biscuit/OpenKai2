@@ -298,7 +298,7 @@ void Room::bridge_host(std::string channel, uint16_t port) {
     while (!stopping_ && link->alive() && !link->readable(250)) {
     }
     net::Socket game;
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(90);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::minutes(5);
     while (!stopping_ && !game.valid() && std::chrono::steady_clock::now() < deadline) {
         game = net::Socket::connect("127.0.0.1", port, error);
         if (!game.valid())
@@ -327,7 +327,7 @@ bool Room::bridge_guest(const std::string &channel) {
     }
     gameLink_ = std::move(link);
     bridger_ = std::thread([this, listener = std::move(listener)]() mutable {
-        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(90);
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::minutes(5);
         while (!stopping_ && std::chrono::steady_clock::now() < deadline) {
             auto game = listener.accept(250);
             if (!game.valid())
@@ -348,7 +348,7 @@ void Room::run_join() {
         set(RoomPhase::opening, "Connecting to " + options_.address);
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(relayable ? 4 : 15);
         while (!stopping_ && !socket.valid() && std::chrono::steady_clock::now() < deadline) {
-            socket = net::Socket::connect(options_.address, options_.port, error);
+            socket = net::Socket::connect(options_.address, options_.port, error, relayable ? 3000 : 5000);
             if (!socket.valid())
                 std::this_thread::sleep_for(std::chrono::milliseconds(400));
         }

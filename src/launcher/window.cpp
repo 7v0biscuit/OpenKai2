@@ -854,6 +854,7 @@ struct Window {
     std::wstring onlineArguments;
     std::unique_ptr<netplay::Room> room;
     bool roomHost = false;
+    std::string lastRoomMessage;
     bool directJoin = false;
     std::string joinAddress, joinRoomId;
     uint16_t roomPort = 0;
@@ -6633,6 +6634,7 @@ struct Window {
         (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
     }
     void closeRoom(const std::wstring &message) {
+        lastRoomMessage.clear();
         room.reset();
         hostingRoom.clear();
         pendingInvitee.clear();
@@ -6648,6 +6650,11 @@ struct Window {
             return;
         const auto state = room->status();
         std::wstring next = wide(state.message);
+        if (state.message != lastRoomMessage) {
+            lastRoomMessage = state.message;
+            std::cout << "[launcher:online] room " << (roomHost ? "host" : "join") << ": " << state.message
+                      << (state.relayed ? " (relay)" : "") << std::endl;
+        }
         if (state.phase == netplay::RoomPhase::failed) {
             std::cout << "[launcher:online] room " << (roomHost ? "hosting" : "joining") << " failed: " << state.message
                       << std::endl;

@@ -6,6 +6,8 @@
 #include "netplay.h"
 #include "room.h"
 #include "relay.h"
+#include "net_socket.h"
+#include <chrono>
 #include <cstring>
 #include <iostream>
 #include <map>
@@ -673,6 +675,18 @@ void room_checks_before_launch() {
     require(again.valid(), "the game can reuse the room's port");
 }
 
+void unreachable_hosts_time_out() {
+    std::string error;
+    const auto began = std::chrono::steady_clock::now();
+    auto socket = openkai2::net::Socket::connect("10.255.255.1", 9, error, 300);
+    const auto waited = std::chrono::steady_clock::now() - began;
+    require(!socket.valid(), "an unreachable address does not connect");
+    require(waited < std::chrono::seconds(3), "connecting to an unreachable address gives up on time");
+    openkai2::net::Socket listener = openkai2::net::Socket::listen(0);
+    auto local = openkai2::net::Socket::connect("127.0.0.1", listener.local_port(), error, 300);
+    require(local.valid(), "a listening local port still connects: " + error);
+}
+
 void relay_through_service() {
     namespace on = openkai2::online;
     std::atomic<bool> stopping{false};
@@ -781,6 +795,7 @@ int main() {
         time_sync_slows_the_faster_player();
         desync_recovers_with_a_fresh_state();
         room_checks_before_launch();
+        unreachable_hosts_time_out();
         relay_through_service();
         wrong_build_is_refused();
         name_rules();

@@ -572,7 +572,7 @@ void Session::run() {
                 status_.message = "Connecting to " + options_.address;
             }
             std::string error;
-            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::minutes(5);
             while (!stopping_ && !socket_.valid() && std::chrono::steady_clock::now() < deadline) {
                 net::Socket connected = net::Socket::connect(options_.address, options_.port, error);
                 {

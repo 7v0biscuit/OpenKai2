@@ -19,7 +19,7 @@ class Socket {
     Socket &operator=(Socket &&other) noexcept;
 
     static Socket listen(uint16_t port);
-    static Socket connect(const std::string &host, uint16_t port, std::string &error);
+    static Socket connect(const std::string &host, uint16_t port, std::string &error, int timeout_ms = 5000);
     Socket accept(int timeout_ms);
     bool valid() const { return handle_ >= 0; }
     bool send_all(const void *data, size_t size);

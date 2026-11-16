@@ -13,6 +13,8 @@ using SocketHandle = SOCKET;
 #define OK_SHUT SD_BOTH
 #else
 #include <arpa/inet.h>
+#include <cerrno>
+#include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -43,6 +45,45 @@ SocketHandle raw(long long handle) { return static_cast<SocketHandle>(handle); }
 void no_delay(SocketHandle handle) {
     int on = 1;
     setsockopt(handle, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char *>(&on), sizeof on);
+}
+
+bool connect_within(SocketHandle handle, const sockaddr *address, int length, int timeout_ms) {
+#ifdef _WIN32
+    u_long on = 1;
+    ioctlsocket(handle, FIONBIO, &on);
+    bool connected = ::connect(handle, address, length) == 0;
+    if (!connected && WSAGetLastError() == WSAEWOULDBLOCK) {
+        fd_set writable, failed;
+        FD_ZERO(&writable);
+        FD_ZERO(&failed);
+        FD_SET(handle, &writable);
+        FD_SET(handle, &failed);
+        timeval limit{timeout_ms / 1000, (timeout_ms % 1000) * 1000};
+        if (select(0, nullptr, &writable, &failed, &limit) > 0 && FD_ISSET(handle, &writable) && !FD_ISSET(handle, &failed)) {
+            int error = 0, size = sizeof error;
+            connected = getsockopt(handle, SOL_SOCKET, SO_ERROR, reinterpret_cast<char *>(&error), &size) == 0 && error == 0;
+        }
+    }
+    u_long off = 0;
+    ioctlsocket(handle, FIONBIO, &off);
+    return connected;
+#else
+    const int flags = fcntl(handle, F_GETFL, 0);
+    fcntl(handle, F_SETFL, flags | O_NONBLOCK);
+    bool connected = ::connect(handle, address, socklen_t(length)) == 0;
+    if (!connected && errno == EINPROGRESS) {
+        pollfd entry{};
+        entry.fd = handle;
+        entry.events = POLLOUT;
+        if (::poll(&entry, 1, timeout_ms) > 0 && (entry.revents & POLLOUT)) {
+            int error = 0;
+            socklen_t size = sizeof error;
+            connected = getsockopt(handle, SOL_SOCKET, SO_ERROR, &error, &size) == 0 && error == 0;
+        }
+    }
+    fcntl(handle, F_SETFL, flags);
+    return connected;
+#endif
 }
 
 bool wait_readable(SocketHandle handle, int timeout_ms) {
@@ -94,7 +135,7 @@ Socket Socket::listen(uint16_t port) {
     return Socket(static_cast<long long>(handle));
 }
 
-Socket Socket::connect(const std::string &host, uint16_t port, std::string &error) {
+Socket Socket::connect(const std::string &host, uint16_t port, std::string &error, int timeout_ms) {
     startup();
     addrinfo hints{};
     hints.ai_family = AF_UNSPEC;
@@ -108,7 +149,7 @@ Socket Socket::connect(const std::string &host, uint16_t port, std::string &erro
         const SocketHandle handle = ::socket(entry->ai_family, entry->ai_socktype, entry->ai_protocol);
         if (handle == OK_INVALID)
             continue;
-        if (::connect(handle, entry->ai_addr, int(entry->ai_addrlen)) == 0) {
+        if (connect_within(handle, entry->ai_addr, int(entry->ai_addrlen), timeout_ms)) {
             freeaddrinfo(found);
             no_delay(handle);
             return Socket(static_cast<long long>(handle));
