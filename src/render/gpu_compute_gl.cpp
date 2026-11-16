@@ -169,6 +169,30 @@ class OpenGlCompute final : public Compute {
         gl_.check("GPU hi-res dispatch");
     }
 
+    void raster_hires(const std::vector<uint32_t> &commands, const std::vector<uint32_t> &bins,
+                      const std::vector<uint32_t> &references, const std::vector<uint32_t> &palette,
+                      const std::vector<uint32_t> &params, unsigned groups) override {
+        if (!hires_ || !groups) {
+            raster(commands, bins, references, palette);
+            hires_raster(params, groups);
+            return;
+        }
+        const std::array<const std::vector<uint32_t> *, 4> arrays = {&commands, &bins, &references, &palette};
+        for (unsigned i = 0; i < 4u; ++i) {
+            gl_.BindBuffer(ShaderStorageBuffer, buffers_[i + 1u]);
+            gl_.BufferData(ShaderStorageBuffer, Size(arrays[i]->size() * 4u), arrays[i]->data(), DynamicDraw);
+        }
+        bindExtras(params);
+        for (unsigned i = 0; i < 6u; ++i)
+            gl_.BindBufferBase(ShaderStorageBuffer, i, buffers_[i]);
+        gl_.UseProgram(raster_);
+        gl_.DispatchCompute(unsigned(bins.size() / 4u), 1u, 1u);
+        gl_.UseProgram(hires_);
+        gl_.DispatchCompute(groups, 1u, 1u);
+        gl_.MemoryBarrier(ShaderStorageBarrier | BufferUpdateBarrier);
+        gl_.check("GPU raster dispatch");
+    }
+
     void hires_seed(const std::vector<uint32_t> &params, unsigned groupsX, unsigned groupsY) override {
         if (!seed_ || !groupsX || !groupsY)
             return;

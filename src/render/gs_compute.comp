@@ -111,6 +111,18 @@ float interpolateAttribute(float a,float b,float c,vec3 weights){
     precise float first=a*weights.x+b*weights.y;
     precise float result=first+c*weights.z;return result;
 }
+uint depthTerm(uint from,uint to,float weight,uint bias){
+    bool rising=to>=from;uint distance=rising ? to-from : from-to;
+    int scaled=int(weight*536870912.0);bool positive=rising==(scaled>=0);
+    uint high,low;umulExtended(distance,uint(abs(scaled)),high,low);
+    uint add=positive ? bias : 536870911u-bias;uint sum=low+add;high+=sum<low ? 1u : 0u;
+    uint quotient=(high<<3u)|(sum>>29u);return positive ? quotient : 0u-quotient;
+}
+uint clampDepth(uint z,float estimate){
+    if(estimate<2147483648.0 && z>=3221225472u)return 0u;
+    if(estimate>=2147483648.0 && z<1073741824u)return 4294967295u;
+    return z;
+}
 float qValue(float q){return abs(q)>1.0e-8 ? q : 1.0;}
 bool shadePixel(uint c,ivec2 position,vec2 sampleAt,uint destinationDepth,out uvec4 color,out uint z){
     uint flags=word(c,1u);uint a=vertex(c,0u),b=vertex(c,1u),d=vertex(c,2u);
@@ -133,8 +145,8 @@ bool shadePixel(uint c,ivec2 position,vec2 sampleAt,uint destinationDepth,out uv
         precise vec4 channels=ca+(cb-ca)*t;
         color=(flags&4u)!=0u ? uvec4(clamp(ivec4(channels),ivec4(0),ivec4(255))) : uvec4(cb);
         if(needDepth){
-            double za=packDouble2x32(uvec2(word(a,2u),word(a,3u))),zb=packDouble2x32(uvec2(word(b,2u),word(b,3u)));
-            precise double depth=za+(zb-za)*double(t);z=uint(depth);
+            uint za=word(a,2u),zb=word(b,2u);
+            z=clampDepth(za+depthTerm(za,zb,t,0u),float(za)+(float(zb)-float(za))*t);
         }else z=word(c,88u);
         precise float fogValue=float(word(a,5u))+(float(word(b,5u))-float(word(a,5u)))*t;
         fog=uint(clamp(int(fogValue),0,255));
@@ -161,12 +173,9 @@ bool shadePixel(uint c,ivec2 position,vec2 sampleAt,uint destinationDepth,out uv
         vec3 weights=vec3(w0,w1,w2);
         if(word(c,39u)!=0u || !needDepth)z=word(c,88u);
         else{
-            double z0=packDouble2x32(uvec2(word(a,2u),word(a,3u)));
-            double z1=packDouble2x32(uvec2(word(b,2u),word(b,3u)));
-            double z2=packDouble2x32(uvec2(word(d,2u),word(d,3u)));
-            precise double depth=z0+(z1-z0)*double(w1);
-            depth=depth+(z2-z0)*double(w2);
-            z=uint(depth+0.5lf);
+            uint z0=word(a,2u),z1=word(b,2u),z2=word(d,2u);
+            z=clampDepth(z0+depthTerm(z0,z1,w1,268435456u)+depthTerm(z0,z2,w2,268435456u),
+                         float(z0)+(float(z1)-float(z0))*w1+(float(z2)-float(z0))*w2);
         }
         color=unpackColor(word(d,4u));
         if((flags&4u)!=0u){

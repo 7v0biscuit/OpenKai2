@@ -1,0 +1,54 @@
+--- a/runtime/gs/gs_cpu_backend.cpp
++++ b/runtime/gs/gs_cpu_backend.cpp
+@@ -22,6 +22,19 @@
+ 
+ namespace
+ {
++    u32 depthAt(double from,int64_t term)
++    {
++        return static_cast<u32>(std::clamp<int64_t>(static_cast<int64_t>(from)+term,0,4294967295ll));
++    }
++    int64_t depthTerm(double from,double to,float weight,int64_t bias)
++    {
++        const int64_t distance=static_cast<int64_t>(to)-static_cast<int64_t>(from);
++        return (distance*static_cast<int64_t>(static_cast<int32_t>(weight*536870912.0f))+bias)>>29;
++    }
++    u32 triangleDepth(double z0,double z1,double z2,float w1,float w2)
++    {
++        return depthAt(z0,depthTerm(z0,z1,w1,268435456)+depthTerm(z0,z2,w2,268435456));
++    }
+     // The GS latches palette entries separately from texture VRAM. Cache the
+     // resolved colors using the actual latched bytes and every lookup state
+     // field, so skipped CLD loads, TEXA changes, reset, and backend reuse retain
+@@ -1884,8 +1897,7 @@
+             const float w1=(((fy2-fy0)*(px-fx0)+(fx0-fx2)*(py-fy0))*winding)*invAbsDenom;
+             const float w2=1.0f-w0-w1;
+             if(w0 < -kEdgeEpsilon || w1 < -kEdgeEpsilon || w2 < -kEdgeEpsilon)return false;
+-            const double z=v0.z+(v1.z-v0.z)*double(w1)+(v2.z-v0.z)*double(w2);
+-            return writer.rejectsDepth(x,y,flatDepth ? flatZ : static_cast<u32>(z+0.5));
++            return writer.rejectsDepth(x,y,flatDepth ? flatZ : triangleDepth(v0.z,v1.z,v2.z,w1,w2));
+         });
+ 
+     auto drawRows=[&](GSMem::TexturePageCache& cache,int first,int last,bool& sampled) -> uint64_t {
+@@ -1920,8 +1932,7 @@
+                 const int x=firstX+int(lane);
+                 const float w0=weights0[lane],w1=weights1[lane],w2=weights2[lane];
+ 
+-                double z = v0.z+(v1.z-v0.z)*double(w1)+(v2.z-v0.z)*double(w2);
+-                const auto pixelZ=flatDepth ? flatZ : static_cast<u32>(z+0.5);
++                const auto pixelZ=flatDepth ? flatZ : triangleDepth(v0.z,v1.z,v2.z,w1,w2);
+                 if(earlyDepth && writer.rejectsDepth(x,y,pixelZ)) {
+                     ++rejected;pendingSample=true;lastW0=w0;lastW1=w1;lastW2=w2;
+                     continue;
+@@ -2062,9 +2073,9 @@
+             a = v1.a;
+         }
+ 
+-        double z = (v0.z + (v1.z - v0.z) * t);
++        const u32 z = depthAt(v0.z,depthTerm(v0.z,v1.z,t,0));
+         const uint8_t fog = clampU8(static_cast<int>(v0.fog + (v1.fog - v0.fog) * t));
+-        WritePixel(state, x0, y0, static_cast<u32>(z), r, g, b, a, fog);
++        WritePixel(state, x0, y0, z, r, g, b, a, fog);
+ 
+         if (x0 == x1 && y0 == y1)
+             break;

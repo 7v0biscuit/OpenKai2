@@ -365,8 +365,8 @@ struct GpuRasterBackend::Impl {
                       hiresParams=std::move(hiresParams),seedColor=std::move(seedColor),seedDepth=std::move(seedDepth),groups,seedX,seedColorY,seedDepthY](gpu::Host&){
             if(!seedColor.empty())r->compute->hires_seed(seedColor,seedX,seedColorY);
             if(!seedDepth.empty())r->compute->hires_seed(seedDepth,seedX,seedDepthY);
-            r->compute->raster(cmd,bins,refs,colors);
-            if(groups)r->compute->hires_raster(hiresParams,groups);
+            if(groups)r->compute->raster_hires(cmd,bins,refs,colors,hiresParams,groups);
+            else r->compute->raster(cmd,bins,refs,colors);
         });commands.clear();commands.reserve(commandWords);palette.clear();++hdGeneration;activeTiles.clear();paletteOffsets.clear();references=0u;batchWrites.reset();batchSources.reset();batchDepth=false;
         if(hdFull){hdSlots.clear();hdHead=0u;hdFull=false;}
     }
@@ -421,7 +421,7 @@ struct GpuRasterBackend::Impl {
             const float x=(point || line ? float(int(v.x)) : v.x)-(sprite ? float(c.xyoffset.ofx)/16.0f : float(c.xyoffset.ofx>>4u));
             const float y=(point || line ? float(int(v.y)) : v.y)-(sprite ? float(c.xyoffset.ofy)/16.0f : float(c.xyoffset.ofy>>4u));
             if(!i){minX=maxX=x;minY=maxY=y;}else{minX=std::min(minX,x);maxX=std::max(maxX,x);minY=std::min(minY,y);maxY=std::max(maxY,y);}
-            const unsigned at=gpu::VertexWord+i*gpu::VertexWords;cmd[at]=bits(x);cmd[at+1u]=bits(y);std::memcpy(&cmd[at+2u],&v.z,8u);
+            const unsigned at=gpu::VertexWord+i*gpu::VertexWords;cmd[at]=bits(x);cmd[at+1u]=bits(y);cmd[at+2u]=uint32_t(v.z);cmd[at+3u]=0u;
             cmd[at+4u]=rgba(v);cmd[at+5u]=v.fog;cmd[at+6u]=bits(v.s);cmd[at+7u]=bits(v.t);cmd[at+8u]=bits(v.q);cmd[at+9u]=v.u;cmd[at+10u]=v.v;
         }
         if(triangle){

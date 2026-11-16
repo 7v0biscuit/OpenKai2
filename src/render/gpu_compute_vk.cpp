@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <memory>
 #include <mutex>
+#include <chrono>
+#include <iostream>
 #include <vector>
 #include <cstring>
 #include <stdexcept>
@@ -40,7 +42,8 @@ constexpr uint32_t bindingCount = 9;
     X(vkCreateCommandPool) X(vkDestroyCommandPool) X(vkAllocateCommandBuffers) X(vkBeginCommandBuffer)                \
     X(vkEndCommandBuffer) X(vkResetCommandBuffer) X(vkCmdBindPipeline) X(vkCmdBindDescriptorSets) X(vkCmdDispatch)    \
     X(vkCmdCopyBuffer) X(vkCmdPipelineBarrier) X(vkCmdFillBuffer) X(vkQueueSubmit) X(vkCreateFence)                    \
-    X(vkDestroyFence) X(vkWaitForFences) X(vkResetFences) X(vkDeviceWaitIdle)
+    X(vkDestroyFence) X(vkWaitForFences) X(vkResetFences) X(vkDeviceWaitIdle)                                \
+    X(vkCreateQueryPool) X(vkDestroyQueryPool) X(vkCmdResetQueryPool) X(vkCmdWriteTimestamp) X(vkGetQueryPoolResults)
 
 struct Loader {
     PFN_vkGetInstanceProcAddr getInstanceProcAddr = nullptr;
@@ -101,6 +104,8 @@ struct Shared {
     VkPipeline raster = VK_NULL_HANDLE, transfer = VK_NULL_HANDLE, hires = VK_NULL_HANDLE, seed = VK_NULL_HANDLE, resolve = VK_NULL_HANDLE;
     std::string description;
     size_t storageWords = 0;
+    float timestampPeriod = 0.0f;
+    uint64_t timestampMask = 0;
 
     Shared() {
         try {
@@ -169,10 +174,6 @@ struct Shared {
         for (auto candidate : devices) {
             VkPhysicalDeviceProperties properties{};
             vkGetPhysicalDeviceProperties(candidate, &properties);
-            VkPhysicalDeviceFeatures features{};
-            vkGetPhysicalDeviceFeatures(candidate, &features);
-            if (!features.shaderFloat64)
-                continue;
             uint32_t families = 0;
             vkGetPhysicalDeviceQueueFamilyProperties(candidate, &families, nullptr);
             std::vector<VkQueueFamilyProperties> list(families);
@@ -190,19 +191,22 @@ struct Shared {
                     family = i;
                     description = std::string(properties.deviceName) + " (Vulkan)";
                     storageWords = properties.limits.maxStorageBufferRange / 4u;
+                    timestampPeriod = properties.limits.timestampPeriod;
+                    timestampMask = list[i].timestampValidBits >= 64u ? ~uint64_t(0)
+                                    : list[i].timestampValidBits ? (uint64_t(1) << list[i].timestampValidBits) - 1u
+                                                                 : 0u;
                 }
                 break;
             }
         }
         if (best < 0)
-            throw std::runtime_error("no Vulkan GPU supports 64-bit shader math");
+            throw std::runtime_error("no Vulkan GPU supports compute");
         const float priority = 1.0f;
         VkDeviceQueueCreateInfo request{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
         request.queueFamilyIndex = family;
         request.queueCount = 1;
         request.pQueuePriorities = &priority;
         VkPhysicalDeviceFeatures enabled{};
-        enabled.shaderFloat64 = VK_TRUE;
         VkDeviceCreateInfo info{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
         info.queueCreateInfoCount = 1;
         info.pQueueCreateInfos = &request;
@@ -270,6 +274,27 @@ std::shared_ptr<Shared> acquire_shared() {
     return created;
 }
 
+void record_gpu_time(double nanoseconds) {
+    static std::mutex mutex;
+    static std::chrono::steady_clock::time_point began{};
+    static double busy = 0.0;
+    static uint64_t submissions = 0;
+    std::lock_guard lock(mutex);
+    const auto now = std::chrono::steady_clock::now();
+    if (began == std::chrono::steady_clock::time_point{})
+        began = now;
+    busy += nanoseconds;
+    ++submissions;
+    const double seconds = std::chrono::duration<double>(now - began).count();
+    if (seconds >= 30.0) {
+        std::cout << "[renderer:gpu-time] seconds=" << int(seconds + 0.5) << " gpu_ms=" << uint64_t(busy / 1e6)
+                  << " busy_percent=" << int(busy / 1e7 / seconds) << " submissions=" << submissions << std::endl;
+        began = now;
+        busy = 0.0;
+        submissions = 0;
+    }
+}
+
 class VulkanCompute final : public Compute {
   public:
     VulkanCompute() : shared_(acquire_shared()) {
@@ -290,6 +315,13 @@ class VulkanCompute final : public Compute {
                 check(vkCreateFence(device_, &fence, nullptr, &frame.fence), "fence creation");
             }
             check(vkAllocateCommandBuffers(device_, &allocate, &presentCommand_), "command buffer creation");
+            if (shared_->timestampMask && shared_->timestampPeriod > 0.0f) {
+                VkQueryPoolCreateInfo queries{VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
+                queries.queryType = VK_QUERY_TYPE_TIMESTAMP;
+                queries.queryCount = frameCount * 2u;
+                if (vkCreateQueryPool(device_, &queries, nullptr, &timestamps_) != VK_SUCCESS)
+                    timestamps_ = VK_NULL_HANDLE;
+            }
             check(vkCreateFence(device_, &fence, nullptr, &presentFence_), "fence creation");
             VkDescriptorPoolSize size{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, bindingCount * 2u};
             VkDescriptorPoolCreateInfo descriptors{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
@@ -421,6 +453,36 @@ class VulkanCompute final : public Compute {
         vkCmdDispatch(command_, groups, 1, 1);
         barrier();
         if (++dispatches_ >= 4u)
+            submit();
+    }
+
+    void raster_hires(const std::vector<uint32_t> &commands, const std::vector<uint32_t> &bins,
+                      const std::vector<uint32_t> &references, const std::vector<uint32_t> &palette,
+                      const std::vector<uint32_t> &params, unsigned groups) override {
+        if (bins.size() < 4u || !groups) {
+            raster(commands, bins, references, palette);
+            hires_raster(params, groups);
+            return;
+        }
+        ensure(commands_, commands.size() * 4u);
+        ensure(bins_, bins.size() * 4u);
+        ensure(references_, references.size() * 4u);
+        ensure(palette_, palette.size() * 4u);
+        ensure(hiParams_, params.size() * 4u);
+        copy_in(commands_, 0, commands.data(), commands.size() * 4u);
+        copy_in(bins_, 0, bins.data(), bins.size() * 4u);
+        copy_in(references_, 0, references.data(), references.size() * 4u);
+        copy_in(palette_, 0, palette.data(), palette.size() * 4u);
+        copy_in(hiParams_, 0, params.data(), params.size() * 4u);
+        barrier();
+        vkCmdBindDescriptorSets(command_, VK_PIPELINE_BIND_POINT_COMPUTE, shared_->pipelineLayout, 0, 1, &rasterSet_, 0, nullptr);
+        vkCmdBindPipeline(command_, VK_PIPELINE_BIND_POINT_COMPUTE, shared_->raster);
+        vkCmdDispatch(command_, uint32_t(bins.size() / 4u), 1, 1);
+        vkCmdBindPipeline(command_, VK_PIPELINE_BIND_POINT_COMPUTE, shared_->hires);
+        vkCmdDispatch(command_, groups, 1, 1);
+        barrier();
+        dispatches_ += 2u;
+        if (dispatches_ >= 4u || frames_[current_].head >= (8u << 20u))
             submit();
     }
 
@@ -557,7 +619,7 @@ class VulkanCompute final : public Compute {
         VkFence fence = VK_NULL_HANDLE;
         Buffer staging;
         VkDeviceSize head = 0;
-        bool pending = false;
+        bool pending = false, timed = false;
     };
 
     uint32_t memory_type(uint32_t bits, VkMemoryPropertyFlags wanted, VkMemoryPropertyFlags fallback) const {
@@ -629,6 +691,14 @@ class VulkanCompute final : public Compute {
         if (!frame.pending)
             return;
         check(vkWaitForFences(device_, 1, &frame.fence, VK_TRUE, UINT64_MAX), "fence wait");
+        if (frame.timed) {
+            uint64_t stamps[2]{};
+            const uint32_t first = uint32_t(&frame - frames_) * 2u;
+            if (vkGetQueryPoolResults(device_, timestamps_, first, 2, sizeof(stamps), stamps, sizeof(uint64_t),
+                                      VK_QUERY_RESULT_64_BIT) == VK_SUCCESS)
+                record_gpu_time(((stamps[1] - stamps[0]) & shared_->timestampMask) * double(shared_->timestampPeriod));
+            frame.timed = false;
+        }
         check(vkResetFences(device_, 1, &frame.fence), "fence reset");
         check(vkResetCommandBuffer(frame.command, 0), "command reset");
         frame.pending = false;
@@ -645,6 +715,11 @@ class VulkanCompute final : public Compute {
         info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         check(vkBeginCommandBuffer(command_, &info), "command recording");
         recording_ = true;
+        if (timestamps_) {
+            const uint32_t first = current_ * 2u;
+            vkCmdResetQueryPool(command_, timestamps_, first, 2);
+            vkCmdWriteTimestamp(command_, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timestamps_, first);
+        }
     }
 
     void barrier() {
@@ -662,6 +737,10 @@ class VulkanCompute final : public Compute {
         if (!recording_)
             return;
         auto &frame = frames_[current_];
+        if (timestamps_) {
+            vkCmdWriteTimestamp(command_, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timestamps_, current_ * 2u + 1u);
+            frame.timed = true;
+        }
         check(vkEndCommandBuffer(command_), "command recording");
         recording_ = false;
         VkSubmitInfo info{VK_STRUCTURE_TYPE_SUBMIT_INFO};
@@ -727,6 +806,9 @@ class VulkanCompute final : public Compute {
             free_buffer(*buffer);
         if (presentFence_)
             vkDestroyFence(device_, presentFence_, nullptr);
+        if (timestamps_)
+            vkDestroyQueryPool(device_, timestamps_, nullptr);
+        timestamps_ = VK_NULL_HANDLE;
         presentFence_ = VK_NULL_HANDLE;
         presentCommand_ = VK_NULL_HANDLE;
         presentPending_ = false;
@@ -759,6 +841,7 @@ class VulkanCompute final : public Compute {
     Buffer presentNative_, presentHires_;
     VkCommandBuffer presentCommand_ = VK_NULL_HANDLE;
     VkFence presentFence_ = VK_NULL_HANDLE;
+    VkQueryPool timestamps_ = VK_NULL_HANDLE;
     std::mutex presentMutex_;
     bool presentPending_ = false;
     bool recording_ = false;

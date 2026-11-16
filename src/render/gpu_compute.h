@@ -30,6 +30,12 @@ class Compute {
     virtual size_t storage_word_limit() const { return std::numeric_limits<size_t>::max() / 4u; }
     virtual void hires_reserve(size_t colorWords, size_t depthWords) { (void)colorWords, (void)depthWords; }
     virtual void hires_raster(const std::vector<uint32_t> &params, unsigned groups) { (void)params, (void)groups; }
+    virtual void raster_hires(const std::vector<uint32_t> &commands, const std::vector<uint32_t> &bins,
+                              const std::vector<uint32_t> &references, const std::vector<uint32_t> &palette,
+                              const std::vector<uint32_t> &params, unsigned groups) {
+        raster(commands, bins, references, palette);
+        hires_raster(params, groups);
+    }
     virtual void hires_seed(const std::vector<uint32_t> &params, unsigned groupsX, unsigned groupsY) {
         (void)params, (void)groupsX, (void)groupsY;
     }
