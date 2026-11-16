@@ -162,12 +162,11 @@ bool shadePixel(uint c,ivec2 position,vec2 sampleAt,uint destinationDepth,out uv
         }
     }else{
         float x0=number(a,0u),y0=number(a,1u),x1=number(b,0u),y1=number(b,1u),x2=number(d,0u),y2=number(d,1u);
-        precise float denom=(y1-y2)*(x0-x2)+(x2-x1)*(y0-y2);
-        if(abs(denom)<0.001)return false;
-        float winding=denom<0.0 ? -1.0 : 1.0;precise float inverse=1.0/abs(denom);
+        if(word(c,95u)!=0u)return false;
+        float scale=number(c,94u);
         precise vec2 p=sampleAt;
-        precise float w0=(((y1-y2)*(p.x-x2)+(x2-x1)*(p.y-y2))*winding)*inverse;
-        precise float w1=(((y2-y0)*(p.x-x0)+(x0-x2)*(p.y-y0))*winding)*inverse;
+        precise float w0=((y1-y2)*(p.x-x2)+(x2-x1)*(p.y-y2))*scale;
+        precise float w1=((y2-y0)*(p.x-x0)+(x0-x2)*(p.y-y0))*scale;
         precise float w2=1.0-w0-w1;
         if(w0 < -0.0001 || w1 < -0.0001 || w2 < -0.0001)return false;
         vec3 weights=vec3(w0,w1,w2);

@@ -149,10 +149,10 @@ struct GpuRasterBackend::Impl {
         load.relaxed=used<0.55 && behind<0.02 ? load.relaxed+1u : 0u;
         if(load.overloaded>=2u && scale>1u){
             if(now-load.raised<std::chrono::seconds(30))load.hold=std::min(load.hold*2,std::chrono::seconds(300));
-            --scale;dropShadows();load.overloaded=load.relaxed=0u;load.holdUntil=now+load.hold;
+            --scale;dropShadows();hdReset();load.overloaded=load.relaxed=0u;load.holdUntil=now+load.hold;
             std::cout<<"[renderer] internal_resolution lowered to "<<scale<<"x to keep 60 FPS (graphics card busy "<<int(used*100.0)<<"%, "<<int(behind*100.0)<<"% of frames late)"<<std::endl;
         }else if(load.relaxed>=15u && scale<maxScale && now>=load.holdUntil){
-            ++scale;dropShadows();load.overloaded=load.relaxed=0u;load.raised=now;
+            ++scale;dropShadows();hdReset();load.overloaded=load.relaxed=0u;load.raised=now;
             std::cout<<"[renderer] internal_resolution raised to "<<scale<<"x (graphics card busy "<<int(used*100.0)<<"%)"<<std::endl;
         }
     }
@@ -160,8 +160,8 @@ struct GpuRasterBackend::Impl {
     size_t slotWords()const{return size_t(shadowWidth*maxScale)*size_t(shadowHeight*maxScale);}
     static constexpr size_t hdWords=24u<<20u,hdLargest=4u<<20u;
     size_t hdCapacity=0;
-    struct HdSlot{uint32_t offset=0,width=0,height=0;};
-    bool hdOn=false,hdFull=false;size_t hdHead=0;uint64_t hiresFrames=0,nativeFrames=0,shadowSources=0;std::array<uint64_t,6> hdSkips{};std::array<uint64_t,6> nativeWhy{};std::unordered_map<uint64_t,HdSlot> hdSlots;
+    struct HdSlot{uint32_t offset=0,width=0,height=0;uint64_t used=0;size_t span=0;};
+    bool hdOn=false;std::map<size_t,size_t> hdFree;uint64_t hdFrame=1;uint64_t hiresFrames=0,nativeFrames=0,shadowSources=0;std::array<uint64_t,7> hdSkips{};std::array<uint64_t,6> nativeWhy{};std::unordered_map<uint64_t,HdSlot> hdSlots;
     struct KeyHash{size_t operator()(const std::array<uint64_t,4>& k)const{uint64_t h=k[0];for(unsigned i=1;i<4u;++i)h=(h^k[i])*0x9e3779b97f4a7c15ull;return size_t(h^(h>>29u));}};
     std::unordered_map<std::array<uint64_t,4>,uint64_t,KeyHash> hdHashes;std::array<uint32_t,gpu::PageCount> pageVersion{},pageHashed{};std::array<uint64_t,gpu::PageCount> pageHash{};
     struct HdMemo{std::array<uint64_t,2> key{};uint64_t generation=0,result=0;Pages pages;};
@@ -208,6 +208,29 @@ struct GpuRasterBackend::Impl {
         if(!hd::library().known(hash))hd::library().submit(hash,std::move(image));
         return remember(hash);
     }
+    void hdReset(){hdSlots.clear();hdFree.clear();if(hdCapacity)hdFree.emplace(size_t(0),hdCapacity);}
+    bool hdTake(size_t span,size_t& at){
+        for(auto it=hdFree.begin();it!=hdFree.end();++it)if(it->second>=span){
+            at=it->first;const size_t rest=it->second-span;hdFree.erase(it);if(rest)hdFree.emplace(at+span,rest);return true;
+        }
+        return false;
+    }
+    void hdRelease(size_t at,size_t span){
+        auto it=hdFree.emplace(at,span).first;
+        if(auto next=std::next(it);next!=hdFree.end() && it->first+it->second==next->first){it->second+=next->second;hdFree.erase(next);}
+        if(it!=hdFree.begin()){auto prev=std::prev(it);if(prev->first+prev->second==it->first){prev->second+=it->second;hdFree.erase(it);}}
+    }
+    bool hdRoom(size_t span,size_t& at){
+        if(hdTake(span,at))return true;
+        std::vector<std::pair<uint64_t,uint64_t>> idle;
+        for(const auto& [hash,slot]:hdSlots)if(slot.used<hdFrame)idle.push_back({slot.used,hash});
+        std::sort(idle.begin(),idle.end());
+        for(const auto& entry:idle){
+            const auto it=hdSlots.find(entry.second);hdRelease(it->second.offset,it->second.span);hdSlots.erase(it);
+            if(hdTake(span,at))return true;
+        }
+        return false;
+    }
     void applyHd(const GSDrawState& state,uint32_t* cmd){
         const auto& c=state.context;const unsigned w=state.textureWidth,h=state.textureHeight;
         if((c.clamp&3u)==3u || ((c.clamp>>2u)&3u)==3u){++hdSkips[0];return;}
@@ -220,11 +243,12 @@ struct GpuRasterBackend::Impl {
             if(!image){++hdSkips[3];return;}
             const size_t words=size_t(image->width)*image->height;
             if(!words || words>hdLargest)return;
-            if(hdHead+words>hdCapacity){hdFull=true;return;}
-            slot=hdSlots.emplace(hash,HdSlot{uint32_t(hdHead),image->width,image->height}).first;
-            device->post([r=resources,image,offset=hdBase()+hdHead](gpu::Host&){r->compute->hires_upload(offset,image->texels.data(),image->texels.size());});
-            hdHead+=(words+63u)&~size_t(63u);
+            const size_t span=(words+63u)&~size_t(63u);size_t at=0;
+            if(!hdRoom(span,at)){++hdSkips[6];return;}
+            slot=hdSlots.emplace(hash,HdSlot{uint32_t(at),image->width,image->height,hdFrame,span}).first;
+            device->post([r=resources,image,offset=hdBase()+at](gpu::Host&){r->compute->hires_upload(offset,image->texels.data(),image->texels.size());});
         }
+        slot->second.used=hdFrame;
         ++hdSkips[4];cmd[89]=slot->second.offset+1u;cmd[90]=slot->second.width;cmd[91]=slot->second.height;
     }
     bool applyShadowSource(const GSDrawState& state,uint32_t* cmd){
@@ -300,7 +324,7 @@ struct GpuRasterBackend::Impl {
                 std::cout<<"[renderer] internal_resolution="<<requested<<"x does not fit this GPU; using "<<fitted<<"x"<<std::endl;
                 scale=maxScale=fitted;
             }
-            hires=supported;hdCapacity=capacity;dropShadows();
+            hires=supported;hdCapacity=capacity;dropShadows();hdReset();
             hdOn=hires && hdMode!=0u && hdCapacity!=0u;
             if(hdOn)hd::library().configure(hdMode,graphics_settings().textureFolder,scale>=3u ? 4u : 2u);
             if(hdOn && hdMode==hd::packs && !hd::library().has_packs()){hdOn=false;std::cout<<"[renderer] hd_textures: no texture packs found in "<<graphics_settings().textureFolder.string()<<std::endl;}
@@ -368,7 +392,6 @@ struct GpuRasterBackend::Impl {
             if(groups)r->compute->raster_hires(cmd,bins,refs,colors,hiresParams,groups);
             else r->compute->raster(cmd,bins,refs,colors);
         });commands.clear();commands.reserve(commandWords);palette.clear();++hdGeneration;activeTiles.clear();paletteOffsets.clear();references=0u;batchWrites.reset();batchSources.reset();batchDepth=false;
-        if(hdFull){hdSlots.clear();hdHead=0u;hdFull=false;}
     }
     void materialize(const Pages& requested,WaitReason reason=waitOther){
         footprintValid=false;
@@ -460,6 +483,13 @@ struct GpuRasterBackend::Impl {
         cmd[16]=t.psm;cmd[17]=t.tbp0;cmd[18]=t.tbw;cmd[19]=s.textureWidth;cmd[20]=s.textureHeight;cmd[21]=uint32_t(c.clamp);cmd[22]=uint32_t(c.clamp>>32u);cmd[23]=t.tfx;cmd[24]=t.tcc;
         cmd[25]=s.texa.ta0;cmd[26]=s.texa.ta1;cmd[27]=s.texa.aem;cmd[29]=uint32_t(s.fogR)|(uint32_t(s.fogG)<<8u)|(uint32_t(s.fogB)<<16u);
         cmd[38]=c.frame.psm;cmd[39]=flatDepth;
+        cmd[94]=0u;cmd[95]=1u;
+        if(triangle){
+            const auto at=[&](unsigned v,unsigned k){float value;std::memcpy(&value,&cmd[gpu::VertexWord+v*gpu::VertexWords+k],4u);return value;};
+            const float x0=at(0u,0u),y0=at(0u,1u),x1=at(1u,0u),y1=at(1u,1u),x2=at(2u,0u),y2=at(2u,1u);
+            const float first=(y1-y2)*(x0-x2),second=(x2-x1)*(y0-y2),denom=first+second;
+            if(!(std::fabs(denom)<0.001f)){const float inverse=1.0f/std::fabs(denom);cmd[94]=bits(denom<0.0f ? -inverse : inverse);cmd[95]=0u;}
+        }
         if(point || sprite || flatDepth){
             const double z=batch.vertices[sprite ? 1u : 0u].z;
             cmd[88]=uint32_t(std::min(z+(flatDepth ? 0.5 : 0.0),4294967295.0));
@@ -712,11 +742,11 @@ PresentationFrame GpuRasterBackend::Present(const GSPresentationRequest& request
     if(!ready){presenter.Initialize(snapshot.data(),uint32_t(snapshot.size()));frame=presenter.Present(request);}
     const bool scaledFrame=plan.ok && frame && frame.width==plan.width && frame.height==plan.height && !frame.usedPreferred && frame.sourceFbp==plan.fbp;
     if(m->hires && frame){
-        std::lock_guard lock(m->mutex);++(scaledFrame ? m->hiresFrames : m->nativeFrames);m->hdDecodeBudget=Impl::hdDecodePerFrame;
+        std::lock_guard lock(m->mutex);++(scaledFrame ? m->hiresFrames : m->nativeFrames);m->hdDecodeBudget=Impl::hdDecodePerFrame;++m->hdFrame;
         if(plan.ok && !scaledFrame)++m->nativeWhy[5];
         if((m->hiresFrames+m->nativeFrames)%600u==0u){
             const auto counts=hd::library().counts();
-            std::cout<<"[renderer:hires] frames_scaled="<<m->hiresFrames<<" frames_native="<<m->nativeFrames<<" hd_upscaled="<<counts.upscaled<<" hd_packed="<<counts.packed<<" hd_dumped="<<counts.dumped<<" hd_resident="<<m->hdSlots.size()<<" hd_draws="<<m->hdSkips[4]<<" hd_skip_region="<<m->hdSkips[0]<<" hd_skip_size="<<m->hdSkips[1]<<" hd_skip_target="<<m->hdSkips[2]<<" hd_pending="<<m->hdSkips[3]<<" hd_deferred="<<m->hdSkips[5]<<" native_display="<<m->nativeWhy[0]<<" native_no_shadow="<<m->nativeWhy[1]<<" native_stale="<<m->nativeWhy[2]<<" native_cpu="<<m->nativeWhy[3]<<" native_bounds="<<m->nativeWhy[4]<<" native_source="<<m->nativeWhy[5]<<" hires_texture_draws="<<m->shadowSources<<std::endl;
+            std::cout<<"[renderer:hires] frames_scaled="<<m->hiresFrames<<" frames_native="<<m->nativeFrames<<" hd_upscaled="<<counts.upscaled<<" hd_packed="<<counts.packed<<" hd_dumped="<<counts.dumped<<" hd_resident="<<m->hdSlots.size()<<" hd_draws="<<m->hdSkips[4]<<" hd_skip_region="<<m->hdSkips[0]<<" hd_skip_size="<<m->hdSkips[1]<<" hd_skip_target="<<m->hdSkips[2]<<" hd_pending="<<m->hdSkips[3]<<" hd_deferred="<<m->hdSkips[5]<<" hd_no_room="<<m->hdSkips[6]<<" native_display="<<m->nativeWhy[0]<<" native_no_shadow="<<m->nativeWhy[1]<<" native_stale="<<m->nativeWhy[2]<<" native_cpu="<<m->nativeWhy[3]<<" native_bounds="<<m->nativeWhy[4]<<" native_source="<<m->nativeWhy[5]<<" hires_texture_draws="<<m->shadowSources<<std::endl;
         }
     }
     if(!scaledFrame)return frame;

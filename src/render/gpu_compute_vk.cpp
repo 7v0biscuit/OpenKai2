@@ -274,23 +274,33 @@ std::shared_ptr<Shared> acquire_shared() {
     return created;
 }
 
-void record_gpu_time(double nanoseconds) {
+constexpr unsigned timeKinds = 7u;
+const char *const timeNames[timeKinds] = {"raster", "raster_hires", "seed", "resolve", "transfer", "upload", "other"};
+
+void record_gpu_time(double nanoseconds, const double (&parts)[timeKinds]) {
     static std::mutex mutex;
     static std::chrono::steady_clock::time_point began{};
-    static double busy = 0.0;
+    static double busy = 0.0, kinds[timeKinds]{};
     static uint64_t submissions = 0;
     std::lock_guard lock(mutex);
     const auto now = std::chrono::steady_clock::now();
     if (began == std::chrono::steady_clock::time_point{})
         began = now;
     busy += nanoseconds;
+    for (unsigned i = 0; i < timeKinds; ++i)
+        kinds[i] += parts[i];
     ++submissions;
     const double seconds = std::chrono::duration<double>(now - began).count();
     if (seconds >= 30.0) {
         std::cout << "[renderer:gpu-time] seconds=" << int(seconds + 0.5) << " gpu_ms=" << uint64_t(busy / 1e6)
-                  << " busy_percent=" << int(busy / 1e7 / seconds) << " submissions=" << submissions << std::endl;
+                  << " busy_percent=" << int(busy / 1e7 / seconds) << " submissions=" << submissions;
+        for (unsigned i = 0; i < timeKinds; ++i)
+            std::cout << ' ' << timeNames[i] << "_ms=" << uint64_t(kinds[i] / 1e6);
+        std::cout << std::endl;
         began = now;
         busy = 0.0;
+        for (auto &kind : kinds)
+            kind = 0.0;
         submissions = 0;
     }
 }
@@ -318,7 +328,7 @@ class VulkanCompute final : public Compute {
             if (shared_->timestampMask && shared_->timestampPeriod > 0.0f) {
                 VkQueryPoolCreateInfo queries{VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
                 queries.queryType = VK_QUERY_TYPE_TIMESTAMP;
-                queries.queryCount = frameCount * 2u;
+                queries.queryCount = frameCount * timeStride;
                 if (vkCreateQueryPool(device_, &queries, nullptr, &timestamps_) != VK_SUCCESS)
                     timestamps_ = VK_NULL_HANDLE;
             }
@@ -375,6 +385,7 @@ class VulkanCompute final : public Compute {
             return;
         copy_in(vram_, offset, data, size);
         barrier();
+        mark(5u);
     }
 
     void raster(const std::vector<uint32_t> &commands, const std::vector<uint32_t> &bins,
@@ -394,6 +405,7 @@ class VulkanCompute final : public Compute {
         vkCmdBindDescriptorSets(command_, VK_PIPELINE_BIND_POINT_COMPUTE, shared_->pipelineLayout, 0, 1, &rasterSet_, 0, nullptr);
         vkCmdDispatch(command_, uint32_t(bins.size() / 4u), 1, 1);
         barrier();
+        mark(0u);
         if (++dispatches_ >= 4u || frames_[current_].head >= (8u << 20u))
             submit();
     }
@@ -411,6 +423,7 @@ class VulkanCompute final : public Compute {
         const unsigned rows = (groups + 65534u) / 65535u;
         vkCmdDispatch(command_, (groups + rows - 1u) / rows, rows, 1);
         barrier();
+        mark(4u);
         if (++dispatches_ >= 4u)
             submit();
     }
@@ -452,6 +465,7 @@ class VulkanCompute final : public Compute {
                                 nullptr);
         vkCmdDispatch(command_, groups, 1, 1);
         barrier();
+        mark(1u);
         if (++dispatches_ >= 4u)
             submit();
     }
@@ -481,6 +495,7 @@ class VulkanCompute final : public Compute {
         vkCmdBindPipeline(command_, VK_PIPELINE_BIND_POINT_COMPUTE, shared_->hires);
         vkCmdDispatch(command_, groups, 1, 1);
         barrier();
+        mark(1u);
         dispatches_ += 2u;
         if (dispatches_ >= 4u || frames_[current_].head >= (8u << 20u))
             submit();
@@ -497,6 +512,7 @@ class VulkanCompute final : public Compute {
                                 nullptr);
         vkCmdDispatch(command_, groupsX, groupsY, 1);
         barrier();
+        mark(2u);
     }
 
     bool hires_resolve(const std::vector<uint32_t> &params, unsigned groupsX, unsigned groupsY) override {
@@ -510,6 +526,7 @@ class VulkanCompute final : public Compute {
                                 nullptr);
         vkCmdDispatch(command_, groupsX, groupsY, 1);
         barrier();
+        mark(3u);
         return true;
     }
 
@@ -540,6 +557,7 @@ class VulkanCompute final : public Compute {
             done += part;
         }
         barrier();
+        mark(5u);
     }
 
     std::function<void()> present_read(const std::vector<Range> &ranges, uint8_t *destination, size_t hiresOffset,
@@ -613,14 +631,25 @@ class VulkanCompute final : public Compute {
     void destroy() override { release(); }
 
   private:
-    static constexpr unsigned frameCount = 4u;
+    static constexpr unsigned frameCount = 4u, timeStride = 66u;
     struct Frame {
         VkCommandBuffer command = VK_NULL_HANDLE;
         VkFence fence = VK_NULL_HANDLE;
         Buffer staging;
         VkDeviceSize head = 0;
         bool pending = false, timed = false;
+        unsigned marks = 0u;
+        uint8_t kinds[timeStride - 2u]{};
     };
+
+    void mark(unsigned kind) {
+        auto &frame = frames_[current_];
+        if (!timestamps_ || !recording_ || frame.marks >= timeStride - 2u)
+            return;
+        vkCmdWriteTimestamp(command_, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timestamps_,
+                            current_ * timeStride + 2u + frame.marks);
+        frame.kinds[frame.marks++] = uint8_t(kind);
+    }
 
     uint32_t memory_type(uint32_t bits, VkMemoryPropertyFlags wanted, VkMemoryPropertyFlags fallback) const {
         for (auto flags : {wanted, fallback})
@@ -692,11 +721,21 @@ class VulkanCompute final : public Compute {
             return;
         check(vkWaitForFences(device_, 1, &frame.fence, VK_TRUE, UINT64_MAX), "fence wait");
         if (frame.timed) {
-            uint64_t stamps[2]{};
-            const uint32_t first = uint32_t(&frame - frames_) * 2u;
-            if (vkGetQueryPoolResults(device_, timestamps_, first, 2, sizeof(stamps), stamps, sizeof(uint64_t),
-                                      VK_QUERY_RESULT_64_BIT) == VK_SUCCESS)
-                record_gpu_time(((stamps[1] - stamps[0]) & shared_->timestampMask) * double(shared_->timestampPeriod));
+            uint64_t stamps[timeStride]{};
+            const uint32_t first = uint32_t(&frame - frames_) * timeStride, count = 2u + frame.marks;
+            if (vkGetQueryPoolResults(device_, timestamps_, first, count, sizeof(uint64_t) * count, stamps,
+                                      sizeof(uint64_t), VK_QUERY_RESULT_64_BIT) == VK_SUCCESS) {
+                const double period = double(shared_->timestampPeriod);
+                const auto span = [&](uint64_t from, uint64_t to) { return double((to - from) & shared_->timestampMask) * period; };
+                double parts[timeKinds]{};
+                uint64_t previous = stamps[0];
+                for (unsigned i = 0; i < frame.marks; ++i) {
+                    parts[frame.kinds[i]] += span(previous, stamps[2u + i]);
+                    previous = stamps[2u + i];
+                }
+                parts[timeKinds - 1u] += span(previous, stamps[1]);
+                record_gpu_time(span(stamps[0], stamps[1]), parts);
+            }
             frame.timed = false;
         }
         check(vkResetFences(device_, 1, &frame.fence), "fence reset");
@@ -716,9 +755,10 @@ class VulkanCompute final : public Compute {
         check(vkBeginCommandBuffer(command_, &info), "command recording");
         recording_ = true;
         if (timestamps_) {
-            const uint32_t first = current_ * 2u;
-            vkCmdResetQueryPool(command_, timestamps_, first, 2);
+            const uint32_t first = current_ * timeStride;
+            vkCmdResetQueryPool(command_, timestamps_, first, timeStride);
             vkCmdWriteTimestamp(command_, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timestamps_, first);
+            frame.marks = 0u;
         }
     }
 
@@ -738,7 +778,7 @@ class VulkanCompute final : public Compute {
             return;
         auto &frame = frames_[current_];
         if (timestamps_) {
-            vkCmdWriteTimestamp(command_, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timestamps_, current_ * 2u + 1u);
+            vkCmdWriteTimestamp(command_, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timestamps_, current_ * timeStride + 1u);
             frame.timed = true;
         }
         check(vkEndCommandBuffer(command_), "command recording");
