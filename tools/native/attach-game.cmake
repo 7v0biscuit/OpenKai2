@@ -126,6 +126,10 @@ function(openkai2_attach_generated_sources)
             "${project_root}/tools/native/patch-fpu-sqrt.py"
             --directory "$ENV{OPENKAI2_WORK_DIR}/budokai2-native/output"
             COMMAND_ERROR_IS_FATAL ANY)
+        execute_process(COMMAND "${Python3_EXECUTABLE}"
+            "${project_root}/tools/native/patch-field-reads.py"
+            --directory "$ENV{OPENKAI2_WORK_DIR}/budokai2-native/output"
+            COMMAND_ERROR_IS_FATAL ANY)
         set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
             "${project_root}/tools/native/translation-entries.py")
     endif()
@@ -136,7 +140,8 @@ function(openkai2_attach_generated_sources)
         "${project_root}/tools/native/patch-capsules.py"
         "${project_root}/tools/native/patch-ee-branches.py"
         "${project_root}/tools/native/patch-tail-jumps.py"
-        "${project_root}/tools/native/patch-fpu-sqrt.py")
+        "${project_root}/tools/native/patch-fpu-sqrt.py"
+        "${project_root}/tools/native/patch-field-reads.py")
     set(overlay_dir "${CMAKE_BINARY_DIR}/openkai2-overlays")
     include("${project_root}/tools/native/vector-core.cmake")
     execute_process(COMMAND "${Python3_EXECUTABLE}"
@@ -160,6 +165,7 @@ function(openkai2_attach_generated_sources)
         "${project_root}/tools/native/patches/field-requests.patch"
         "${project_root}/tools/native/patches/field-pipeline.patch"
         "${project_root}/tools/native/patches/integer-depth.patch"
+        "${project_root}/tools/native/patches/dma-worker.patch"
         "${project_root}/tools/native/patches/vif-fill-writes.patch"
         "${project_root}/tools/native/patches/spu2-dma-progress.patch"
         "${project_root}/tools/native/patches/guest-varargs.patch"

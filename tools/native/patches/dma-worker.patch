@@ -1,0 +1,606 @@
+--- a/include/runtime/ps2_memory.h
++++ b/include/runtime/ps2_memory.h
+@@ -12,6 +12,10 @@
+ #include <atomic>
+ #include <iostream>
+ #include <mutex>
++#include <condition_variable>
++#include <deque>
++#include <exception>
++#include <thread>
+ 
+ #include "gs/ps2_gif_arbiter.h"
+ #if defined(_MSC_VER)
+@@ -349,6 +353,13 @@
+     void processVIF1Data(const uint8_t *data, uint32_t sizeBytes);
+     void processPendingTransfers();
+     std::vector<uint32_t> consumeCompletedDmacCauses();
++    void startDmaWorker();
++    void stopDmaWorker();
++    bool onDmaWorker() const { return std::this_thread::get_id() == m_dmaWorkerId; }
++    void drainDma() const;
++    bool deferToDma(std::function<void()> work);
++    void setDmaContextProbe(std::function<uint32_t()> probe) { m_dmaContextProbe = std::move(probe); }
++    uint32_t dmaJobContext() const { return m_dmaJobContext; }
+ 
+     int pollDmaRegisters();
+ 
+@@ -405,6 +416,29 @@
+     GifPacketCallback m_gifPacketCallback;
+     GifArbiter *m_gifArbiter = nullptr;
+     std::function<void()> m_gsFence;
++    struct DmaJob
++    {
++        std::vector<uint8_t> bytes;
++        std::function<void()> work;
++        uint32_t context = 0u;
++        uint8_t kind = 0u;
++        uint8_t path = 0u;
++        bool drain = true;
++        bool directHl = false;
++    };
++    bool queueDma(DmaJob &&job);
++    void runDmaWorker();
++    std::thread m_dmaWorker;
++    std::thread::id m_dmaWorkerId{};
++    mutable std::mutex m_dmaMutex;
++    mutable std::condition_variable m_dmaReady, m_dmaIdle;
++    std::deque<DmaJob> m_dmaJobs;
++    uint64_t m_dmaQueued = 0u, m_dmaDone = 0u;
++    bool m_dmaStop = false;
++    std::atomic<bool> m_dmaRunning{false};
++    std::exception_ptr m_dmaFailure;
++    uint32_t m_dmaJobContext = 0u;
++    std::function<uint32_t()> m_dmaContextProbe;
+     Vu1MscalCallback m_vu1MscalCallback;
+     Vu1MscntCallback m_vu1MscntCallback;
+ 
+@@ -413,6 +447,7 @@
+     uint8_t *m_vu1Code = nullptr;
+     uint8_t *m_vu1Data = nullptr;
+     bool m_path3Masked = false;
++    std::atomic<bool> m_path3MaskMirror{false}, m_path3MaskUsed{false};
+     uint32_t m_vif1PendingPath2ImageQwc = 0u;
+     bool m_vif1PendingPath2DirectHl = false;
+     std::vector<std::vector<uint8_t>> m_path3MaskedFifo;
+--- a/runtime/ps2_memory.cpp
++++ b/runtime/ps2_memory.cpp
+@@ -7,6 +7,7 @@
+ #include "ps2_log.h"
+ #include "../Kernel/Stubs/MPEG.h"
+ #include <atomic>
++#include <cstdlib>
+ #include <cstring>
+ #include <limits>
+ #include <stdexcept>
+@@ -250,6 +251,7 @@
+ 
+ PS2Memory::~PS2Memory()
+ {
++    stopDmaWorker();
+     if (m_rdram)
+     {
+         delete[] m_rdram;
+@@ -332,6 +334,7 @@
+     }
+     m_codeRegions.clear();
+     m_path3Masked = false;
++    m_path3MaskMirror.store(false, std::memory_order_release);
+     m_path3MaskedFifo.clear();
+     m_vif1PendingPath2ImageQwc = 0u;
+     m_vif1PendingPath2DirectHl = false;
+@@ -538,6 +541,8 @@
+ 
+ const uint8_t *PS2Memory::mapVuMemory(uint32_t physAddr, uint32_t size, uint32_t &offset, uint32_t &limit) const
+ {
++    if (physAddr >= PS2_VU1_CODE_BASE && physAddr < PS2_VU1_DATA_BASE + PS2_VU1_DATA_SIZE)
++        drainDma();
+     auto mapRange = [&](uint32_t base, uint32_t rangeSize, const uint8_t *ptr) -> const uint8_t *
+     {
+         if (!ptr || physAddr < base)
+@@ -1227,6 +1232,8 @@
+         return true;
+     }
+ 
++    if (address >= 0x10003C00u && address < 0x10003E00u)
++        drainDma();
+     m_ioRegisters[address] = value;
+ 
+     if (address >= 0x10003C00u && address < 0x10003E00u)
+@@ -1243,6 +1250,7 @@
+                 m_vif1PendingPath2ImageQwc = 0u;
+                 m_vif1PendingPath2DirectHl = false;
+                 m_path3Masked = false;
++                m_path3MaskMirror.store(false, std::memory_order_release);
+                 if (wasPath3Masked)
+                     flushMaskedPath3Packets();
+             }
+@@ -1958,7 +1966,7 @@
+     }
+     m_pendingVif1Transfers.clear();
+ 
+-    if (m_gifArbiter)
++    if (m_gifArbiter && !deferToDma([this]() { m_gifArbiter->drain(); }))
+         m_gifArbiter->drain();
+ 
+     static constexpr uint32_t GIF_CHANNEL = 0x1000A000;
+@@ -2042,10 +2050,132 @@
+         m_gifArbiter->drain();
+ }
+ 
++void PS2Memory::startDmaWorker()
++{
++    const char *value = std::getenv("OPENKAI2_DMA_THREAD");
++    if ((value && *value == '0') || m_dmaWorker.joinable())
++        return;
++    {
++        std::lock_guard<std::mutex> lock(m_dmaMutex);
++        m_dmaStop = false;
++        m_dmaFailure = nullptr;
++    }
++    m_dmaWorker = std::thread([this]() { runDmaWorker(); });
++    m_dmaWorkerId = m_dmaWorker.get_id();
++    m_dmaRunning.store(true, std::memory_order_release);
++}
++
++void PS2Memory::stopDmaWorker()
++{
++    if (!m_dmaWorker.joinable())
++        return;
++    {
++        std::lock_guard<std::mutex> lock(m_dmaMutex);
++        m_dmaStop = true;
++    }
++    m_dmaReady.notify_all();
++    m_dmaWorker.join();
++    m_dmaRunning.store(false, std::memory_order_release);
++    m_dmaWorkerId = std::thread::id{};
++}
++
++bool PS2Memory::queueDma(DmaJob &&job)
++{
++    if (job.kind == 0u && (job.context & 0xC00u) != 0u)
++    {
++        drainDma();
++        return false;
++    }
++    {
++        std::lock_guard<std::mutex> lock(m_dmaMutex);
++        if (m_dmaFailure)
++            std::rethrow_exception(m_dmaFailure);
++        m_dmaJobs.push_back(std::move(job));
++        ++m_dmaQueued;
++    }
++    m_dmaReady.notify_one();
++    return true;
++}
++
++bool PS2Memory::deferToDma(std::function<void()> work)
++{
++    if (!m_dmaRunning.load(std::memory_order_acquire) || onDmaWorker())
++        return false;
++    DmaJob job;
++    job.kind = 2u;
++    job.work = std::move(work);
++    return queueDma(std::move(job));
++}
++
++void PS2Memory::drainDma() const
++{
++    if (!m_dmaRunning.load(std::memory_order_acquire) || onDmaWorker())
++        return;
++    std::unique_lock<std::mutex> lock(m_dmaMutex);
++    if (m_dmaDone != m_dmaQueued)
++    {
++        openkai2::RuntimeWorkTimer wait(openkai2::RuntimeWork::gsFence);
++        m_dmaIdle.wait(lock, [this]() { return m_dmaDone == m_dmaQueued; });
++    }
++    if (m_dmaFailure)
++        std::rethrow_exception(m_dmaFailure);
++}
++
++void PS2Memory::runDmaWorker()
++{
++    std::unique_lock<std::mutex> lock(m_dmaMutex);
++    for (;;)
++    {
++        m_dmaReady.wait(lock, [this]() { return m_dmaStop || !m_dmaJobs.empty(); });
++        if (m_dmaJobs.empty())
++            return;
++        DmaJob job = std::move(m_dmaJobs.front());
++        m_dmaJobs.pop_front();
++        const bool failed = static_cast<bool>(m_dmaFailure);
++        lock.unlock();
++        if (!failed)
++        {
++            try
++            {
++                openkai2::RuntimeWorkTimer work(openkai2::RuntimeWork::dmaPending);
++                m_dmaJobContext = job.context;
++                if (job.kind == 0u)
++                    processVIF1Data(job.bytes.data(), static_cast<uint32_t>(job.bytes.size()));
++                else if (job.kind == 1u)
++                    submitGifPacket(static_cast<GifPathId>(job.path), job.bytes.data(), static_cast<uint32_t>(job.bytes.size()), job.drain, job.directHl);
++                else if (job.work)
++                    job.work();
++            }
++            catch (...)
++            {
++                lock.lock();
++                if (!m_dmaFailure)
++                    m_dmaFailure = std::current_exception();
++                lock.unlock();
++            }
++        }
++        lock.lock();
++        ++m_dmaDone;
++        if (m_dmaDone == m_dmaQueued)
++            m_dmaIdle.notify_all();
++    }
++}
++
+ void PS2Memory::submitGifPacket(GifPathId pathId, const uint8_t *data, uint32_t sizeBytes, bool drainImmediately, bool path2DirectHl)
+ {
+     if (!data || sizeBytes < 16)
+         return;
++    if (m_dmaRunning.load(std::memory_order_acquire) && !onDmaWorker())
++    {
++        DmaJob job;
++        job.kind = 1u;
++        job.path = static_cast<uint8_t>(pathId);
++        job.drain = drainImmediately;
++        job.directHl = path2DirectHl;
++        job.bytes.assign(data, data + sizeBytes);
++        if (queueDma(std::move(job)))
++            return;
++    }
+     openkai2::RuntimeWorkTimer work(openkai2::RuntimeWork::gifPath23, pathId != GifPathId::Path1);
+ 
+     if (pathId == GifPathId::Path3)
+@@ -2107,7 +2237,8 @@
+     static constexpr uint32_t D_STAT = 0x1000E010u;
+     static constexpr uint32_t D_CTRL = 0x1000E000u;
+ 
+-    if (!m_rdram || !m_gsVRAM || m_path3Masked)
++    if (!m_rdram || !m_gsVRAM || m_path3MaskMirror.load(std::memory_order_acquire) ||
++        (m_dmaRunning.load(std::memory_order_acquire) && !onDmaWorker() && m_path3MaskUsed.load(std::memory_order_acquire)))
+         return false;
+     if (m_gifArbiter && !m_gifArbiter->empty())
+         return false;
+@@ -2299,7 +2430,8 @@
+     static constexpr uint32_t D_STAT = 0x1000E010u;
+     static constexpr uint32_t D_CTRL = 0x1000E000u;
+ 
+-    if (!m_rdram || !m_gsVRAM || m_path3Masked)
++    if (!m_rdram || !m_gsVRAM || m_path3MaskMirror.load(std::memory_order_acquire) ||
++        (m_dmaRunning.load(std::memory_order_acquire) && !onDmaWorker() && m_path3MaskUsed.load(std::memory_order_acquire)))
+         return false;
+     if (m_gifArbiter && !m_gifArbiter->empty())
+         return false;
+@@ -2443,6 +2575,9 @@
+ 
+     if (address == 0x10003020u) // GIF_STAT
+     {
++        const bool path3Masked = m_dmaRunning.load(std::memory_order_acquire) && !onDmaWorker()
++                                     ? m_path3MaskMirror.load(std::memory_order_acquire)
++                                     : m_path3Masked;
+         uint32_t stat = m_ioRegisters.count(address) ? m_ioRegisters[address] : 0u;
+         const uint32_t mode = m_ioRegisters.count(0x10003010u) ? m_ioRegisters[0x10003010u] : 0u;
+         const uint32_t ctrl = m_ioRegisters.count(0x10003000u) ? m_ioRegisters[0x10003000u] : 0u;
+@@ -2451,7 +2586,7 @@
+         // effective PATH3 mask controlled by the VIF1 MSKPATH3 command.
+         stat = (stat & ~0xFu) |
+                (mode & 0x1u) |
+-               (m_path3Masked ? 0x2u : 0u) |
++               (path3Masked ? 0x2u : 0u) |
+                (mode & 0x4u) |
+                (ctrl & 0x8u);
+         return stat;
+@@ -2652,6 +2787,7 @@
+ 
+ void PS2Memory::serializeState(StateArchive &archive)
+ {
++    drainDma();
+     archive.section(0x204d4545u);
+     archive.bytes(m_rdram, PS2_RAM_SIZE);
+     archive.bytes(m_scratchpad, PS2_SCRATCHPAD_SIZE);
+@@ -2666,6 +2802,9 @@
+     archive.bytes(m_vu1Code, PS2_VU1_CODE_SIZE);
+     archive.bytes(m_vu1Data, PS2_VU1_DATA_SIZE);
+     archive(m_seenGifCopy, m_path3Masked, m_vif1PendingPath2ImageQwc, m_vif1PendingPath2DirectHl, m_path3MaskedFifo);
++    m_path3MaskMirror.store(m_path3Masked, std::memory_order_release);
++    if (m_path3Masked)
++        m_path3MaskUsed.store(true, std::memory_order_release);
+     archive(m_pendingGifTransfers, m_pendingVif0Transfers, m_pendingVif1Transfers, m_eeTimers);
+     {
+         std::lock_guard<std::mutex> lock(m_completedDmacMutex);
+--- a/runtime/ps2_vif1_interpreter.cpp
++++ b/runtime/ps2_vif1_interpreter.cpp
+@@ -383,6 +383,15 @@
+ {
+     if (sizeBytes == 0u)
+         return;
++    if (data && m_dmaRunning.load(std::memory_order_acquire) && !onDmaWorker())
++    {
++        DmaJob job;
++        job.kind = 0u;
++        job.context = m_dmaContextProbe ? m_dmaContextProbe() : 0u;
++        job.bytes.assign(data, data + sizeBytes);
++        if (queueDma(std::move(job)))
++            return;
++    }
+ 
+     uint32_t pos = 0;
+ 
+@@ -470,6 +479,9 @@
+             // VIF command docs: MSKPATH3 uses IMMEDIATE bit 15.
+             const bool wasMasked = m_path3Masked;
+             m_path3Masked = (imm & 0x8000u) != 0u;
++            m_path3MaskMirror.store(m_path3Masked, std::memory_order_release);
++            if (m_path3Masked)
++                m_path3MaskUsed.store(true, std::memory_order_release);
+             if (wasMasked && !m_path3Masked)
+                 flushMaskedPath3Packets();
+             continue;
+--- a/runtime/ps2_runtime.cpp
++++ b/runtime/ps2_runtime.cpp
+@@ -551,6 +551,7 @@
+     try
+     {
+         requestStop();
++        m_memory.stopDmaWorker();
+         m_iopSubsystem.reset();
+         m_iopHost.reset();
+ #if defined(PLATFORM_VITA)
+@@ -693,42 +694,52 @@
+     m_memory.setGifArbiter(&m_gifArbiter);
+     m_memory.setGsFence([this]() { m_gs.fence(); });
+     m_gs.startWorker();
++    m_memory.setDmaContextProbe([this]()
++                                {
++                                    R5900Context *context = m_eeScheduler ? m_eeScheduler->currentContext() : nullptr;
++                                    return (context ? context : &m_cpuContext)->vu0_fbrst;
++                                });
++    m_gs.setProducerHooks([this](std::function<void()> work) { return m_memory.deferToDma(std::move(work)); },
++                          [this]() { m_memory.drainDma(); });
++    m_memory.startDmaWorker();
+     m_memory.setVu1MscalCallback([this](uint32_t startPC, uint32_t top, uint32_t itop)
+                                  {
+-                                     R5900Context *cpuContext = m_eeScheduler ? m_eeScheduler->currentContext() : nullptr;
+-                                     if (!cpuContext)
++                                     const bool worker = m_memory.onDmaWorker();
++                                     R5900Context *cpuContext = worker ? nullptr : (m_eeScheduler ? m_eeScheduler->currentContext() : nullptr);
++                                     if (!worker && !cpuContext)
+                                      {
+                                          cpuContext = &m_cpuContext;
+                                      }
+-                                     m_vu1.state().dBitEnabled =
+-                                         (cpuContext->vu0_fbrst & (1u << 10)) != 0u;
+-                                     m_vu1.state().tBitEnabled =
+-                                         (cpuContext->vu0_fbrst & (1u << 11)) != 0u;
++                                     const uint32_t fbrst = cpuContext ? cpuContext->vu0_fbrst : m_memory.dmaJobContext();
++                                     m_vu1.state().dBitEnabled = (fbrst & (1u << 10)) != 0u;
++                                     m_vu1.state().tBitEnabled = (fbrst & (1u << 11)) != 0u;
+                                      m_vu1.execute(m_memory.getVU1Code(), PS2_VU1_CODE_SIZE,
+                                                    m_memory.getVU1Data(), PS2_VU1_DATA_SIZE,
+                                                    m_gs, &m_memory, startPC, top, itop, 65536);
+-                                     cpuContext->vu0_vpu_stat =
+-                                         (cpuContext->vu0_vpu_stat & ~0x0600u) |
+-                                         (m_vu1.state().stoppedByD ? 0x0200u : 0u) |
+-                                         (m_vu1.state().stoppedByT ? 0x0400u : 0u); });
++                                     if (cpuContext)
++                                         cpuContext->vu0_vpu_stat =
++                                             (cpuContext->vu0_vpu_stat & ~0x0600u) |
++                                             (m_vu1.state().stoppedByD ? 0x0200u : 0u) |
++                                             (m_vu1.state().stoppedByT ? 0x0400u : 0u); });
+     m_memory.setVu1MscntCallback([this](uint32_t top, uint32_t itop)
+                                  {
+-                                     R5900Context *cpuContext = m_eeScheduler ? m_eeScheduler->currentContext() : nullptr;
+-                                     if (!cpuContext)
++                                     const bool worker = m_memory.onDmaWorker();
++                                     R5900Context *cpuContext = worker ? nullptr : (m_eeScheduler ? m_eeScheduler->currentContext() : nullptr);
++                                     if (!worker && !cpuContext)
+                                      {
+                                          cpuContext = &m_cpuContext;
+                                      }
+-                                     m_vu1.state().dBitEnabled =
+-                                         (cpuContext->vu0_fbrst & (1u << 10)) != 0u;
+-                                     m_vu1.state().tBitEnabled =
+-                                         (cpuContext->vu0_fbrst & (1u << 11)) != 0u;
++                                     const uint32_t fbrst = cpuContext ? cpuContext->vu0_fbrst : m_memory.dmaJobContext();
++                                     m_vu1.state().dBitEnabled = (fbrst & (1u << 10)) != 0u;
++                                     m_vu1.state().tBitEnabled = (fbrst & (1u << 11)) != 0u;
+                                      m_vu1.resume(m_memory.getVU1Code(), PS2_VU1_CODE_SIZE,
+                                                   m_memory.getVU1Data(), PS2_VU1_DATA_SIZE,
+                                                   m_gs, &m_memory, top, itop, 65536);
+-                                     cpuContext->vu0_vpu_stat =
+-                                         (cpuContext->vu0_vpu_stat & ~0x0600u) |
+-                                         (m_vu1.state().stoppedByD ? 0x0200u : 0u) |
+-                                         (m_vu1.state().stoppedByT ? 0x0400u : 0u); });
++                                     if (cpuContext)
++                                         cpuContext->vu0_vpu_stat =
++                                             (cpuContext->vu0_vpu_stat & ~0x0600u) |
++                                             (m_vu1.state().stoppedByD ? 0x0200u : 0u) |
++                                             (m_vu1.state().stoppedByT ? 0x0400u : 0u); });
+     resetIop();
+     m_vu0.reset();
+     m_vu1.reset();
+--- a/include/runtime/gs/gs_frontend.h
++++ b/include/runtime/gs/gs_frontend.h
+@@ -119,6 +119,7 @@
+     void fence();
+     void startWorker();
+     void setFieldCallback(std::function<void(uint64_t)> callback);
++    void setProducerHooks(std::function<bool(std::function<void()>)> defer, std::function<void()> drain);
+     void beginField();
+     bool endField(uint64_t tick);
+     bool processNativePackedGIFPacket(const uint8_t *data, uint32_t sizeBytes);
+@@ -272,6 +273,10 @@
+     bool m_workerBusy = false, m_workerWake = false, m_stopWorker = false;
+ 
+     void enqueueCommandLocked(uint32_t kind, const void *payload, uint32_t size);
++    bool deferProducer(std::function<void()> work);
++    void drainProducers();
++    std::function<bool(std::function<void()>)> m_deferProducer;
++    std::function<void()> m_drainProducers;
+     void finishField(const uint8_t *payload);
+     std::mutex m_fieldMutex;
+     std::function<void(uint64_t)> m_fieldCallback;
+--- a/runtime/gs/gs_frontend.cpp
++++ b/runtime/gs/gs_frontend.cpp
+@@ -240,6 +240,24 @@
+     }
+ }
+ 
++void GS::setProducerHooks(std::function<bool(std::function<void()>)> defer, std::function<void()> drain)
++{
++    fence();
++    m_deferProducer = std::move(defer);
++    m_drainProducers = std::move(drain);
++}
++
++bool GS::deferProducer(std::function<void()> work)
++{
++    return !onWorker() && m_deferProducer && m_deferProducer(std::move(work));
++}
++
++void GS::drainProducers()
++{
++    if (!onWorker() && m_drainProducers)
++        m_drainProducers();
++}
++
+ void GS::setFieldCallback(std::function<void(uint64_t)> callback)
+ {
+     fence();
+@@ -277,11 +295,19 @@
+         if (!m_fieldCallback)
+             return false;
+     }
+-    const uint64_t field[] = {tick, m_privRegs->pmode, m_privRegs->smode2, m_privRegs->dispfb1, m_privRegs->display1,
+-                              m_privRegs->dispfb2, m_privRegs->display2, m_privRegs->bgcolor};
+-    std::lock_guard<std::mutex> lock(m_queueMutex);
+-    ++m_fieldsSent;
+-    enqueueCommandLocked(2u, field, sizeof(field));
++    const std::array<uint64_t, 8> field = {tick, m_privRegs->pmode, m_privRegs->smode2, m_privRegs->dispfb1, m_privRegs->display1,
++                                           m_privRegs->dispfb2, m_privRegs->display2, m_privRegs->bgcolor};
++    {
++        std::lock_guard<std::mutex> lock(m_queueMutex);
++        ++m_fieldsSent;
++    }
++    const auto send = [this, field]()
++    {
++        std::lock_guard<std::mutex> lock(m_queueMutex);
++        enqueueCommandLocked(2u, field.data(), static_cast<uint32_t>(sizeof(field)));
++    };
++    if (!deferProducer(send))
++        send();
+     return true;
+ }
+ 
+@@ -315,6 +341,7 @@
+ 
+ void GS::fence()
+ {
++    drainProducers();
+     if (!m_worker.joinable() || onWorker())
+         return;
+     std::unique_lock<std::mutex> lock(m_queueMutex);
+@@ -878,6 +905,12 @@
+ 
+ void GS::processGIFPacket(const uint8_t *data, uint32_t sizeBytes)
+ {
++    if (data && sizeBytes >= 16u && m_deferProducer && !onWorker())
++    {
++        auto copy = std::make_shared<std::vector<uint8_t>>(data, data + sizeBytes);
++        if (deferProducer([this, copy]() { processGIFPacket(copy->data(), static_cast<uint32_t>(copy->size())); }))
++            return;
++    }
+     if (openkai2::skip_replay_drawing() && !onWorker())
+     {
+         openkai2::replay_skipped_packets.fetch_add(1u, std::memory_order_relaxed);
+@@ -1012,6 +1045,12 @@
+ 
+ bool GS::processNativePackedGIFPacket(const uint8_t *data, uint32_t sizeBytes)
+ {
++    if (data && sizeBytes >= 16u && m_backend && m_deferProducer && !onWorker() && validatePackedGifPacket(data, sizeBytes))
++    {
++        auto copy = std::make_shared<std::vector<uint8_t>>(data, data + sizeBytes);
++        if (deferProducer([this, copy]() { processNativePackedGIFPacket(copy->data(), static_cast<uint32_t>(copy->size())); }))
++            return true;
++    }
+     fence();
+     std::lock_guard<std::recursive_mutex> lock(m_stateMutex);
+     if (!data || sizeBytes < 16u || !m_backend)
+@@ -1059,6 +1098,13 @@
+                            const uint8_t *data,
+                            uint32_t sizeBytes)
+ {
++    if (data && sizeBytes && m_deferProducer && !onWorker())
++    {
++        auto copy = std::make_shared<std::vector<uint8_t>>(data, data + sizeBytes);
++        if (deferProducer([this, bitbltbuf, trxpos, trxreg, trxdir, copy]()
++                          { uploadImageNative(bitbltbuf, trxpos, trxreg, trxdir, copy->data(), static_cast<uint32_t>(copy->size())); }))
++            return;
++    }
+     // Keep native texture uploads in the same FIFO as GIF packets. Waiting
+     // for every preceding draw here serializes the EE and GS at each upload.
+     // The queue owns both registers and bytes before the guest can reuse RAM.
+@@ -1361,6 +1407,8 @@
+ 
+ void GS::writeRegister(uint8_t regAddr, uint64_t value)
+ {
++    if (deferProducer([this, regAddr, value]() { writeRegister(regAddr, value); }))
++        return;
+     fence();
+     std::lock_guard<std::recursive_mutex> lock(m_stateMutex);
+     writeRegisterUnlocked(regAddr, value);
+@@ -1917,6 +1965,8 @@
+ 
+ bool GS::clearFramebufferContext(uint32_t contextIndex, uint32_t rgba)
+ {
++    if (deferProducer([this, contextIndex, rgba]() { clearFramebufferContext(contextIndex, rgba); }))
++        return true;
+     if (m_worker.joinable() && !onWorker())
+     {
+         const uint32_t clear[] = {contextIndex != 0u ? 1u : 0u, rgba};
+@@ -1931,6 +1981,8 @@
+ 
+ bool GS::clearActiveFramebuffer(uint32_t rgba)
+ {
++    if (deferProducer([this, rgba]() { clearActiveFramebuffer(rgba); }))
++        return true;
+     if (m_worker.joinable() && !onWorker())
+     {
+         const uint32_t clear[] = {0x80000000u, rgba};
+--- a/Kernel/EeScheduler.cpp
++++ b/Kernel/EeScheduler.cpp
+@@ -2305,6 +2305,7 @@
+ 
+ void EeScheduler::serializeMachine(StateArchive &archive)
+ {
++    m_runtime.m_memory.drainDma();
+     archive.section(0x314b4f4fu);
+     m_runtime.m_gs.serializeState(archive);
+     m_runtime.m_memory.serializeState(archive);
+--- a/include/ps2_runtime.h
++++ b/include/ps2_runtime.h
+@@ -444,8 +444,16 @@
+     inline const GifArbiter &gifArbiter() const { return m_gifArbiter; }
+     inline VU1Interpreter &vu0() { return m_vu0; }
+     inline const VU1Interpreter &vu0() const { return m_vu0; }
+-    inline VU1Interpreter &vu1() { return m_vu1; }
+-    inline const VU1Interpreter &vu1() const { return m_vu1; }
++    inline VU1Interpreter &vu1()
++    {
++        m_memory.drainDma();
++        return m_vu1;
++    }
++    inline const VU1Interpreter &vu1() const
++    {
++        m_memory.drainDma();
++        return m_vu1;
++    }
+ 
+     inline PS2AudioBackend &audioBackend() { return m_audioBackend; }
+     inline const PS2AudioBackend &audioBackend() const { return m_audioBackend; }

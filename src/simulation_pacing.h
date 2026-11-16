@@ -3,6 +3,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 
 namespace openkai2 {
 struct FieldLateness {
@@ -14,8 +15,13 @@ inline std::atomic<bool> replay_turbo{false};
 inline std::atomic<uint64_t> replay_skipped_packets{0};
 inline std::atomic<bool> runahead_drawing{false};
 inline std::atomic<int64_t> restore_rebase_ns{0};
+inline const bool benchmark_without_drawing = [] {
+    const char *value = std::getenv("OPENKAI2_BENCH_NO_DRAW");
+    return value && *value == '1';
+}();
 inline bool skip_replay_drawing() noexcept {
-    return replay_turbo.load(std::memory_order_relaxed) && !runahead_drawing.load(std::memory_order_relaxed);
+    return benchmark_without_drawing ||
+           (replay_turbo.load(std::memory_order_relaxed) && !runahead_drawing.load(std::memory_order_relaxed));
 }
 inline void record_field_lateness(std::chrono::steady_clock::duration behind) noexcept {
     const auto us = behind.count() > 0 ? uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(behind).count()) : 0u;
