@@ -39,9 +39,9 @@ AsyncRasterBackend::Op &AsyncRasterBackend::claim(std::unique_lock<std::mutex> &
     return ring_[size_t(pushed_ % ring_.size())];
 }
 
-void AsyncRasterBackend::publish(std::unique_lock<std::mutex> &lock) {
+void AsyncRasterBackend::publish(std::unique_lock<std::mutex> &lock, bool urgent) {
     ++pushed_;
-    const bool wake = idle_;
+    const bool wake = idle_ && (urgent || pushed_ - processed_ >= 32u);
     lock.unlock();
     if (wake)
         work_.notify_one();
@@ -50,6 +50,8 @@ void AsyncRasterBackend::publish(std::unique_lock<std::mutex> &lock) {
 void AsyncRasterBackend::drain() const {
     std::unique_lock lock(mutex_);
     const uint64_t target = pushed_;
+    if (idle_ && processed_ < target)
+        work_.notify_one();
     done_.wait(lock, [&] { return processed_ >= target || failure_; });
     if (failure_)
         std::rethrow_exception(failure_);
@@ -106,6 +108,12 @@ void AsyncRasterBackend::execute(Op &op) {
     case Kind::write:
         inner_->WriteVram(op.write[0], op.write[1], op.write[2], op.write[3], op.write[4], op.write[5]);
         break;
+    case Kind::sync:
+        inner_->Sync(op.reason);
+        break;
+    case Kind::clear:
+        inner_->ClearFramebuffer(op.context, op.write[0]);
+        break;
     }
 }
 
@@ -159,7 +167,7 @@ void AsyncRasterBackend::Flush() {
     std::unique_lock lock(mutex_);
     auto &op = claim(lock);
     op.kind = Kind::flush;
-    publish(lock);
+    publish(lock, true);
 }
 
 void AsyncRasterBackend::TextureFlush() {
@@ -179,6 +187,14 @@ void AsyncRasterBackend::WriteVram(uint32_t psm, uint32_t base, uint32_t bw, uin
 }
 
 void AsyncRasterBackend::Sync(GSSyncReason reason) {
+    if (reason == GSSyncReason::Finish) {
+        std::unique_lock lock(mutex_);
+        auto &op = claim(lock);
+        op.kind = Kind::sync;
+        op.reason = reason;
+        publish(lock, true);
+        return;
+    }
     drain();
     inner_->Sync(reason);
 }
@@ -189,8 +205,13 @@ PresentationFrame AsyncRasterBackend::Present(const GSPresentationRequest &reque
 }
 
 bool AsyncRasterBackend::ClearFramebuffer(const GSContext &context, uint32_t rgba) {
-    drain();
-    return inner_->ClearFramebuffer(context, rgba);
+    std::unique_lock lock(mutex_);
+    auto &op = claim(lock);
+    op.kind = Kind::clear;
+    op.context = context;
+    op.write[0] = rgba;
+    publish(lock, true);
+    return true;
 }
 
 uint32_t AsyncRasterBackend::ConsumeLocalToHostBytes(uint8_t *dst, uint32_t maxBytes) {

@@ -37,7 +37,7 @@ public:
     void drain() const;
 
 private:
-    enum class Kind : uint8_t { submit, clut, transfer, upload, flush, textureFlush, write };
+    enum class Kind : uint8_t { submit, clut, transfer, upload, flush, textureFlush, write, sync, clear };
     struct Op {
         Kind kind = Kind::flush;
         GSPrimitiveBatch batch{};
@@ -46,9 +46,11 @@ private:
         GSTransferCommand transfer{};
         std::vector<uint8_t> bytes;
         uint32_t write[6]{};
+        GSSyncReason reason = GSSyncReason::Finish;
+        GSContext context{};
     };
     Op &claim(std::unique_lock<std::mutex> &lock);
-    void publish(std::unique_lock<std::mutex> &lock);
+    void publish(std::unique_lock<std::mutex> &lock, bool urgent = false);
     void run();
     void execute(Op &op);
 
