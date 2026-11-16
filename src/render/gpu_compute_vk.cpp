@@ -2,6 +2,7 @@
 #include "gpu_compute.h"
 #include <algorithm>
 #include <memory>
+#include <mutex>
 #include <vector>
 #include <cstring>
 #include <stdexcept>
@@ -288,6 +289,8 @@ class VulkanCompute final : public Compute {
                 check(vkAllocateCommandBuffers(device_, &allocate, &frame.command), "command buffer creation");
                 check(vkCreateFence(device_, &fence, nullptr, &frame.fence), "fence creation");
             }
+            check(vkAllocateCommandBuffers(device_, &allocate, &presentCommand_), "command buffer creation");
+            check(vkCreateFence(device_, &fence, nullptr, &presentFence_), "fence creation");
             VkDescriptorPoolSize size{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, bindingCount * 2u};
             VkDescriptorPoolCreateInfo descriptors{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
             descriptors.maxSets = 2;
@@ -477,10 +480,78 @@ class VulkanCompute final : public Compute {
         barrier();
     }
 
+    std::function<void()> present_read(const std::vector<Range> &ranges, uint8_t *destination, size_t hiresOffset,
+                                       size_t hiresWords, uint32_t *hiresDestination) override {
+        std::lock_guard lock(presentMutex_);
+        if (presentPending_) {
+            check(vkWaitForFences(device_, 1, &presentFence_, VK_TRUE, UINT64_MAX), "fence wait");
+            presentPending_ = false;
+        }
+        std::vector<VkBufferCopy> copies;
+        VkDeviceSize nativeBytes = 0;
+        for (const auto &range : ranges)
+            if (range.size && range.offset + uint64_t(range.size) <= vram_.size) {
+                copies.push_back(VkBufferCopy{range.offset, range.offset, range.size});
+                nativeBytes = std::max<VkDeviceSize>(nativeBytes, VkDeviceSize(range.offset) + range.size);
+            }
+        const VkDeviceSize hiresBytes =
+            hiresWords && (hiresOffset + hiresWords) * 4u <= hiColor_.size ? VkDeviceSize(hiresWords) * 4u : 0u;
+        if (copies.empty() && !hiresBytes)
+            return {};
+        if (nativeBytes > presentNative_.size) {
+            free_buffer(presentNative_);
+            presentNative_ = make_buffer(vram_.size, true);
+        }
+        if (hiresBytes > presentHires_.size) {
+            free_buffer(presentHires_);
+            presentHires_ = make_buffer(hiresBytes, true);
+        }
+        submit();
+        check(vkResetFences(device_, 1, &presentFence_), "fence reset");
+        check(vkResetCommandBuffer(presentCommand_, 0), "command reset");
+        VkCommandBufferBeginInfo info{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+        info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        check(vkBeginCommandBuffer(presentCommand_, &info), "command recording");
+        VkMemoryBarrier before{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+        before.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
+        before.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        vkCmdPipelineBarrier(presentCommand_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &before, 0, nullptr, 0, nullptr);
+        if (!copies.empty())
+            vkCmdCopyBuffer(presentCommand_, vram_.handle, presentNative_.handle, uint32_t(copies.size()), copies.data());
+        if (hiresBytes) {
+            const VkBufferCopy copy{VkDeviceSize(hiresOffset) * 4u, 0, hiresBytes};
+            vkCmdCopyBuffer(presentCommand_, hiColor_.handle, presentHires_.handle, 1, &copy);
+        }
+        VkMemoryBarrier after{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+        after.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        after.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+        vkCmdPipelineBarrier(presentCommand_, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 1, &after, 0,
+                             nullptr, 0, nullptr);
+        check(vkEndCommandBuffer(presentCommand_), "command recording");
+        VkSubmitInfo submitInfo{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers = &presentCommand_;
+        check(vkQueueSubmit(queue_, 1, &submitInfo, presentFence_), "submission");
+        presentPending_ = true;
+        return [this, copies = std::move(copies), destination, hiresBytes, hiresDestination] {
+            std::lock_guard lock(presentMutex_);
+            if (presentPending_) {
+                check(vkWaitForFences(device_, 1, &presentFence_, VK_TRUE, UINT64_MAX), "fence wait");
+                presentPending_ = false;
+            }
+            for (const auto &copy : copies)
+                std::memcpy(destination + copy.dstOffset, static_cast<uint8_t *>(presentNative_.mapped) + copy.dstOffset,
+                            size_t(copy.size));
+            if (hiresBytes)
+                std::memcpy(hiresDestination, presentHires_.mapped, size_t(hiresBytes));
+        };
+    }
+
     void destroy() override { release(); }
 
   private:
-    static constexpr unsigned frameCount = 2u;
+    static constexpr unsigned frameCount = 4u;
     struct Frame {
         VkCommandBuffer command = VK_NULL_HANDLE;
         VkFence fence = VK_NULL_HANDLE;
@@ -652,8 +723,13 @@ class VulkanCompute final : public Compute {
         }
         vkQueueWaitIdle(queue_);
         for (auto *buffer : {&vram_, &tables_, &commands_, &bins_, &references_, &palette_, &job_, &readback_,
-                             &hiColor_, &hiDepth_, &hiParams_})
+                             &hiColor_, &hiDepth_, &hiParams_, &presentNative_, &presentHires_})
             free_buffer(*buffer);
+        if (presentFence_)
+            vkDestroyFence(device_, presentFence_, nullptr);
+        presentFence_ = VK_NULL_HANDLE;
+        presentCommand_ = VK_NULL_HANDLE;
+        presentPending_ = false;
         for (auto &frame : frames_) {
             free_buffer(frame.staging);
             if (frame.fence)
@@ -680,6 +756,11 @@ class VulkanCompute final : public Compute {
     VkDescriptorPool descriptorPool_ = VK_NULL_HANDLE;
     VkDescriptorSet rasterSet_ = VK_NULL_HANDLE, transferSet_ = VK_NULL_HANDLE;
     Buffer vram_, tables_, commands_, bins_, references_, palette_, job_, readback_, hiColor_, hiDepth_, hiParams_;
+    Buffer presentNative_, presentHires_;
+    VkCommandBuffer presentCommand_ = VK_NULL_HANDLE;
+    VkFence presentFence_ = VK_NULL_HANDLE;
+    std::mutex presentMutex_;
+    bool presentPending_ = false;
     bool recording_ = false;
 };
 }

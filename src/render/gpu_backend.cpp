@@ -647,7 +647,7 @@ uint32_t hiresPixel(uint32_t value,unsigned psm){
 }
 PresentationFrame GpuRasterBackend::Present(const GSPresentationRequest& request){
     thread_local std::vector<uint8_t> snapshot;thread_local GSCpuBackend presenter;
-    std::future<void> readback;PresentationFrame frame;bool ready=false;HiresPlan plan;
+    std::future<std::function<void()>> readback;PresentationFrame frame;bool ready=false;HiresPlan plan;
     thread_local auto hiresBuffer=std::make_shared<std::vector<uint32_t>>();auto hiresWords=hiresBuffer;size_t hiresCount=0;auto resolved=std::make_shared<bool>(false);
     {
         std::lock_guard lock(m->mutex);
@@ -693,21 +693,22 @@ PresentationFrame GpuRasterBackend::Present(const GSPresentationRequest& request
                 if(offset<end)std::memcpy(snapshot.data()+offset,m->vram+offset,end-offset);}
             m->statistics.readbacks+=dirty.count()*gpu::PageBytes;totalReadbacks.fetch_add(dirty.count()*gpu::PageBytes,std::memory_order_relaxed);
         }
-        auto done=std::make_shared<std::promise<void>>();readback=done->get_future();
+        auto done=std::make_shared<std::promise<std::function<void()>>>();readback=done->get_future();
         std::vector<uint32_t> resolveParams;
         if(hiresCount)resolveParams={plan.width*plan.scale,plan.height*plan.scale,uint32_t(plan.offset+size_t(plan.x)*plan.scale),plan.stride,plan.psm,plan.half ? 1u : 0u,
             plan.rows*plan.scale,plan.outWidth,plan.outHeight,uint32_t(plan.resolveBase),uint32_t(request.vsyncTick&1u),plan.scale};
         m->device->post([r=m->resources,ranges=pageRanges(dirty),ram=snapshot.data(),done,hiresWords,hiresCount,offset=plan.offset,resolveParams=std::move(resolveParams),resolved](gpu::Host&){
             try{
-                if(!ranges.empty())r->compute->read(ranges,ram);
+                size_t from=offset,words=hiresCount;
                 if(hiresCount && r->compute->hires_resolve(resolveParams,(resolveParams[7]+7u)/8u,(resolveParams[8]+7u)/8u)){
-                    *resolved=true;r->compute->hires_read(resolveParams[9],size_t(resolveParams[7])*resolveParams[8],hiresWords->data());
-                }else if(hiresCount)r->compute->hires_read(offset,hiresCount,hiresWords->data());
-                done->set_value();
+                    *resolved=true;from=resolveParams[9];words=size_t(resolveParams[7])*resolveParams[8];
+                }
+                auto finish=r->compute->present_read(ranges,ram,from,words,hiresWords->data());
+                done->set_value(finish ? std::function<void()>([r,finish=std::move(finish)]{finish();}) : std::function<void()>());
             }catch(...){done->set_exception(std::current_exception());throw;}
         });
     }
-    {RuntimeWorkTimer wait(RuntimeWork::gpuWait);WaitTimer timed{waitPresent};readback.get();}
+    {RuntimeWorkTimer wait(RuntimeWork::gpuWait);WaitTimer timed{waitPresent};if(auto finish=readback.get())finish();}
     if(!ready){presenter.Initialize(snapshot.data(),uint32_t(snapshot.size()));frame=presenter.Present(request);}
     const bool scaledFrame=plan.ok && frame && frame.width==plan.width && frame.height==plan.height && !frame.usedPreferred && frame.sourceFbp==plan.fbp;
     if(m->hires && frame){

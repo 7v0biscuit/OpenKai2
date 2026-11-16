@@ -2,6 +2,7 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <limits>
 #include <string>
@@ -41,6 +42,13 @@ class Compute {
     }
     virtual void hires_upload(size_t offsetWords, const uint32_t *source, size_t words) {
         (void)offsetWords, (void)source, (void)words;
+    }
+    virtual std::function<void()> present_read(const std::vector<Range> &ranges, uint8_t *destination,
+                                               size_t hiresOffset, size_t hiresWords, uint32_t *hiresDestination) {
+        read(ranges, destination);
+        if (hiresWords)
+            hires_read(hiresOffset, hiresWords, hiresDestination);
+        return {};
     }
     virtual void destroy() = 0;
 };
