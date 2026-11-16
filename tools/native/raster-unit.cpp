@@ -4,6 +4,7 @@
 
 #include "render/gpu_layout.h"
 #include <bit>
+#include <cstring>
 #include <stdexcept>
 namespace openkai2::gpu {
 namespace {
@@ -40,8 +41,39 @@ uint32_t bit_address(unsigned psm,unsigned base,unsigned width,unsigned x,unsign
     const unsigned page=(y>>lut[d+7u])*((width*64u)>>lut[d+6u])+(x>>lut[d+6u]);
     return (base*2048u+page*65536u+lut[lut[d+5u]+(y&(ph-1u))*pw+(x&(pw-1u))])&((VramBytes*8u)-1u);
 }
+bool read_rectangle(const uint8_t* vram,unsigned psm,unsigned base,unsigned width,unsigned w,unsigned h,uint32_t* out) {
+    const auto& lut=address_tables();const auto d=(psm&63u)*8u;
+    const unsigned pw=lut[d],ph=lut[d+1u];if(!pw || !ph)return false;
+    const unsigned count=lut[d+3u],sx=lut[d+6u],sy=lut[d+7u],table=lut[d+5u],pagesPerRow=(width*64u)>>sx;
+    const uint32_t mask=count>=32u ? 0xffffffffu : (1u<<count)-1u;
+    for(unsigned y=0;y<h;++y){
+        const unsigned rowPage=(y>>sy)*pagesPerRow,row=table+(y&(ph-1u))*pw;
+        for(unsigned x=0;x<w;++x){
+            const uint32_t bit=(base*2048u+(rowPage+(x>>sx))*65536u+lut[row+(x&(pw-1u))])&((VramBytes*8u)-1u);
+            uint32_t word;std::memcpy(&word,vram+(bit>>5u)*4u,4u);
+            *out++=(word>>(bit&31u))&mask;
+        }
+    }
+    return true;
+}
 void verify_address_tables() {
     using namespace GSMem;
+    {
+        std::vector<uint8_t> memory(VramBytes);uint32_t seed=0x2545f491u;
+        for(auto& b:memory){seed=seed*1664525u+1013904223u;b=uint8_t(seed>>24u);}
+        GSCpuBackend reference;reference.Initialize(memory.data(),uint32_t(memory.size()));
+        std::vector<uint32_t> texels(64u*64u);
+        for(unsigned psm:{0u,1u,2u,10u,19u,20u,27u,36u,44u,48u,49u,50u,58u})for(unsigned base:{0u,32u,1696u,16352u})for(unsigned width:{1u,2u,4u,10u}){
+            if(!read_rectangle(memory.data(),psm,base,width,64u,64u,texels.data()))throw std::runtime_error("Texture rectangle reader rejected a supported format");
+            for(unsigned y=0;y<64u;++y)for(unsigned x=0;x<64u;++x){
+                uint32_t expected=reference.ReadVram(psm,base,width,x,y);
+                if(psm==1u || psm==49u)expected&=0xffffffu;
+                uint32_t actual=texels[y*64u+x];
+                if(psm==1u || psm==49u)actual&=0xffffffu;
+                if(actual!=expected)throw std::runtime_error("Texture rectangle reader differs from the CPU reference");
+            }
+        }
+    }
     const auto check=[&]<PixelStorageMode P>(const auto& table){
         using T=PixelStorageTraits<P>;
         constexpr unsigned coordinates[]={0u,1u,7u,8u,15u,16u,31u,32u,63u,64u,127u,128u,255u,511u,1023u,2047u};

@@ -197,10 +197,12 @@ struct GpuRasterBackend::Impl {
         if(size_t(w)*h>hdDecodeBudget){++hdSkips[5];return 0u;}
         hdDecodeBudget-=size_t(w)*h;
         hd::Image image;image.width=w;image.height=h;image.texels.resize(size_t(w)*h);
-        const uint32_t first=cmd[28];const bool sixteen=t.psm==2u || t.psm==10u;
-        for(unsigned y=0;y<h;++y)for(unsigned x=0;x<w;++x){
-            const uint32_t raw=cpu.ReadVram(t.psm,t.tbp0,std::max<unsigned>(t.tbw,1u),x,y);
-            image.texels[size_t(y)*w+x]=indexed(t.psm) ? palette[first+(raw&255u)] : textureAlpha(state.texa,t.psm,sixteen ? color16(raw) : t.psm==1u ? raw&0xffffffu : raw);
+        const uint32_t first=cmd[28];const bool sixteen=t.psm==2u || t.psm==10u;const unsigned width=std::max<unsigned>(t.tbw,1u);
+        if(!(size>=gpu::VramBytes && gpu::read_rectangle(vram,t.psm,t.tbp0,width,w,h,image.texels.data())))
+            for(unsigned y=0;y<h;++y)for(unsigned x=0;x<w;++x)image.texels[size_t(y)*w+x]=cpu.ReadVram(t.psm,t.tbp0,width,x,y);
+        for(auto& texel:image.texels){
+            const uint32_t raw=texel;
+            texel=indexed(t.psm) ? palette[first+(raw&255u)] : textureAlpha(state.texa,t.psm,sixteen ? color16(raw) : t.psm==1u ? raw&0xffffffu : raw);
         }
         const uint64_t hash=hd::texture_hash(image.texels.data(),w,h);
         if(hdHashes.size()>16384u)hdHashes.clear();

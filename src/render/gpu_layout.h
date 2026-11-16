@@ -11,5 +11,6 @@ using Command=std::array<uint32_t,CommandWords>;
 const std::vector<uint32_t>& address_tables();
 uint32_t bit_address(unsigned psm,unsigned base,unsigned width,unsigned x,unsigned y);
 std::bitset<PageCount> rectangle_pages(unsigned psm,unsigned base,unsigned width,unsigned x,unsigned y,unsigned w,unsigned h);
+bool read_rectangle(const uint8_t* vram,unsigned psm,unsigned base,unsigned width,unsigned w,unsigned h,uint32_t* out);
 void verify_address_tables();
 }

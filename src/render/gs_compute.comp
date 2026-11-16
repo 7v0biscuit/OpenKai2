@@ -123,6 +123,7 @@ uint clampDepth(uint z,float estimate){
     if(estimate>=2147483648.0 && z<1073741824u)return 4294967295u;
     return z;
 }
+bool depthFails(uint method,uint z,uint destination){return (method==2u && z<destination) || (method==3u && z<=destination);}
 float qValue(float q){return abs(q)>1.0e-8 ? q : 1.0;}
 bool shadePixel(uint c,ivec2 position,vec2 sampleAt,uint destinationDepth,out uvec4 color,out uint z){
     uint flags=word(c,1u);uint a=vertex(c,0u),b=vertex(c,1u),d=vertex(c,2u);
@@ -148,6 +149,7 @@ bool shadePixel(uint c,ivec2 position,vec2 sampleAt,uint destinationDepth,out uv
             uint za=word(a,2u),zb=word(b,2u);
             z=clampDepth(za+depthTerm(za,zb,t,0u),float(za)+(float(zb)-float(za))*t);
         }else z=word(c,88u);
+        if(depthFails(method,z,destinationDepth))return false;
         precise float fogValue=float(word(a,5u))+(float(word(b,5u))-float(word(a,5u)))*t;
         fog=uint(clamp(int(fogValue),0,255));
     }else if(word(c,0u)==6u){
@@ -176,6 +178,7 @@ bool shadePixel(uint c,ivec2 position,vec2 sampleAt,uint destinationDepth,out uv
             z=clampDepth(z0+depthTerm(z0,z1,w1,268435456u)+depthTerm(z0,z2,w2,268435456u),
                          float(z0)+(float(z1)-float(z0))*w1+(float(z2)-float(z0))*w2);
         }
+        if(depthFails(method,z,destinationDepth))return false;
         color=unpackColor(word(d,4u));
         if((flags&4u)!=0u){
             vec4 ca=vec4(unpackColor(word(a,4u))),cb=vec4(unpackColor(word(b,4u))),cd=vec4(unpackColor(word(d,4u)));
@@ -199,7 +202,7 @@ bool shadePixel(uint c,ivec2 position,vec2 sampleAt,uint destinationDepth,out uv
         }
         if((flags&16u)!=0u)fog=uint(clamp(int(interpolateAttribute(float(word(a,5u)),float(word(b,5u)),float(word(d,5u)),weights)),0,255));
     }
-    if((method==2u && z<destinationDepth) || (method==3u && z<=destinationDepth))return false;
+    if(depthFails(method,z,destinationDepth))return false;
     if((flags&1u)!=0u)color=combineTexture(c,color,unpackColor(sampleTexture(c,uv)));
     if((flags&16u)!=0u){uvec3 fogColor=unpackColor(word(c,29u)).xyz;color.xyz=((uvec3(fog)*color.xyz)>>8u)+((uvec3(255u-fog)*fogColor)>>8u);}
     return true;
