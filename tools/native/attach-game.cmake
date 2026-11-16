@@ -166,6 +166,7 @@ function(openkai2_attach_generated_sources)
         "${project_root}/tools/native/patches/field-pipeline.patch"
         "${project_root}/tools/native/patches/integer-depth.patch"
         "${project_root}/tools/native/patches/dma-worker.patch"
+        "${project_root}/tools/native/patches/io-registers.patch"
         "${project_root}/tools/native/patches/vif-fill-writes.patch"
         "${project_root}/tools/native/patches/spu2-dma-progress.patch"
         "${project_root}/tools/native/patches/guest-varargs.patch"

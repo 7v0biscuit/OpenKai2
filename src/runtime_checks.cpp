@@ -438,6 +438,8 @@ int run_runtime_checks() {
     verify_compiled_empty_dma_queue();
     std::cout << "Runtime DMA critical section regression passed: original submission, deferred masked interrupts, completion order, and queue ownership.\n";
     verify_empty_graphics_dma();
+    verify_io_registers();
+    std::cout << "Runtime IO register regression passed: word table, outside addresses, writes through lookups, clearing and save states.\n";
     std::cout << "Runtime frame gate regression passed: empty graphics DMA, original queued submissions, completion handlers, and VBlank frame release.\n";
     constexpr uint32_t entry=0x00167188, caller=0x00162dec, returned=0x00162df4;
     PS2Runtime runtime;

@@ -2,6 +2,7 @@
 #include "dma_checks.h"
 #include "ps2_runtime.h"
 #include "ps2_stubs.h"
+#include "state_archive.h"
 #include <algorithm>
 #include <cstring>
 #include <memory>
@@ -14,6 +15,31 @@ namespace {
 void require(bool passed,const char* message) {
     if (!passed) throw std::runtime_error(message);
 }
+}
+void verify_io_registers() {
+    IoRegisterFile file;
+    require(file.count(0x10003020u)==0u && file.find(0x10003020u)==file.end(),"An unwritten IO register reads as present");
+    file[0x10003020u]=0x1234u;file[0x1000E000u]=1u;file[0x1000FFFCu]=7u;file[0x12000000u]=9u;file[0x10000002u]=5u;
+    require(file.count(0x10003020u)==1u && file[0x10003020u]==0x1234u,"An IO register lost its value");
+    auto found=file.find(0x1000E000u);
+    require(found!=file.end() && found->second==1u,"Finding an IO register failed");
+    found->second&=~1u;
+    require(file[0x1000E000u]==0u && file.count(0x1000E000u)==1u,"Writing through a found IO register failed");
+    require(file.count(0x12000000u)==1u && file.find(0x12000000u)->second==9u && file.count(0x10000002u)==1u && file[0x10000002u]==5u,
+            "IO registers outside the word table lost their values");
+    require(file.count(0x10010000u)==0u && file.count(0x0FFFFFFCu)==0u && file.count(0x10000000u)==0u,"IO registers near the table edges read as present");
+    std::vector<uint8_t> saved;
+    {StateArchive out(saved);out(file);}
+    IoRegisterFile restored;restored[0x10000010u]=3u;
+    {StateArchive in(static_cast<const std::vector<uint8_t>&>(saved));in(restored);require(in.finished(),"An IO register state left bytes unread");}
+    require(restored.count(0x10000010u)==0u && restored[0x1000FFFCu]==7u && restored[0x10003020u]==0x1234u && restored.find(0x12000000u)->second==9u,
+            "IO registers changed across a save state");
+    file.clear();
+    require(file.count(0x10003020u)==0u && file.count(0x12000000u)==0u && file.find(0x1000FFFCu)==file.end(),"Clearing IO registers left values");
+    auto owned=std::make_unique<PS2Runtime>();auto& memory=owned->memory();
+    require(memory.initialize(),"Cannot allocate IO register regression memory");
+    memory.write32(0x1000F100u,0x55u);memory.write32(0x1000F104u,0xaau);
+    require(memory.read64(0x1000F100u)==(uint64_t(0xaau)<<32u|0x55u),"A 64-bit IO read did not combine its two registers");
 }
 void verify_empty_graphics_dma() {
     auto owned=std::make_unique<PS2Runtime>();auto& memory=owned->memory();
