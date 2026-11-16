@@ -19,6 +19,6 @@ private:
 };
 void enable_guest_timings(bool enabled) noexcept;
 bool sample_draw_history() noexcept;
-bool sample_debug_history() noexcept;
+bool sample_debug_history(unsigned kind) noexcept;
 void flush_guest_timings() noexcept;
 }

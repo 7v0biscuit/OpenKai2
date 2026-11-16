@@ -33,7 +33,7 @@ struct Timings {
     std::array<Entry,1024> entries{};
     std::array<uint64_t,3> calls{};
     std::array<bool,3> active{};
-    uint64_t discarded=0;
+    uint64_t discarded=0,draws=0;
     std::chrono::steady_clock::time_point reported=std::chrono::steady_clock::now();
 };
 Timings timings;
@@ -57,21 +57,19 @@ void report(std::chrono::steady_clock::time_point now) {
     timings.entries={};timings.discarded=0;timings.reported=now;
 }
 }
+bool sample_draw_history() noexcept {
+    if(!enabled.load(std::memory_order_acquire) || !owned())return true;
+    return (++timings.draws&63u)==0u;
+}
 namespace {
 std::atomic<uint32_t> historyGeneration{0};
-bool sample_history(uint32_t& samples,uint32_t& generation) noexcept {
+}
+bool sample_debug_history(unsigned kind) noexcept {
     if(!enabled.load(std::memory_order_acquire))return true;
-    if(const uint32_t now=historyGeneration.load(std::memory_order_relaxed);now!=generation){generation=now;samples=0;}
-    return (++samples&63u)==0u;
-}
-}
-bool sample_draw_history() noexcept {
-    thread_local uint32_t samples=0,generation=0;
-    return sample_history(samples,generation);
-}
-bool sample_debug_history() noexcept {
-    thread_local uint32_t samples=0,generation=0;
-    return sample_history(samples,generation);
+    thread_local std::array<uint32_t,4> samples{},generations{};
+    kind&=3u;
+    if(const uint32_t now=historyGeneration.load(std::memory_order_relaxed);now!=generations[kind]){generations[kind]=now;samples[kind]=0;}
+    return (++samples[kind]&63u)==0u;
 }
 void enable_guest_timings(bool value) noexcept {
     std::lock_guard lock(configuration);

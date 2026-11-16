@@ -5,7 +5,7 @@
  void GS::recordGifTagDebugEventUnlocked(uint32_t sizeBytes, uint32_t nloop, uint8_t flg, uint32_t nreg)
  {
 -    if (m_debugHistoryPaused)
-+    if (m_debugHistoryPaused || !openkai2::sample_debug_history())
++    if (m_debugHistoryPaused || !openkai2::sample_debug_history(1u))
      {
          return;
      }
@@ -14,7 +14,16 @@
  void GS::recordRegisterDebugEventUnlocked(uint8_t regAddr, uint64_t value)
  {
 -    if (m_debugHistoryPaused)
-+    if (m_debugHistoryPaused || !openkai2::sample_debug_history())
++    if (m_debugHistoryPaused || !openkai2::sample_debug_history(2u))
+     {
+         return;
+     }
+@@ -545,7 +545,7 @@ void GS::recordDrawDebugEventUnlocked(int vertexCount)
+     // Full history remains available to component checks and tooling. During
+     // gameplay, sample draw diagnostics before copying state or taking the
+     // backend snapshot lock. Rasterization and GS state are unchanged.
+-    if (m_debugHistoryPaused || !openkai2::sample_draw_history())
++    if (m_debugHistoryPaused || !openkai2::sample_debug_history(0u))
      {
          return;
      }
