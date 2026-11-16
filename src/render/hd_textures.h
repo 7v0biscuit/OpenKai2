@@ -19,6 +19,7 @@ enum Mode : unsigned { off = 0, upscaled = 1, packs = 2, packs_upscaled = 3, dum
 struct Image {
     unsigned width = 0, height = 0;
     std::vector<uint32_t> texels;
+    bool generated = false;
 };
 
 uint64_t texture_hash(const uint32_t *texels, unsigned width, unsigned height);
@@ -57,8 +58,9 @@ class Library {
     std::unordered_set<uint64_t> seen_;
     std::unordered_map<uint64_t, std::filesystem::path> files_;
     Counts counts_;
-    bool stop_ = false, busy_ = false;
-    std::thread worker_;
+    bool stop_ = false;
+    unsigned busy_ = 0;
+    std::vector<std::thread> workers_;
 };
 
 Library &library();

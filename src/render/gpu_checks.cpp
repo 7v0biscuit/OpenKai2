@@ -765,13 +765,26 @@ void checkHdTextures(){
     struct Restore{GraphicsSettings value;~Restore(){set_graphics_settings(value);hd::library().configure(hd::off,{},2u);}} restore{saved};
     const auto folder=std::filesystem::temp_directory_path()/"openkai2-hd-check";
     std::error_code ignored;std::filesystem::remove_all(folder,ignored);std::filesystem::create_directories(folder,ignored);
-    const auto render=[&](unsigned mode,unsigned passes){
+    const auto render=[&](unsigned mode,unsigned passes,unsigned order=0u,bool filtered=false){
         auto scaled=saved;scaled.internalScale=2u;scaled.hdTextures=mode;scaled.textureFolder=folder;set_graphics_settings(scaled);
         Comparison pair(false);
-        for(unsigned y=0;y<32u;++y)for(unsigned x=0;x<32u;++x)
-            pair.write(0u,10240u,2u,x,y,0x80000000u|(((x/8u)*60u)&255u)|((((y/8u)*70u)&255u)<<8u)|(uint32_t(((x/8u+y/8u)*25u)&255u)<<16u));
+        const auto texel=[](unsigned x,unsigned y){return 0x80000000u|(((x/8u)*60u)&255u)|((((y/8u)*70u)&255u)<<8u)|(uint32_t(((x/8u+y/8u)*25u)&255u)<<16u);};
+        auto cover=material(0u,true);
+        {auto& f=cover.state;f.prim.tme=f.prim.abe=f.prim.iip=false;f.context.frame.fbp=320u;f.context.frame.fbw=2u;f.context.scissor={0u,127u,0u,63u};
+         cover.vertices[0].x=cover.vertices[0].y=0;cover.vertices[1].x=cover.vertices[1].y=64;for(auto& v:cover.vertices){v.r=12;v.g=34;v.b=56;v.a=128;}}
+        if(order==0u){
+            for(unsigned y=0;y<32u;++y)for(unsigned x=0;x<32u;++x)pair.write(0u,10240u,2u,x,y,texel(x,y));
+        }else{
+            if(order==1u){pair.draw(cover);pair.gpu->Flush();}
+            std::vector<uint32_t> data(32u*32u);for(unsigned y=0;y<32u;++y)for(unsigned x=0;x<32u;++x)data[y*32u+x]=texel(x,y);
+            GSTransferCommand upload{};upload.direction=0u;upload.bitbltbuf.dbp=10240u;upload.bitbltbuf.dbw=2u;upload.bitbltbuf.dpsm=0u;upload.trxreg.rrw=32u;upload.trxreg.rrh=32u;
+            pair.cpu->BeginTransfer(upload);pair.gpu->BeginTransfer(upload);
+            for(unsigned half=0;half<2u;++half){const auto* bytes=reinterpret_cast<const uint8_t*>(data.data()+half*512u);pair.cpu->UploadImage(bytes,2048u);pair.gpu->UploadImage(bytes,2048u);}
+            if(order==2u){auto small=cover;small.vertices[0].x=small.vertices[0].y=4;small.vertices[1].x=small.vertices[1].y=12;pair.draw(small);pair.gpu->Flush();}
+            pair.textureFlush();
+        }
         auto sprite=material(0u,true);auto& s=sprite.state;auto& c=s.context;
-        s.prim.abe=s.prim.iip=false;s.prim.fst=true;s.linearFilter=false;s.textureWidth=s.textureHeight=32u;
+        s.prim.abe=s.prim.iip=false;s.prim.fst=true;s.linearFilter=filtered;s.textureWidth=s.textureHeight=32u;
         c.tex0.psm=GS_PSM_CT32;c.tex0.tfx=1u;c.tex0.tcc=1u;c.scissor={0u,127u,0u,127u};c.clamp=2u|(2u<<2u)|(uint64_t(4u)<<4u)|(uint64_t(27u)<<14u)|(uint64_t(2u)<<24u)|(uint64_t(29u)<<34u);
         sprite.vertices[0].x=0;sprite.vertices[0].y=0;sprite.vertices[1].x=64;sprite.vertices[1].y=64;
         sprite.vertices[0].u=sprite.vertices[0].v=0;sprite.vertices[1].u=sprite.vertices[1].v=32u*16u;
@@ -790,6 +803,10 @@ void checkHdTextures(){
     const auto plain=render(hd::off,1u),upscaled=render(hd::upscaled,2u);
     if(plain.pixels!=upscaled.pixels)throw std::runtime_error("Upscaled blocky texture changed the picture");
     if(hd::library().counts().upscaled!=1u)throw std::runtime_error("Texture was not upscaled exactly once");
+    const auto smooth=render(hd::off,1u,0u,true),sharpened=render(hd::upscaled,2u,0u,true);
+    for(unsigned y=16u;y<128u;y+=32u)for(unsigned x=16u;x<128u;x+=32u)
+        if(pixel(smooth,x,y)!=pixel(sharpened,x,y))throw std::runtime_error("An upscaled texture changed a flat area at "+std::to_string(x)+","+std::to_string(y));
+    if(smooth.pixels==sharpened.pixels)throw std::runtime_error("A filtered draw did not use its upscaled texture");
     render(hd::dump,2u);
     std::vector<std::filesystem::path> dumped;
     for(const auto& entry:std::filesystem::directory_iterator(folder/"dump"))dumped.push_back(entry.path());
@@ -800,8 +817,14 @@ void checkHdTextures(){
     const auto packed=render(hd::packs,2u);
     if(pixel(packed,40u,40u)!=0xff00ffu || pixel(packed,120u,120u)!=0xff00ffu || pixel(packed,200u,200u)!=pixel(plain,200u,200u))
         throw std::runtime_error("Texture pack did not replace the texture");
+    const auto uploaded=render(hd::packs,2u,1u);
+    if(pixel(uploaded,40u,40u)!=0xff00ffu || pixel(uploaded,120u,120u)!=0xff00ffu)
+        throw std::runtime_error("Texture pack did not replace a texture uploaded over pages the graphics card had drawn to");
+    const auto overdrawn=render(hd::packs,2u,2u);
+    if(pixel(overdrawn,40u,40u)==0xff00ffu || pixel(overdrawn,120u,120u)==0xff00ffu)
+        throw std::runtime_error("Texture pack replaced a texture the graphics card had drawn over");
     std::filesystem::remove_all(folder,ignored);
-    std::cout<<"GPU HD texture checks passed: upscaled, dumped and texture pack replacement at 2x.\n";
+    std::cout<<"GPU HD texture checks passed: upscaled, dumped and texture pack replacement at 2x, including textures uploaded over drawn pages and none for drawn-over textures.\n";
 }
 int run_gpu_checks(bool required){
     try{

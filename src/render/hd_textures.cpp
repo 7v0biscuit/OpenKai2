@@ -3,6 +3,8 @@
 #include <atomic>
 #include "raylib.h"
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -11,44 +13,102 @@
 namespace openkai2::hd {
 namespace {
 
-int distance(uint32_t a, uint32_t b) {
-    int total = 0;
-    for (unsigned shift = 0; shift < 32u; shift += 8u)
-        total += std::abs(int((a >> shift) & 255u) - int((b >> shift) & 255u));
-    return total;
+struct Plane {
+    int width = 0, height = 0;
+    std::vector<std::array<float, 4>> values;
+    std::vector<float> light;
+    std::array<float, 4> &at(int x, int y) { return values[size_t(y) * size_t(width) + size_t(x)]; }
+    float &level(int x, int y) { return light[size_t(y) * size_t(width) + size_t(x)]; }
+};
+
+std::array<float, 4> cubic(const std::array<float, 4> &a, const std::array<float, 4> &b, const std::array<float, 4> &c,
+                           const std::array<float, 4> &d) {
+    std::array<float, 4> out;
+    for (unsigned k = 0; k < 4u; ++k) {
+        const float value = (9.0f * (b[k] + c[k]) - a[k] - d[k]) / 16.0f;
+        out[k] = std::clamp(value, std::min(b[k], c[k]), std::max(b[k], c[k]));
+    }
+    return out;
 }
 
-bool same(uint32_t a, uint32_t b) { return distance(a, b) < 48; }
+std::array<float, 4> directional(const std::array<float, 4> &along, const std::array<float, 4> &across, float alongChange,
+                                 float acrossChange) {
+    if ((1.0f + acrossChange) > 1.15f * (1.0f + alongChange))
+        return along;
+    if ((1.0f + alongChange) > 1.15f * (1.0f + acrossChange))
+        return across;
+    const auto fifth = [](float x) { x /= 64.0f; return x * x * x * x * x; };
+    const float a = 1.0f / (1.0f + fifth(alongChange)), b = 1.0f / (1.0f + fifth(acrossChange));
+    std::array<float, 4> out;
+    for (unsigned k = 0; k < 4u; ++k)
+        out[k] = (a * along[k] + b * across[k]) / (a + b);
+    return out;
+}
+
+float brightness(const std::array<float, 4> &v) { return 0.299f * v[0] + 0.587f * v[1] + 0.114f * v[2] + v[3]; }
 
 Image double_size(const Image &source) {
+    const int w = int(source.width), h = int(source.height), pad = 4;
+    Plane grid;
+    grid.width = 2 * (w + 2 * pad);
+    grid.height = 2 * (h + 2 * pad);
+    grid.values.assign(size_t(grid.width) * size_t(grid.height), {});
+    grid.light.assign(grid.values.size(), 0.0f);
+    for (int y = 0; y < h + 2 * pad; ++y)
+        for (int x = 0; x < w + 2 * pad; ++x) {
+            const uint32_t texel = source.texels[size_t(std::clamp(y - pad, 0, h - 1)) * size_t(w) + size_t(std::clamp(x - pad, 0, w - 1))];
+            const float alpha = float(texel >> 24u);
+            auto &v = grid.at(2 * x, 2 * y);
+            for (unsigned k = 0; k < 3u; ++k)
+                v[k] = float((texel >> (8u * k)) & 255u) * alpha / 255.0f;
+            v[3] = alpha;
+            grid.level(2 * x, 2 * y) = brightness(v);
+        }
+    const auto change = [&](int x, int y, int dx, int dy) { return std::abs(grid.level(x, y) - grid.level(x + dx, y + dy)); };
+    for (int y = 3; y + 3 < grid.height; y += 2)
+        for (int x = 3; x + 3 < grid.width; x += 2) {
+            float rising = 0.0f, falling = 0.0f;
+            for (int j = -3; j <= 1; j += 2)
+                for (int i = -3; i <= 1; i += 2) {
+                    rising += change(x + i, y + j + 2, 2, -2);
+                    falling += change(x + i, y + j, 2, 2);
+                }
+            const auto alongFalling = cubic(grid.at(x - 3, y - 3), grid.at(x - 1, y - 1), grid.at(x + 1, y + 1), grid.at(x + 3, y + 3));
+            const auto alongRising = cubic(grid.at(x - 3, y + 3), grid.at(x - 1, y + 1), grid.at(x + 1, y - 1), grid.at(x + 3, y - 3));
+            grid.at(x, y) = directional(alongFalling, alongRising, falling, rising);
+            grid.level(x, y) = brightness(grid.at(x, y));
+        }
+    for (int y = 6; y + 6 < grid.height; ++y)
+        for (int x = 6 + ((y + 1) & 1); x + 6 < grid.width; x += 2) {
+            float across = change(x - 3, y, 2, 0) + change(x - 1, y, 2, 0) + change(x + 1, y, 2, 0) + change(x - 2, y - 1, 2, 0) +
+                           change(x, y - 1, 2, 0) + change(x - 2, y + 1, 2, 0) + change(x, y + 1, 2, 0) + change(x - 1, y - 2, 2, 0) +
+                           change(x - 1, y + 2, 2, 0);
+            float down = change(x, y - 3, 0, 2) + change(x, y - 1, 0, 2) + change(x, y + 1, 0, 2) + change(x - 1, y - 2, 0, 2) +
+                         change(x - 1, y, 0, 2) + change(x + 1, y - 2, 0, 2) + change(x + 1, y, 0, 2) + change(x - 2, y - 1, 0, 2) +
+                         change(x + 2, y - 1, 0, 2);
+            const auto horizontal = cubic(grid.at(x - 3, y), grid.at(x - 1, y), grid.at(x + 1, y), grid.at(x + 3, y));
+            const auto vertical = cubic(grid.at(x, y - 3), grid.at(x, y - 1), grid.at(x, y + 1), grid.at(x, y + 3));
+            grid.at(x, y) = directional(horizontal, vertical, across, down);
+        }
     Image out;
     out.width = source.width * 2u;
     out.height = source.height * 2u;
     out.texels.resize(size_t(out.width) * out.height);
-    const auto at = [&](int x, int y) {
-        x = std::clamp(x, 0, int(source.width) - 1);
-        y = std::clamp(y, 0, int(source.height) - 1);
-        return source.texels[size_t(y) * source.width + unsigned(x)];
+    const auto half = [&](int x, int y, int dx, int dy) {
+        return cubic(grid.at(x - 2 * dx, y - 2 * dy), grid.at(x - dx, y - dy), grid.at(x, y), grid.at(x + dx, y + dy));
     };
-    for (int y = 0; y < int(source.height); ++y)
-        for (int x = 0; x < int(source.width); ++x) {
-            const uint32_t p = at(x, y), a = at(x, y - 1), b = at(x + 1, y), c = at(x - 1, y), d = at(x, y + 1);
-            uint32_t e0 = p, e1 = p, e2 = p, e3 = p;
-            if (!same(a, d) && !same(c, b)) {
-                if (same(c, a))
-                    e0 = a;
-                if (same(a, b))
-                    e1 = b;
-                if (same(d, c))
-                    e2 = c;
-                if (same(b, d))
-                    e3 = d;
+    for (int y = 0; y < int(out.height); ++y)
+        for (int x = 0; x < int(out.width); ++x) {
+            const int gx = x + 2 * pad, gy = y + 2 * pad;
+            const auto a = half(gx, gy - 1, 1, 0), b = half(gx, gy, 1, 0), c = half(gx, gy + 1, 1, 0), d = half(gx, gy - 2, 1, 0);
+            const auto v = cubic(d, a, b, c);
+            const float alpha = std::clamp(v[3], 0.0f, 255.0f);
+            uint32_t texel = uint32_t(alpha + 0.5f) << 24u;
+            for (unsigned k = 0; k < 3u; ++k) {
+                const float color = alpha > 0.0f ? v[k] * 255.0f / alpha : 0.0f;
+                texel |= uint32_t(std::clamp(color, 0.0f, 255.0f) + 0.5f) << (8u * k);
             }
-            const size_t row = size_t(y) * 2u * out.width + size_t(x) * 2u;
-            out.texels[row] = e0;
-            out.texels[row + 1u] = e1;
-            out.texels[row + out.width] = e2;
-            out.texels[row + out.width + 1u] = e3;
+            out.texels[size_t(y) * out.width + size_t(x)] = texel;
         }
     return out;
 }
@@ -98,8 +158,11 @@ Image upscale(const Image &source, unsigned factor) {
     if (!source.width || !source.height || source.texels.size() != size_t(source.width) * source.height)
         return {};
     Image image = source;
+    if (size_t(source.width) * source.height > 256u * 256u)
+        factor = std::min(factor, 2u);
     for (unsigned scale = 1u; scale < factor; scale *= 2u)
         image = double_size(image);
+    image.generated = true;
     return image;
 }
 
@@ -144,13 +207,14 @@ Library::~Library() {
         stop_ = true;
     }
     wake_.notify_all();
-    if (worker_.joinable())
-        worker_.join();
+    for (auto &worker : workers_)
+        if (worker.joinable())
+            worker.join();
 }
 
 void Library::configure(unsigned mode, const std::filesystem::path &folder, unsigned factor) {
     std::unique_lock lock(mutex_);
-    idle_.wait(lock, [&] { return queue_.empty() && !busy_; });
+    idle_.wait(lock, [&] { return queue_.empty() && busy_ == 0u; });
     mode_ = mode < mode_count ? mode : off;
     folder_ = folder;
     factor_ = factor >= 4u ? 4u : 2u;
@@ -175,8 +239,11 @@ void Library::configure(unsigned mode, const std::filesystem::path &folder, unsi
     } else if (mode_ != off) {
         std::cout << "[hd-textures] mode=" << (mode_ == upscaled ? "upscaled" : "dump") << " factor=" << factor_ << std::endl;
     }
-    if (mode_ != off && !worker_.joinable())
-        worker_ = std::thread([this] { work(); });
+    if (mode_ != off && workers_.empty()) {
+        const unsigned count = std::clamp(std::thread::hardware_concurrency() / 4u, 1u, 3u);
+        for (unsigned i = 0; i < count; ++i)
+            workers_.emplace_back([this] { work(); });
+    }
 }
 
 std::shared_ptr<const Image> Library::find(uint64_t hash) const {
@@ -206,7 +273,7 @@ void Library::submit(uint64_t hash, Image source) {
 
 void Library::wait_idle() {
     std::unique_lock lock(mutex_);
-    idle_.wait(lock, [&] { return queue_.empty() && !busy_; });
+    idle_.wait(lock, [&] { return queue_.empty() && busy_ == 0u; });
 }
 
 bool Library::has_packs() const {
@@ -220,20 +287,25 @@ Library::Counts Library::counts() const {
 }
 
 void Library::work() {
+    bool working = false;
     for (;;) {
         std::pair<uint64_t, Image> job;
         unsigned mode, factor;
         std::filesystem::path folder, file;
         {
             std::unique_lock lock(mutex_);
-            busy_ = false;
+            if (working) {
+                --busy_;
+                working = false;
+            }
             idle_.notify_all();
             wake_.wait(lock, [&] { return stop_ || !queue_.empty(); });
             if (stop_)
                 return;
             job = std::move(queue_.front());
             queue_.pop_front();
-            busy_ = true;
+            ++busy_;
+            working = true;
             mode = mode_;
             factor = factor_;
             folder = folder_;
