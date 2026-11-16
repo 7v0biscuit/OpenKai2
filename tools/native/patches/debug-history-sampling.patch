@@ -1,0 +1,20 @@
+--- a/runtime/gs/gs_frontend.cpp
++++ b/runtime/gs/gs_frontend.cpp
+@@ -484,7 +484,7 @@ void GS::recordDebugEventUnlocked(GSDebugHistoryEntry entry)
+ 
+ void GS::recordGifTagDebugEventUnlocked(uint32_t sizeBytes, uint32_t nloop, uint8_t flg, uint32_t nreg)
+ {
+-    if (m_debugHistoryPaused)
++    if (m_debugHistoryPaused || !openkai2::sample_debug_history())
+     {
+         return;
+     }
+@@ -499,7 +499,7 @@ void GS::recordGifTagDebugEventUnlocked(uint32_t sizeBytes, uint32_t nloop, uint
+ 
+ void GS::recordRegisterDebugEventUnlocked(uint8_t regAddr, uint64_t value)
+ {
+-    if (m_debugHistoryPaused)
++    if (m_debugHistoryPaused || !openkai2::sample_debug_history())
+     {
+         return;
+     }
