@@ -94,14 +94,19 @@ Image double_size(const Image &source) {
     out.width = source.width * 2u;
     out.height = source.height * 2u;
     out.texels.resize(size_t(out.width) * out.height);
-    const auto half = [&](int x, int y, int dx, int dy) {
-        return cubic(grid.at(x - 2 * dx, y - 2 * dy), grid.at(x - dx, y - dy), grid.at(x, y), grid.at(x + dx, y + dy));
-    };
+    const int rows = int(out.height) + 3;
+    std::vector<std::array<float, 4>> across(size_t(rows) * out.width);
+    for (int r = 0; r < rows; ++r) {
+        const int gy = r + 2 * pad - 2;
+        for (int x = 0; x < int(out.width); ++x) {
+            const int gx = x + 2 * pad;
+            across[size_t(r) * out.width + size_t(x)] = cubic(grid.at(gx - 2, gy), grid.at(gx - 1, gy), grid.at(gx, gy), grid.at(gx + 1, gy));
+        }
+    }
     for (int y = 0; y < int(out.height); ++y)
         for (int x = 0; x < int(out.width); ++x) {
-            const int gx = x + 2 * pad, gy = y + 2 * pad;
-            const auto a = half(gx, gy - 1, 1, 0), b = half(gx, gy, 1, 0), c = half(gx, gy + 1, 1, 0), d = half(gx, gy - 2, 1, 0);
-            const auto v = cubic(d, a, b, c);
+            const auto row = [&](int r) -> const std::array<float, 4> & { return across[size_t(y + r) * out.width + size_t(x)]; };
+            const auto v = cubic(row(0), row(1), row(2), row(3));
             const float alpha = std::clamp(v[3], 0.0f, 255.0f);
             uint32_t texel = uint32_t(alpha + 0.5f) << 24u;
             for (unsigned k = 0; k < 3u; ++k) {

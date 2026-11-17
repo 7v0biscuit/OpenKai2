@@ -823,8 +823,39 @@ void checkHdTextures(){
     const auto overdrawn=render(hd::packs,2u,2u);
     if(pixel(overdrawn,40u,40u)==0xff00ffu || pixel(overdrawn,120u,120u)==0xff00ffu)
         throw std::runtime_error("Texture pack replaced a texture the graphics card had drawn over");
+    std::error_code cleared;std::filesystem::remove_all(folder/"dump",cleared);std::filesystem::remove_all(folder/"pack",cleared);
+    const auto indexedRender=[&](unsigned mode,bool switchPalette){
+        auto scaled=saved;scaled.internalScale=2u;scaled.hdTextures=mode;scaled.textureFolder=folder;set_graphics_settings(scaled);
+        Comparison pair(false);
+        for(unsigned y=0;y<32u;++y)for(unsigned x=0;x<32u;++x)pair.write(20u,10240u,2u,x,y,((x/8u)+(y/8u)*4u)&15u);
+        auto sprite=material(0u,true);auto& s=sprite.state;auto& c=s.context;auto& t=c.tex0;
+        s.prim.abe=s.prim.iip=false;s.prim.fst=true;s.linearFilter=false;s.textureWidth=s.textureHeight=32u;
+        t.psm=20u;t.cpsm=0u;t.csm=0u;t.csa=0u;t.cld=1u;t.tfx=1u;t.tcc=1u;c.scissor={0u,127u,0u,127u};c.clamp=1u|(1u<<2u);
+        sprite.vertices[0].x=0;sprite.vertices[0].y=0;sprite.vertices[1].x=64;sprite.vertices[1].y=64;
+        sprite.vertices[0].u=sprite.vertices[0].v=0;sprite.vertices[1].u=sprite.vertices[1].v=32u*16u;
+        GSTexClutReg tc{};tc.cbw=1u;s.texclut=tc;
+        const auto colors=[&](bool second){for(unsigned i=0;i<16u;++i)pair.write(0u,t.cbp,1u,i&7u,i>>3u,0x80000000u|(second ? 0x00103050u*(i+1u) : 0x00050a0fu*(i+1u)*3u));};
+        GSPresentationRequest request{};request.pmode=1;
+        request.dispfb1=uint64_t(56)|(uint64_t(8)<<9);request.display1=(uint64_t(127)<<32)|(uint64_t(127)<<44);
+        const auto pass=[&]{pair.cpu->LoadClut(t,tc);pair.gpu->LoadClut(t,tc);pair.draw(sprite);pair.gpu->Flush();hd::library().wait_idle();};
+        colors(switchPalette && mode==hd::off);pass();pass();
+        if(switchPalette && mode!=hd::off){colors(true);pass();pass();}
+        pair.gpu->Sync(GSSyncReason::Presentation);const auto frame=pair.gpu->Present(request);
+        pair.compare("HD indexed textures keep native VRAM");
+        return frame;
+    };
+    indexedRender(hd::dump,false);
+    std::vector<std::filesystem::path> indexedDumps;
+    for(const auto& entry:std::filesystem::directory_iterator(folder/"dump"))indexedDumps.push_back(entry.path());
+    if(indexedDumps.size()!=1u)throw std::runtime_error("Indexed texture dump did not write one PNG");
+    if(!hd::save_image(folder/"pack"/indexedDumps[0].filename(),pack))throw std::runtime_error("Could not write indexed texture pack fixture");
+    const auto indexedPacked=indexedRender(hd::packs,false);
+    if(pixel(indexedPacked,40u,40u)!=0xff00ffu)throw std::runtime_error("Texture pack did not replace an indexed texture");
+    const auto switched=indexedRender(hd::packs,true),plainSecond=indexedRender(hd::off,true);
+    if(pixel(switched,40u,40u)==0xff00ffu || pixel(switched,40u,40u)!=pixel(plainSecond,40u,40u))
+        throw std::runtime_error("An indexed texture kept the HD replacement of its previous palette");
     std::filesystem::remove_all(folder,ignored);
-    std::cout<<"GPU HD texture checks passed: upscaled, dumped and texture pack replacement at 2x, including textures uploaded over drawn pages and none for drawn-over textures.\n";
+    std::cout<<"GPU HD texture checks passed: upscaled, dumped and texture pack replacement at 2x, including textures uploaded over drawn pages, none for drawn-over textures and palette changes between batches.\n";
 }
 int run_gpu_checks(bool required){
     try{
