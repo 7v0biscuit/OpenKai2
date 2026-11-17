@@ -51,6 +51,7 @@ class Room {
     void run_join();
     bool check_guest(Link &link, std::string &problem);
     bool join_over(Link &link, const std::string &channel);
+    void use_direct(std::unique_ptr<RelayLink> &link);
     void bridge_host(std::string channel, uint16_t port);
     bool bridge_guest(const std::string &channel);
     void set(RoomPhase phase, const std::string &message);

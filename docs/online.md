@@ -57,12 +57,20 @@ Fill in **Host a room** and press **Host room**:
 | Input delay | **Auto** picks it from the ping when someone joins. |
 | Who can see it | **Public** lists the room. **Invite only** hides it from the list; invited players can still join. **Not listed** shares no room at all; give players your address. |
 
-The host is player 1. There is nothing to set up. The room uses TCP port 7350,
-or the next free one, and asks your router to open it (UPnP). When a player
-can't reach the room directly, because of the router or a firewall, both
-launchers connect through the online service instead and the match runs
-through it automatically. A direct connection has a lower ping, so it is always
-tried first.
+The host is player 1. There is nothing to set up and no port to forward. The
+room uses TCP port 7350, or the next free one, and asks your router to open it
+(UPnP). When a player can't reach the room that way, the two launchers meet
+through the online service, then open a direct UDP connection through both
+routers (hole punching): each asks a public STUN server for its own outside
+address, they swap addresses, and both send to each other at once. That works
+with most home routers and gives the same ping as a direct connection. Only if
+the routers block it does the match run through the online service, at a
+higher ping. The launcher log says which one a match used: "Connected directly
+to the other player" or "Playing through the online service".
+
+Lost packets on a direct connection are sent again after about one and a half
+round trips instead of a fixed 0.4 seconds, so a dropped packet no longer
+freezes the match for a moment.
 
 ## Friends and invites
 
@@ -107,7 +115,8 @@ use a copy in `%LOCALAPPDATA%\OpenKai2\netplay\`.
 
 Rooms, player lists, friend requests and invites go through a public MQTT broker
 (`broker.emqx.io:1883` by default). Match traffic goes directly between the two
-players' PCs, not through the broker.
+players' PCs whenever their routers allow it, and through the broker only when
+they don't.
 
 Room listings include the host's public IP address, so anyone using the service
 can see it. Use **Not listed** to avoid that.

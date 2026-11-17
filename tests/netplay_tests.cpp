@@ -712,6 +712,37 @@ void unreachable_hosts_time_out() {
     require(local.valid(), "a listening local port still connects: " + error);
 }
 
+void direct_link_on_one_machine() {
+    auto listener = openkai2::net::Socket::listen(0);
+    std::string error;
+    auto first = openkai2::net::Socket::connect("127.0.0.1", listener.local_port(), error);
+    openkai2::net::Socket second;
+    for (int i = 0; i < 100 && !second.valid(); ++i)
+        second = listener.accept(20);
+    require(first.valid() && second.valid(), "direct link control sockets connect");
+    SocketLink controlA(first), controlB(second);
+    std::unique_ptr<RelayLink> linkA, linkB;
+    std::string routeA, routeB;
+    std::thread other([&] { linkB = direct_link(controlB, routeB); });
+    linkA = direct_link(controlA, routeA);
+    other.join();
+    require(linkA && linkB, "both sides agree on a direct link: " + routeA + " / " + routeB);
+    std::vector<uint8_t> sent(200000), back(sent.size()), reply(sent.size());
+    for (size_t i = 0; i < sent.size(); ++i)
+        sent[i] = uint8_t(i * 13u + 5u);
+    bool wrote = false, read = false;
+    std::thread writer([&] { wrote = linkA->send_all(sent.data(), sent.size()); });
+    read = linkB->receive_all(back.data(), back.size());
+    writer.join();
+    require(wrote && read && back == sent, "a direct link delivers every byte in order");
+    std::thread answer([&] { wrote = linkB->send_all(sent.data(), sent.size()); });
+    read = linkA->receive_all(reply.data(), reply.size());
+    answer.join();
+    require(wrote && read && reply == sent, "a direct link works both ways");
+    linkA->close();
+    linkB->close();
+}
+
 void relay_through_service() {
     namespace on = openkai2::online;
     std::atomic<bool> stopping{false};
@@ -821,6 +852,7 @@ int main() {
         desync_recovers_with_a_fresh_state();
         room_checks_before_launch();
         unreachable_hosts_time_out();
+        direct_link_on_one_machine();
         relay_through_service();
         wrong_build_is_refused();
         name_rules();

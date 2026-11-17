@@ -10,6 +10,7 @@ namespace openkai2::nat {
 std::string local_address();
 std::vector<uint8_t> stun_request(const uint8_t transaction[12]);
 std::optional<std::string> stun_mapped_address(const std::vector<uint8_t> &reply, const uint8_t transaction[12]);
+std::optional<std::string> stun_mapped_endpoint(const std::vector<uint8_t> &reply, const uint8_t transaction[12]);
 std::optional<std::string> public_address(std::string &error);
 
 std::string find_tag(const std::string &xml, const std::string &tag, size_t from = 0);

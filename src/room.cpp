@@ -290,6 +290,20 @@ void Room::run_host() {
     listing.close();
 }
 
+void Room::use_direct(std::unique_ptr<RelayLink> &link) {
+    std::string route;
+    auto direct = direct_link(*link, route);
+    std::lock_guard lock(mutex_);
+    if (direct) {
+        link->close();
+        link = std::move(direct);
+        status_.relayed = false;
+        status_.message = "Connected directly to the other player (" + route + ")";
+    } else {
+        status_.message = "Playing through the online service: " + route;
+    }
+}
+
 void Room::bridge_host(std::string channel, uint16_t port) {
     auto link = std::make_unique<RelayLink>();
     std::string error;
@@ -297,6 +311,9 @@ void Room::bridge_host(std::string channel, uint16_t port) {
         return;
     while (!stopping_ && link->alive() && !link->readable(250)) {
     }
+    if (stopping_ || !link->alive())
+        return;
+    use_direct(link);
     net::Socket game;
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::minutes(5);
     while (!stopping_ && !game.valid() && std::chrono::steady_clock::now() < deadline) {
@@ -327,6 +344,7 @@ bool Room::bridge_guest(const std::string &channel) {
     }
     gameLink_ = std::move(link);
     bridger_ = std::thread([this, listener = std::move(listener)]() mutable {
+        use_direct(gameLink_);
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::minutes(5);
         while (!stopping_ && std::chrono::steady_clock::now() < deadline) {
             auto game = listener.accept(250);

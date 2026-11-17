@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 
 namespace openkai2::net {
@@ -35,6 +36,37 @@ class Socket {
 
   private:
     explicit Socket(long long handle) : handle_(handle) {}
+    long long handle_ = -1;
+};
+
+struct Endpoint {
+    uint32_t address = 0;
+    uint16_t port = 0;
+    bool valid() const { return address != 0 && port != 0; }
+    bool operator==(const Endpoint &other) const { return address == other.address && port == other.port; }
+    bool operator!=(const Endpoint &other) const { return !(*this == other); }
+    std::string text() const;
+    static std::optional<Endpoint> parse(const std::string &text);
+    static std::optional<Endpoint> resolve(const std::string &host, uint16_t port);
+};
+
+class Datagram {
+  public:
+    Datagram() = default;
+    ~Datagram();
+    Datagram(const Datagram &) = delete;
+    Datagram &operator=(const Datagram &) = delete;
+    Datagram(Datagram &&other) noexcept;
+    Datagram &operator=(Datagram &&other) noexcept;
+
+    bool open(uint16_t port = 0);
+    bool valid() const { return handle_ >= 0; }
+    uint16_t local_port() const;
+    bool send_to(const Endpoint &to, const void *data, size_t size);
+    long receive_from(void *data, size_t size, Endpoint &from, int timeout_ms);
+    void close();
+
+  private:
     long long handle_ = -1;
 };
 

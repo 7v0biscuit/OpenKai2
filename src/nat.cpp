@@ -146,6 +146,13 @@ std::vector<uint8_t> stun_request(const uint8_t transaction[12]) {
 }
 
 std::optional<std::string> stun_mapped_address(const std::vector<uint8_t> &reply, const uint8_t transaction[12]) {
+    auto endpoint = stun_mapped_endpoint(reply, transaction);
+    if (endpoint)
+        endpoint->erase(endpoint->rfind(':'));
+    return endpoint;
+}
+
+std::optional<std::string> stun_mapped_endpoint(const std::vector<uint8_t> &reply, const uint8_t transaction[12]) {
     if (reply.size() < 20 || reply[0] != 0x01 || reply[1] != 0x01 || std::memcmp(reply.data() + 8, transaction, 12) != 0)
         return std::nullopt;
     size_t at = 20;
@@ -159,8 +166,9 @@ std::optional<std::string> stun_mapped_address(const std::vector<uint8_t> &reply
             uint8_t ip[4];
             for (int i = 0; i < 4; ++i)
                 ip[i] = type == 0x0020 ? uint8_t(reply[value + 4 + size_t(i)] ^ reply[4 + size_t(i)]) : reply[value + 4 + size_t(i)];
+            const unsigned port = unsigned(reply[value + 2] << 8 | reply[value + 3]) ^ (type == 0x0020 ? 0x2112u : 0u);
             return std::to_string(ip[0]) + "." + std::to_string(ip[1]) + "." + std::to_string(ip[2]) + "." +
-                   std::to_string(ip[3]);
+                   std::to_string(ip[3]) + ":" + std::to_string(port);
         }
         at = value + ((length + 3) & ~3u);
     }

@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <deque>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -45,6 +46,7 @@ class RelayLink : public Link {
   public:
     ~RelayLink() override;
     bool open(const std::string &server, const std::string &channel, char side, std::string &error);
+    bool open_direct(net::Datagram socket, net::Endpoint peer);
     bool knock(const std::string &room_id);
     bool send_all(const void *data, size_t size) override;
     bool receive_all(void *data, size_t size) override;
@@ -58,13 +60,21 @@ class RelayLink : public Link {
     struct Pending {
         std::string packet;
         std::chrono::steady_clock::time_point sent;
+        bool resent = false;
     };
+    std::chrono::microseconds resend_after() const;
     void received(const std::string &payload);
+    void receive_data(uint32_t seq, const std::string &payload);
     void tick();
+    bool transmit(const std::string &packet);
     bool deliverable() const { return !inbox_.empty() || peerClosed_ || dead_; }
 
     mqtt::Client client_;
     std::string out_;
+    net::Datagram udp_;
+    net::Endpoint peer_;
+    std::thread receiver_;
+    size_t chunk_ = 8000;
     mutable std::mutex mutex_;
     std::condition_variable changed_;
     std::deque<uint8_t> inbox_;
@@ -73,9 +83,12 @@ class RelayLink : public Link {
     uint32_t nextSend_ = 1, expected_ = 1;
     bool peerClosed_ = false, dead_ = false, finished_ = false, ackDue_ = false;
     std::chrono::steady_clock::time_point heard_{}, lastSent_{};
+    std::chrono::microseconds smoothed_{0};
     std::atomic<bool> stopping_{false};
     std::thread timer_;
 };
+
+std::unique_ptr<RelayLink> direct_link(Link &control, std::string &route);
 
 class RelayBridge {
   public:

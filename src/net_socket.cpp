@@ -221,6 +221,133 @@ void Socket::close() {
     handle_ = -1;
 }
 
+std::string Endpoint::text() const {
+    return std::to_string(address >> 24) + "." + std::to_string((address >> 16) & 255u) + "." + std::to_string((address >> 8) & 255u) +
+           "." + std::to_string(address & 255u) + ":" + std::to_string(port);
+}
+
+std::optional<Endpoint> Endpoint::parse(const std::string &text) {
+    unsigned parts[5]{};
+    size_t at = 0;
+    for (int i = 0; i < 5; ++i) {
+        const char separator = i < 3 ? '.' : i == 3 ? ':' : '\0';
+        size_t used = 0;
+        unsigned long value = 0;
+        try {
+            value = std::stoul(text.substr(at), &used);
+        } catch (const std::exception &) {
+            return std::nullopt;
+        }
+        if (!used || value > (i == 4 ? 65535ul : 255ul))
+            return std::nullopt;
+        parts[i] = unsigned(value);
+        at += used;
+        if (i < 4) {
+            if (at >= text.size() || text[at] != separator)
+                return std::nullopt;
+            ++at;
+        }
+    }
+    if (at != text.size())
+        return std::nullopt;
+    Endpoint out;
+    out.address = parts[0] << 24 | parts[1] << 16 | parts[2] << 8 | parts[3];
+    out.port = uint16_t(parts[4]);
+    return out;
+}
+
+std::optional<Endpoint> Endpoint::resolve(const std::string &host, uint16_t port) {
+    startup();
+    addrinfo hints{};
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_DGRAM;
+    addrinfo *found = nullptr;
+    if (getaddrinfo(host.c_str(), std::to_string(port).c_str(), &hints, &found) != 0 || !found)
+        return std::nullopt;
+    const auto *address = reinterpret_cast<const sockaddr_in *>(found->ai_addr);
+    Endpoint out;
+    out.address = ntohl(address->sin_addr.s_addr);
+    out.port = ntohs(address->sin_port);
+    freeaddrinfo(found);
+    return out;
+}
+
+Datagram::~Datagram() { close(); }
+
+Datagram::Datagram(Datagram &&other) noexcept : handle_(std::exchange(other.handle_, -1)) {}
+
+Datagram &Datagram::operator=(Datagram &&other) noexcept {
+    if (this != &other) {
+        close();
+        handle_ = std::exchange(other.handle_, -1);
+    }
+    return *this;
+}
+
+bool Datagram::open(uint16_t port) {
+    close();
+    startup();
+    const SocketHandle handle = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (handle == OK_INVALID)
+        return false;
+    sockaddr_in address{};
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_ANY);
+    address.sin_port = htons(port);
+    if (::bind(handle, reinterpret_cast<sockaddr *>(&address), sizeof address) != 0) {
+        OK_CLOSE(handle);
+        return false;
+    }
+    handle_ = static_cast<long long>(handle);
+    return true;
+}
+
+uint16_t Datagram::local_port() const {
+    sockaddr_in address{};
+#ifdef _WIN32
+    int size = sizeof address;
+#else
+    socklen_t size = sizeof address;
+#endif
+    if (!valid() || getsockname(raw(handle_), reinterpret_cast<sockaddr *>(&address), &size) != 0)
+        return 0;
+    return ntohs(address.sin_port);
+}
+
+bool Datagram::send_to(const Endpoint &to, const void *data, size_t size) {
+    if (!valid() || !to.valid())
+        return false;
+    sockaddr_in address{};
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(to.address);
+    address.sin_port = htons(to.port);
+    return ::sendto(raw(handle_), static_cast<const char *>(data), int(size), 0, reinterpret_cast<sockaddr *>(&address),
+                    sizeof address) == int(size);
+}
+
+long Datagram::receive_from(void *data, size_t size, Endpoint &from, int timeout_ms) {
+    if (!valid() || !wait_readable(raw(handle_), timeout_ms))
+        return -1;
+    sockaddr_in address{};
+#ifdef _WIN32
+    int length = sizeof address;
+#else
+    socklen_t length = sizeof address;
+#endif
+    const int got = int(::recvfrom(raw(handle_), static_cast<char *>(data), int(size), 0, reinterpret_cast<sockaddr *>(&address), &length));
+    if (got < 0)
+        return -1;
+    from.address = ntohl(address.sin_addr.s_addr);
+    from.port = ntohs(address.sin_port);
+    return got;
+}
+
+void Datagram::close() {
+    if (valid())
+        OK_CLOSE(raw(handle_));
+    handle_ = -1;
+}
+
 std::string Socket::peer_address() const {
     sockaddr_storage address{};
 #ifdef _WIN32

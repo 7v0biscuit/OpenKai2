@@ -360,8 +360,8 @@ void Session::write_loop() {
 }
 
 int Session::handshake() {
-    auto read_frame = [&](uint8_t &type, std::vector<uint8_t> &payload) {
-        if (!socket_.readable(15000))
+    auto read_frame = [&](uint8_t &type, std::vector<uint8_t> &payload, int timeout_ms = 15000) {
+        if (!socket_.readable(timeout_ms))
             return false;
         uint8_t header[5];
         if (!socket_.receive_all(header, 5))
@@ -457,7 +457,7 @@ int Session::handshake() {
         put_text(out, options_.name);
         put_text(out, options_.password);
         put_text(out, ours);
-        if (!write_frame(hello, out) || !read_frame(type, payload)) {
+        if (!write_frame(hello, out) || !read_frame(type, payload, 180000)) {
             end("The host did not answer");
             return 0;
         }
