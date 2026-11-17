@@ -9,6 +9,18 @@ namespace openkai2::identity {
 
 inline constexpr char developer_name[] = "[DEV] Biscuit";
 
+enum class Tag { developer, twitch, youtube, tob };
+inline constexpr Tag all_tags[] = {Tag::developer, Tag::twitch, Tag::youtube, Tag::tob};
+std::string tag_label(Tag tag);
+std::optional<Tag> claimed_tag(const std::string &name);
+std::string without_tags(const std::string &name);
+std::optional<crypto::Seed> tag_seed(Tag tag);
+std::optional<Tag> install_tag_key(const std::filesystem::path &source);
+std::string tag_proof(const std::string &name, const std::string &context);
+std::string held_name(const std::string &name);
+std::string renamed(const std::string &current, const std::string &typed);
+bool verify_tag_claim(Tag tag, const std::string &name, const std::string &context, const crypto::Signature &signature);
+
 bool claims_developer(const std::string &name);
 std::string without_developer_tag(const std::string &name);
 std::string allowed_name(const std::string &name, bool developer);

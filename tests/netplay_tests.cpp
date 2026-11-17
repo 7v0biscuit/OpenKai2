@@ -215,8 +215,9 @@ void wrong_build_is_refused() {
 
 void name_rules() {
     namespace on = openkai2::online;
-    require(on::name_key("J o i n t") == "joint" && on::name_key("JOINT!") == "joint" && on::name_key("[DEV] Biscuit") == "biscuit",
-            "names compare without case, spaces, symbols or the developer tag");
+    require(on::name_key("J o i n t") == "joint" && on::name_key("JOINT!") == "joint" && on::name_key("[DEV] Biscuit") == "biscuit" &&
+                on::name_key("[TTV] Joint") == "joint" && on::name_key("[ToB] Joint") == "joint",
+            "names compare without case, spaces, symbols or name tags");
     require(on::name_topic("Joint") == on::name_topic("joint") && on::name_topic("Joint") != on::name_topic("Jointt"),
             "name topics follow the name key");
     require(on::name_topic("!!!").empty(), "names need letters or numbers");
@@ -288,6 +289,9 @@ void service_format() {
     require(!on::parse_card(owner.id, "1\t5\t\tBU\tx\t27\t\tsig"), "first-format cards are refused");
     require(!on::parse_card(on::make_profile(on::new_seed(), "Other").id, payload), "a card signed by someone else is refused");
     require(on::format_flair(owner, 1).empty() && !on::can_use_flair(owner), "only the developer key can publish a name effect");
+    require(!on::can_use_flair(on::make_profile(on::new_seed(), "[TTV] Bulma")) &&
+                on::format_flair(on::make_profile(on::new_seed(), "[YT] Bulma"), 2).empty(),
+            "stream tags cannot use name effects");
     const std::string forgedProof(128, 'a');
     require(!on::parse_flair(owner.id, "1\t1\t[DEV] Biscuit\t" + forgedProof), "a forged name effect is refused");
     require(!on::parse_flair(owner.id, "1\t1\tBulma\t" + forgedProof), "a name effect without the [DEV] tag is refused");

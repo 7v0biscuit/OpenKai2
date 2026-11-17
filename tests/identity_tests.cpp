@@ -42,6 +42,18 @@ void tags() {
     require(id::allowed_name("Joint [DEV]", true) == "[DEV] Biscuit", "developer profile is renamed");
     require(id::allowed_name("Joint [DEV]", false) == "Joint", "others lose the tag");
     require(id::allowed_name("Goku", false) == "Goku", "plain names stay");
+    require(id::claimed_tag("[TTV] Joint") == id::Tag::twitch && id::claimed_tag("[yt]Joint") == id::Tag::youtube &&
+                id::claimed_tag("(ToB) Joint") == id::Tag::tob && id::claimed_tag("[DEV] Joint") == id::Tag::developer,
+            "every name tag is recognised in any case and bracket");
+    require(!id::claimed_tag("[TV] Joint") && !id::claimed_tag("TTV Joint") && !id::claimed_tag("[TOBY] Joint"),
+            "other bracketed words are not tags");
+    require(!id::claims_developer("[TTV] Joint"), "stream tags are not the developer tag");
+    require(id::without_tags("[TTV] Joint [YT]") == "Joint" && id::without_tags("[ToB]") == "Player", "every tag is removed");
+    require(id::tag_label(id::Tag::tob) == "[ToB]" && id::tag_label(id::Tag::youtube) == "[YT]", "tag labels");
+    if (!id::tag_seed(id::Tag::twitch)) {
+        require(id::allowed_name("[TTV] Joint", false) == "Joint", "a stream tag needs its key");
+        require(id::renamed("[TTV] Biscuit", "Joint") == "Joint", "a rename without the key keeps no tag");
+    }
 }
 
 void claims() {
@@ -54,6 +66,14 @@ void claims() {
     require(id::verified_name(id::developer_name, "nonce-1", crypto::to_hex(forged.data(), 64)) == "Biscuit",
             "a forged developer name loses its tag");
     require(id::verified_name("Goku", "nonce-1", "") == "Goku", "plain names need no proof");
+    crypto::Signature signature{};
+    std::fill(signature.begin(), signature.end(), uint8_t(3));
+    require(!id::verify_tag_claim(id::Tag::twitch, "[TTV] Joint", "nonce-1", signature), "a forged stream tag claim is refused");
+    require(id::verified_name("[TTV] Joint", "nonce-1", crypto::to_hex(signature.data(), 64)) == "Joint",
+            "a forged stream tag is removed");
+    require(id::verified_name("[YT] Joint", "nonce-1", "") == "Joint", "a stream tag without proof is removed");
+    require(id::tag_proof("[TTV] Joint", "nonce-1").empty() || id::tag_seed(id::Tag::twitch).has_value(),
+            "only a stored key signs a stream tag");
     if (const char *file = std::getenv("OPENKAI2_DEV_KEY_FILE"); file && *file) {
         const auto seed = id::read_developer_key(file);
         require(seed.has_value(), "the developer key matches the built-in public key");

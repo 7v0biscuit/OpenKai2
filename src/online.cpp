@@ -36,7 +36,11 @@ std::vector<std::string> fields(const std::string &payload) {
 }
 
 std::string developer_proof(const std::string &name, const std::string &context) {
-    if (!identity::claims_developer(name))
+    return identity::tag_proof(name, context);
+}
+
+std::string developer_only_proof(const std::string &name, const std::string &context) {
+    if (identity::claimed_tag(name) != identity::Tag::developer)
         return {};
     const auto seed = identity::developer_seed();
     if (!seed)
@@ -45,9 +49,7 @@ std::string developer_proof(const std::string &name, const std::string &context)
     return crypto::to_hex(signature.data(), signature.size());
 }
 
-std::string own_name(const std::string &name) {
-    return identity::allowed_name(name, identity::developer_seed().has_value());
-}
+std::string own_name(const std::string &name) { return identity::held_name(name); }
 
 std::string signed_by(const Profile &profile, const std::string &message) {
     const auto signature =
@@ -272,13 +274,13 @@ std::optional<Card> parse_card(const std::string &id, const std::string &payload
 }
 
 bool can_use_flair(const Profile &profile) {
-    return identity::claims_developer(profile.name) && identity::developer_seed().has_value();
+    return identity::claimed_tag(profile.name) == identity::Tag::developer && identity::developer_seed().has_value();
 }
 
 std::string format_flair(const Profile &profile, unsigned effect) {
     if (!effect || effect > name_effect_count || !can_use_flair(profile))
         return {};
-    const std::string name = clean(profile.name, 24), proof = developer_proof(name, "flair:" + profile.id + ":" + std::to_string(effect));
+    const std::string name = clean(profile.name, 24), proof = developer_only_proof(name, "flair:" + profile.id + ":" + std::to_string(effect));
     if (proof.empty())
         return {};
     return "1\t" + std::to_string(effect) + '\t' + name + '\t' + proof;
@@ -287,7 +289,7 @@ std::string format_flair(const Profile &profile, unsigned effect) {
 std::optional<unsigned> parse_flair(const std::string &id, const std::string &payload) {
     const auto f = fields(payload);
     if (!valid_id(id) || f.size() != 4 || f[0] != "1" || f[1].size() != 1 || f[1][0] < '1' ||
-        f[1][0] > char('0' + name_effect_count) || f[2].size() > 24 || !identity::claims_developer(f[2]))
+        f[1][0] > char('0' + name_effect_count) || f[2].size() > 24 || identity::claimed_tag(f[2]) != identity::Tag::developer)
         return std::nullopt;
     crypto::Signature signature{};
     if (f[3].size() != signature.size() * 2 || !crypto::from_hex(f[3], signature.data(), signature.size()) ||
@@ -350,8 +352,13 @@ std::optional<FriendMessage> parse_friend(const std::string &target, const std::
     return message;
 }
 
+static NameState reserved_name_state(const std::string &name) {
+    const auto tag = identity::claimed_tag(name);
+    return tag && identity::tag_seed(*tag) ? NameState::mine : NameState::taken;
+}
+
 std::string name_key(const std::string &name) {
-    const std::string plain = identity::claims_developer(name) ? identity::without_developer_tag(name) : name;
+    const std::string plain = identity::claimed_tag(name) ? identity::without_tags(name) : name;
     std::string key;
     for (unsigned char c : plain) {
         if (c >= 'A' && c <= 'Z')
@@ -409,7 +416,7 @@ std::optional<NameState> lookup_name(const std::string &server, const std::strin
         return std::nullopt;
     }
     if (name_key(name) == name_key(identity::developer_name))
-        return identity::claims_developer(name) && identity::developer_seed() ? NameState::mine : NameState::taken;
+        return reserved_name_state(name);
     mqtt::Client client;
     std::mutex mutex;
     std::optional<std::string> found;
@@ -629,7 +636,7 @@ std::vector<Player> Directory::players() const {
 
 NameState Directory::name_state(const std::string &name, const std::string &owner) const {
     if (name_key(name) == name_key(identity::developer_name))
-        return identity::claims_developer(name) && identity::developer_seed() ? NameState::mine : NameState::taken;
+        return reserved_name_state(name);
     std::lock_guard lock(mutex_);
     const auto found = names_.find(name_topic(name));
     if (found == names_.end())

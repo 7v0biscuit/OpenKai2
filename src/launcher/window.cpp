@@ -311,7 +311,7 @@ enum Id {
     OpenNotifications=1210,
     ProfileFit=1220, ProfileNotifications, ProfileCopyFrom, ProfileCopyStyle, ProfileRecover, ProfileManage, LauncherMotion, LauncherHints, ProfileAvailability, ProfileNameColor, ProfileFighter, ProfileSharing, ProfileFriendAlerts,
     OpenHelp=1240,NextDockTab,PreviousDockTab,PageTop,PageBottom,SaveCurrent,UndoCurrent,ToggleLauncher,CopySetup,OpenIsoFolder,
-    ProfileAbout=1300, ProfileRegion, ProfilePlaystyle, ProfilePreview, PlayerAction, PlayerFriend, PlayerBlock, PlayerCopyId, PlayerProfile
+    ProfileAbout=1300, ProfileRegion, ProfilePlaystyle, ProfilePreview, PlayerAction, PlayerFriend, PlayerBlock, PlayerCopyId, PlayerProfile, ProfileRename
 };
 constexpr int pageCount = 8, onlinePage = 1, speedrunPage = 2, modsPage = 3, savesPage = 4, settingsPage = 5, updatesPage = 6,
               controlsPage = 7, importPage = 8, overlayPage = 9, tabsPage = 10, colorsPage = 11,
@@ -903,7 +903,7 @@ struct Window {
         std::mutex mutex;
         bool done = false;
         std::optional<online::NameState> state;
-        std::string name;
+        std::string name, renameFrom;
         crypto::Seed seed{};
         std::chrono::steady_clock::time_point started;
     };
@@ -918,7 +918,7 @@ struct Window {
     double dockPosition=0, dockFrom=0;
     int dockTarget=-1;
     ULONGLONG dockStarted=0;
-    int homeScope=0;
+    int homeScope=-1;
     bool layoutPending=false, forwardingWheel=false, layingOut=false, layoutAgain=false;
     bool painting=false, repaintPending=false, dispatchingUi=false;
     struct DeferredMessage {
@@ -1275,6 +1275,10 @@ struct Window {
         const auto found = std::find(shown.begin(), shown.end(), tab);
         return found == shown.end() ? -1 : int(found - shown.begin());
     }
+    double profileClock() const {
+        const double now=double(GetTickCount64());
+        return settings.reducedMotion ? now*0.3 : now;
+    }
     bool allowMotion() const {
         if(settings.reducedMotion)return false;
         BOOL enabled=TRUE;
@@ -1497,7 +1501,11 @@ struct Window {
         if(hue<60){r=c;g=x;}else if(hue<120){r=x;g=c;}else if(hue<180){g=c;b=x;}else if(hue<240){g=x;b=c;}else if(hue<300){r=x;b=c;}else{r=c;b=x;}
         return RGB(int((r+m)*255),int((g+m)*255),int((b+m)*255));
     }
-    static COLORREF effectColor(unsigned effect,size_t index,size_t count,uint64_t now) {
+    void keepProfileMotion() {
+        effectPainted=true;
+        if(!imageAnimationTicking && hwnd){imageAnimationTicking=true;SetTimer(hwnd,3,33,nullptr);}
+    }
+    static COLORREF effectColor(unsigned effect,size_t index,size_t count,double now) {
         const double t=double(now)/1000.0,i=double(index);
         const auto sweep=[&](double speed){const double band=std::fmod(t*speed,1.0)*(double(count)+8.0)-4.0;return int(std::exp(-(i-band)*(i-band)/3.0)*255.0);};
         switch(effect) {
@@ -1513,9 +1521,8 @@ struct Window {
         if(effect==~0u)effect=effectOf(id);
         SetBkMode(dc,TRANSPARENT);
         if(!effect || value.empty()) {SetTextColor(dc,color);DrawTextW(dc,value.c_str(),int(value.size()),&r,flags);return;}
-        effectPainted=true;
-        if(allowMotion() && !imageAnimationTicking){imageAnimationTicking=true;SetTimer(hwnd,3,33,nullptr);}
-        const uint64_t now=allowMotion() ? GetTickCount64() : 0;
+        keepProfileMotion();
+        const double now=profileClock();
         std::vector<int> widths;int total=0;
         for(const wchar_t c:value){SIZE size{};GetTextExtentPoint32W(dc,&c,1,&size);widths.push_back(size.cx);total+=size.cx;}
         int x=(flags&DT_CENTER) ? (r.left+r.right-total)/2 : (flags&DT_RIGHT) ? r.right-total : r.left;
@@ -1727,7 +1734,8 @@ struct Window {
         const auto name=wide(player ? player->name : viewedName);
         const int cx=(contentLeft+split)/2,cy=214,radius=62;
         const unsigned accentIndex=shown.shared && shown.card.accent<accent_count ? shown.card.accent : 0u;
-        const COLORREF tone=!shown.shared ? avatarTone(viewedPlayer) : accentIndex==rgb_accent ? colorOf(cycling_accent(allowMotion() ? GetTickCount64() : 0)) : accentIndex ? colorOf(accents[accentIndex].color) : orange;
+        if(shown.shared && accentIndex==rgb_accent)keepProfileMotion();
+        const COLORREF tone=!shown.shared ? avatarTone(viewedPlayer) : accentIndex==rgb_accent ? colorOf(cycling_accent(uint64_t(profileClock()))) : accentIndex ? colorOf(accents[accentIndex].color) : orange;
         buffer.frame.halo({p(cx),p(cy),p(cx+1),p(cy+1)},0,p(84),tone,player ? 70 : 30);
         ellipse(dc,p(cx),p(cy),p(radius+6),panel);ellipse(dc,p(cx),p(cy),p(radius),tone);
         if(shown.image)paintRoundPhoto(dc,*shown.image,p(cx),p(cy),p(radius-2),shown.fit);
@@ -1834,7 +1842,7 @@ struct Window {
             else {ellipse(dc,cx,cy,radius,mix(raised,orange,60));}
             auto old=SelectObject(dc,fonts.strong);
             RECT name{cx+radius+p(10),r.top+p(8),r.right-p(10),cy+p(2)};
-            drawName(dc,entry.label,name,DT_LEFT|DT_BOTTOM|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX,menuPlayer,menuPlayer.empty() ? ink : nameInk(menuPlayer,ink),allowMotion() ? ~0u : 0u);
+            drawName(dc,entry.label,name,DT_LEFT|DT_BOTTOM|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX,menuPlayer,menuPlayer.empty() ? ink : nameInk(menuPlayer,ink));
             SelectObject(dc,fonts.caption);SetTextColor(dc,muted);
             RECT line{name.left,cy+p(3),name.right,r.bottom-p(6)};
             DrawTextW(dc,entry.detail.c_str(),-1,&line,DT_LEFT|DT_TOP|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
@@ -2026,7 +2034,8 @@ struct Window {
         const auto own=style ? std::optional<online::Profile>{} : activeProfile();
         const auto remote=style || (own && own->id==key) ? nullptr : remoteCard(key);
         const unsigned accentIndex=style ? style->accent : remote && remote->card.accent<accent_count ? remote->card.accent : 0u;
-        const auto accent=style || remote ? (accentIndex==rgb_accent ? colorOf(cycling_accent(allowMotion() ? GetTickCount64() : 0)) : accentIndex ? colorOf(accents[accentIndex].color) : orange) : own && own->id==key ? orange : avatarTone(key);
+        if((style || remote) && accentIndex==rgb_accent)keepProfileMotion();
+        const auto accent=style || remote ? (accentIndex==rgb_accent ? colorOf(cycling_accent(uint64_t(profileClock()))) : accentIndex ? colorOf(accents[accentIndex].color) : orange) : own && own->id==key ? orange : avatarTone(key);
         const COLORREF tone = dim ? mix(accent, panel, 150) : accent;
         ellipse(dc, cx, cy, radius + std::max(1, radius / 8), ring);
         ellipse(dc, cx, cy, radius, tone);
@@ -2279,6 +2288,7 @@ struct Window {
         hint(ProfileNameColor,L"Color your name in player lists. Very dark or very light colors are adjusted so everyone can read them.");
         hint(ProfileFighter,L"Show your main fighter on your player card.");
         hint(ProfileSharing,L"Choose what players online see: your picture, accent, initials, tagline, name color and main fighter.");
+        hint(ProfileRename,L"Rename the active profile to the name typed beside it. A [TTV], [YT] or [ToB] tag stays with the new name.");
         hint(PlayerProfile,L"Open the selected player's profile. You can also right-click any name.");
         hint(ProfilePreview,L"See your player card the way other players see it.");
         hint(ProfileAbout,L"Up to 160 characters. Shown on your player profile.");
@@ -2352,6 +2362,7 @@ struct Window {
                                                           {HostGame, L"Host room"},
                                                           {JoinGame, L"Join address"},
                                                           {ProfileAdd, L"Add"},
+                                                          {ProfileRename, L"Rename"},
                                                           {ProfileRemove, L"Remove"},
                                                           {RefreshRooms, L"Refresh"},
                                                           {JoinRoom, L"Join room"},
@@ -2494,7 +2505,8 @@ struct Window {
         }
         combo(OnlineListed, {L"Public", L"Invite only", L"Not listed"}, int(settings.onlineVisibility));
         combo(OnlineProfile, {}, 0);
-        combo(HomeFriendScope,{L"All friends",L"Online friends",L"Everyone online",L"Recent opponents"},0);
+        combo(HomeFriendScope,{L"All friends",L"Online friends",L"Everyone online",L"Recent opponents"},int(std::min(settings.homeFriendScope,3u)));
+        homeScope=int(std::min(settings.homeFriendScope,3u));
         combo(RoomFilter,{L"Same version",L"All versions",L"No password"},int(settings.onlineRoomFilter));
         combo(PlayerFilter,{L"All players",L"Friends online"},int(settings.onlinePlayerFilter));
         edit(OnlineSearch,L"Search rooms or players");
@@ -2680,6 +2692,7 @@ struct Window {
         const bool profileEditable=!nameCheck && !busy() && !running() && !room;
         EnableWindow(controls[ProfileRemove], !settings.onlineProfiles.empty() && profileEditable);
         EnableWindow(controls[ProfileAdd], profileEditable);
+        EnableWindow(controls[ProfileRename], profileEditable && activeProfile().has_value());
         EnableWindow(controls[OnlineProfile],!settings.onlineProfiles.empty() && profileEditable);
         EnableWindow(controls[ProfileRecover],profileEditable && std::filesystem::exists(profileRecoveryPath()));
         EnableWindow(controls[ProfileCopyStyle],settings.onlineProfiles.size()>1 && profileEditable);
@@ -3000,8 +3013,10 @@ struct Window {
             const int profileRow = Grid::field(onlineProfileTop - 20, 0), action = 84;
             position(OnlineProfile, grid.x(1), profileRow, grid.column - action - 8, 34);
             position(ProfileRemove, grid.x(1) + grid.column - action, profileRow, action, 34);
-            position(OnlineName, grid.x(2)+10, profileRow+6, grid.column-action-28, 22);
+            position(OnlineName, grid.x(2)+10, profileRow+6, grid.column-2*action-36, 22);
+            position(ProfileRename, grid.x(2) + grid.column - 2*action - 8, profileRow, action, 34);
             position(ProfileAdd, grid.x(2) + grid.column - action, profileRow, action, 34);
+            SetWindowTextW(controls[HomeProfile],activeProfile() ? L"Customize profile" : L"Create profile");
             position(HomeProfile,grid.x(1),192,grid.column,28);
             position(ProfileCopyId,grid.x(2),192,grid.column,28);
             if(std::filesystem::exists(profileRecoveryPath())) {
@@ -3395,7 +3410,10 @@ struct Window {
             return;
         }
         caps(dc,notice->invite ? L"MATCH INVITATION" : L"FRIEND REQUEST",contentLeft+24,140,content-48,orange);
-        text(dc,notice->name,contentLeft+24,178,content-48,76,fonts.title,ink,DT_LEFT|DT_WORDBREAK|DT_END_ELLIPSIS|DT_NOPREFIX);
+        avatar(dc,p(contentLeft+52),p(206),p(28),notice->name,notice->id,panel,directory && directory->player(notice->id) ? 1 : 0);
+        nameText(dc,notice->name,contentLeft+96,184,content-120,40,fonts.title,nameInk(notice->id,ink),DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX,notice->id);
+        if(const auto card=cardLine(notice->id);!card.empty())
+            text(dc,card,contentLeft+96,226,content-120,22,fonts.caption,muted,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
         text(dc,notice->detail,contentLeft+24,262,content-48,76,fonts.body,muted,DT_LEFT|DT_WORDBREAK|DT_NOPREFIX);
         const auto identity=notice->verified ? L"Verified identity · "+notice->age : L"Identity not verified · "+notice->age;
         text(dc,identity,contentLeft+24,350,content-48,24,fonts.caption,notice->verified ? green : muted);
@@ -3793,9 +3811,8 @@ struct Window {
             animated=animated || (image!=profileImages.end() && image->second.frames.size()>1);
         }
         const bool effects=effectPainted;effectPainted=false;
-        animated=animated || effects;
-        if (!animated || !allowMotion()) {KillTimer(hwnd,3);imageAnimationTicking=false;return;}
-        if (dropdownOpen() || IsIconic(hwnd) || !appActive) {effectPainted=effects;return;}
+        if (!effects && (!animated || !allowMotion())) {KillTimer(hwnd,3);imageAnimationTicking=false;return;}
+        if (dropdownOpen() || IsIconic(hwnd) || (!appActive && !effects)) {effectPainted=effects;return;}
         (pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);
         if (effects)
             for (const int list : {PlayerList, FriendList})
@@ -6631,17 +6648,10 @@ struct Window {
             error = true;
             return;
         }
-        if (identity::claims_developer(name)) {
-            if (!identity::developer_seed()) {
-                const auto key = choose(false, false, L"[DEV] needs the developer key. Choose dev.key");
-                if (key.empty() || !identity::install_developer_key(key)) {
-                    status = key.empty() ? L"[DEV] is reserved for the OpenKai2 developer."
-                                         : L"That file is not the OpenKai2 developer key.";
-                    error = true;
-                    return;
-                }
-            }
-            name = identity::developer_name;
+        if (const auto tag = identity::claimed_tag(name)) {
+            if (!identity::tag_seed(*tag) && !installTagKey(*tag))
+                return;
+            name = identity::held_name(name);
         }
         if (settings.onlineProfiles.size() >= 32) {
             status = L"Remove a profile before adding another.";
@@ -6684,6 +6694,83 @@ struct Window {
         }
         useProfile(next, name);
     }
+    bool installTagKey(identity::Tag tag) {
+        const auto label = wide(identity::tag_label(tag));
+        const std::wstring prompt = label + L" needs its name tag key. Choose the key file";
+        const auto file = choose(false, false, prompt.c_str());
+        if (file.empty()) {
+            status = label + (tag == identity::Tag::developer ? L" is reserved for the OpenKai2 developer." : L" needs its name tag key.");
+            error = true;
+            return false;
+        }
+        const auto installed = identity::install_tag_key(file);
+        if (installed != tag) {
+            status = installed ? L"That key is for " + wide(identity::tag_label(*installed)) + L", not " + label + L". It was added." :
+                                 L"That file is not an OpenKai2 name tag key.";
+            error = true;
+            return false;
+        }
+        status = label + L" key added. Any profile can now use the " + label + L" tag.";
+        error = false;
+        return true;
+    }
+    void renameProfile() {
+        const auto profile = activeProfile();
+        if (!profile) {
+            status = L"Choose a profile to rename.";
+            error = true;
+            return;
+        }
+        const auto typed = utf8(trimmed(textOf(OnlineName)));
+        if (typed.empty() || typed.size() > 24) {
+            status = L"Type the new name, up to 24 characters, then choose Rename.";
+            error = true;
+            SetFocus(controls[OnlineName]);
+            return;
+        }
+        if (const auto tag = identity::claimed_tag(typed); tag && !identity::tag_seed(*tag) && !installTagKey(*tag))
+            return;
+        const auto name = identity::renamed(profile->name, typed);
+        if (name.size() > 24) {
+            status = L"With its tag the name is longer than 24 characters. Choose a shorter name.";
+            error = true;
+            return;
+        }
+        if (name == profile->name) {
+            status = identity::claimed_tag(name) == identity::Tag::developer ? L"The [DEV] profile keeps its name." : L"That is already this profile's name.";
+            error = false;
+            return;
+        }
+        const auto key = online::name_key(name);
+        if (std::any_of(settings.onlineProfiles.begin(), settings.onlineProfiles.end(),
+                        [&](const std::string &existing) { return existing != profile->name && online::name_key(existing) == key; })) {
+            status = L"You already have a profile with that name.";
+            error = true;
+            return;
+        }
+        if (nameCheck)
+            return;
+        auto check = std::make_shared<NameCheck>();
+        check->name = name;
+        check->renameFrom = profile->name;
+        check->seed = profile->seed;
+        check->started = std::chrono::steady_clock::now();
+        nameCheck = check;
+        status = L"Checking that " + wide(name) + L" is free\u2026";
+        error = false;
+        std::thread([check, owner = profile->id, server = settings.onlineLobby, window = hwnd] {
+            std::string problem;
+            const auto state = online::lookup_name(server, check->name, owner, problem);
+            {
+                std::lock_guard lock(check->mutex);
+                check->state = state;
+                check->done = true;
+            }
+            PostMessageW(window, onlineChanged, 0, 0);
+        }).detach();
+        refreshEnabled();
+        (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
+    }
     void finishNameCheck() {
         if (!nameCheck)
             return;
@@ -6713,9 +6800,29 @@ struct Window {
         Settings next = settings;
         const auto key = online::name_key(check->name);
         if (std::any_of(next.onlineProfiles.begin(), next.onlineProfiles.end(),
-                        [&](const std::string &existing) { return online::name_key(existing) == key; })) {
+                        [&](const std::string &existing) { return existing != check->renameFrom && online::name_key(existing) == key; })) {
             status = L"You already have a profile with that name.";
             error = true;
+            return;
+        }
+        if (!check->renameFrom.empty()) {
+            const auto found = std::find(next.onlineProfiles.begin(), next.onlineProfiles.end(), check->renameFrom);
+            if (found == next.onlineProfiles.end()) {
+                status = L"That profile was removed before the rename finished.";
+                error = true;
+                return;
+            }
+            *found = check->name;
+            if (next.onlineName == check->renameFrom)
+                next.onlineName = check->name;
+            write_settings(settings_path(), next);
+            settings = std::move(next);
+            SetWindowTextW(controls[OnlineName], L"");
+            fillProfiles();
+            reconnect();
+            status = wide(check->renameFrom) + L" is now " + wide(check->name) + L". Friends, picture and stats stay with the profile.";
+            error = false;
+            refreshEnabled();
             return;
         }
         next.onlineProfiles.push_back(check->name);
@@ -7915,7 +8022,10 @@ struct Window {
             return;
         }
         if(id==HomeFriendScope && notification==CBN_SELCHANGE) {
-            homeScope=std::max(0,selected(HomeFriendScope));refreshOnlineLists();layout();(pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);return;
+            homeScope=std::max(0,selected(HomeFriendScope));
+            if(settings.homeFriendScope!=unsigned(homeScope)){Settings next=settings;next.homeFriendScope=unsigned(homeScope);
+                try{write_settings(settings_path(),next);settings=std::move(next);}catch(const std::exception&){}}
+            refreshOnlineLists();layout();(pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);return;
         }
         if(notification==BN_CLICKED && (id==HomeFindPlayers || id==HomeCreateRoom)) {
             page=onlinePage;layout();SetFocus(controls[id==HomeCreateRoom ? OnlineRoom : OnlineSearch]);return;
@@ -7963,6 +8073,10 @@ struct Window {
         }
         if (id == ProfileAdd && notification == BN_CLICKED) {
             addProfile();
+            return;
+        }
+        if (id == ProfileRename && notification == BN_CLICKED) {
+            renameProfile();
             return;
         }
         if (id == ProfileRemove && notification == BN_CLICKED) {
@@ -9297,6 +9411,13 @@ int run_window(const std::filesystem::path &initialIso) {
         if(state.capturing>=0 && altKey && keyUp && state.pendingCaptureAlt) {
             const auto press=state.pendingCaptureAlt;state.pendingCaptureAlt=0;
             if(SendMessageW(hwnd,controlKeyMessage,message.wParam,press))continue;
+        }
+        if (keyDown && message.wParam == VK_RETURN && !state.controls.empty() &&
+            (message.hwnd == state.controls[PlayerList] || message.hwnd == state.controls[FriendList])) {
+            if (const auto chosen = state.selectedPlayerId(); !chosen.empty()) {
+                state.openPlayer(chosen, state.knownName(chosen));
+                continue;
+            }
         }
         if (keyDown && !(state.capturing>=0 && (altKey || GetKeyState(VK_MENU)<0)) &&
             SendMessageW(hwnd, controlKeyMessage, message.wParam, message.lParam))

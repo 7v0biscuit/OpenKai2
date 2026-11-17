@@ -60,7 +60,7 @@ void validate_settings(const Settings &s) {
         throw std::runtime_error("Invalid graphics settings");
     if (s.onlinePort < 1 || s.onlinePort > 65535 || s.onlineDelay > 8 || s.runAhead > 2 || s.imageEffect > 5 || s.brightness > 3 || s.onlineVisibility > 2 || s.onlineKeys.size() > 32 || s.onlineName.size() > 64 ||
         s.onlineAddress.size() > 255 || s.onlineRoom.size() > 64 || s.onlinePassword.size() > 64 ||
-        s.onlineLobby.size() > 255 || s.onlineProfiles.size() > 32 || s.onlineRoomFilter > 2 || s.onlinePlayerFilter > 1)
+        s.onlineLobby.size() > 255 || s.onlineProfiles.size() > 32 || s.onlineRoomFilter > 2 || s.onlinePlayerFilter > 1 || s.homeFriendScope > 3)
         throw std::runtime_error("Invalid online settings");
     if (s.launcherTheme >= theme_count || s.launcherAccent >= accent_count || s.startPage > 1 || s.lastPage >= tab_count ||
         !valid_tab_order(s.tabOrder, s.hiddenTabs) || !valid_custom_colors(s.launcherColors))
@@ -262,6 +262,8 @@ Settings read_settings(const std::filesystem::path &file) {
             row >> std::quoted(s.onlineRoom) >> std::quoted(s.onlinePassword) >> s.onlineListed >> std::quoted(s.onlineLobby);
         else if (key == "online_visibility")
             row >> s.onlineVisibility;
+        else if (key == "home_friend_scope")
+            row >> s.homeFriendScope;
         else if (key == "online_filters")
             row >> s.onlineRoomFilter >> s.onlinePlayerFilter;
         else if (key == "profile_availability") {
@@ -472,6 +474,7 @@ void write_settings(const std::filesystem::path &file, const Settings &s) {
         if (entry.seen > 0)
             out << "online_friend_seen " << entry.owner << ' ' << entry.id << ' ' << entry.seen << '\n';
     out << "online_filters " << s.onlineRoomFilter << ' ' << s.onlinePlayerFilter << '\n';
+    out << "home_friend_scope " << s.homeFriendScope << '\n';
     for (const auto& style : s.profileStyles) {
         out << "profile_availability " << std::quoted(style.id) << ' ' << style.availability << '\n';
         out << "profile_alerts " << std::quoted(style.id) << ' ' << style.friendAlerts << '\n';

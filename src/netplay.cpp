@@ -264,7 +264,7 @@ bool unpack_snapshot(const std::vector<uint8_t> &packed, std::vector<CardFile> &
 }
 
 Session::Session(Options options, Machine machine) : options_(std::move(options)), machine_(std::move(machine)) {
-    options_.name = identity::allowed_name(options_.name, identity::developer_seed().has_value());
+    options_.name = identity::held_name(options_.name);
     if (options_.delay)
         options_.delay = std::clamp(options_.delay, 1u, max_delay);
     status_.delay = options_.delay;
@@ -381,15 +381,7 @@ int Session::handshake() {
         frame.insert(frame.end(), payload.begin(), payload.end());
         return socket_.send_all(frame.data(), frame.size());
     };
-    auto proof = [&](const std::string &context) {
-        if (!identity::claims_developer(options_.name))
-            return std::string();
-        const auto seed = identity::developer_seed();
-        if (!seed)
-            return std::string();
-        const auto signature = identity::sign_claim(*seed, options_.name, context);
-        return crypto::to_hex(signature.data(), signature.size());
-    };
+    auto proof = [&](const std::string &context) { return identity::tag_proof(options_.name, context); };
     uint8_t type = 0;
     std::vector<uint8_t> payload;
     if (options_.host) {

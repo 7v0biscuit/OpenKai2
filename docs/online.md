@@ -26,6 +26,15 @@ The **[DEV]** tag is reserved for the OpenKai2 developer, whose profile is
 **[DEV] Biscuit**. Adding a [DEV] name asks for the developer key; without it the
 tag is removed, and other players' games check the key's signature too.
 
+**[TTV]**, **[YT]** and **[ToB]** are name tags handed out by the developer as key
+files. Type a name with the tag, such as `[TTV] Joint`, and the launcher asks for
+that tag's key file once. After that any profile can carry the tag with any name.
+**Rename** beside **New profile** renames the active profile and keeps its tag:
+`[TTV] Biscuit` can become `[TTV] Joint` or `[TTV] Slender` by typing only the new
+name. Friends, picture and stats stay with the profile. Without the key the tag is
+removed, and other players' games check each tag's signature. Animated name
+effects stay [DEV] only.
+
 ## Finding a match
 
 The launcher connects to the online service on its own. The **Rooms** list and
@@ -137,11 +146,12 @@ short tagline, an optional **Name color** and a **Main fighter**. Appearance is
 saved separately for each profile on this PC and does not change the public
 profile name, ID or private key.
 
-The **[DEV]** profile also has animated name effects in the same list: rainbow
+The **[DEV]** profile, and no other tag, also has animated name effects in the same list: rainbow
 cycle, rainbow wave, golden shimmer, ki pulse and silver frost. They appear only
 when the developer key is installed and the [DEV] profile is active. Each effect is
 signed with that key and checked by every launcher before it is shown, so
-other profiles cannot use or fake them.
+other profiles cannot use or fake them. They always animate; with **Reduced
+motion** on they move slowly instead.
 
 Name colors come in presets, or choose **Custom color…** to pick any color. Very
 dark or very light colors are adjusted so the name stays readable. **Theme

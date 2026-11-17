@@ -59,7 +59,7 @@ struct Settings {
     std::vector<std::string> onlineProfiles;
     std::vector<std::string> onlineKeys;
     unsigned onlineVisibility = 0;
-    unsigned onlineRoomFilter = 0, onlinePlayerFilter = 0;
+    unsigned onlineRoomFilter = 0, onlinePlayerFilter = 0, homeFriendScope = 0;
     struct Friend {
         std::string owner, id, name;
         int64_t seen = 0;
