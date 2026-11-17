@@ -227,34 +227,43 @@ bool picture_bytes(const std::string &bytes) {
 std::string format_card(const Profile &profile, const Card &card) {
     const std::string body = std::to_string(card.accent % 64u) + '\t' + color_text(card.name_color) + '\t' +
                              clean(card.initials, 8) + '\t' + clean(card.tagline, 192) + '\t' +
-                             std::to_string(card.fighter % 64u) + '\t' +
+                             std::to_string(card.fighter % 64u) + '\t' + std::to_string(card.region % 64u) + '\t' +
+                             std::to_string(card.playstyle % 64u) + '\t' + std::to_string(card.matches % 10000000u) + '\t' +
+                             std::to_string(std::clamp<int64_t>(card.since, 0, 9999999999)) + '\t' + clean(card.about, 480) + '\t' +
                              (picture_bytes(card.picture) ? to_base64(card.picture) : std::string());
-    return "1\t" + body + '\t' + signed_by(profile, "card\t" + body);
+    return "2\t" + body + '\t' + signed_by(profile, "card\t" + body);
 }
 
 std::optional<Card> parse_card(const std::string &id, const std::string &payload) {
     const auto f = fields(payload);
-    if (!valid_id(id) || f.size() != 8 || f[0] != "1" || f[1].empty() || f[1].size() > 2 || f[5].empty() ||
-        f[5].size() > 2 || (!f[2].empty() && f[2].size() != 6) || f[3].size() > 8 || f[4].size() > 192 ||
-        f[6].size() > (card_picture_limit + 2) / 3 * 4)
-        return std::nullopt;
-    const auto digits = [](const std::string &text, int base) {
-        return std::all_of(text.begin(), text.end(), [&](unsigned char c) {
+    const auto digits = [](const std::string &text, int base, size_t limit) {
+        return !text.empty() && text.size() <= limit && std::all_of(text.begin(), text.end(), [&](unsigned char c) {
             return base == 10 ? std::isdigit(c) != 0 : std::isxdigit(c) != 0;
         });
     };
-    if (!digits(f[1], 10) || !digits(f[5], 10) || !digits(f[2], 16))
+    if (!valid_id(id) || f.size() != 13 || f[0] != "2" || !digits(f[1], 10, 2) || (!f[2].empty() && !digits(f[2], 16, 6)) ||
+        (!f[2].empty() && f[2].size() != 6) || f[3].size() > 8 || f[4].size() > 192 || !digits(f[5], 10, 2) ||
+        !digits(f[6], 10, 2) || !digits(f[7], 10, 2) || !digits(f[8], 10, 7) || !digits(f[9], 10, 10) ||
+        f[10].size() > 480 || f[11].size() > (card_picture_limit + 2) / 3 * 4)
         return std::nullopt;
-    if (!signed_ok(id, "card\t" + f[1] + '\t' + f[2] + '\t' + f[3] + '\t' + f[4] + '\t' + f[5] + '\t' + f[6], f[7]))
+    std::string body;
+    for (size_t i = 1; i < 12; ++i)
+        body += (i > 1 ? "\t" : "") + f[i];
+    if (!signed_ok(id, "card\t" + body, f[12]))
         return std::nullopt;
     Card card;
     card.accent = unsigned(std::stoul(f[1])) % 64u;
-    card.fighter = unsigned(std::stoul(f[5])) % 64u;
     card.name_color = f[2].empty() ? 0u : 0x1000000u | uint32_t(std::stoul(f[2], nullptr, 16));
     card.initials = clean(f[3], 8);
     card.tagline = clean(f[4], 192);
-    if (!f[6].empty()) {
-        auto picture = from_base64(f[6]);
+    card.fighter = unsigned(std::stoul(f[5])) % 64u;
+    card.region = unsigned(std::stoul(f[6])) % 64u;
+    card.playstyle = unsigned(std::stoul(f[7])) % 64u;
+    card.matches = uint32_t(std::stoul(f[8]));
+    card.since = int64_t(std::stoll(f[9]));
+    card.about = clean(f[10], 480);
+    if (!f[11].empty()) {
+        auto picture = from_base64(f[11]);
         if (!picture || !picture_bytes(*picture))
             return std::nullopt;
         card.picture = std::move(*picture);
@@ -426,8 +435,9 @@ void Directory::set_card(const std::optional<Card> &card) {
     {
         std::lock_guard lock(mutex_);
         const auto same = [](const Card &a, const Card &b) {
-            return a.accent == b.accent && a.fighter == b.fighter && a.name_color == b.name_color &&
-                   a.initials == b.initials && a.tagline == b.tagline && a.picture == b.picture;
+            return a.accent == b.accent && a.fighter == b.fighter && a.name_color == b.name_color && a.region == b.region &&
+                   a.playstyle == b.playstyle && a.matches == b.matches && a.since == b.since && a.initials == b.initials &&
+                   a.tagline == b.tagline && a.about == b.about && a.picture == b.picture;
         };
         if (card_.has_value() == card.has_value() && (!card || same(*card_, *card)) && cardSent_)
             return;

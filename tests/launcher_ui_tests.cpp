@@ -516,8 +516,15 @@ int main(int argc,char** argv) {
                 require(summary.find(L"Renderer:")!=std::wstring::npos && summary.find(L"UI test")==std::wstring::npos && summary.find(std::wstring(64,L'a'))==std::wstring::npos &&
                         summary.find(L":\\")==std::wstring::npos,"The support summary is incomplete or contains private profile data");
                 key_press(VK_LEFT,VK_MENU);wait_until([&]{return IsWindowVisible(GetDlgItem(w,112));},"Help did not return to Play");
-                key_press(VK_F11);wait_until([&]{return IsZoomed(w)!=FALSE;},"F11 did not maximize the launcher");
-                key_press(VK_F11);wait_until([&]{return IsZoomed(w)==FALSE;},"F11 did not restore the launcher");
+                RECT windowed{};GetWindowRect(w,&windowed);
+                const auto coversMonitor=[&]{
+                    MONITORINFO monitor{sizeof(monitor)};RECT now{};
+                    return GetMonitorInfoW(MonitorFromWindow(w,MONITOR_DEFAULTTONEAREST),&monitor) && GetWindowRect(w,&now) &&
+                           EqualRect(&now,&monitor.rcMonitor) && !(GetWindowLongPtrW(w,GWL_STYLE)&WS_CAPTION);
+                };
+                key_press(VK_F11);wait_until(coversMonitor,"F11 did not make the launcher fullscreen");
+                key_press(VK_F11);wait_until([&]{RECT now{};GetWindowRect(w,&now);return (GetWindowLongPtrW(w,GWL_STYLE)&WS_CAPTION)!=0 && EqualRect(&now,&windowed);},
+                                             "F11 did not return the launcher to its window");
 
                 std::cout<<"[ui:stage] resize and application focus recovery"<<std::endl;
                 {

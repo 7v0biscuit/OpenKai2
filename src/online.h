@@ -44,9 +44,10 @@ struct FriendMessage {
 };
 
 struct Card {
-    unsigned accent = 0, fighter = 0;
-    uint32_t name_color = 0;
-    std::string initials, tagline, picture;
+    unsigned accent = 0, fighter = 0, region = 0, playstyle = 0;
+    uint32_t name_color = 0, matches = 0;
+    int64_t since = 0;
+    std::string initials, tagline, about, picture;
     uint64_t revision = 0;
 };
 inline constexpr size_t card_picture_limit = 9000;

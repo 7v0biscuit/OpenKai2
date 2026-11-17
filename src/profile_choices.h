@@ -10,5 +10,10 @@ inline constexpr std::array<const char *, 36> fighter_names = {
     "Android 19", "Cell", "Hercule", "Saibaman", "Cell Jr.", "Great Saiyaman", "Dr. Gero", "Goten", "Kid Trunks",
     "Gohan", "Majin Buu", "Super Buu", "Kid Buu", "Dabura", "Videl", "Majin Vegeta", "Supreme Kai"};
 inline constexpr unsigned fighter_count = unsigned(fighter_names.size());
+inline constexpr std::array<const char *, 8> region_names = {"North America East", "North America West", "South America", "Europe",
+                                                            "Africa", "Middle East", "Asia", "Oceania"};
+inline constexpr unsigned region_count = unsigned(region_names.size());
+inline constexpr std::array<const char *, 4> playstyle_names = {"Casual", "Competitive", "Learning", "Speedrunner"};
+inline constexpr unsigned playstyle_count = unsigned(playstyle_names.size());
 
 }

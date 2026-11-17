@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-#include "fighters.h"
+#include "profile_choices.h"
 #include "randomizer.h"
 #include "cpu_difficulty.h"
 #include <cstring>

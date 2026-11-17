@@ -538,7 +538,7 @@ The header keeps the clock and Notifications; the action search bar is removed.
 - **Ctrl+Home / End:** scroll to the top or bottom; text fields keep their normal caret shortcuts.
 - **Ctrl+S:** save the profile you are editing, or the selected overlay split name.
 - **Ctrl+Z:** undo a settings change, or undo text editing when a text field has focus.
-- **F11:** maximize or restore the launcher.
+- **F11:** fullscreen the launcher, or return to a window. The window keeps its size and position.
 - **Escape:** cancel a control binding without changing it.
 
 Help includes **Copy setup summary**, **Open logs folder** and **Open ISO folder**.

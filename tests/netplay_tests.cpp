@@ -272,12 +272,20 @@ void service_format() {
     card.name_color = 0x1ff8800u;
     card.initials = "BU";
     card.tagline = "Capsule\tCorp";
+    card.about = "Builds a time machine on weekends.\nLikes rematches.";
+    card.region = 4;
+    card.playstyle = 2;
+    card.matches = 1234;
+    card.since = 1763337600;
     card.picture = std::string("\xff\xd8\xff\xe0", 4) + std::string(600, 'j');
     const auto payload = on::format_card(owner, card);
     const auto parsed = on::parse_card(owner.id, payload);
     require(parsed && parsed->accent == 5 && parsed->fighter == 27 && parsed->name_color == 0x1ff8800u &&
-                parsed->initials == "BU" && parsed->tagline == "Capsule Corp" && parsed->picture == card.picture,
+                parsed->initials == "BU" && parsed->tagline == "Capsule Corp" && parsed->picture == card.picture &&
+                parsed->about == "Builds a time machine on weekends. Likes rematches." && parsed->region == 4 &&
+                parsed->playstyle == 2 && parsed->matches == 1234 && parsed->since == 1763337600,
             "profile cards round trip");
+    require(!on::parse_card(owner.id, "1\t5\t\tBU\tx\t27\t\tsig"), "first-format cards are refused");
     require(!on::parse_card(on::make_profile(on::new_seed(), "Other").id, payload), "a card signed by someone else is refused");
     auto tampered = payload;
     tampered[2] = tampered[2] == '1' ? '2' : '1';

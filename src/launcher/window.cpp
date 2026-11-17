@@ -16,7 +16,7 @@
 #include "netplay.h"
 #include "room.h"
 #include "online.h"
-#include "fighters.h"
+#include "profile_choices.h"
 #include <deque>
 #include "mods/budokai3.h"
 #include "mods/disc_identity.h"
@@ -120,7 +120,7 @@ struct LoungeLayout {
     int left=contentLeft, friendsLeft, friendsWidth, friendsBottom, centre, centreRight, details, detailsTop,
         right, bottom, gameBottom, roomsTop, notesTop, notesBottom;
     LoungeLayout(int width,int height) : compact(width<1100),
-        friendsWidth(compact ? std::clamp(width*28/100,240,292) : std::clamp(width*17/100,188,222)),
+        friendsWidth(compact ? std::clamp(width*28/100,240,292) : std::clamp(width*19/100,200,300)),
         friendsBottom(compact ? 424 : height-128),centre(compact ? left : left+friendsWidth+20),
         centreRight(left+width-(compact ? friendsWidth : std::clamp(width*23/100,232,294))-20),
         details(centreRight+20),detailsTop(compact ? 440 : 112),right(left+width),bottom(height-128),
@@ -310,11 +310,12 @@ enum Id {
     SettingsAll=1200, SettingsDisplay, SettingsGraphics, SettingsGame, SettingsLauncher,
     OpenNotifications=1210,
     ProfileFit=1220, ProfileNotifications, ProfileCopyFrom, ProfileCopyStyle, ProfileRecover, ProfileManage, LauncherMotion, LauncherHints, ProfileAvailability, ProfileNameColor, ProfileFighter, ProfileSharing, ProfileFriendAlerts,
-    OpenHelp=1240,NextDockTab,PreviousDockTab,PageTop,PageBottom,SaveCurrent,UndoCurrent,ToggleLauncher,CopySetup,OpenIsoFolder
+    OpenHelp=1240,NextDockTab,PreviousDockTab,PageTop,PageBottom,SaveCurrent,UndoCurrent,ToggleLauncher,CopySetup,OpenIsoFolder,
+    ProfileAbout=1300, ProfileRegion, ProfilePlaystyle, ProfilePreview, PlayerAction, PlayerFriend, PlayerBlock, PlayerCopyId, PlayerProfile
 };
 constexpr int pageCount = 8, onlinePage = 1, speedrunPage = 2, modsPage = 3, savesPage = 4, settingsPage = 5, updatesPage = 6,
               controlsPage = 7, importPage = 8, overlayPage = 9, tabsPage = 10, colorsPage = 11,
-              profilePage = 12, finderPage = 13, notificationsPage=14, helpPage=15;
+              profilePage = 12, finderPage = 13, notificationsPage=14, helpPage=15, playerPage=16;
 constexpr UINT controlKeyMessage = WM_APP + 40, controlClearMessage = WM_APP + 41,
                pageClipMessage = WM_APP + 42, restoreUiMessage = WM_APP + 43,
                deferredUiMessage = WM_APP + 44, glideMessage = WM_APP + 45;
@@ -917,7 +918,7 @@ struct Window {
     double dockPosition=0, dockFrom=0;
     int dockTarget=-1;
     ULONGLONG dockStarted=0;
-    bool homeFriendsOnly=false;
+    int homeScope=0;
     bool layoutPending=false, forwardingWheel=false, layingOut=false, layoutAgain=false;
     bool painting=false, repaintPending=false, dispatchingUi=false;
     struct DeferredMessage {
@@ -1004,7 +1005,8 @@ struct Window {
             SetFocus(lastFocusedControl);
         (pageDirty=true),RedrawWindow(hwnd,nullptr,nullptr,RDW_INVALIDATE|RDW_ERASE|RDW_FRAME|RDW_ALLCHILDREN);
     }
-    int finderFrom = 0, finderReturnPage = 0, profileReturnPage=0,helpReturnPage=0,helpOrigin=0;
+    int finderFrom = 0, finderReturnPage = 0, profileReturnPage=0,helpReturnPage=0,helpOrigin=0,playerReturnPage=0,playerNavigation=0;
+    std::string viewedPlayer,viewedName;
     struct Action { int id; const wchar_t *name; const wchar_t *keywords; };
     const std::vector<Action> actions{
         {Play, L"Play game", L"start offline launch"},
@@ -1031,6 +1033,7 @@ struct Window {
         {OpenNotifications,L"Notifications",L"friend requests invitations online"}
     };
     std::vector<size_t> actionRows;
+    std::vector<std::pair<std::string,std::string>> finderPlayers;
     std::optional<Settings> previousSettings;
     static auto preferences(Settings &s) {
         return std::tie(s.renderer, s.fps, s.width, s.height, s.windowMode, s.aspect, s.antialiasing,
@@ -1055,6 +1058,32 @@ struct Window {
             actionRows.push_back(i);
             SendMessageW(controls[ActionList], LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(actions[i].name));
         }
+        finderPlayers.clear();
+        if (const auto profile = activeProfile(); profile && !query.empty()) {
+            std::vector<std::pair<std::string,std::string>> known;
+            if (directory)
+                for (const auto &player : directory->players()) known.emplace_back(player.id, player.name);
+            for (const auto *list : {&settings.onlineFriends, &settings.recentPlayers, &settings.blockedPlayers})
+                for (const auto &entry : *list)
+                    if (entry.owner == profile->id) known.emplace_back(entry.id, entry.name);
+            const auto lowered = utf8(query);
+            for (const auto &[id, name] : known) {
+                if (finderPlayers.size() >= 8) break;
+                if (id == profile->id || std::any_of(finderPlayers.begin(), finderPlayers.end(), [&](const auto &row) { return row.first == id; })) continue;
+                if (!matchesSearch(searchText(wide(name)), query) && lowered != id) continue;
+                finderPlayers.emplace_back(id, name);
+                actionRows.push_back(actions.size() + finderPlayers.size() - 1);
+                const bool online = directory && directory->player(id);
+                const auto label = L"Player profile \u00b7 " + wide(name) + (online ? L" (online)" : isFriend(id) ? L" (friend)" : L"");
+                SendMessageW(controls[ActionList], LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
+            }
+            if (finderPlayers.empty() && lowered.size() == 64 && online::valid_id(lowered) && lowered != profile->id) {
+                finderPlayers.emplace_back(lowered, std::string());
+                actionRows.push_back(actions.size());
+                const std::wstring label = L"Player profile \u00b7 ID " + query.substr(0, 12) + L"\u2026";
+                SendMessageW(controls[ActionList], LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
+            }
+        }
         if (!actionRows.empty()) SendMessageW(controls[ActionList], LB_SETCURSEL, 0, 0);
         EnableWindow(controls[ActionOpen], !actionRows.empty());
         (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
@@ -1069,7 +1098,15 @@ struct Window {
     void openSelectedAction() {
         const auto row = SendMessageW(controls[ActionList], LB_GETCURSEL, 0, 0);
         if (row < 0 || size_t(row) >= actionRows.size()) return;
-        const int id = actions[actionRows[size_t(row)]].id;
+        const auto index = actionRows[size_t(row)];
+        if (index >= actions.size()) {
+            const auto chosen = finderPlayers.at(index - actions.size());
+            page = finderReturnPage;
+            layout();
+            openPlayer(chosen.first, chosen.second);
+            return;
+        }
+        const int id = actions[index].id;
         page = finderReturnPage;
         layout();
         command(id, BN_CLICKED);
@@ -1089,7 +1126,7 @@ struct Window {
             settingsHeight=grid.height();
         }
         return std::max(page == helpPage ? 940 : page == overlayPage ? 880 : page == onlinePage ? 740 : page == controlsPage ? controlsHeight :
-                        page == settingsPage ? settingsHeight : page == profilePage ? 980 : page == 0 ? (width<1100 ? 1040 : 740) : page == savesPage ? 780 : 680, pageVisibleHeight());
+                        page == settingsPage ? settingsHeight : page == profilePage ? 1110 : page == playerPage ? 760 : page == 0 ? (width<1100 ? 1040 : 740) : page == savesPage ? 780 : 680, pageVisibleHeight());
     }
     void scrollPage(int value) {
         scrollGliding=false;
@@ -1224,7 +1261,7 @@ struct Window {
     int unscale(int n) const { return MulDiv(n, 96, int(dpi)); }
     int navigationPage() const {
         return page == helpPage ? helpOrigin : page == notificationsPage ? onlinePage : page == finderPage ? finderFrom : page == savesPage || page == controlsPage ? 0 :
-               page == profilePage ? profileReturnPage : page == importPage ? modsPage : page == overlayPage ? speedrunPage : page == tabsPage || page == colorsPage ? settingsPage : page;
+               page == profilePage ? profileReturnPage : page == playerPage ? playerNavigation : page == importPage ? modsPage : page == overlayPage ? speedrunPage : page == tabsPage || page == colorsPage ? settingsPage : page;
     }
     std::vector<int> visibleTabs() const {
         std::vector<int> shown;
@@ -1355,6 +1392,9 @@ struct Window {
         SendMessageW(controls[ProfileFighter],CB_SETCURSEL,style ? style->fighter : 0,0);
         SendMessageW(controls[ProfileSharing],CB_SETCURSEL,style ? style->sharing : 0,0);
         SendMessageW(controls[ProfileFriendAlerts],CB_SETCURSEL,style && !style->friendAlerts ? 1 : 0,0);
+        SendMessageW(controls[ProfileRegion],CB_SETCURSEL,style ? style->region : 0,0);
+        SendMessageW(controls[ProfilePlaystyle],CB_SETCURSEL,style ? style->playstyle : 0,0);
+        SetWindowTextW(controls[ProfileAbout],style ? wide(style->about).c_str() : L"");
         selectNameColor(style ? style->nameColor : 0);
         page=profilePage;layout();(pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);
     }
@@ -1375,6 +1415,7 @@ struct Window {
         found->notifications=selected(ProfileNotifications)!=1;
         found->nameColor=chosenNameColor();found->fighter=unsigned(std::max(0,selected(ProfileFighter)));found->sharing=unsigned(std::max(0,selected(ProfileSharing)));
         found->friendAlerts=selected(ProfileFriendAlerts)!=1;
+        found->about=utf8(trimmed(textOf(ProfileAbout)));found->region=unsigned(std::max(0,selected(ProfileRegion)));found->playstyle=unsigned(std::max(0,selected(ProfilePlaystyle)));
         write_settings(settings_path(),next);settings=std::move(next);cycleTimer();openProfile();publishCard();
         status=file.empty() ? L"Profile picture removed. Your original file was kept." : found->sharing==0 ? L"Profile picture saved. Players online see it on your card." : L"Profile picture saved on this PC.";
         error=false;
@@ -1500,14 +1541,340 @@ struct Window {
         if(arrived.size()==1)notify(first+L" is online",detail.empty() ? std::wstring(L"Invite them from Friends or Online.") : detail);
         else notify(L"Friends are online",first+L" and "+std::to_wstring(arrived.size()-1)+(arrived.size()==2 ? L" other friend are online." : L" other friends are online."));
     }
+    static std::wstring dateText(int64_t seconds) {
+        std::tm local{};const std::time_t value=std::time_t(seconds);
+        if(localtime_s(&local,&value)!=0)return L"Unknown";
+        wchar_t out[32]{};wcsftime(out,32,L"%b %Y",&local);return out;
+    }
+    static std::wstring playedText(int64_t seen) {
+        auto text=seenText(seen);
+        return text.rfind(L"Last seen ",0)==0 ? L"Played "+text.substr(10) : text;
+    }
+    int recentCount() const {
+        const auto profile=activeProfile();if(!profile)return 0;
+        return int(std::count_if(settings.recentPlayers.begin(),settings.recentPlayers.end(),[&](const auto& entry){return entry.owner==profile->id;}));
+    }
+    int64_t recentSeen(const std::string& id) const {
+        const auto profile=activeProfile();if(!profile)return 0;
+        for(const auto& entry:settings.recentPlayers)if(entry.owner==profile->id && entry.id==id)return entry.seen;
+        return 0;
+    }
+    bool isBlocked(const std::string& id) const {
+        const auto profile=activeProfile();
+        return profile && std::any_of(settings.blockedPlayers.begin(),settings.blockedPlayers.end(),[&](const auto& entry){return entry.owner==profile->id && entry.id==id;});
+    }
+    std::string knownName(const std::string& id) const {
+        if(directory)if(const auto player=directory->player(id))return player->name;
+        const auto profile=activeProfile();
+        if(profile && profile->id==id)return profile->name;
+        for(const auto* list:{&settings.onlineFriends,&settings.recentPlayers,&settings.blockedPlayers})
+            for(const auto& entry:*list)if(profile && entry.owner==profile->id && entry.id==id)return entry.name;
+        return {};
+    }
+    void setBlocked(const std::string& id,const std::string& name,bool block) {
+        const auto profile=activeProfile();if(!profile || id.empty() || id==profile->id)return;
+        if(block && isFriend(id)) {setFriend(id,name,false);if(directory)directory->send_friend(id,online::FriendKind::remove);}
+        Settings next=settings;
+        next.blockedPlayers.erase(std::remove_if(next.blockedPlayers.begin(),next.blockedPlayers.end(),[&](const auto& entry){return entry.owner==profile->id && entry.id==id;}),next.blockedPlayers.end());
+        if(block)next.blockedPlayers.push_back({profile->id,id,name});
+        write_settings(settings_path(),next);settings=std::move(next);
+        if(block){std::lock_guard lock(onlineShared->mutex);auto& queue=onlineShared->notices;
+            queue.erase(std::remove_if(queue.begin(),queue.end(),[&](const Notice& notice){return notice.sender()==id;}),queue.end());}
+        status=block ? wide(name)+L" is blocked. Their invites and friend requests are ignored." : wide(name)+L" is unblocked.";error=false;
+        refreshOnlineLists();refreshPlayerButtons();(pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);
+    }
+    void recordOpponent(const std::string& name) {
+        const auto profile=activeProfile();if(!profile)return;
+        auto id=playerNamed(name);
+        if(id.empty() && !pendingInvitee.empty() && knownName(pendingInvitee)==name)id=pendingInvitee;
+        Settings next=settings;const auto stamp=int64_t(std::time(nullptr));
+        auto found=std::find_if(next.profileStyles.begin(),next.profileStyles.end(),[&](const auto& style){return style.id==profile->id;});
+        if(found==next.profileStyles.end()){next.profileStyles.push_back({profile->id,{},{},0,{},{}});found=std::prev(next.profileStyles.end());}
+        ++found->matches;if(!found->since)found->since=stamp;
+        if(!id.empty() && id!=profile->id) {
+            auto& recent=next.recentPlayers;
+            recent.erase(std::remove_if(recent.begin(),recent.end(),[&](const auto& entry){return entry.owner==profile->id && entry.id==id;}),recent.end());
+            recent.insert(recent.begin(),{profile->id,id,name,stamp});
+            int kept=0;
+            recent.erase(std::remove_if(recent.begin(),recent.end(),[&](const auto& entry){return entry.owner==profile->id && ++kept>20;}),recent.end());
+        }
+        try{write_settings(settings_path(),next);settings=std::move(next);publishCard();}
+        catch(const std::exception& problem){std::cout<<"[launcher:online] "<<problem.what()<<std::endl;}
+    }
+    struct ShownCard {bool shared=false;online::Card card;const speedrun::SplitImage* image=nullptr;bool fit=false;};
+    ShownCard shownCard(const std::string& id) {
+        ShownCard out;
+        const auto profile=activeProfile();
+        if(profile && profile->id==id) {
+            const auto style=profileStyle(id);
+            if(style && style->sharing==2)return out;
+            out.shared=true;
+            if(style) {
+                out.card.accent=style->accent;out.card.name_color=style->nameColor;out.card.initials=style->initials;out.card.tagline=style->tagline;
+                out.card.fighter=style->fighter;out.card.region=style->region;out.card.playstyle=style->playstyle;out.card.about=style->about;
+                out.card.matches=style->matches;out.card.since=style->since;
+                if(style->sharing==0){out.image=profileImage(style->image);out.fit=style->pictureFit==1;}
+            }
+            return out;
+        }
+        if(const auto remote=remoteCard(id)) {
+            out.shared=true;out.card=remote->card;
+            if(!remote->image.frames.empty())out.image=&remote->image;
+        }
+        return out;
+    }
+    void openPlayer(const std::string& id,const std::string& name={}) {
+        if(id.empty())return;
+        if(page!=playerPage){playerReturnPage=page==finderPage ? finderReturnPage : page;playerNavigation=navigationPage();}
+        viewedPlayer=id;viewedName=name.empty() ? knownName(id) : name;
+        if(viewedName.empty())viewedName="Player "+id.substr(0,8);
+        page=playerPage;layout();refreshPlayerButtons();refreshEnabled();(pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);
+    }
+    void refreshPlayerButtons() {
+        if(viewedPlayer.empty() || controls.empty())return;
+        const auto profile=activeProfile();const bool own=profile && profile->id==viewedPlayer;
+        const auto player=directory ? directory->player(viewedPlayer) : std::nullopt;
+        const auto hosted=player ? roomHostedBy(player->name) : std::nullopt;
+        SetWindowTextW(controls[PlayerAction],own ? L"Edit my profile" : hosted ? L"Join their room" : L"Invite to play");
+        SetWindowTextW(controls[PlayerFriend],isFriend(viewedPlayer) ? L"Remove friend" : requestedFriends.count(viewedPlayer) ? L"Friend request sent" : L"Add friend");
+        SetWindowTextW(controls[PlayerBlock],isBlocked(viewedPlayer) ? L"Unblock" : L"Block");
+        const bool online=directory && directory->connected();
+        EnableWindow(controls[PlayerAction],own || (online && player && player->version==application_version && disc.has_value() && !busy() && !isBlocked(viewedPlayer)));
+        EnableWindow(controls[PlayerFriend],online && !own && !isBlocked(viewedPlayer) && (isFriend(viewedPlayer) || !requestedFriends.count(viewedPlayer)));
+        EnableWindow(controls[PlayerBlock],!own);
+    }
+    void paintPlayer(HDC dc,int h,int content) {
+        const int right=contentLeft+content,split=contentLeft+std::clamp(content/3,260,340),side=split+44,width=right-side-24;
+        panelBox(dc,contentLeft,124,split,700);panelBox(dc,split+20,124,right,700);
+        if(viewedPlayer.empty())return;
+        const auto profile=activeProfile();const bool own=profile && profile->id==viewedPlayer;
+        const auto shown=shownCard(viewedPlayer);
+        const auto player=directory ? directory->player(viewedPlayer) : std::nullopt;
+        const auto name=wide(player ? player->name : viewedName);
+        const int cx=(contentLeft+split)/2,cy=214,radius=62;
+        const unsigned accentIndex=shown.shared && shown.card.accent<accent_count ? shown.card.accent : 0u;
+        const COLORREF tone=!shown.shared ? avatarTone(viewedPlayer) : accentIndex==rgb_accent ? colorOf(cycling_accent(allowMotion() ? GetTickCount64() : 0)) : accentIndex ? colorOf(accents[accentIndex].color) : orange;
+        buffer.frame.halo({p(cx),p(cy),p(cx+1),p(cy+1)},0,p(84),tone,player ? 70 : 30);
+        ellipse(dc,p(cx),p(cy),p(radius+6),panel);ellipse(dc,p(cx),p(cy),p(radius),tone);
+        if(shown.image)paintRoundPhoto(dc,*shown.image,p(cx),p(cy),p(radius-2),shown.fit);
+        else {
+            const auto letters=shown.shared && !shown.card.initials.empty() ? wide(shown.card.initials) : initials(name);
+            text(dc,letters,cx-radius,cy-24,radius*2,48,fonts.title,RGB(255,255,255),DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX);
+        }
+        const bool busyPlayer=player && (player->status=="in a match" || player->status=="hosting" || player->status=="joining" || player->status=="away" || player->status=="do not disturb");
+        ellipse(dc,p(cx+44),p(cy+44),p(12),panel);ellipse(dc,p(cx+44),p(cy+44),p(9),player ? (busyPlayer ? gold : green) : faint);
+        const int columnWidth=split-contentLeft-48;
+        text(dc,name,contentLeft+24,292,columnWidth,30,fonts.brand,readableName(shown.shared ? shown.card.name_color : 0u,ink),DT_CENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+        int y=326;
+        if(player && player->impostor){text(dc,L"NAME NOT VERIFIED",contentLeft+24,y,columnWidth,18,fonts.label,red,DT_CENTER|DT_SINGLELINE|DT_NOPREFIX);y+=22;}
+        if(shown.shared && !shown.card.tagline.empty()){text(dc,L"\u201c"+wide(shown.card.tagline)+L"\u201d",contentLeft+24,y,columnWidth,22,fonts.caption,muted,DT_CENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);y+=24;}
+        if(shown.shared && shown.card.fighter && shown.card.fighter<=fighter_count){text(dc,L"MAINS "+wide(fighter_names[shown.card.fighter-1u]),contentLeft+24,y,columnWidth,20,fonts.label,orange,DT_CENTER|DT_SINGLELINE|DT_NOPREFIX);y+=24;}
+        std::wstring presence;
+        if(own)presence=directory && directory->connected() ? L"This is you · as other players see you" : L"This is you · offline";
+        else if(player) {
+            presence=statusLabel(player->status);
+            if(const auto hosted=hostingLine(player->name);!hosted.empty())presence=hosted;
+        } else presence=isFriend(viewedPlayer) ? seenText(friendSeen(viewedPlayer)) : recentSeen(viewedPlayer) ? playedText(recentSeen(viewedPlayer)) : std::wstring(L"Offline");
+        text(dc,presence,contentLeft+24,y+4,columnWidth,20,fonts.caption,player ? ink : muted,DT_CENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+        std::vector<std::pair<std::wstring,COLORREF>> tags;
+        if(own)tags.emplace_back(L"YOU",orange);
+        if(isFriend(viewedPlayer))tags.emplace_back(L"FRIEND",green);
+        if(isBlocked(viewedPlayer))tags.emplace_back(L"BLOCKED",red);
+        if(recentSeen(viewedPlayer))tags.emplace_back(L"PLAYED BEFORE",sky);
+        if(player && player->version!=application_version)tags.emplace_back(L"V"+wide(player->version),red);
+        if(!tags.empty()) {
+            int total=0;for(const auto& tagValue:tags)total+=unscale(tagWidth(dc,tagValue.first))+6;
+            int x=(contentLeft+split)/2+total/2;
+            for(const auto& tagValue:tags){tag(dc,p(x),p(y+40),tagValue.first,tagValue.second);x-=unscale(tagWidth(dc,tagValue.first))+6;}
+        }
+        heading(dc,L"About",side,144,width);
+        if(!shown.shared)
+            text(dc,own ? L"Your card is kept on this PC. Choose what to share on your Profile page." : L"This player has not shared a player card.",side,180,width,60,fonts.body,muted,DT_WORDBREAK|DT_NOPREFIX);
+        else
+            text(dc,shown.card.about.empty() ? std::wstring(own ? L"Add a few words about yourself on your Profile page." : L"No about text yet.") : wide(shown.card.about),
+                 side,180,width,96,fonts.body,shown.card.about.empty() ? muted : ink,DT_WORDBREAK|DT_END_ELLIPSIS|DT_NOPREFIX|DT_EDITCONTROL);
+        heading(dc,L"Details",side,300,width);
+        const auto row=[&](int index,const std::wstring& label,const std::wstring& value){
+            const int top=340+index*38;
+            text(dc,label,side,top,width/2,24,fonts.caption,muted,DT_LEFT|DT_SINGLELINE|DT_NOPREFIX);
+            text(dc,value,side+width/3,top,width-width/3-8,24,fonts.strong,ink,DT_RIGHT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+            if(index<7)fill(dc,{p(side),p(top+30),p(side+width),p(top+31)},mix(panel,border,140));
+        };
+        const auto pick=[&](unsigned value,const auto& names){return value && value<=names.size() ? wide(names[value-1u]) : std::wstring(L"Not shown");};
+        row(0,L"Region",shown.shared ? pick(shown.card.region,region_names) : L"Not shown");
+        row(1,L"Playstyle",shown.shared ? pick(shown.card.playstyle,playstyle_names) : L"Not shown");
+        row(2,L"Online matches",shown.shared ? std::to_wstring(shown.card.matches) : L"Not shown");
+        row(3,L"Member since",shown.shared && shown.card.since>0 ? dateText(shown.card.since) : L"Not shown");
+        row(4,L"Matches together",own ? std::wstring(L"\u2014") : recentSeen(viewedPlayer) ? playedText(recentSeen(viewedPlayer)) : std::wstring(L"Not yet"));
+        row(5,L"OpenKai2 version",player ? wide(player->version) : std::wstring(L"Offline"));
+        row(6,L"Profile ID",wide(viewedPlayer.substr(0,16))+L"\u2026");
+        text(dc,L"Right-click a name in Players, Friends or Rooms to open a profile. Ctrl+K finds players by name or profile ID.",side,630,width,40,fonts.caption,faint,DT_WORDBREAK|DT_NOPREFIX);
+    }
+    enum MenuKind {menuHeader,menuSeparator,menuProfile,menuInvite,menuJoin,menuFriend,menuUnfriend,menuCopy,menuId,menuBlock};
+    struct MenuEntry {UINT command=0;std::wstring label,detail;MenuKind kind=menuProfile;bool danger=false,disabled=false;};
+    std::vector<MenuEntry> menuEntries;std::string menuPlayer;
+    void menuGlyph(HDC dc,MenuKind kind,int cx,int cy,COLORREF color) {
+        const float size=float(p(16)),x=float(cx)-size/2,y=float(cy)-size/2;
+        sampledVector(dc,{LONG(x-2),LONG(y-2),LONG(std::ceil(x+size))+2,LONG(std::ceil(y+size))+2},[&](Gdiplus::Graphics& g){
+            g.TranslateTransform(x,y);g.ScaleTransform(size/24.f,size/24.f);
+            Gdiplus::Pen pen(drawingColor(color),2.f);pen.SetLineJoin(Gdiplus::LineJoinRound);
+            pen.SetStartCap(Gdiplus::LineCapRound);pen.SetEndCap(Gdiplus::LineCapRound);
+            Gdiplus::SolidBrush brush(drawingColor(color));
+            auto line=[&](float a,float b,float c,float d){g.DrawLine(&pen,a,b,c,d);};
+            auto person=[&](float dx){g.DrawEllipse(&pen,dx+5.f,3.f,8.f,8.f);g.DrawArc(&pen,dx+1.f,13.f,16.f,16.f,180.f,180.f);};
+            switch(kind) {
+            case menuProfile:person(3.f);break;
+            case menuInvite:{Gdiplus::PointF tri[]={{7,4},{20,12},{7,20}};g.FillPolygon(&brush,tri,3);break;}
+            case menuJoin:line(3,12,15,12);line(11,8,15,12);line(15,12,11,16);g.DrawRectangle(&pen,15.f,4.f,6.f,16.f);break;
+            case menuFriend:person(0.f);line(19,6,19,14);line(15,10,23,10);break;
+            case menuUnfriend:person(0.f);line(15,10,23,10);break;
+            case menuCopy:g.DrawRectangle(&pen,8.f,8.f,12.f,13.f);line(4,16,4,3);line(4,3,15,3);break;
+            case menuId:line(9,3,7,21);line(17,3,15,21);line(4,9,21,9);line(3,15,20,15);break;
+            case menuBlock:g.DrawEllipse(&pen,3.f,3.f,18.f,18.f);line(6,18,18,6);break;
+            default:break;
+            }
+        });
+    }
+    void measureMenu(MEASUREITEMSTRUCT& item) {
+        const size_t index=size_t(item.itemData);
+        if(index>=menuEntries.size()){item.itemHeight=p(32);item.itemWidth=p(180);return;}
+        const auto& entry=menuEntries[index];
+        if(entry.kind==menuSeparator){item.itemHeight=p(9);item.itemWidth=p(60);return;}
+        HDC dc=GetDC(hwnd);auto old=SelectObject(dc,entry.kind==menuHeader ? fonts.strong : fonts.body);
+        SIZE label{};GetTextExtentPoint32W(dc,entry.label.c_str(),int(entry.label.size()),&label);
+        SIZE detail{};SelectObject(dc,fonts.caption);GetTextExtentPoint32W(dc,entry.detail.c_str(),int(entry.detail.size()),&detail);
+        SelectObject(dc,old);ReleaseDC(hwnd,dc);
+        if(entry.kind==menuHeader){item.itemHeight=p(54);item.itemWidth=UINT(std::max<LONG>(p(200),std::max(label.cx,detail.cx)+p(70)));return;}
+        item.itemHeight=p(34);item.itemWidth=UINT(std::max<LONG>(p(200),label.cx+p(60)+(entry.detail.empty() ? 0 : detail.cx+p(18))));
+    }
+    void drawMenu(const DRAWITEMSTRUCT& item) {
+        const size_t index=size_t(item.itemData);
+        if(index>=menuEntries.size())return;
+        const auto& entry=menuEntries[index];HDC dc=item.hDC;RECT r=item.rcItem;
+        fill(dc,r,raised);
+        if(entry.kind==menuSeparator){fill(dc,{r.left+p(10),(r.top+r.bottom)/2,r.right-p(10),(r.top+r.bottom)/2+std::max(1,p(1))},mix(raised,border,200));return;}
+        SetBkMode(dc,TRANSPARENT);
+        if(entry.kind==menuHeader) {
+            const int radius=p(16),cx=r.left+p(10)+radius,cy=(r.top+r.bottom)/2;
+            if(!menuPlayer.empty())avatar(dc,cx,cy,radius,entry.label,menuPlayer,raised);
+            else {ellipse(dc,cx,cy,radius,mix(raised,orange,60));}
+            auto old=SelectObject(dc,fonts.strong);
+            SetTextColor(dc,menuPlayer.empty() ? ink : nameInk(menuPlayer,ink));
+            RECT name{cx+radius+p(10),r.top+p(8),r.right-p(10),cy+p(2)};
+            DrawTextW(dc,entry.label.c_str(),-1,&name,DT_LEFT|DT_BOTTOM|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+            SelectObject(dc,fonts.caption);SetTextColor(dc,muted);
+            RECT line{name.left,cy+p(3),name.right,r.bottom-p(6)};
+            DrawTextW(dc,entry.detail.c_str(),-1,&line,DT_LEFT|DT_TOP|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+            SelectObject(dc,old);return;
+        }
+        const bool disabled=entry.disabled,selectedRow=(item.itemState&ODS_SELECTED)!=0 && !disabled;
+        const COLORREF tone=entry.danger ? red : orange;
+        if(selectedRow)box(dc,{r.left+p(5),r.top+p(2),r.right-p(5),r.bottom-p(2)},mix(raised,tone,52),mix(raised,tone,120),8);
+        const COLORREF label=disabled ? faint : entry.danger ? red : selectedRow ? ink : mix(muted,ink,170);
+        menuGlyph(dc,entry.kind,r.left+p(22),(r.top+r.bottom)/2,disabled ? faint : selectedRow || entry.danger ? tone : muted);
+        auto old=SelectObject(dc,fonts.body);SetTextColor(dc,label);
+        RECT text{r.left+p(40),r.top,r.right-p(12),r.bottom};
+        DrawTextW(dc,entry.label.c_str(),-1,&text,DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+        if(!entry.detail.empty()) {
+            SelectObject(dc,fonts.caption);SetTextColor(dc,faint);
+            DrawTextW(dc,entry.detail.c_str(),-1,&text,DT_RIGHT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX);
+        }
+        SelectObject(dc,old);
+    }
+    void contextMenu(HWND child,LPARAM lp) {
+        const int id=GetDlgCtrlID(child);
+        if(id!=PlayerList && id!=FriendList && id!=RoomList)return;
+        POINT point{GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};
+        int row=-1;
+        if(point.x==-1 && point.y==-1) {
+            row=int(SendMessageW(child,LB_GETCURSEL,0,0));RECT item{};
+            if(row<0 || SendMessageW(child,LB_GETITEMRECT,WPARAM(row),reinterpret_cast<LPARAM>(&item))==LB_ERR)return;
+            point={(item.left+item.right)/2,(item.top+item.bottom)/2};ClientToScreen(child,&point);
+        } else {
+            POINT local=point;ScreenToClient(child,&local);
+            const auto hit=SendMessageW(child,LB_ITEMFROMPOINT,0,MAKELPARAM(local.x,local.y));
+            if(HIWORD(hit))return;
+            row=int(LOWORD(hit));
+            SendMessageW(child,LB_SETCURSEL,WPARAM(row),0);command(id,LBN_SELCHANGE);
+        }
+        std::string playerId,name;std::optional<online::Room> roomChoice;
+        if(id==PlayerList && size_t(row)<playerRows.size()){playerId=playerRows[size_t(row)].first;name=playerRows[size_t(row)].second;}
+        else if(id==FriendList && size_t(row)<friendRows.size()){playerId=friendRows[size_t(row)].first;name=friendRows[size_t(row)].second;}
+        else if(id==RoomList && size_t(row)<roomRows.size()){roomChoice=roomRows[size_t(row)];name=roomChoice->host;playerId=playerNamed(name);}
+        else return;
+        const auto profile=activeProfile();const bool own=profile && profile->id==playerId;
+        const auto player=directory && !playerId.empty() ? directory->player(playerId) : std::nullopt;
+        const auto hosted=player && !roomChoice ? roomHostedBy(player->name) : std::nullopt;
+        enum {ViewProfile=1,InviteOrJoin,FriendToggle,CopyName,CopyId,BlockToggle};
+        menuEntries.clear();menuPlayer=playerId;
+        std::wstring presence=L"Offline";
+        if(own)presence=L"This is you";
+        else if(player)presence=hosted ? L"Hosting a room" : statusLabel(player->status);
+        else if(roomChoice)presence=L"Room host";
+        else if(isFriend(playerId))presence=seenText(friendSeen(playerId));
+        menuEntries.push_back({0,wide(name),presence,menuHeader});
+        menuEntries.push_back({0,{},{},menuSeparator});
+        const bool ready=disc.has_value() && !busy() && directory && directory->connected();
+        if(!playerId.empty())menuEntries.push_back({ViewProfile,own ? L"View my profile" : L"View profile",{},menuProfile});
+        if(roomChoice)menuEntries.push_back({InviteOrJoin,L"Join room",{},menuJoin,false,!(ready && !room && roomChoice->version==application_version)});
+        else if(player && !own)menuEntries.push_back({InviteOrJoin,hosted ? L"Join their room" : L"Invite to play",{},hosted ? menuJoin : menuInvite,false,
+                                                      !(ready && player->version==application_version && !isBlocked(playerId))});
+        if(!playerId.empty() && !own) {
+            const bool friendly=isFriend(playerId),sent=requestedFriends.count(playerId)>0;
+            menuEntries.push_back({FriendToggle,friendly ? L"Remove friend" : sent ? L"Friend request sent" : L"Add friend",{},friendly ? menuUnfriend : menuFriend,false,
+                                   !(directory && directory->connected() && !isBlocked(playerId) && (friendly || !sent))});
+        }
+        menuEntries.push_back({0,{},{},menuSeparator});
+        menuEntries.push_back({CopyName,L"Copy name",{},menuCopy});
+        if(!playerId.empty())menuEntries.push_back({CopyId,L"Copy profile ID",{},menuId});
+        if(!playerId.empty() && !own) {
+            menuEntries.push_back({0,{},{},menuSeparator});
+            menuEntries.push_back({BlockToggle,isBlocked(playerId) ? L"Unblock" : L"Block",{},menuBlock,!isBlocked(playerId)});
+        }
+        HMENU menu=CreatePopupMenu();if(!menu)return;
+        HBRUSH menuBrush=CreateSolidBrush(raised);
+        MENUINFO info{};info.cbSize=sizeof(info);info.fMask=MIM_BACKGROUND;info.hbrBack=menuBrush;SetMenuInfo(menu,&info);
+        for(size_t i=0;i<menuEntries.size();++i) {
+            const auto& entry=menuEntries[i];
+            UINT flags=MF_OWNERDRAW;
+            if(entry.kind==menuSeparator)flags|=MF_SEPARATOR;
+            if(entry.kind==menuHeader || entry.disabled)flags|=MF_DISABLED;
+            AppendMenuW(menu,flags,entry.command ? entry.command : UINT(9000+i),reinterpret_cast<LPCWSTR>(i));
+        }
+        const int choice=int(TrackPopupMenu(menu,TPM_RETURNCMD|TPM_RIGHTBUTTON|TPM_NONOTIFY,point.x,point.y,0,hwnd,nullptr));
+        DestroyMenu(menu);DeleteObject(menuBrush);menuEntries.clear();
+        switch(choice) {
+        case ViewProfile:openPlayer(playerId,name);break;
+        case InviteOrJoin:
+            if(roomChoice)joinRoom(*roomChoice);
+            else if(hosted)joinRoom(*hosted);
+            else invitePlayer();
+            break;
+        case FriendToggle:toggleFriend();break;
+        case CopyName:status=copyText(wide(name)) ? L"Name copied." : L"Could not access the clipboard.";error=false;break;
+        case CopyId:status=copyText(wide(playerId)) ? L"Profile ID copied." : L"Could not access the clipboard.";error=false;break;
+        case BlockToggle:setBlocked(playerId,name,!isBlocked(playerId));break;
+        default:return;
+        }
+        refreshEnabled();(pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);
+    }
     void publishCard() {
         if(!directory || !directory->connected())return;
         const auto profile=activeProfile();if(!profile || profile->id!=connectedProfile)return;
+        if(const auto existing=profileStyle(profile->id);!existing || !existing->since) {
+            Settings next=settings;
+            auto found=std::find_if(next.profileStyles.begin(),next.profileStyles.end(),[&](const auto& style){return style.id==profile->id;});
+            if(found==next.profileStyles.end()){next.profileStyles.push_back({profile->id,{},{},0,{},{}});found=std::prev(next.profileStyles.end());}
+            found->since=int64_t(std::time(nullptr));
+            try{write_settings(settings_path(),next);settings=std::move(next);}
+            catch(const std::exception& problem){std::cout<<"[launcher:profile-card] "<<problem.what()<<std::endl;}
+        }
         const auto style=profileStyle(profile->id);
         if(style && style->sharing==2){directory->set_card(std::nullopt);return;}
         online::Card card;
         if(style) {
             card.accent=style->accent;card.name_color=style->nameColor;card.initials=style->initials;card.tagline=style->tagline;card.fighter=style->fighter;
+            card.about=style->about;card.region=style->region;card.playstyle=style->playstyle;card.matches=style->matches;card.since=style->since;
             if(style->sharing==0 && !style->image.empty()) {
                 const COLORREF tone=style->accent && style->accent!=rgb_accent ? colorOf(accents[style->accent].color) : orange;
                 const auto key=style->image+':'+std::to_string(style->pictureFit)+':'+std::to_string(tone);
@@ -1829,7 +2196,7 @@ struct Window {
         hint(VerifyIso, L"Check the selected disc and required game files.");
         hint(HomeProfile, L"Customize your profile picture, name color, main fighter and tagline (Ctrl+P).");
         hint(OpenNotifications,L"Friend requests and match invitations (Ctrl+Shift+N).");
-        hint(HomeFriendScope,L"Show all your friends or just those who are online.");
+        hint(HomeFriendScope,L"Show your friends, friends who are online, everyone online, or players you recently played.");
         hint(HomeFindPlayers,L"Find players and manage friends on Online.");
         hint(HomeInvite,L"Invite the selected online friend. You can also double-click a friend to join or invite them.");
         hint(HomeCreateRoom,L"Choose a room name, visibility and password on Online before hosting.");
@@ -1838,6 +2205,10 @@ struct Window {
         hint(ProfileNameColor,L"Color your name in player lists. Very dark or very light colors are adjusted so everyone can read them.");
         hint(ProfileFighter,L"Show your main fighter on your player card.");
         hint(ProfileSharing,L"Choose what players online see: your picture, accent, initials, tagline, name color and main fighter.");
+        hint(PlayerProfile,L"Open the selected player's profile. You can also right-click any name.");
+        hint(ProfilePreview,L"See your player card the way other players see it.");
+        hint(ProfileAbout,L"Up to 160 characters. Shown on your player profile.");
+        hint(PlayerBlock,L"Blocked players cannot send you invites or friend requests, and are listed last.");
         hint(ProfileFriendAlerts,L"Show a desktop alert when a friend comes online. Quiet mode and Do not disturb silence it.");
         hint(RefreshRooms,L"Refresh rooms and ping, or reconnect to the service (Ctrl+R).");
         hint(OnlineSearch,L"Search room names, hosts and player names. Clear restores the full lists.");
@@ -1859,7 +2230,7 @@ struct Window {
     bool navigateBack() {
         if (page < pageCount && page != savesPage && page != controlsPage)
             return false;
-        page = page == helpPage ? helpReturnPage : page == finderPage ? finderReturnPage : page == profilePage ? profileReturnPage : navigationPage();
+        page = page == helpPage ? helpReturnPage : page == finderPage ? finderReturnPage : page == profilePage ? profileReturnPage : page == playerPage ? playerReturnPage : navigationPage();
         layout();
         (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
         SetFocus(controls.at(PlayTab + navigationPage()));
@@ -1938,6 +2309,12 @@ struct Window {
                                                           {ProfileRecover,L"Undo removal"},
                                                           {ProfileManage,L"Manage online profiles"},
                                                           {ProfileCopyStyle,L"Copy appearance"},
+                                                          {ProfilePreview,L"Preview my card"},
+                                                          {PlayerAction,L"Invite to play"},
+                                                          {PlayerFriend,L"Add friend"},
+                                                          {PlayerBlock,L"Block"},
+                                                          {PlayerCopyId,L"Copy profile ID"},
+                                                          {PlayerProfile,L"Profile"},
                                                           {ProfileSave, L"Save profile"},
                                                           {ProfileReset, L"Use defaults"},
                                                           {ProfileCopyId, L"Copy profile ID"},
@@ -2043,7 +2420,7 @@ struct Window {
         }
         combo(OnlineListed, {L"Public", L"Invite only", L"Not listed"}, int(settings.onlineVisibility));
         combo(OnlineProfile, {}, 0);
-        combo(HomeFriendScope,{L"All friends",L"Online friends"},0);
+        combo(HomeFriendScope,{L"All friends",L"Online friends",L"Everyone online",L"Recent opponents"},0);
         combo(RoomFilter,{L"Same version",L"All versions",L"No password"},int(settings.onlineRoomFilter));
         combo(PlayerFilter,{L"All players",L"Friends online"},int(settings.onlinePlayerFilter));
         edit(OnlineSearch,L"Search rooms or players");
@@ -2062,6 +2439,10 @@ struct Window {
         {std::vector<std::wstring> names{L"No main fighter"};for(const auto* name:fighter_names)names.push_back(wide(name));combo(ProfileFighter,names,0);}
         combo(ProfileSharing,{L"Picture and card",L"Card without the picture",L"Keep on this PC"},0);
         combo(ProfileFriendAlerts,{L"Tell me",L"Don't tell me"},0);
+        {std::vector<std::wstring> names{L"Not shown"};for(const auto* name:region_names)names.push_back(wide(name));combo(ProfileRegion,names,0);}
+        {std::vector<std::wstring> names{L"Not shown"};for(const auto* name:playstyle_names)names.push_back(wide(name));combo(ProfilePlaystyle,names,0);}
+        edit(ProfileAbout,L"A few words about you, your mains or when you play");
+        SendMessageW(controls[ProfileAbout],EM_SETLIMITTEXT,160,0);
         combo(ProfileFit,{L"Fill the circle",L"Fit the whole picture"},0);
         combo(ProfileNotifications,{L"Sound & desktop alerts",L"Quiet — launcher inbox only"},0);
         combo(ProfileCopyFrom,{},0);
@@ -2240,6 +2621,7 @@ struct Window {
         if(!room)EnableWindow(controls[JoinRoom],active && joinable);
         EnableWindow(controls[InvitePlayer], online && disc.has_value() && !busy() && !player.empty());
         EnableWindow(controls[AddFriend], online && !player.empty());
+        EnableWindow(controls[PlayerProfile], !player.empty());
         EnableWindow(controls[HomeInvite],online && disc.has_value() && !busy() && !selectedPlayerId().empty() &&
             directory->player(selectedPlayerId()).has_value());
         EnableWindow(controls[HomeFindPlayers],true);
@@ -2394,16 +2776,34 @@ struct Window {
         } else if(page==notificationsPage) {
             SetWindowTextW(controls[NavigateBack],L"Back to Online");
             position(NavigateBack,right-166,28,166,36);
+        } else if(page==playerPage) {
+            SetWindowTextW(controls[NavigateBack],L"Back");
+            position(NavigateBack,right-166,28,166,36);
+            const int split=contentLeft+std::clamp(content/3,260,340),buttonWidth=split-contentLeft-48;
+            const auto profile=activeProfile();const bool own=profile && profile->id==viewedPlayer;
+            position(PlayerAction,contentLeft+24,476,buttonWidth,36);
+            if(!own)position(PlayerFriend,contentLeft+24,520,buttonWidth,36);
+            position(PlayerCopyId,contentLeft+24,own ? 520 : 564,buttonWidth,36);
+            if(!own)position(PlayerBlock,contentLeft+24,608,buttonWidth,36);
         } else if (page == 0) {
             const LoungeLayout g(content,h);
             position(HomeFriendScope,g.friendsLeft+16,154,g.friendsWidth-32,32);
-            position(FriendList,g.friendsLeft+12,202,g.friendsWidth-24,std::max(80,g.friendsBottom-370));
+            if(g.compact) {
+                position(FriendList,g.friendsLeft+12,202,g.friendsWidth-24,std::max(80,g.friendsBottom-258));
+                const int third=(g.friendsWidth-48)/3;
+                position(HomeFindPlayers,g.friendsLeft+16,g.friendsBottom-44,third,30);
+                position(HomeInvite,g.friendsLeft+24+third,g.friendsBottom-44,third,30);
+                SetWindowTextW(controls[HomeProfile],activeProfile() ? L"Profile" : L"Create");
+                position(HomeProfile,g.friendsLeft+32+2*third,g.friendsBottom-44,third,30);
+            } else {
+                position(FriendList,g.friendsLeft+12,202,g.friendsWidth-24,std::max(80,g.friendsBottom-(g.friendsBottom-392>=160 ? 392 : 370)));
+                const int friendAction=(g.friendsWidth-40)/2;
+                position(HomeFindPlayers,g.friendsLeft+16,g.friendsBottom-144,friendAction,30);
+                position(HomeInvite,g.friendsLeft+24+friendAction,g.friendsBottom-144,friendAction,30);
+                SetWindowTextW(controls[HomeProfile],activeProfile() ? L"Customize profile" : L"Create profile");
+                position(HomeProfile,g.friendsLeft+16,g.friendsBottom-40,g.friendsWidth-32,28);
+            }
             if(friendRows.empty())conceal(FriendList);
-            const int friendAction=(g.friendsWidth-40)/2;
-            position(HomeFindPlayers,g.friendsLeft+16,g.friendsBottom-144,friendAction,30);
-            position(HomeInvite,g.friendsLeft+24+friendAction,g.friendsBottom-144,friendAction,30);
-            SetWindowTextW(controls[HomeProfile],activeProfile() ? L"Customize profile" : L"Create profile");
-            position(HomeProfile,g.friendsLeft+16,g.friendsBottom-40,g.friendsWidth-32,28);
             const int gameActionY=280;
             position(Play,g.centre+24,gameActionY,154,44);
             position(VerifyIso,g.centre+194,gameActionY+4,120,36);
@@ -2436,18 +2836,22 @@ struct Window {
             position(ProfileNameColor,side,410,half,40);
             position(ProfileFighter,second,410,half,40);
             position(ProfileTagline,side,490,width,40);
-            position(ProfileAvailability,side,570,half,40);
-            position(ProfileNotifications,second,570,half,40);
-            position(ProfileSharing,side,650,half,40);
-            position(ProfileFriendAlerts,second,650,half,40);
-            position(ProfileSave,side,712,160,40);
-            position(ProfileReset,side+174,712,130,40);
+            position(ProfileAbout,side,570,width,40);
+            position(ProfileRegion,side,650,half,40);
+            position(ProfilePlaystyle,second,650,half,40);
+            position(ProfileAvailability,side,730,half,40);
+            position(ProfileNotifications,second,730,half,40);
+            position(ProfileSharing,side,810,half,40);
+            position(ProfileFriendAlerts,second,810,half,40);
+            position(ProfileSave,side,872,160,40);
+            position(ProfileReset,side+174,872,130,40);
+            position(ProfilePreview,side+318,872,170,40);
             position(ProfileCopyId,contentLeft+24,480,split-contentLeft-48,36);
             position(ProfileImageChoose,contentLeft+24,532,split-contentLeft-48,36);
             position(ProfileImageRemove,contentLeft+24,580,split-contentLeft-48,36);
             position(ProfileFit,contentLeft+24,664,split-contentLeft-48,40);
-            position(ProfileCopyFrom,side,830,width-176,40);
-            position(ProfileCopyStyle,side+width-160,830,160,40);
+            position(ProfileCopyFrom,side,990,width-176,40);
+            position(ProfileCopyStyle,side+width-160,990,160,40);
         } else if (page == savesPage) {
             position(BackToPlay, right - 150, 28, 150, 34);
             const int panelBottom = h - 64;
@@ -2557,8 +2961,12 @@ struct Window {
             position(JoinGame, contentLeft + 30 + fieldWidth, bottom - 48, fieldWidth, 34);
 
             position(PlayerList, playersLeft + 20, listTop, playersWidth, std::max(50, bottom - 60 - listTop));
-            position(InvitePlayer, playersLeft + 20, bottom - 48, (playersWidth - 10) / 2, 34);
-            position(AddFriend, playersLeft + 30 + (playersWidth - 10) / 2, bottom - 48, (playersWidth - 10) / 2, 34);
+            {
+                const int third = (playersWidth - 16) / 3;
+                position(InvitePlayer, playersLeft + 20, bottom - 48, third, 34);
+                position(AddFriend, playersLeft + 28 + third, bottom - 48, third, 34);
+                position(PlayerProfile, playersLeft + 36 + 2 * third, bottom - 48, third, 34);
+            }
             if (roomRows.empty())
                 conceal(RoomList);
             if (playerRows.empty())
@@ -2820,7 +3228,7 @@ struct Window {
     }
     void paintHeader(HDC dc,int w,int content) {
         const wchar_t* titles[]={L"Play",L"Online",L"Speedrun",L"Mods",L"Saves & backups",L"Settings",
-            L"Updates",L"Controls",L"Import tool",L"Speedrun overlay",L"Arrange tabs",L"Theme colors",L"Profile",L"Find an action",L"Notifications",L"Help & shortcuts"};
+            L"Updates",L"Controls",L"Import tool",L"Speedrun overlay",L"Arrange tabs",L"Theme colors",L"Profile",L"Find an action",L"Notifications",L"Help & shortcuts",L"Player profile"};
         const wchar_t* subtitles[]={
             L"Start the game, manage your saves, or find an online match.",
             L"Find a room, invite friends, or host a versus match.",
@@ -2835,12 +3243,13 @@ struct Window {
             L"Reorder the dock or hide tabs you do not use.",
             L"Personalize your theme. Unchanged colors follow the selected palette.",
             L"Your player card: picture, name color, main fighter and tagline. Choose what players online see.",
-            L"Search pages and tools. Use the arrow keys and Enter to open a result.",
+            L"Search pages, tools and players. Use the arrow keys and Enter to open a result.",
             L"Review friend requests and match invitations.",
-            L"Quick controls, setup guidance and tools for reporting a problem."};
+            L"Quick controls, setup guidance and tools for reporting a problem.",
+            L"Their player card, status and what you can do together."};
         const RECT tile{p(contentLeft),p(28),p(contentLeft+40),p(68)};
         box(dc,tile,mix(panel,orange,22),mix(border,orange,70),12);
-        const int icon=page==helpPage ? OpenHelp : page==profilePage ? HomeProfile : page==finderPage ? FindAction : page==notificationsPage ? OpenNotifications :
+        const int icon=page==helpPage ? OpenHelp : page==profilePage || page==playerPage ? HomeProfile : page==finderPage ? FindAction : page==notificationsPage ? OpenNotifications :
             PlayTab+(page==controlsPage || page==savesPage ? page : navigationPage());
         navigationIcon(dc,icon,{tile.left-p(7),tile.top,tile.right,tile.bottom},orange);
         text(dc,titles[page],contentLeft+56,27,content-264,42,fonts.title,ink,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
@@ -2861,7 +3270,7 @@ struct Window {
             {L"F5",L"Play the game"},{L"Ctrl + O",L"Choose an ISO"},{L"Ctrl + Page Up / Page Down",L"Previous / next dock tab"},
             {L"Ctrl + 1–6",L"Open a dock tab"},{L"Alt + Left",L"Go back"},{L"Ctrl + Home / End",L"Top / bottom of the page"},
             {L"Ctrl + S",L"Save profile or split name"},{L"Ctrl + Z",L"Undo the last settings change"},{L"Ctrl + F",L"Search the current page"},
-            {L"Ctrl + K",L"Find a tool or setting"},{L"Ctrl + Shift + N",L"Open notifications"},{L"Ctrl + P",L"Customize your profile"},{L"F11",L"Maximize / restore the launcher"}};
+            {L"Ctrl + K",L"Find a tool or setting"},{L"Ctrl + Shift + N",L"Open notifications"},{L"Ctrl + P",L"Customize your profile"},{L"F11",L"Fullscreen / back to a window"}};
         const int keyWidth=std::clamp(content/3,230,360);
         for(size_t i=0;i<std::size(shortcuts);++i) {
             const int y=188+int(i)*32;
@@ -2963,14 +3372,27 @@ struct Window {
         panelBox(dc,g.details,g.detailsTop,g.right,g.bottom);
         panelBox(dc,g.left,g.notesTop,g.right,g.notesBottom);
         paintGamePanel(g);
-        heading(dc,L"Friends",g.friendsLeft+18,126,g.friendsWidth-36);
-        if(friendRows.empty()) {
-            const int emptyTop=std::max(206,(202+g.friendsBottom-160)/2-26);
-            text(dc,homeFriendsOnly ? L"No friends online" : L"Your friends appear here.",g.friendsLeft+20,emptyTop,g.friendsWidth-40,32,fonts.body,muted,DT_CENTER|DT_WORDBREAK|DT_NOPREFIX);
-            text(dc,L"Find players on Online to add a friend.",g.friendsLeft+20,emptyTop+34,g.friendsWidth-40,36,fonts.caption,faint,DT_CENTER|DT_WORDBREAK|DT_NOPREFIX);
+        {
+            const int scope=std::clamp(homeScope,0,3);
+            const wchar_t* headings[]={L"Friends",L"Friends",L"Players",L"Players"};
+            heading(dc,headings[scope],g.friendsLeft+18,126,g.friendsWidth-80);
+            if(activeProfile()) {
+                const auto count=scope==0 ? std::to_wstring(friendCount(true))+L"/"+std::to_wstring(friendCount()) : std::to_wstring(friendRows.size());
+                text(dc,count,g.friendsLeft+g.friendsWidth-80,128,62,20,fonts.label,muted,DT_RIGHT|DT_SINGLELINE|DT_NOPREFIX);
+            }
+            if(friendRows.empty()) {
+                const int emptyTop=std::max(206,(202+g.friendsBottom-160)/2-26);
+                const wchar_t* empty[]={L"Your friends appear here.",L"No friends online",L"Nobody else is online",L"No recent opponents yet"};
+                const wchar_t* hints[]={L"Find players on Online to add a friend.",L"Friends show up here as soon as they come online.",
+                                        L"Players appear here when they open OpenKai2.",L"Players you face online are remembered here."};
+                text(dc,empty[scope],g.friendsLeft+20,emptyTop,g.friendsWidth-40,32,fonts.body,muted,DT_CENTER|DT_WORDBREAK|DT_NOPREFIX);
+                text(dc,hints[scope],g.friendsLeft+20,emptyTop+34,g.friendsWidth-40,36,fonts.caption,faint,DT_CENTER|DT_WORDBREAK|DT_NOPREFIX);
+            } else if(!g.compact && g.friendsBottom-392>=160)
+                text(dc,L"Right-click a name for more",g.friendsLeft+16,g.friendsBottom-178,g.friendsWidth-32,18,fonts.label,faint,DT_CENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
         }
-        fill(dc,{p(g.friendsLeft+16),p(g.friendsBottom-100),p(g.friendsLeft+g.friendsWidth-16),p(g.friendsBottom-99)},border);
         const auto profile=activeProfile();
+        if(!g.compact) {
+        fill(dc,{p(g.friendsLeft+16),p(g.friendsBottom-100),p(g.friendsLeft+g.friendsWidth-16),p(g.friendsBottom-99)},border);
         const auto name=profile ? wide(profile->name) : std::wstring(L"Local player");
         if(profile)avatar(dc,p(g.friendsLeft+33),p(g.friendsBottom-70),p(16),name,profile->id,panel);
         else {ellipse(dc,p(g.friendsLeft+33),p(g.friendsBottom-70),p(16),mix(panel,orange,25));text(dc,L"P",g.friendsLeft+17,g.friendsBottom-82,32,24,fonts.strong,orange,DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX);}
@@ -2978,6 +3400,7 @@ struct Window {
         const auto style=profile ? profileStyle(profile->id) : nullptr;
         const auto activity=directory && directory->connected() ? statusLabel(profile_status(style ? style->availability : 0,running(),room!=nullptr,roomHost)) : profile ? std::wstring(L"Offline · local profile") : std::wstring(L"Create an online profile");
         text(dc,activity,g.friendsLeft+58,g.friendsBottom-65,g.friendsWidth-76,18,fonts.label,muted,DT_LEFT|DT_END_ELLIPSIS|DT_SINGLELINE|DT_NOPREFIX);
+        }
         caps(dc,L"DRAGON BALL Z",g.centre+24,133,g.centreWidth()-40,muted);
         text(dc,L"Budokai 2",g.centre+24,164,g.centreWidth()-48,70,fonts.gameName,bannerTitle,DT_LEFT|DT_END_ELLIPSIS|DT_SINGLELINE|DT_NOPREFIX);
         const int statusLeft=g.centre+24;
@@ -3021,7 +3444,7 @@ struct Window {
         const int right=contentLeft+content,split=contentLeft+std::clamp(content/3,260,340),side=split+44,width=right-side-24;
         panelBox(dc,contentLeft,124,right,226);
         heading(dc,L"Active profile",contentLeft+24,136,content-48);
-        panelBox(dc,contentLeft,246,split,916);panelBox(dc,split+20,246,right,916);
+        panelBox(dc,contentLeft,246,split,1076);panelBox(dc,split+20,246,right,1076);
         const auto profile=activeProfile();if(!profile)return;
         const auto style=profileStyle(profile->id);
         heading(dc,L"Your player card",contentLeft+24,266,split-contentLeft-48);
@@ -3037,6 +3460,15 @@ struct Window {
                 sharing==1 ? L"Up to 16 MB. Your original picture is kept. Your picture stays on this PC; players online see the rest of your card." :
                              L"Up to 16 MB. Your original picture is kept. Players online see a small copy of your picture and your card. Animated pictures share their first frame.",
              contentLeft+24,790,split-contentLeft-48,90,fonts.caption,muted,DT_WORDBREAK|DT_NOPREFIX);
+        caps(dc,L"ONLINE STATS",contentLeft+24,906,split-contentLeft-48);
+        const auto stat=[&](int y,const std::wstring& label,const std::wstring& value){
+            text(dc,label,contentLeft+24,y,split-contentLeft-48,22,fonts.caption,muted,DT_LEFT|DT_SINGLELINE|DT_NOPREFIX);
+            text(dc,value,contentLeft+24,y,split-contentLeft-54,22,fonts.strong,ink,DT_RIGHT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+        };
+        stat(934,L"Online matches",std::to_wstring(style ? style->matches : 0u));
+        stat(962,L"Member since",style && style->since>0 ? dateText(style->since) : std::wstring(L"First time online"));
+        stat(990,L"Friends",std::to_wstring(friendCount()));
+        stat(1018,L"Recent opponents",std::to_wstring(recentCount()));
         heading(dc,L"Appearance & notifications",side,266,width);
         const int half=(width-16)/2,second=side+(width+16)/2;
         caps(dc,L"INITIALS",side,306,half);
@@ -3044,13 +3476,16 @@ struct Window {
         caps(dc,L"NAME COLOR",side,386,half);
         caps(dc,L"MAIN FIGHTER",second,386,half);
         caps(dc,L"TAGLINE",side,466,width);
-        caps(dc,L"ONLINE AVAILABILITY",side,546,half);
-        caps(dc,L"INVITES & FRIEND REQUESTS",second,546,half);
-        caps(dc,L"PLAYER CARD ONLINE",side,626,half);
-        caps(dc,L"FRIENDS COMING ONLINE",second,626,half);
-        text(dc,L"Availability is shared online. Quiet mode and Do not disturb keep requests in Notifications without desktop alerts.",side,762,width,40,fonts.caption,muted,DT_WORDBREAK|DT_NOPREFIX);
-        caps(dc,L"COPY APPEARANCE FROM ANOTHER PROFILE",side,806,width);
-        text(dc,L"Copies the picture, initials, tagline, accent, name color and main fighter. Your name and friends stay yours.",side,876,width,36,fonts.caption,muted,DT_WORDBREAK|DT_NOPREFIX);
+        caps(dc,L"ABOUT ME",side,546,width);
+        caps(dc,L"REGION",side,626,half);
+        caps(dc,L"PLAYSTYLE",second,626,half);
+        caps(dc,L"ONLINE AVAILABILITY",side,706,half);
+        caps(dc,L"INVITES & FRIEND REQUESTS",second,706,half);
+        caps(dc,L"PLAYER CARD ONLINE",side,786,half);
+        caps(dc,L"FRIENDS COMING ONLINE",second,786,half);
+        text(dc,L"Availability is shared online. Quiet mode and Do not disturb keep requests in Notifications without desktop alerts.",side,922,width,40,fonts.caption,muted,DT_WORDBREAK|DT_NOPREFIX);
+        caps(dc,L"COPY APPEARANCE FROM ANOTHER PROFILE",side,966,width);
+        text(dc,L"Copies the picture, initials, tagline, about, accent, name color, main fighter, region and playstyle. Your name, friends and stats stay yours.",side,1036,width,36,fonts.caption,muted,DT_WORDBREAK|DT_NOPREFIX);
     }
     void paintSaves(HDC dc, int h, int content) {
         const int right = contentLeft + content, panelBottom = h - 64;
@@ -3278,7 +3713,7 @@ struct Window {
                 const auto image=splitImages.find(style.image);
                 if (style.run==splitKey() && image!=splitImages.end() && image->second.frames.size()>1) {animated=true;break;}
             }
-        if(page==0 || page==onlinePage || page==profilePage) {
+        if(page==0 || page==onlinePage || page==profilePage || page==playerPage) {
             const auto profile=activeProfile();const auto style=profile ? profileStyle(profile->id) : nullptr;
             const auto image=style ? profileImages.find(style->image) : profileImages.end();
             animated=animated || (image!=profileImages.end() && image->second.frames.size()>1);
@@ -4072,7 +4507,7 @@ struct Window {
             if (page == finderPage) {
                 panelBox(memory, contentLeft, 112, contentLeft + content, pageHeight - 40);
                 heading(memory, L"Quick access", contentLeft + 20, 128, content - 220);
-                text(memory, L"Type a page, setting or tool. Use the arrow keys to choose, then press Enter.",
+                text(memory, L"Type a page, setting, tool or player name. Use the arrow keys to choose, then press Enter.",
                      contentLeft + 20, 168, content - 40, 24, fonts.caption, muted);
 
                 if (actionRows.empty()) text(memory, L"No matching actions. Try another search.",
@@ -4087,6 +4522,8 @@ struct Window {
             }
             else if (page == profilePage)
                 paintProfile(memory,pageHeight,content);
+            else if (page == playerPage)
+                paintPlayer(memory,pageHeight,content);
             else if (page == savesPage)
                 paintSaves(memory, pageHeight, content);
             else if (page == modsPage)
@@ -4508,6 +4945,11 @@ struct Window {
             if(isFriend(player.id)) {
                 tag(dc,right,cy,L"FRIEND",green);right-=tagWidth(dc,L"FRIEND")+p(6);
             }
+            if(isBlocked(player.id)) {
+                tag(dc,right,cy,L"BLOCKED",red);right-=tagWidth(dc,L"BLOCKED")+p(6);titleColor=muted;
+            } else if(recentSeen(player.id)) {
+                tag(dc,right,cy,L"PLAYED",sky);right-=tagWidth(dc,L"PLAYED")+p(6);
+            }
             if (player.impostor) {
                 tag(dc, right, cy, L"UNVERIFIED", red);
                 right -= tagWidth(dc, L"UNVERIFIED") + p(6);
@@ -4521,7 +4963,7 @@ struct Window {
             const bool on = !status.empty();
             const bool busy = status == "in a match" || status == "hosting" || status == "joining" || status == "away" || status == "do not disturb";
             title = wide(friendRows[row].second);
-            line = on ? statusLabel(status) : seenText(friendSeen(friendRows[row].first));
+            line = on ? statusLabel(status) : homeScope == 3 ? playedText(recentSeen(friendRows[row].first)) : seenText(friendSeen(friendRows[row].first));
             if (const auto hosted = hostingLine(friendRows[row].second); on && !hosted.empty())
                 line = hosted;
             else if (const auto card = cardLine(friendRows[row].first); on && !card.empty())
@@ -4960,12 +5402,41 @@ struct Window {
         savedGames.clear();
         start(Job::verify, image);
     }
+    bool fullscreen=false;
+    LONG_PTR windowedStyle=0;
+    WINDOWPLACEMENT windowedPlacement{sizeof(WINDOWPLACEMENT)};
+    void coverMonitor() {
+        MONITORINFO monitor{sizeof(monitor)};
+        if(!GetMonitorInfoW(MonitorFromWindow(hwnd,MONITOR_DEFAULTTONEAREST),&monitor))return;
+        const auto& r=monitor.rcMonitor;
+        SetWindowPos(hwnd,HWND_TOP,r.left,r.top,r.right-r.left,r.bottom-r.top,SWP_NOOWNERZORDER|SWP_FRAMECHANGED);
+    }
+    void toggleFullscreen() {
+        if(!fullscreen) {
+            windowedStyle=GetWindowLongPtrW(hwnd,GWL_STYLE);
+            windowedPlacement.length=sizeof(windowedPlacement);
+            if(!GetWindowPlacement(hwnd,&windowedPlacement))return;
+            fullscreen=true;
+            SetWindowLongPtrW(hwnd,GWL_STYLE,(windowedStyle&~LONG_PTR(WS_OVERLAPPEDWINDOW))|WS_POPUP);
+            coverMonitor();
+            status=L"Fullscreen. Press F11 to return to a window.";error=false;
+        } else {
+            fullscreen=false;
+            SetWindowLongPtrW(hwnd,GWL_STYLE,windowedStyle);
+            SetWindowPlacement(hwnd,&windowedPlacement);
+            SetWindowPos(hwnd,nullptr,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_NOOWNERZORDER|SWP_FRAMECHANGED);
+            status=L"Back to a window.";error=false;
+        }
+        layout();queueUiRestore();(pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);
+    }
     void rememberPlacement() {
         WINDOWPLACEMENT placement{sizeof(placement)};
-        if (!GetWindowPlacement(hwnd, &placement))
+        if (fullscreen)
+            placement = windowedPlacement;
+        else if (!GetWindowPlacement(hwnd, &placement))
             return;
         RECT r = placement.rcNormalPosition;
-        if (!IsIconic(hwnd) && !IsZoomed(hwnd))
+        if (!fullscreen && !IsIconic(hwnd) && !IsZoomed(hwnd))
             GetWindowRect(hwnd, &r);
         settings.windowLeft = r.left;
         settings.windowTop = r.top;
@@ -6404,11 +6875,17 @@ struct Window {
             selectedFriend = friendRows[size_t(row)].first;
         friendRows.clear();
         std::vector<std::pair<bool, std::wstring>> friendLabels;
-        if (profile)
-            for (const auto &entry : settings.onlineFriends)
+        if (profile && homeScope == 2) {
+            for (const auto &player : players)
+                if (player.id != profile->id && !isBlocked(player.id)) {
+                    friendRows.emplace_back(player.id, player.name);
+                    friendLabels.emplace_back(true, wide(player.name) + L" · " + wide(player.status));
+                }
+        } else if (profile)
+            for (const auto &entry : homeScope == 3 ? settings.recentPlayers : settings.onlineFriends)
                 if (entry.owner == profile->id) {
                     const auto found = std::find_if(players.begin(), players.end(), [&](const auto &player) { return player.id == entry.id; });
-                    if(homeFriendsOnly && found==players.end())continue;
+                    if(homeScope==1 && found==players.end())continue;
                     friendRows.emplace_back(entry.id, found == players.end() ? entry.name : found->name);
                     friendLabels.emplace_back(found != players.end(), wide(friendRows.back().second) + L" · " +
                                                   (found == players.end() ? std::wstring(L"offline") : wide(found->status)));
@@ -6422,11 +6899,14 @@ struct Window {
                 c = char(std::tolower(static_cast<unsigned char>(c)));
             return out;
         };
-        std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) {
-            if (friendLabels[a].first != friendLabels[b].first)
-                return friendLabels[a].first > friendLabels[b].first;
-            return folded(friendRows[a].second) < folded(friendRows[b].second);
-        });
+        if (homeScope != 3)
+            std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) {
+                if (friendLabels[a].first != friendLabels[b].first)
+                    return friendLabels[a].first > friendLabels[b].first;
+                if (homeScope == 2 && isFriend(friendRows[a].first) != isFriend(friendRows[b].first))
+                    return isFriend(friendRows[a].first);
+                return folded(friendRows[a].second) < folded(friendRows[b].second);
+            });
         {
             auto rows = friendRows;
             auto texts = friendLabels;
@@ -6454,6 +6934,8 @@ struct Window {
         std::stable_sort(others.begin(), others.end(), [&](const online::Player &a, const online::Player &b) {
             if ((a.version == application_version) != (b.version == application_version))
                 return a.version == application_version;
+            if (isBlocked(a.id) != isBlocked(b.id))
+                return isBlocked(b.id);
             if (isFriend(a.id) != isFriend(b.id))
                 return isFriend(a.id);
             if (a.impostor != b.impostor)
@@ -6487,6 +6969,8 @@ struct Window {
         (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
     }
     std::string selectedPlayerId() const {
+        if (page == playerPage)
+            return viewedPlayer;
         const auto row = page==onlinePage ? SendMessageW(controls.at(PlayerList), LB_GETCURSEL, 0, 0) : -1;
         if (row >= 0 && size_t(row) < playerRows.size())
             return playerRows[size_t(row)].first;
@@ -6575,6 +7059,8 @@ struct Window {
         {
             std::lock_guard lock(onlineShared->mutex);
             auto &queue = onlineShared->notices;
+            queue.erase(std::remove_if(queue.begin(), queue.end(), [&](const Notice &notice) { return isBlocked(notice.sender()); }),
+                        queue.end());
             for (auto it = queue.begin(); it != queue.end();) {
                 if (!it->invite && it->friendMessage.kind != online::FriendKind::request) {
                     const auto message = it->friendMessage;
@@ -6666,6 +7152,8 @@ struct Window {
             for (const auto &row : *rows)
                 if (name.empty() && row.first == id)
                     name = row.second;
+        if (name.empty())
+            name = knownName(id);
         if (isFriend(id)) {
             setFriend(id, name, false);
             directory->send_friend(id, online::FriendKind::remove);
@@ -6866,6 +7354,7 @@ struct Window {
             onlineArguments = arguments;
             std::cout << "[launcher:online] room ready with " << state.opponent << " ping " << state.ping_ms
                       << " ms delay " << state.delay << (state.relayed ? " via relay" : " direct") << std::endl;
+            recordOpponent(state.opponent);
             start(Job::launch, settings.iso);
             status = L"Connected to " + wide(state.opponent) + L" (" + std::to_wstring(state.ping_ms) +
                      L" ms). Starting the match\u2026";
@@ -7030,7 +7519,7 @@ struct Window {
             else if(page==settingsPage && previousSettings)command(UndoSettings,BN_CLICKED);
             return;
         }
-        if(id==ToggleLauncher && notification==BN_CLICKED) {ShowWindow(hwnd,IsZoomed(hwnd)?SW_RESTORE:SW_MAXIMIZE);return;}
+        if(id==ToggleLauncher && notification==BN_CLICKED) {toggleFullscreen();return;}
         if (id == FindAction && notification == BN_CLICKED) { openActionFinder(); return; }
         if(id==OpenNotifications && notification==BN_CLICKED) {page=notificationsPage;layout();(pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);return;}
         if (id == ActionSearch && notification == EN_CHANGE) { refreshActions(); return; }
@@ -7172,6 +7661,7 @@ struct Window {
             const auto from=profileStyle(source.id),own=profileStyle(target->id);
             auto copied=from ? *from : Settings::ProfileStyle{};copied.id=target->id;
             copied.notifications=own ? own->notifications : true;copied.availability=own ? own->availability : 0;copied.friendAlerts=own ? own->friendAlerts : true;
+            copied.matches=own ? own->matches : 0;copied.since=own ? own->since : 0;
             Settings next=settings;
             next.profileStyles.erase(std::remove_if(next.profileStyles.begin(),next.profileStyles.end(),[&](const auto& style){return style.id==target->id;}),next.profileStyles.end());
             next.profileStyles.push_back(std::move(copied));write_settings(settings_path(),next);settings=std::move(next);
@@ -7205,7 +7695,11 @@ struct Window {
                     updated.pictureFit=unsigned(std::max(0,selected(ProfileFit)));updated.notifications=selected(ProfileNotifications)!=1;
                     updated.nameColor=chosenNameColor();updated.fighter=unsigned(std::max(0,selected(ProfileFighter)));updated.sharing=unsigned(std::max(0,selected(ProfileSharing)));
                     updated.friendAlerts=selected(ProfileFriendAlerts)!=1;
+                    updated.about=utf8(trimmed(textOf(ProfileAbout)));updated.region=unsigned(std::max(0,selected(ProfileRegion)));updated.playstyle=unsigned(std::max(0,selected(ProfilePlaystyle)));
                     next.profileStyles.push_back(std::move(updated));
+                } else if (const auto old=profileStyle(profile->id)) {
+                    Settings::ProfileStyle kept{};kept.id=profile->id;kept.matches=old->matches;kept.since=old->since;
+                    next.profileStyles.push_back(std::move(kept));
                 }
                 write_settings(settings_path(),next);settings=std::move(next);cycleTimer();openProfile();publishCard();
                 const auto saved=profileStyle(profile->id);
@@ -7339,7 +7833,7 @@ struct Window {
             return;
         }
         if(id==HomeFriendScope && notification==CBN_SELCHANGE) {
-            homeFriendsOnly=selected(HomeFriendScope)==1;refreshOnlineLists();return;
+            homeScope=std::max(0,selected(HomeFriendScope));refreshOnlineLists();layout();(pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);return;
         }
         if(notification==BN_CLICKED && (id==HomeFindPlayers || id==HomeCreateRoom)) {
             page=onlinePage;layout();SetFocus(controls[id==HomeCreateRoom ? OnlineRoom : OnlineSearch]);return;
@@ -7414,6 +7908,29 @@ struct Window {
         }
         if (id == AddFriend && notification == BN_CLICKED) {
             toggleFriend();
+            return;
+        }
+        if (notification == BN_CLICKED && id == PlayerProfile) {
+            const auto chosen = selectedPlayerId();
+            openPlayer(chosen, knownName(chosen));
+            return;
+        }
+        if (notification == BN_CLICKED && id == ProfilePreview) {
+            if (const auto profile = activeProfile()) openPlayer(profile->id, profile->name);
+            return;
+        }
+        if (notification == BN_CLICKED && page == playerPage && (id == PlayerAction || id == PlayerFriend || id == PlayerBlock || id == PlayerCopyId)) {
+            const auto profile = activeProfile();
+            const bool own = profile && profile->id == viewedPlayer;
+            if (id == PlayerAction) {
+                const auto player = directory ? directory->player(viewedPlayer) : std::nullopt;
+                if (own) openProfile();
+                else if (const auto hosted = player ? roomHostedBy(player->name) : std::nullopt) joinRoom(*hosted);
+                else invitePlayer();
+            } else if (id == PlayerFriend) toggleFriend();
+            else if (id == PlayerBlock) setBlocked(viewedPlayer, viewedName, !isBlocked(viewedPlayer));
+            else {status = copyText(wide(viewedPlayer)) ? L"Profile ID copied." : L"Could not access the clipboard.";error = false;}
+            refreshPlayerButtons();refreshEnabled();(pageDirty = true), InvalidateRect(hwnd, nullptr, FALSE);
             return;
         }
         if (id == RoomList && notification == LBN_SELCHANGE) {
@@ -8324,11 +8841,24 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
             self->dispatchDeferredUi();
             return 0;
         case WM_DRAWITEM:
-            self->drawItem(*reinterpret_cast<DRAWITEMSTRUCT *>(lp));
+            if (reinterpret_cast<DRAWITEMSTRUCT *>(lp)->CtlType == ODT_MENU)
+                self->drawMenu(*reinterpret_cast<DRAWITEMSTRUCT *>(lp));
+            else
+                self->drawItem(*reinterpret_cast<DRAWITEMSTRUCT *>(lp));
             return TRUE;
         case WM_MEASUREITEM:
+            if (reinterpret_cast<MEASUREITEMSTRUCT *>(lp)->CtlType == ODT_MENU) {
+                self->measureMenu(*reinterpret_cast<MEASUREITEMSTRUCT *>(lp));
+                return TRUE;
+            }
             reinterpret_cast<MEASUREITEMSTRUCT *>(lp)->itemHeight = self->p(34);
             return TRUE;
+        case WM_CONTEXTMENU:
+            if (reinterpret_cast<HWND>(wp) != hwnd) {
+                self->contextMenu(reinterpret_cast<HWND>(wp), lp);
+                return 0;
+            }
+            break;
         case WM_COMMAND:
             if (HIWORD(wp) == CBN_CLOSEUP)
                 PostMessageW(hwnd, pageClipMessage, 0, 0);
@@ -8350,6 +8880,10 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
             if (wp) self->queueUiRestore();
             break;
         case WM_DISPLAYCHANGE:
+            if (self->fullscreen)
+                self->coverMonitor();
+            self->queueUiRestore();
+            break;
         case WM_THEMECHANGED:
         case WM_EXITSIZEMOVE:
             self->queueUiRestore();
@@ -8381,6 +8915,10 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
         case onlineChanged:
             self->finishNameCheck();
             self->watchFriends();
+            if (self->page == playerPage) {
+                self->refreshPlayerButtons();
+                (self->pageDirty = true), InvalidateRect(hwnd, nullptr, FALSE);
+            }
             self->refreshOnlineLists();
             self->refreshEnabled();
             return 0;
@@ -8440,9 +8978,13 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
             for (auto [id, c] : self->controls)
                 SendMessageW(c, WM_SETFONT, reinterpret_cast<WPARAM>(self->fonts.body), TRUE);
             SendMessageW(self->controls[TimingRules], WM_SETFONT, reinterpret_cast<WPARAM>(self->fonts.caption), TRUE);
-            const auto r=fitWindowToMonitor(*reinterpret_cast<RECT *>(lp));
-            SetWindowPos(hwnd, nullptr, r.left, r.top, r.right - r.left, r.bottom - r.top,
-                         SWP_NOZORDER | SWP_NOACTIVATE);
+            if (self->fullscreen)
+                self->coverMonitor();
+            else if (!IsZoomed(hwnd) && !IsIconic(hwnd)) {
+                const auto r=fitWindowToMonitor(*reinterpret_cast<RECT *>(lp));
+                SetWindowPos(hwnd, nullptr, r.left, r.top, r.right - r.left, r.bottom - r.top,
+                             SWP_NOZORDER | SWP_NOACTIVATE);
+            }
             self->layout();
             self->queueUiRestore();
             return 0;

@@ -64,7 +64,7 @@ struct Settings {
         std::string owner, id, name;
         int64_t seen = 0;
     };
-    std::vector<Friend> onlineFriends;
+    std::vector<Friend> onlineFriends, blockedPlayers, recentPlayers;
     struct ProfileStyle {
         std::string id, initials, tagline;
         unsigned accent = 0;
@@ -74,6 +74,10 @@ struct Settings {
         uint32_t nameColor = 0;
         unsigned fighter = 0, sharing = 0;
         bool friendAlerts = true;
+        std::string about;
+        unsigned region = 0, playstyle = 0;
+        uint32_t matches = 0;
+        int64_t since = 0;
     };
     std::vector<ProfileStyle> profileStyles;
     std::string onlineRoom, onlinePassword, onlineLobby;

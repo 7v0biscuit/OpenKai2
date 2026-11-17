@@ -144,7 +144,8 @@ default** keeps the normal text color.
 ## Player cards
 
 While you are online, other players see your player card: your picture, accent,
-initials, name color, main fighter and tagline. It shows next to your name in
+initials, name color, main fighter, tagline, **About me**, region, playstyle,
+how many online matches you have played and when you first went online. It shows next to your name in
 the Players, Friends and Rooms lists, for example "Online · Mains Goku ·
 “Kamehameha all day”". **Player card online** chooses what is shared:
 
@@ -158,8 +159,31 @@ signed with the profile's key, so nobody else can change yours. Cards stay on
 the service while you are offline, so friends still see your picture. Choosing
 **Keep on this PC** removes the card from the service.
 
-**Copy profile ID** copies the public ID for sharing. **Use defaults** resets
-appearance without deleting the profile or its friends. If no profile exists,
+**Preview my card** opens your player profile exactly as other players see it.
+Online matches and the member-since date are counted automatically. **Copy
+profile ID** copies the public ID for sharing. **Use defaults** resets
+appearance without deleting the profile, its friends or its stats.
+
+## Viewing other players
+
+Right-click any name in Players, Friends or Rooms for a menu: **View profile**,
+**Invite to play** (or **Join their room** while they host), **Add friend** or
+**Remove friend**, **Copy name**, **Copy profile ID** and **Block**. The selected
+player's **Profile** button on Online opens the same page, and Ctrl+K finds
+players by name, or by a pasted profile ID.
+
+A player profile shows their picture, colored name, tagline, main fighter,
+status, about text, region, playstyle, online matches, member-since date, when
+you last played them and their OpenKai2 version, with buttons to invite, join,
+add or remove a friend, copy their ID or block them.
+
+**Block** hides a player's invites and friend requests, removes them from your
+friends and lists them last. **Unblock** from their profile or the right-click
+menu. Players you face online are remembered as **Recent opponents**, up to 20
+per profile.
+
+On Play, the Friends panel shows **All friends**, **Online friends**,
+**Everyone online** or **Recent opponents**. If no profile exists,
 **Create profile** on Play opens the Online page to create one.
 
 ## Profile pictures and browsing

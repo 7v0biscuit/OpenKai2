@@ -159,6 +159,10 @@ int main() {
         s.profileStyles[0].imageName="My \"portrait\".gif";
         s.profileStyles[0].nameColor=0x1ffcc33u;s.profileStyles[0].fighter=29;s.profileStyles[1].sharing=2;
         s.profileStyles[1].friendAlerts=false;s.onlineFriends[0].seen=1763350000;
+        s.profileStyles[0].about="Main \"Kid\" Buu, loves rematches";s.profileStyles[0].region=4;s.profileStyles[0].playstyle=2;
+        s.profileStyles[0].matches=77;s.profileStyles[0].since=1763337600;
+        s.blockedPlayers={{std::string(64,'a'),std::string(64,'e'),"Spammer"}};
+        s.recentPlayers={{std::string(64,'a'),std::string(64,'f'),"Rival \"R\"",1763351000}};
         s.onlineRoomFilter=2;s.onlinePlayerFilter=1;
         s.splitStyles={{"any.txt",0,"Raditz",std::string(64,'c')+".gif","My image.gif"},{"tournament-novice.txt",0,"First round",{},{} }};
         write_settings(root / "settings.ini", s);
@@ -176,6 +180,14 @@ int main() {
                 "Name colors, main fighters or card sharing did not round-trip");
         require(read.profileStyles[0].friendAlerts && !read.profileStyles[1].friendAlerts && read.onlineFriends.size()==1 &&
                 read.onlineFriends[0].seen==1763350000,"Friend alerts or last-seen times did not round-trip");
+        require(read.profileStyles[0].about=="Main \"Kid\" Buu, loves rematches" && read.profileStyles[0].region==4 && read.profileStyles[0].playstyle==2 &&
+                read.profileStyles[0].matches==77 && read.profileStyles[0].since==1763337600 && read.profileStyles[1].about.empty(),
+                "Profile details did not round-trip");
+        require(read.blockedPlayers.size()==1 && read.blockedPlayers[0].id==std::string(64,'e') && read.blockedPlayers[0].name=="Spammer" &&
+                read.recentPlayers.size()==1 && read.recentPlayers[0].name=="Rival \"R\"" && read.recentPlayers[0].seen==1763351000,
+                "Blocked or recent players did not round-trip");
+        auto badRegion=s;badRegion.profileStyles[0].region=99;rejects([&]{validate_settings(badRegion);});
+        auto badAbout=s;badAbout.profileStyles[0].about="two\nlines";rejects([&]{validate_settings(badAbout);});
         auto badFit=s;badFit.profileStyles[0].pictureFit=2;rejects([&]{validate_settings(badFit);});
         auto badColor=s;badColor.profileStyles[0].nameColor=0x2000000u;rejects([&]{validate_settings(badColor);});
         auto badFighter=s;badFighter.profileStyles[0].fighter=99;rejects([&]{validate_settings(badFighter);});

@@ -4,8 +4,9 @@
 #include "speedrun_images.h"
 #include "disc_image.h"
 #include "launcher/paths.h"
-#include "fighters.h"
+#include "profile_choices.h"
 #include <array>
+#include <tuple>
 #include <map>
 #include <algorithm>
 #include <cctype>
@@ -68,7 +69,7 @@ void validate_settings(const Settings &s) {
     if (s.profileStyles.size() > 32) throw std::runtime_error("Too many profile appearances");
     for (const auto& style : s.profileStyles) {
         if (style.id.size()!=64 || !std::all_of(style.id.begin(),style.id.end(),[](unsigned char c){return std::isxdigit(c)!=0;}) ||
-            !profileIds.insert(style.id).second || style.accent>=accent_count || style.pictureFit>1 || style.availability>2 || (style.nameColor && (style.nameColor>>24)!=1u) || style.fighter>fighter_count || style.sharing>2 || style.initials.size()>8 || style.tagline.size()>192 ||
+            !profileIds.insert(style.id).second || style.accent>=accent_count || style.pictureFit>1 || style.availability>2 || (style.nameColor && (style.nameColor>>24)!=1u) || style.fighter>fighter_count || style.sharing>2 || style.region>region_count || style.playstyle>playstyle_count || style.about.size()>480 || style.about.find_first_of("\r\n")!=std::string::npos || style.since<0 || style.initials.size()>8 || style.tagline.size()>192 ||
             style.initials.find_first_of("\r\n")!=std::string::npos || style.tagline.find_first_of("\r\n")!=std::string::npos ||
             !speedrun::valid_image_file(style.image) || style.imageName.size()>1024 || style.imageName.find_first_of("\r\n")!=std::string::npos)
             throw std::runtime_error("Invalid profile appearance");
@@ -96,6 +97,7 @@ Settings read_settings(const std::filesystem::path &file) {
     std::map<std::string,std::array<unsigned,3>> profileCards;
     std::map<std::string,int64_t> friendSeen;
     std::map<std::string,bool> profileAlerts;
+    std::map<std::string,std::tuple<unsigned,unsigned,uint32_t,int64_t,std::string>> profileMore;
     bool tabLayout = false, graphicsProfile = false;
     std::ifstream in(file);
     for (int attempt = 0; !in && attempt < 50 && std::filesystem::exists(file); ++attempt) {
@@ -289,6 +291,21 @@ Settings read_settings(const std::filesystem::path &file) {
             std::string owner,id;int64_t seen=0;row >> owner >> id >> seen;
             if(!row.fail() && seen>0)friendSeen[owner+' '+id]=seen;
         }
+        else if (key == "profile_more") {
+            std::string id;std::tuple<unsigned,unsigned,uint32_t,int64_t,std::string> more;
+            row >> std::quoted(id) >> std::get<0>(more) >> std::get<1>(more) >> std::get<2>(more) >> std::get<3>(more) >> std::quoted(std::get<4>(more));
+            if(row.fail() || !profileMore.emplace(id,more).second)throw std::runtime_error("Duplicate profile details");
+        }
+        else if (key == "online_blocked" || key == "online_recent") {
+            Settings::Friend entry;
+            if (key == "online_recent")
+                row >> entry.owner >> entry.id >> entry.seen >> std::quoted(entry.name);
+            else
+                row >> entry.owner >> entry.id >> std::quoted(entry.name);
+            auto& list = key == "online_blocked" ? s.blockedPlayers : s.recentPlayers;
+            if (!row.fail() && list.size() < 2000)
+                list.push_back(entry);
+        }
         else if (key == "profile_alerts") {
             std::string id;bool alerts=true;row >> std::quoted(id) >> alerts;
             if(row.fail() || !profileAlerts.emplace(id,alerts).second)throw std::runtime_error("Duplicate profile alerts");
@@ -361,6 +378,11 @@ Settings read_settings(const std::filesystem::path &file) {
         found->pictureFit=options.first;found->notifications=options.second;
     }
     for(auto& entry:s.onlineFriends)if(const auto seen=friendSeen.find(entry.owner+' '+entry.id);seen!=friendSeen.end())entry.seen=seen->second;
+    for(const auto& [id,more]:profileMore) {
+        auto found=std::find_if(s.profileStyles.begin(),s.profileStyles.end(),[&](const auto& style){return style.id==id;});
+        if(found==s.profileStyles.end()) {s.profileStyles.push_back({id,{},{},0,{},{}});found=std::prev(s.profileStyles.end());}
+        std::tie(found->region,found->playstyle,found->matches,found->since,found->about)=more;
+    }
     for(const auto& [id,alerts]:profileAlerts) {
         auto found=std::find_if(s.profileStyles.begin(),s.profileStyles.end(),[&](const auto& style){return style.id==id;});
         if(found==s.profileStyles.end()) {s.profileStyles.push_back({id,{},{},0,{},{}});found=std::prev(s.profileStyles.end());}
@@ -432,6 +454,10 @@ void write_settings(const std::filesystem::path &file, const Settings &s) {
     out << "\nonline_visibility " << s.onlineVisibility << '\n';
     for (const auto &entry : s.onlineFriends)
         out << "online_friend " << entry.owner << ' ' << entry.id << ' ' << std::quoted(entry.name) << '\n';
+    for (const auto &entry : s.blockedPlayers)
+        out << "online_blocked " << entry.owner << ' ' << entry.id << ' ' << std::quoted(entry.name) << '\n';
+    for (const auto &entry : s.recentPlayers)
+        out << "online_recent " << entry.owner << ' ' << entry.id << ' ' << entry.seen << ' ' << std::quoted(entry.name) << '\n';
     for (const auto &entry : s.onlineFriends)
         if (entry.seen > 0)
             out << "online_friend_seen " << entry.owner << ' ' << entry.id << ' ' << entry.seen << '\n';
@@ -439,6 +465,7 @@ void write_settings(const std::filesystem::path &file, const Settings &s) {
     for (const auto& style : s.profileStyles) {
         out << "profile_availability " << std::quoted(style.id) << ' ' << style.availability << '\n';
         out << "profile_alerts " << std::quoted(style.id) << ' ' << style.friendAlerts << '\n';
+        out << "profile_more " << std::quoted(style.id) << ' ' << style.region << ' ' << style.playstyle << ' ' << style.matches << ' ' << style.since << ' ' << std::quoted(style.about) << '\n';
         out << "profile_card " << std::quoted(style.id) << ' ' << style.nameColor << ' ' << style.fighter << ' ' << style.sharing << '\n';
         out << "profile_options " << std::quoted(style.id) << ' ' << style.pictureFit << ' ' << style.notifications << '\n';
         if(!style.image.empty())out << "profile_image " << std::quoted(style.id) << ' ' << std::quoted(style.image) << ' ' << std::quoted(style.imageName) << '\n';
