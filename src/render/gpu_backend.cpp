@@ -700,13 +700,14 @@ void GpuRasterBackend::LoadClut(const GSTex0Reg& t,const GSTexClutReg& tc){
     const bool sixteen=t.cpsm==2u || t.cpsm==10u;if(!sixteen && t.cpsm!=0u && t.cpsm!=1u)return;
     const unsigned count=fourBit(t.psm) ? 16u : 256u,base=(unsigned(t.csa)&(sixteen ? 31u : 15u))*16u;
     const bool suffix=t.csm==0u && !sixteen && !fourBit(t.psm);
+    const auto previous=m->clut;
     for(unsigned i=suffix ? base : 0u;i<count;++i){
         const unsigned swizzle=(i&~24u)|((i&8u)<<1u)|((i&16u)>>1u);
         const unsigned x=t.csm==0u ? swizzle&15u : unsigned(tc.cou)*16u+i,y=t.csm==0u ? swizzle>>4u : tc.cov;
         const uint32_t raw=m->cpu.ReadVram(t.cpsm,t.cbp,t.csm==0u ? 1u : std::max<unsigned>(tc.cbw,1u),x,y);
         const unsigned destination=(suffix ? i : base+i)&(sixteen ? 511u : 255u);
         m->clut[destination]=uint16_t(raw);if(!sixteen)m->clut[destination+256u]=uint16_t(raw>>16u);
-    }++m->clutGeneration;++m->statistics.paletteLoads;totalPaletteLoads.fetch_add(1u,std::memory_order_relaxed);
+    }if(m->clut!=previous)++m->clutGeneration;++m->statistics.paletteLoads;totalPaletteLoads.fetch_add(1u,std::memory_order_relaxed);
     m->loadedPaletteKey=key;m->loadedPalettePages=pages;m->loadedPaletteValid=t.cld==1u;
 }
 void GpuRasterBackend::BeginTransfer(const GSTransferCommand& c){
