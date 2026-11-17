@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <deque>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -41,6 +42,7 @@ class Library {
     bool known(uint64_t hash) const;
     bool has_packs() const;
     void submit(uint64_t hash, Image source);
+    void run(std::function<void()> task);
     void wait_idle();
     struct Counts {
         uint64_t packed = 0, upscaled = 0, dumped = 0, missing = 0;
@@ -54,6 +56,7 @@ class Library {
     mutable std::mutex mutex_;
     std::condition_variable wake_, idle_;
     std::deque<std::pair<uint64_t, Image>> queue_;
+    std::deque<std::function<void()>> tasks_;
     std::unordered_map<uint64_t, std::shared_ptr<const Image>> ready_;
     std::unordered_set<uint64_t> seen_;
     std::unordered_map<uint64_t, std::filesystem::path> files_;

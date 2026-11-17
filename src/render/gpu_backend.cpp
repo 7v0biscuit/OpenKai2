@@ -163,7 +163,16 @@ struct GpuRasterBackend::Impl {
     struct HdSlot{uint32_t offset=0,width=0,height=0;uint64_t used=0;size_t span=0;bool generated=false;};
     bool hdOn=false;std::map<size_t,size_t> hdFree;uint64_t hdFrame=1;uint64_t hiresFrames=0,nativeFrames=0,shadowSources=0;std::array<uint64_t,7> hdSkips{};std::array<uint64_t,6> nativeWhy{};std::unordered_map<uint64_t,HdSlot> hdSlots;
     struct KeyHash{size_t operator()(const std::array<uint64_t,4>& k)const{uint64_t h=k[0];for(unsigned i=1;i<4u;++i)h=(h^k[i])*0x9e3779b97f4a7c15ull;return size_t(h^(h>>29u));}};
-    std::unordered_map<std::array<uint64_t,4>,uint64_t,KeyHash> hdHashes;std::array<uint32_t,gpu::PageCount> pageVersion{},pageHashed{};std::array<uint64_t,gpu::PageCount> pageHash{};
+    std::unordered_map<std::array<uint64_t,4>,uint64_t,KeyHash> hdHashes;std::unordered_set<std::array<uint64_t,4>,KeyHash> hdInFlight;std::array<uint32_t,gpu::PageCount> pageVersion{},pageHashed{};std::array<uint64_t,gpu::PageCount> pageHash{};
+    struct HdResults{std::mutex mutex;std::vector<std::pair<std::array<uint64_t,4>,uint64_t>> done;std::atomic<bool> any{false};};
+    std::shared_ptr<HdResults> hdResults=std::make_shared<HdResults>();bool hdWaiting=false;
+    void drainHd(){
+        if(!hdResults->any.load(std::memory_order_acquire))return;
+        std::vector<std::pair<std::array<uint64_t,4>,uint64_t>> done;
+        {std::lock_guard lock(hdResults->mutex);done.swap(hdResults->done);hdResults->any.store(false,std::memory_order_relaxed);}
+        if(hdHashes.size()+done.size()>16384u)hdHashes.clear();
+        for(const auto& [key,hash]:done){hdHashes.emplace(key,hash);hdInFlight.erase(key);}
+    }
     struct HdMemo{std::array<uint64_t,3> key{};uint64_t versions=0,result=0;Pages pages;std::vector<uint16_t> list;bool valid=false;};
     std::array<HdMemo,64> hdMemo{};
     static constexpr size_t hdDecodePerFrame=256u*1024u;size_t hdDecodeBudget=hdDecodePerFrame;
@@ -207,22 +216,29 @@ struct GpuRasterBackend::Impl {
         if(indexed(t.psm)){const uint32_t first=cmd[28];for(unsigned i=0;i<(fourBit(t.psm) ? 16u : 256u);++i){colors^=palette[first+i];colors*=1099511628211ull;}}
         const std::array<uint64_t,4> key={uint64_t(t.psm)|(uint64_t(t.tbp0)<<8u)|(uint64_t(t.tbw)<<24u)|(uint64_t(w)<<32u)|(uint64_t(h)<<48u),stamp,colors,
             uint64_t(state.texa.ta0)|(uint64_t(state.texa.ta1)<<8u)|(uint64_t(state.texa.aem)<<16u)};
+        drainHd();
         if(const auto found=hdHashes.find(key);found!=hdHashes.end())return remember(found->second);
+        if(hdInFlight.count(key)){hdWaiting=true;return 0u;}
         if(size_t(w)*h>hdDecodeBudget){++hdSkips[5];return 0u;}
         hdDecodeBudget-=size_t(w)*h;
         hd::Image image;image.width=w;image.height=h;image.texels.resize(size_t(w)*h);
-        const uint32_t first=cmd[28];const bool sixteen=t.psm==2u || t.psm==10u;
+        const uint32_t first=cmd[28];const bool isIndexed=indexed(t.psm);
         if(!(size>=gpu::VramBytes && gpu::read_rectangle(vram,t.psm,t.tbp0,width,w,h,image.texels.data())))
             for(unsigned y=0;y<h;++y)for(unsigned x=0;x<w;++x)image.texels[size_t(y)*w+x]=cpu.ReadVram(t.psm,t.tbp0,width,x,y);
-        for(auto& texel:image.texels){
-            const uint32_t raw=texel;
-            texel=indexed(t.psm) ? palette[first+(raw&255u)] : textureAlpha(state.texa,t.psm,sixteen ? color16(raw) : t.psm==1u ? raw&0xffffffu : raw);
-        }
-        const uint64_t hash=hd::texture_hash(image.texels.data(),w,h);
-        if(hdHashes.size()>16384u)hdHashes.clear();
-        hdHashes.emplace(key,hash);
-        if(!hd::library().known(hash))hd::library().submit(hash,std::move(image));
-        return remember(hash);
+        std::vector<uint32_t> entries(isIndexed ? 256u : 0u);
+        if(isIndexed)std::copy_n(palette.begin()+first,256u,entries.begin());
+        hdInFlight.insert(key);hdWaiting=true;
+        hd::library().run([results=hdResults,key,image=std::move(image),entries=std::move(entries),texa=state.texa,psm=unsigned(t.psm)]() mutable {
+            const bool sixteen=psm==2u || psm==10u;
+            for(auto& texel:image.texels){
+                const uint32_t raw=texel;
+                texel=entries.empty() ? textureAlpha(texa,psm,sixteen ? color16(raw) : psm==1u ? raw&0xffffffu : raw) : entries[raw&255u];
+            }
+            const uint64_t hash=hd::texture_hash(image.texels.data(),image.width,image.height);
+            if(!hd::library().known(hash))hd::library().submit(hash,std::move(image));
+            std::lock_guard lock(results->mutex);results->done.emplace_back(key,hash);results->any.store(true,std::memory_order_release);
+        });
+        return 0u;
     }
     std::bitset<gpu::VramBytes/256u> cleanBlocks;Pages cleanPages;uint64_t blockEpoch=1;
     struct CurrentMemo{uint64_t key=0,epoch=0;bool current=false;};std::array<CurrentMemo,64> currentMemo{};
@@ -292,7 +308,7 @@ struct GpuRasterBackend::Impl {
         const auto& c=state.context;const unsigned w=state.textureWidth,h=state.textureHeight;
         if((c.clamp&3u)==3u || ((c.clamp>>2u)&3u)==3u){++hdSkips[0];return;}
         if(w<8u || h<8u || w>1024u || h>1024u){++hdSkips[1];return;}
-        const uint64_t hash=hdContent(state,cmd);if(!hash){++hdSkips[2];return;}
+        hdWaiting=false;const uint64_t hash=hdContent(state,cmd);if(!hash){++hdSkips[hdWaiting ? 3 : 2];return;}
         if(!hd::library().replacing() || !hd::shown())return;
         auto slot=hdSlots.find(hash);
         if(slot==hdSlots.end()){

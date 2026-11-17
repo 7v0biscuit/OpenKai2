@@ -219,7 +219,7 @@ Library::~Library() {
 
 void Library::configure(unsigned mode, const std::filesystem::path &folder, unsigned factor) {
     std::unique_lock lock(mutex_);
-    idle_.wait(lock, [&] { return queue_.empty() && busy_ == 0u; });
+    idle_.wait(lock, [&] { return queue_.empty() && tasks_.empty() && busy_ == 0u; });
     mode_ = mode < mode_count ? mode : off;
     folder_ = folder;
     factor_ = factor >= 4u ? 4u : 2u;
@@ -276,9 +276,19 @@ void Library::submit(uint64_t hash, Image source) {
     wake_.notify_one();
 }
 
+void Library::run(std::function<void()> task) {
+    {
+        std::lock_guard lock(mutex_);
+        if (mode_ == off)
+            return;
+        tasks_.push_back(std::move(task));
+    }
+    wake_.notify_one();
+}
+
 void Library::wait_idle() {
     std::unique_lock lock(mutex_);
-    idle_.wait(lock, [&] { return queue_.empty() && busy_ == 0u; });
+    idle_.wait(lock, [&] { return queue_.empty() && tasks_.empty() && busy_ == 0u; });
 }
 
 bool Library::has_packs() const {
@@ -304,9 +314,22 @@ void Library::work() {
                 working = false;
             }
             idle_.notify_all();
-            wake_.wait(lock, [&] { return stop_ || !queue_.empty(); });
+            wake_.wait(lock, [&] { return stop_ || !queue_.empty() || !tasks_.empty(); });
             if (stop_)
                 return;
+            if (!tasks_.empty()) {
+                auto task = std::move(tasks_.front());
+                tasks_.pop_front();
+                ++busy_;
+                working = true;
+                lock.unlock();
+                try {
+                    task();
+                } catch (const std::exception &error) {
+                    std::cerr << "[hd-textures] " << error.what() << std::endl;
+                }
+                continue;
+            }
             job = std::move(queue_.front());
             queue_.pop_front();
             ++busy_;
