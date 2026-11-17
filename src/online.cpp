@@ -273,24 +273,24 @@ std::optional<Card> parse_card(const std::string &id, const std::string &payload
     return card;
 }
 
-std::pair<unsigned, unsigned> tag_effects(identity::Tag tag) {
+std::vector<unsigned> tag_effects(identity::Tag tag) {
     switch (tag) {
     case identity::Tag::developer:
-        return {1u, 5u};
+        return {1u, 2u, 3u, 4u, 5u, 15u, 16u, 17u};
     case identity::Tag::twitch:
-        return {6u, 8u};
+        return {6u, 7u, 8u, 18u, 19u, 20u};
     case identity::Tag::youtube:
-        return {9u, 11u};
+        return {9u, 10u, 11u, 21u, 22u, 23u};
     case identity::Tag::tob:
-        return {12u, 14u};
+        return {12u, 13u, 14u, 24u, 25u, 26u};
     }
-    return {0u, 0u};
+    return {};
 }
 
 std::optional<identity::Tag> effect_tag(unsigned effect) {
     for (const auto tag : identity::all_tags) {
-        const auto [first, last] = tag_effects(tag);
-        if (effect >= first && effect <= last)
+        const auto effects = tag_effects(tag);
+        if (std::find(effects.begin(), effects.end(), effect) != effects.end())
             return tag;
     }
     return std::nullopt;

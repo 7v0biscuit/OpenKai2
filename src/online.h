@@ -52,9 +52,9 @@ struct Card {
     uint64_t revision = 0;
 };
 inline constexpr size_t card_picture_limit = 9000;
-inline constexpr unsigned name_effect_count = 14;
+inline constexpr unsigned name_effect_count = 26;
 std::optional<identity::Tag> effect_tag(unsigned effect);
-std::pair<unsigned, unsigned> tag_effects(identity::Tag tag);
+std::vector<unsigned> tag_effects(identity::Tag tag);
 bool valid_channel_link(const std::string &link);
 
 struct Profile {

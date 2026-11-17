@@ -1485,7 +1485,8 @@ struct Window {
     }
     COLORREF nameInk(const std::string& id,COLORREF fallback) {return readableName(nameColorOf(id),fallback);}
     static constexpr const wchar_t* name_effect_names[]={L"",L"Rainbow cycle",L"Rainbow wave",L"Golden shimmer",L"Ki pulse",L"Silver frost",
-        L"Stream pulse",L"Live glow",L"Purple wave",L"Red shimmer",L"Subscribe pulse",L"Spotlight",L"Ember",L"Storm",L"Toxic wave"};
+        L"Stream pulse",L"Live glow",L"Purple wave",L"Red shimmer",L"Subscribe pulse",L"Spotlight",L"Ember",L"Storm",L"Toxic wave",
+        L"Super aura",L"Dragon star",L"Galaxy",L"Chat flood",L"Raid",L"Neon sign",L"Play button",L"Premiere",L"Trending",L"Lava",L"Lightning",L"Venom"};
     bool effectPainted=false,pageEffectPainted=false,drawingRow=false,recordingMotion=false;
     struct Motion {RECT rect;std::vector<uint32_t> under;std::function<void(HDC)> draw;};
     std::vector<Motion> motions;
@@ -1619,6 +1620,18 @@ struct Window {
         case 12:return mix(RGB(255,86,18),RGB(255,224,96),int(std::clamp(0.5+0.5*std::sin(t*9.0+i*1.7)*std::sin(t*5.3+i*0.9),0.0,1.0)*255.0));
         case 13:return mix(RGB(86,148,255),RGB(248,252,255),int(std::exp(-std::fmod(t+i*0.045,2.2)*14.0)*255.0));
         case 14:return hueColor(112.0+30.0*std::sin(t*2.4-i*0.45),0.7);
+        case 15:return mix(RGB(255,196,0),RGB(255,255,214),int(std::clamp(0.5+0.5*std::sin(t*11.0+i*2.3)*std::sin(t*7.1-i*1.1),0.0,1.0)*255.0));
+        case 16:return mix(RGB(255,122,0),std::fmod(t*1.6+i*0.37,3.0)<0.18 ? RGB(255,40,40) : RGB(255,214,90),int((std::sin(t*2.6-i*0.6)+1.0)*110.0));
+        case 17:return mix(hueColor(232.0+48.0*std::sin(t*0.9-i*0.35),0.72),RGB(255,255,255),int(std::pow(std::max(0.0,std::sin(t*3.7+i*2.9)),24.0)*255.0));
+        case 18:return mix(RGB(145,70,255),RGB(255,255,255),std::fmod(std::sin(i*12.9898+std::floor(t*7.0)*78.233)*43758.5453,1.0)>0.62 ? 220 : 0);
+        case 19:return mix(RGB(145,70,255),RGB(255,92,196),sweep(0.8));
+        case 20:return std::fmod(t+i*0.11,2.6)<0.08 ? mix(RGB(0,232,255),RGB(30,20,40),150) : (int(std::floor(t*0.8))%2 ? RGB(0,232,255) : RGB(255,60,220));
+        case 21:return (int(std::floor(t*1.6-i*0.35))%2) ? RGB(255,0,0) : RGB(255,240,240);
+        case 22:return mix(RGB(150,10,20),RGB(255,255,255),sweep(0.35));
+        case 23:return hueColor(std::fmod(t*40.0-i*10.0,60.0),0.85);
+        case 24:return mix(RGB(150,20,0),RGB(255,150,20),int((std::sin(t*1.1-i*0.42)+1.0)*127.5));
+        case 25:return mix(RGB(60,90,200),RGB(255,255,255),int(std::exp(-std::fmod(t*1.3,1.9)*9.0)*255.0*(0.6+0.4*std::sin(i*1.7))));
+        case 26:return (std::sin(t*2.2-i*0.7)>0.0) ? mix(RGB(60,220,80),RGB(20,60,20),int((std::sin(t*5.0)+1.0)*40.0)) : RGB(170,60,220);
         default:return ink;
         }
     }
@@ -1674,19 +1687,19 @@ struct Window {
     unsigned chosenEffect() const {
         const int index=selected(ProfileNameColor);const auto tag=heldTag();
         if(!tag || index<=name_color_custom)return 0u;
-        const auto [first,last]=online::tag_effects(*tag);
-        const unsigned effect=first+unsigned(index-name_color_custom-1);
-        return effect<=last ? effect : 0u;
+        const auto effects=online::tag_effects(*tag);
+        const size_t slot=size_t(index-name_color_custom-1);
+        return slot<effects.size() ? effects[slot] : 0u;
     }
     void refreshEffectChoices(const Settings::ProfileStyle* style) {
         const auto list=controls[ProfileNameColor];
         while(SendMessageW(list,CB_GETCOUNT,0,0)>name_color_custom+1)SendMessageW(list,CB_DELETESTRING,name_color_custom+1,0);
         const auto tag=heldTag();if(!tag)return;
-        const auto [first,last]=online::tag_effects(*tag);
-        for(unsigned effect=first;effect<=last;++effect)
+        const auto effects=online::tag_effects(*tag);
+        for(const unsigned effect:effects)
             SendMessageW(list,CB_ADDSTRING,0,reinterpret_cast<LPARAM>((wide(identity::tag_label(*tag))+L" "+name_effect_names[effect]).c_str()));
-        if(style && style->nameEffect>=first && style->nameEffect<=last) {
-            const int index=name_color_custom+1+int(style->nameEffect-first);
+        if(const auto found=style ? std::find(effects.begin(),effects.end(),style->nameEffect) : effects.end();found!=effects.end()) {
+            const int index=name_color_custom+1+int(found-effects.begin());
             SendMessageW(list,CB_SETCURSEL,index,0);nameColorSelection=index;
         }
     }
@@ -1896,6 +1909,8 @@ struct Window {
         text(dc,presence,contentLeft+24,y+4,columnWidth,20,fonts.caption,player ? ink : muted,DT_CENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
         std::vector<std::pair<std::wstring,COLORREF>> tags;
         if(own)tags.emplace_back(L"YOU",orange);
+        if(const auto keyTag=online::effect_tag(effectOf(viewedPlayer)))
+            tags.emplace_back(L"VERIFIED "+wide(identity::tag_label(*keyTag)),readableName(storedColor(tagColor(*keyTag)),ink));
         if(isFriend(viewedPlayer))tags.emplace_back(L"FRIEND",green);
         if(isBlocked(viewedPlayer))tags.emplace_back(L"BLOCKED",red);
         if(recentSeen(viewedPlayer))tags.emplace_back(L"PLAYED BEFORE",sky);

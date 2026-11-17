@@ -152,17 +152,21 @@ profile name, ID or private key.
 Tagged profiles also get animated name effects in the same list. Each tag has
 its own set, and a profile can only use its own tag's effects:
 
-- **[DEV]:** rainbow cycle, rainbow wave, golden shimmer, ki pulse, silver frost.
-- **[TTV]:** stream pulse, live glow, purple wave.
-- **[YT]:** red shimmer, subscribe pulse, spotlight.
-- **[ToB]:** ember, storm, toxic wave.
+- **[DEV]:** rainbow cycle, rainbow wave, golden shimmer, ki pulse, silver frost,
+  super aura, dragon star, galaxy.
+- **[TTV]:** stream pulse, live glow, purple wave, chat flood, raid, neon sign.
+- **[YT]:** red shimmer, subscribe pulse, spotlight, play button, premiere,
+  trending.
+- **[ToB]:** ember, storm, toxic wave, lava, lightning, venom.
 
 The effects appear only when that tag's key is installed and a profile with the
 tag is active. The tag label is drawn in the tag's color and the avatar gets an
 animated ring in the effect's colors. Each effect is signed with the tag's key
 and checked by every launcher before it is shown, so other profiles cannot use
 or fake them. They always animate; with **Reduced motion** on they move slowly
-instead.
+instead. A player with a verified effect also gets a **Verified** badge in their
+tag's color on their profile. Launchers older than this build show the newer
+effects as a plain name.
 
 Tagged profiles can also add a **Channel link** (a Twitch, YouTube or Kick
 `https://` address). It is signed with the tag's key, and other players see an
