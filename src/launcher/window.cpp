@@ -3843,8 +3843,9 @@ struct Window {
     void paintMods(HDC dc, int h, int content) {
         const int right = contentLeft + content, panelBottom = h - 64;
         panelBox(dc, contentLeft, 124, right, 196);
-        heading(dc, L"Mods folder", contentLeft + 20, 136, content - 360);
-        text(dc, mods::default_mods_directory().make_preferred().wstring(), contentLeft + 20, 160, content - 360, 18,
+        const int folderWidth = std::max(80, content - 20 - (140 + 12 + 160 + 12 + 130 + 12 + 130) - 20 - 16);
+        heading(dc, L"Mods folder", contentLeft + 20, 136, folderWidth);
+        text(dc, mods::default_mods_directory().make_preferred().wstring(), contentLeft + 20, 160, folderWidth, 18,
              fonts.caption, muted, DT_LEFT | DT_SINGLELINE | DT_PATH_ELLIPSIS | DT_NOPREFIX);
         panelBox(dc, contentLeft, 208, right, panelBottom);
         const int half = (content - 52) / 2, contentsLeft = contentLeft + 32 + half;
@@ -5372,8 +5373,18 @@ struct Window {
             });
         }
         else if (index <= input::Right) {
-            const wchar_t *arrows[] = {L"↑", L"↓", L"←", L"→"};
-            text(dc, arrows[index], x, y, 30, 30, fonts.strong, ink, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+            sampledVector(dc, tile, [&](Gdiplus::Graphics& graphics) {
+                Gdiplus::Pen pen(drawingColor(ink), float(std::max(1, p(2))));
+                pen.SetLineJoin(Gdiplus::LineJoinRound);
+                pen.SetStartCap(Gdiplus::LineCapRound);
+                pen.SetEndCap(Gdiplus::LineCapRound);
+                const float dx[] = {0.f, 0.f, -1.f, 1.f}, dy[] = {-1.f, 1.f, 0.f, 0.f};
+                const float ux = dx[index], uy = dy[index], length = float(r), head = float(r) * 0.6f;
+                const Gdiplus::PointF tip{float(cx) + ux * length, float(cy) + uy * length};
+                graphics.DrawLine(&pen, float(cx) - ux * length, float(cy) - uy * length, tip.X, tip.Y);
+                graphics.DrawLine(&pen, tip.X, tip.Y, tip.X - ux * head - uy * head, tip.Y - uy * head + ux * head);
+                graphics.DrawLine(&pen, tip.X, tip.Y, tip.X - ux * head + uy * head, tip.Y - uy * head - ux * head);
+            });
         } else {
             const wchar_t *labels[] = {L"L1", L"R1", L"L2", L"R2", L"ST", L"SE", L"L3", L"R3"};
             text(dc, labels[index - input::L1], x, y, 30, 30, fonts.label, ink, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
@@ -9734,6 +9745,14 @@ int run_window(const std::filesystem::path &initialIso) {
         const bool keyDown=message.message==WM_KEYDOWN || message.message==WM_SYSKEYDOWN;
         if(keyDown && message.wParam==VK_ESCAPE && state.capturing>=0) {
             state.capturing=-1;state.pendingCaptureAlt=0;state.status=L"Binding unchanged.";state.error=false;state.refreshControls();continue;
+        }
+        if (keyDown && message.wParam == 'A' && GetKeyState(VK_CONTROL) < 0 && GetKeyState(VK_MENU) >= 0) {
+            wchar_t kind[16]{};
+            GetClassNameW(message.hwnd, kind, 16);
+            if (_wcsicmp(kind, L"EDIT") == 0) {
+                SendMessageW(message.hwnd, EM_SETSEL, 0, -1);
+                continue;
+            }
         }
         const bool keyUp=message.message==WM_KEYUP || message.message==WM_SYSKEYUP;
         const bool altKey=message.wParam==VK_MENU || message.wParam==VK_LMENU || message.wParam==VK_RMENU;
