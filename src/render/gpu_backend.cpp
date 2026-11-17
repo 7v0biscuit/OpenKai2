@@ -122,9 +122,9 @@ struct GpuRasterBackend::Impl {
     std::array<uint16_t,512> clut{};std::array<uint32_t,2> cbp{};uint32_t clutGeneration=0;
     std::array<uint32_t,8> loadedPaletteKey{};Pages loadedPalettePages;bool loadedPaletteValid=false;
     std::vector<uint32_t> commands,palette,activeTiles;
-    std::array<std::vector<uint32_t>,65536> tileCommands;
+    std::vector<uint32_t> tileEntries,tileCount=std::vector<uint32_t>(65536u,0u);
     std::map<std::array<uint32_t,3>,uint32_t> paletteOffsets;std::array<uint32_t,3> lastPaletteKey{};uint32_t lastPaletteOffset=0;bool lastPaletteValid=false;
-    std::array<uint32_t,5> target{},sourceKey{};Pages sourcePages;bool sourceValid=false;size_t references=0;
+    std::array<uint32_t,5> target{},sourceKey{};Pages sourcePages;bool sourceValid=false;
     std::array<uint32_t,12> footprintKey{};int covered[4]{};bool footprintValid=false;
     struct Shadow{uint32_t base=0,width=0,psm=0;bool used=false,valid=false;uint64_t touched=0;Pages pages,stale;};
     static constexpr unsigned shadowWidth=1024u,shadowHeight=512u,colorSlots=6u,depthSlots=3u;
@@ -443,8 +443,10 @@ struct GpuRasterBackend::Impl {
         footprintValid=false;
         if(commands.empty())return;
         RuntimeWorkTimer timing(RuntimeWork::gsBatch);
-        std::vector<uint32_t> bins,refs;bins.reserve(activeTiles.size()*4u);refs.reserve(references);
-        for(auto id:activeTiles){auto& list=tileCommands[id];bins.insert(bins.end(),{id&255u,id>>8u,uint32_t(refs.size()),uint32_t(list.size())});refs.insert(refs.end(),list.begin(),list.end());list.clear();}
+        std::vector<uint32_t> bins,refs(tileEntries.size());bins.reserve(activeTiles.size()*4u);
+        uint32_t offset=0u;for(auto id:activeTiles){const uint32_t count=tileCount[id];bins.insert(bins.end(),{id&255u,id>>8u,offset,count});tileCount[id]=offset;offset+=count;}
+        for(const uint32_t entry:tileEntries)refs[tileCount[entry>>12u]++]=entry&4095u;
+        for(auto id:activeTiles)tileCount[id]=0u;tileEntries.clear();
         if(palette.empty())palette.push_back(0u);
         const size_t commandWords=commands.size();
         statistics.tiles+=activeTiles.size();++statistics.batches;totalTiles.fetch_add(activeTiles.size(),std::memory_order_relaxed);totalBatches.fetch_add(1u,std::memory_order_relaxed);
@@ -479,7 +481,7 @@ struct GpuRasterBackend::Impl {
             if(!seedDepth.empty())r->compute->hires_seed(seedDepth,seedX,seedDepthY);
             if(groups)r->compute->raster_hires(cmd,bins,refs,colors,hiresParams,groups);
             else r->compute->raster(cmd,bins,refs,colors);
-        });commands.clear();commands.reserve(commandWords);palette.clear();activeTiles.clear();paletteOffsets.clear();lastPaletteValid=false;references=0u;batchWrites.reset();batchSources.reset();batchDepth=false;
+        });commands.clear();commands.reserve(commandWords);palette.clear();activeTiles.clear();paletteOffsets.clear();lastPaletteValid=false;batchWrites.reset();batchSources.reset();batchDepth=false;
     }
     void materialize(const Pages& requested,WaitReason reason=waitOther){
         footprintValid=false;
@@ -665,7 +667,7 @@ void GpuRasterBackend::Submit(const GSPrimitiveBatch& batch){
     else if(m->hdOn && (m->commands[base+1u]&1u))m->applyHd(batch.state,m->commands.data()+base);
     const uint32_t* command=m->commands.data()+base;
     const auto index=uint32_t(base/gpu::CommandWords);
-    const auto addTile=[&](unsigned tile){auto& list=m->tileCommands[tile];if(list.empty())m->activeTiles.push_back(tile);list.push_back(index);++m->references;};
+    const auto addTile=[&](unsigned tile){if(m->tileCount[tile]++==0u)m->activeTiles.push_back(tile);m->tileEntries.push_back((tile<<12u)|index);};
     if(command[0]==1u){
         int x=int(batch.vertices[0].x)-int(batch.state.context.xyoffset.ofx>>4u),y=int(batch.vertices[0].y)-int(batch.state.context.xyoffset.ofy>>4u);
         const int endX=int(batch.vertices[1].x)-int(batch.state.context.xyoffset.ofx>>4u),endY=int(batch.vertices[1].y)-int(batch.state.context.xyoffset.ofy>>4u);
@@ -681,7 +683,7 @@ void GpuRasterBackend::Submit(const GSPrimitiveBatch& batch){
     }else for(unsigned y=command[3]/8u;y<=command[5]/8u;++y)for(unsigned x=command[2]/8u;x<=command[4]/8u;++x)addTile(y*256u+x);
     if(!footprint){m->gpuWrote(writes);m->batchWrites|=writes;m->batchSources|=sources;}
     if(command[14]==0u || ((command[9]>>17u)&3u)>=2u)m->batchDepth=true;
-    if(index>=4095u || m->references>=(1u<<20u))m->submit();
+    if(index>=4095u || m->tileEntries.size()>=(1u<<20u))m->submit();
 }
 void GpuRasterBackend::LoadClut(const GSTex0Reg& t,const GSTexClutReg& tc){
     std::lock_guard lock(m->mutex);m->footprintValid=false;if(!m->vram)return;bool load=indexed(t.psm);
