@@ -3394,11 +3394,13 @@ struct Window {
             const auto found=scrollPlan.find(id);
             if (found==scrollPlan.end() || !found->second.pageControl) continue;
             auto& where=found->second;
+            const auto control=controls.at(id);
+            const bool shown=(GetWindowLongPtrW(control,GWL_STYLE)&WS_VISIBLE)!=0;
+            if (shown && !where.wanted) where.wanted=true;
+            else if (!shown && where.wanted && where.visible) where.wanted=false;
             const int y=where.pageY+shellHeader-pageScroll;
             where.visible=where.wanted && y+where.pageH>shellHeader && y<viewportBottom;
             where.y=p(y+where.adjust);
-            const auto control=controls.at(id);
-            const bool shown=(GetWindowLongPtrW(control,GWL_STYLE)&WS_VISIBLE)!=0;
             if (!where.visible && !shown) continue;
             UINT flags=SWP_NOACTIVATE|SWP_NOCOPYBITS|SWP_NOZORDER|SWP_NOSIZE;
             if (where.visible!=shown) flags|=where.visible?SWP_SHOWWINDOW:SWP_HIDEWINDOW;
