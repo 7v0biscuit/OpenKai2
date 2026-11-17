@@ -62,6 +62,7 @@ struct Settings {
     unsigned onlineRoomFilter = 0, onlinePlayerFilter = 0;
     struct Friend {
         std::string owner, id, name;
+        int64_t seen = 0;
     };
     std::vector<Friend> onlineFriends;
     struct ProfileStyle {
@@ -72,6 +73,7 @@ struct Settings {
         bool notifications = true;
         uint32_t nameColor = 0;
         unsigned fighter = 0, sharing = 0;
+        bool friendAlerts = true;
     };
     std::vector<ProfileStyle> profileStyles;
     std::string onlineRoom, onlinePassword, onlineLobby;

@@ -94,6 +94,8 @@ Settings read_settings(const std::filesystem::path &file) {
     std::map<std::string,std::pair<unsigned,bool>> profileOptions;
     std::map<std::string,unsigned> profileAvailability;
     std::map<std::string,std::array<unsigned,3>> profileCards;
+    std::map<std::string,int64_t> friendSeen;
+    std::map<std::string,bool> profileAlerts;
     bool tabLayout = false, graphicsProfile = false;
     std::ifstream in(file);
     for (int attempt = 0; !in && attempt < 50 && std::filesystem::exists(file); ++attempt) {
@@ -283,6 +285,14 @@ Settings read_settings(const std::filesystem::path &file) {
             row >> std::quoted(style.id) >> style.accent >> std::quoted(style.initials) >> std::quoted(style.tagline);
             s.profileStyles.push_back(std::move(style));
         }
+        else if (key == "online_friend_seen") {
+            std::string owner,id;int64_t seen=0;row >> owner >> id >> seen;
+            if(!row.fail() && seen>0)friendSeen[owner+' '+id]=seen;
+        }
+        else if (key == "profile_alerts") {
+            std::string id;bool alerts=true;row >> std::quoted(id) >> alerts;
+            if(row.fail() || !profileAlerts.emplace(id,alerts).second)throw std::runtime_error("Duplicate profile alerts");
+        }
         else if (key == "online_friend") {
             Settings::Friend entry;
             row >> entry.owner >> entry.id >> std::quoted(entry.name);
@@ -350,6 +360,12 @@ Settings read_settings(const std::filesystem::path &file) {
         }
         found->pictureFit=options.first;found->notifications=options.second;
     }
+    for(auto& entry:s.onlineFriends)if(const auto seen=friendSeen.find(entry.owner+' '+entry.id);seen!=friendSeen.end())entry.seen=seen->second;
+    for(const auto& [id,alerts]:profileAlerts) {
+        auto found=std::find_if(s.profileStyles.begin(),s.profileStyles.end(),[&](const auto& style){return style.id==id;});
+        if(found==s.profileStyles.end()) {s.profileStyles.push_back({id,{},{},0,{},{}});found=std::prev(s.profileStyles.end());}
+        found->friendAlerts=alerts;
+    }
     for(const auto& [id,card]:profileCards) {
         auto found=std::find_if(s.profileStyles.begin(),s.profileStyles.end(),[&](const auto& style){return style.id==id;});
         if(found==s.profileStyles.end()) {s.profileStyles.push_back({id,{},{},0,{},{}});found=std::prev(s.profileStyles.end());}
@@ -416,9 +432,13 @@ void write_settings(const std::filesystem::path &file, const Settings &s) {
     out << "\nonline_visibility " << s.onlineVisibility << '\n';
     for (const auto &entry : s.onlineFriends)
         out << "online_friend " << entry.owner << ' ' << entry.id << ' ' << std::quoted(entry.name) << '\n';
+    for (const auto &entry : s.onlineFriends)
+        if (entry.seen > 0)
+            out << "online_friend_seen " << entry.owner << ' ' << entry.id << ' ' << entry.seen << '\n';
     out << "online_filters " << s.onlineRoomFilter << ' ' << s.onlinePlayerFilter << '\n';
     for (const auto& style : s.profileStyles) {
         out << "profile_availability " << std::quoted(style.id) << ' ' << style.availability << '\n';
+        out << "profile_alerts " << std::quoted(style.id) << ' ' << style.friendAlerts << '\n';
         out << "profile_card " << std::quoted(style.id) << ' ' << style.nameColor << ' ' << style.fighter << ' ' << style.sharing << '\n';
         out << "profile_options " << std::quoted(style.id) << ' ' << style.pictureFit << ' ' << style.notifications << '\n';
         if(!style.image.empty())out << "profile_image " << std::quoted(style.id) << ' ' << std::quoted(style.image) << ' ' << std::quoted(style.imageName) << '\n';

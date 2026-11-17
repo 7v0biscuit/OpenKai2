@@ -60,6 +60,7 @@
 #include <thread>
 #include <optional>
 #include <set>
+#include <ctime>
 #include <shellapi.h>
 #include <shlobj.h>
 #include <shobjidl.h>
@@ -308,7 +309,7 @@ enum Id {
     SettingsSearch, ClearSettingsSearch, ResetDisplay, ResetGame, UndoSettings,
     SettingsAll=1200, SettingsDisplay, SettingsGraphics, SettingsGame, SettingsLauncher,
     OpenNotifications=1210,
-    ProfileFit=1220, ProfileNotifications, ProfileCopyFrom, ProfileCopyStyle, ProfileRecover, ProfileManage, LauncherMotion, LauncherHints, ProfileAvailability, ProfileNameColor, ProfileFighter, ProfileSharing,
+    ProfileFit=1220, ProfileNotifications, ProfileCopyFrom, ProfileCopyStyle, ProfileRecover, ProfileManage, LauncherMotion, LauncherHints, ProfileAvailability, ProfileNameColor, ProfileFighter, ProfileSharing, ProfileFriendAlerts,
     OpenHelp=1240,NextDockTab,PreviousDockTab,PageTop,PageBottom,SaveCurrent,UndoCurrent,ToggleLauncher,CopySetup,OpenIsoFolder
 };
 constexpr int pageCount = 8, onlinePage = 1, speedrunPage = 2, modsPage = 3, savesPage = 4, settingsPage = 5, updatesPage = 6,
@@ -816,6 +817,7 @@ struct Window {
     std::map<std::string,RemoteCard> remoteCards;
     std::map<std::string,std::string> cardThumbnails;
     uint32_t customNameColor=0x1ffcc40u;int nameColorSelection=0;
+    std::set<std::string> friendsOnline;std::string friendWatchProfile;std::chrono::steady_clock::time_point friendWatchSince{};
     int styleSelection = 0;
     bool imageAnimationTicking = false;
     bool cycling = false;
@@ -1352,6 +1354,7 @@ struct Window {
         SendMessageW(controls[ProfileNotifications],CB_SETCURSEL,style && !style->notifications ? 1 : 0,0);
         SendMessageW(controls[ProfileFighter],CB_SETCURSEL,style ? style->fighter : 0,0);
         SendMessageW(controls[ProfileSharing],CB_SETCURSEL,style ? style->sharing : 0,0);
+        SendMessageW(controls[ProfileFriendAlerts],CB_SETCURSEL,style && !style->friendAlerts ? 1 : 0,0);
         selectNameColor(style ? style->nameColor : 0);
         page=profilePage;layout();(pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);
     }
@@ -1371,6 +1374,7 @@ struct Window {
         found->availability=unsigned(std::max(0,selected(ProfileAvailability)));
         found->notifications=selected(ProfileNotifications)!=1;
         found->nameColor=chosenNameColor();found->fighter=unsigned(std::max(0,selected(ProfileFighter)));found->sharing=unsigned(std::max(0,selected(ProfileSharing)));
+        found->friendAlerts=selected(ProfileFriendAlerts)!=1;
         write_settings(settings_path(),next);settings=std::move(next);cycleTimer();openProfile();publishCard();
         status=file.empty() ? L"Profile picture removed. Your original file was kept." : found->sharing==0 ? L"Profile picture saved. Players online see it on your card." : L"Profile picture saved on this PC.";
         error=false;
@@ -1459,6 +1463,42 @@ struct Window {
         const int index=selected(ProfileNameColor);
         if(index<=0)return 0;
         return index<name_color_custom ? storedColor(name_colors[index-1].color) : customNameColor;
+    }
+    static std::wstring seenText(int64_t seen) {
+        const int64_t now=int64_t(std::time(nullptr)),ago=std::max<int64_t>(0,now-seen);
+        if(seen<=0)return L"Offline";
+        if(ago<60)return L"Last seen just now";
+        if(ago<3600)return L"Last seen "+std::to_wstring(ago/60)+L" min ago";
+        if(ago<86400)return L"Last seen "+std::to_wstring(ago/3600)+L" h ago";
+        if(ago<2*86400)return L"Last seen yesterday";
+        if(ago<30*86400)return L"Last seen "+std::to_wstring(ago/86400)+L" days ago";
+        return L"Last seen over a month ago";
+    }
+    void watchFriends() {
+        const auto profile=activeProfile();
+        if(!profile || !directory || !directory->connected()) {friendsOnline.clear();friendWatchProfile.clear();return;}
+        if(friendWatchProfile!=profile->id) {friendsOnline.clear();friendWatchProfile=profile->id;friendWatchSince=std::chrono::steady_clock::now();}
+        std::set<std::string> now;std::map<std::string,std::string> names;
+        for(const auto& player:directory->players())if(isFriend(player.id)){now.insert(player.id);names[player.id]=player.name;}
+        std::vector<std::string> arrived,changed;
+        for(const auto& id:now)if(!friendsOnline.count(id)){arrived.push_back(id);changed.push_back(id);}
+        for(const auto& id:friendsOnline)if(!now.count(id))changed.push_back(id);
+        friendsOnline=std::move(now);
+        if(!changed.empty()) {
+            Settings next=settings;const auto stamp=int64_t(std::time(nullptr));
+            for(auto& entry:next.onlineFriends)
+                if(entry.owner==profile->id && std::find(changed.begin(),changed.end(),entry.id)!=changed.end())entry.seen=stamp;
+            try{write_settings(settings_path(),next);settings=std::move(next);}
+            catch(const std::exception& error){std::cout<<"[launcher:friends] "<<error.what()<<std::endl;}
+        }
+        const auto style=profileStyle(profile->id);
+        if(arrived.empty() || (style && !style->friendAlerts) || running() ||
+           std::chrono::steady_clock::now()-friendWatchSince<std::chrono::seconds(8))return;
+        std::cout<<"[launcher:friends] "<<arrived.size()<<(arrived.size()==1 ? " friend came online" : " friends came online")<<std::endl;
+        const auto first=wide(names[arrived.front()]);
+        const auto detail=cardLine(arrived.front());
+        if(arrived.size()==1)notify(first+L" is online",detail.empty() ? std::wstring(L"Invite them from Friends or Online.") : detail);
+        else notify(L"Friends are online",first+L" and "+std::to_wstring(arrived.size()-1)+(arrived.size()==2 ? L" other friend are online." : L" other friends are online."));
     }
     void publishCard() {
         if(!directory || !directory->connected())return;
@@ -1787,7 +1827,7 @@ struct Window {
         hint(Play, L"Play game (F5). Verify your ISO first.");
         hint(ChooseIso, L"Choose your Budokai 2 USA ISO (Ctrl+O). You can also drop it onto the launcher.");
         hint(VerifyIso, L"Check the selected disc and required game files.");
-        hint(HomeProfile, L"Customize your profile picture, initials, accent and tagline on this PC.");
+        hint(HomeProfile, L"Customize your profile picture, name color, main fighter and tagline (Ctrl+P).");
         hint(OpenNotifications,L"Friend requests and match invitations (Ctrl+Shift+N).");
         hint(HomeFriendScope,L"Show all your friends or just those who are online.");
         hint(HomeFindPlayers,L"Find players and manage friends on Online.");
@@ -1798,6 +1838,7 @@ struct Window {
         hint(ProfileNameColor,L"Color your name in player lists. Very dark or very light colors are adjusted so everyone can read them.");
         hint(ProfileFighter,L"Show your main fighter on your player card.");
         hint(ProfileSharing,L"Choose what players online see: your picture, accent, initials, tagline, name color and main fighter.");
+        hint(ProfileFriendAlerts,L"Show a desktop alert when a friend comes online. Quiet mode and Do not disturb silence it.");
         hint(RefreshRooms,L"Refresh rooms and ping, or reconnect to the service (Ctrl+R).");
         hint(OnlineSearch,L"Search room names, hosts and player names. Clear restores the full lists.");
         hint(RoomFilter,L"Show matching versions by default, all versions, or rooms without a password.");
@@ -2019,7 +2060,8 @@ struct Window {
         combo(ProfileAvailability,{L"Available",L"Away",L"Do not disturb"},0);
         {std::vector<std::wstring> names{L"Theme default"};for(const auto& choice:name_colors)names.emplace_back(choice.name);names.emplace_back(L"Custom color\u2026");combo(ProfileNameColor,names,0);}
         {std::vector<std::wstring> names{L"No main fighter"};for(const auto* name:fighter_names)names.push_back(wide(name));combo(ProfileFighter,names,0);}
-        combo(ProfileSharing,{L"Everyone online sees my picture and card",L"Share my card without the picture",L"Keep my card on this PC"},0);
+        combo(ProfileSharing,{L"Picture and card",L"Card without the picture",L"Keep on this PC"},0);
+        combo(ProfileFriendAlerts,{L"Tell me",L"Don't tell me"},0);
         combo(ProfileFit,{L"Fill the circle",L"Fit the whole picture"},0);
         combo(ProfileNotifications,{L"Sound & desktop alerts",L"Quiet — launcher inbox only"},0);
         combo(ProfileCopyFrom,{},0);
@@ -2396,7 +2438,8 @@ struct Window {
             position(ProfileTagline,side,490,width,40);
             position(ProfileAvailability,side,570,half,40);
             position(ProfileNotifications,second,570,half,40);
-            position(ProfileSharing,side,650,width,40);
+            position(ProfileSharing,side,650,half,40);
+            position(ProfileFriendAlerts,second,650,half,40);
             position(ProfileSave,side,712,160,40);
             position(ProfileReset,side+174,712,130,40);
             position(ProfileCopyId,contentLeft+24,480,split-contentLeft-48,36);
@@ -2818,10 +2861,10 @@ struct Window {
             {L"F5",L"Play the game"},{L"Ctrl + O",L"Choose an ISO"},{L"Ctrl + Page Up / Page Down",L"Previous / next dock tab"},
             {L"Ctrl + 1–6",L"Open a dock tab"},{L"Alt + Left",L"Go back"},{L"Ctrl + Home / End",L"Top / bottom of the page"},
             {L"Ctrl + S",L"Save profile or split name"},{L"Ctrl + Z",L"Undo the last settings change"},{L"Ctrl + F",L"Search the current page"},
-            {L"Ctrl + K",L"Find a tool or setting"},{L"Ctrl + Shift + N",L"Open notifications"},{L"F11",L"Maximize / restore the launcher"}};
+            {L"Ctrl + K",L"Find a tool or setting"},{L"Ctrl + Shift + N",L"Open notifications"},{L"Ctrl + P",L"Customize your profile"},{L"F11",L"Maximize / restore the launcher"}};
         const int keyWidth=std::clamp(content/3,230,360);
         for(size_t i=0;i<std::size(shortcuts);++i) {
-            const int y=188+int(i)*33;
+            const int y=188+int(i)*32;
             text(dc,shortcuts[i].first,contentLeft+24,y,keyWidth,28,fonts.strong,orange);
             text(dc,shortcuts[i].second,contentLeft+40+keyWidth,y,content-keyWidth-64,28,fonts.body,ink,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
         }
@@ -3003,7 +3046,8 @@ struct Window {
         caps(dc,L"TAGLINE",side,466,width);
         caps(dc,L"ONLINE AVAILABILITY",side,546,half);
         caps(dc,L"INVITES & FRIEND REQUESTS",second,546,half);
-        caps(dc,L"PLAYER CARD ONLINE",side,626,width);
+        caps(dc,L"PLAYER CARD ONLINE",side,626,half);
+        caps(dc,L"FRIENDS COMING ONLINE",second,626,half);
         text(dc,L"Availability is shared online. Quiet mode and Do not disturb keep requests in Notifications without desktop alerts.",side,762,width,40,fonts.caption,muted,DT_WORDBREAK|DT_NOPREFIX);
         caps(dc,L"COPY APPEARANCE FROM ANOTHER PROFILE",side,806,width);
         text(dc,L"Copies the picture, initials, tagline, accent, name color and main fighter. Your name and friends stay yours.",side,876,width,36,fonts.caption,muted,DT_WORDBREAK|DT_NOPREFIX);
@@ -4477,7 +4521,7 @@ struct Window {
             const bool on = !status.empty();
             const bool busy = status == "in a match" || status == "hosting" || status == "joining" || status == "away" || status == "do not disturb";
             title = wide(friendRows[row].second);
-            line = on ? statusLabel(status) : L"Offline";
+            line = on ? statusLabel(status) : seenText(friendSeen(friendRows[row].first));
             if (const auto hosted = hostingLine(friendRows[row].second); on && !hosted.empty())
                 line = hosted;
             else if (const auto card = cardLine(friendRows[row].first); on && !card.empty())
@@ -6259,6 +6303,15 @@ struct Window {
         (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
     }
     size_t playerCount() const { return directory ? directory->players().size() + 1 : 0; }
+    int64_t friendSeen(const std::string &id) const {
+        const auto profile = activeProfile();
+        if (!profile)
+            return 0;
+        for (const auto &entry : settings.onlineFriends)
+            if (entry.owner == profile->id && entry.id == id)
+                return entry.seen;
+        return 0;
+    }
     bool isFriend(const std::string &id) const {
         const auto profile = activeProfile();
         return profile && std::any_of(settings.onlineFriends.begin(), settings.onlineFriends.end(), [&](const auto &entry) {
@@ -6401,6 +6454,8 @@ struct Window {
         std::stable_sort(others.begin(), others.end(), [&](const online::Player &a, const online::Player &b) {
             if ((a.version == application_version) != (b.version == application_version))
                 return a.version == application_version;
+            if (isFriend(a.id) != isFriend(b.id))
+                return isFriend(a.id);
             if (a.impostor != b.impostor)
                 return b.impostor;
             return folded(a.name) < folded(b.name);
@@ -7116,7 +7171,7 @@ struct Window {
             if(source.id==target->id){status=L"Choose a different profile to copy from.";error=false;return;}
             const auto from=profileStyle(source.id),own=profileStyle(target->id);
             auto copied=from ? *from : Settings::ProfileStyle{};copied.id=target->id;
-            copied.notifications=own ? own->notifications : true;copied.availability=own ? own->availability : 0;
+            copied.notifications=own ? own->notifications : true;copied.availability=own ? own->availability : 0;copied.friendAlerts=own ? own->friendAlerts : true;
             Settings next=settings;
             next.profileStyles.erase(std::remove_if(next.profileStyles.begin(),next.profileStyles.end(),[&](const auto& style){return style.id==target->id;}),next.profileStyles.end());
             next.profileStyles.push_back(std::move(copied));write_settings(settings_path(),next);settings=std::move(next);
@@ -7149,6 +7204,7 @@ struct Window {
                     updated.availability=unsigned(std::max(0,selected(ProfileAvailability)));
                     updated.pictureFit=unsigned(std::max(0,selected(ProfileFit)));updated.notifications=selected(ProfileNotifications)!=1;
                     updated.nameColor=chosenNameColor();updated.fighter=unsigned(std::max(0,selected(ProfileFighter)));updated.sharing=unsigned(std::max(0,selected(ProfileSharing)));
+                    updated.friendAlerts=selected(ProfileFriendAlerts)!=1;
                     next.profileStyles.push_back(std::move(updated));
                 }
                 write_settings(settings_path(),next);settings=std::move(next);cycleTimer();openProfile();publishCard();
@@ -8324,6 +8380,7 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
             return 0;
         case onlineChanged:
             self->finishNameCheck();
+            self->watchFriends();
             self->refreshOnlineLists();
             self->refreshEnabled();
             return 0;
@@ -8575,6 +8632,7 @@ int run_window(const std::filesystem::path &initialIso) {
                          {FCONTROL | FVIRTKEY, 'F', FocusOnlineSearch},
                          {FCONTROL | FVIRTKEY, 'O', ChooseIso},
                          {FCONTROL | FVIRTKEY, 'L', OpenLogs},
+                         {FCONTROL | FVIRTKEY, 'P', HomeProfile},
                          {FALT | FVIRTKEY, VK_LEFT, NavigateBack},
                          {FVIRTKEY, VK_F1, OpenHelp},
                          {FVIRTKEY, VK_F11, ToggleLauncher},

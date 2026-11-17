@@ -80,7 +80,12 @@ freezes the match for a moment.
   A green dot means online, yellow means in a match or hosting, and grey means
   offline. A friend who is hosting shows the room's name; double-click them to
   join it. Double-click any other friend to invite them, or pick a friend to
-  remove them.
+  remove them. Offline friends show when they were last seen, for example
+  "Last seen 2 h ago". Friends are listed first in Online's Players list.
+- **Friend alerts:** when a friend comes online, a Windows notification shows
+  their name and card. Turn it off per profile with **Friends coming online** on
+  the Profile page (Ctrl+P). Quiet mode, Do not disturb and a running game
+  silence it.
 - **Invite:** pick a player and press **Invite**. Your room opens and the invite
   is sent. The invited player gets a Windows notification and an **Accept** /
   **Decline** card in **Notifications** (the bell, or Ctrl+Shift+N), and joins without needing the
@@ -143,15 +148,15 @@ initials, name color, main fighter and tagline. It shows next to your name in
 the Players, Friends and Rooms lists, for example "Online · Mains Goku ·
 “Kamehameha all day”". **Player card online** chooses what is shared:
 
-- **Everyone online sees my picture and card** shares everything.
-- **Share my card without the picture** shares everything except the picture.
-- **Keep my card on this PC** shares nothing, and other players see your initials.
+- **Picture and card** shares everything.
+- **Card without the picture** shares everything except the picture.
+- **Keep on this PC** shares nothing, and other players see your initials.
 
 The shared picture is a small copy, up to 96 by 96 pixels, made from the first
 frame of an animated GIF. Your original file never leaves your PC. Cards are
 signed with the profile's key, so nobody else can change yours. Cards stay on
 the service while you are offline, so friends still see your picture. Choosing
-**Keep my card on this PC** removes the card from the service.
+**Keep on this PC** removes the card from the service.
 
 **Copy profile ID** copies the public ID for sharing. **Use defaults** resets
 appearance without deleting the profile or its friends. If no profile exists,
