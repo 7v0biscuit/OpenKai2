@@ -77,11 +77,13 @@ A message in the corner names your new character when a fight starts.
 
   Existing theme choices keep their position in the list and use the matching
   new color palette. Your own profile and split images remain supported.
-- **Accent color:** the theme's own color, or Orange, Gold, Red, Pink, Purple,
-  Blue, Cyan, Green or White for buttons and highlights. **RGB (cycling)**
+- **Accent color:** the theme's own color, or Goku orange, Super Saiyan gold,
+  Kaio-ken red, Majin pink, Frieza purple, Vegeta blue, Bulma teal, Piccolo
+  green or Kami white for buttons and highlights. **Shenron rainbow (cycling)**
   moves slowly through every color, once round the color wheel per minute,
   redrawn at 60 FPS. Accent colors removed in v0.1.100 move to the closest one
-  that remains (for example Crimson to Red, Amber to Gold, Teal to Cyan).
+  that remains (for example Crimson to Kaio-ken red, Amber to Super Saiyan gold,
+  Teal to Bulma teal).
 - **Colors…:** recolor any part of the launcher with the Windows color picker:
   background, navigation, panels, fields, buttons and their hover color, borders,
   the three text shades, accent, highlight, glow, main buttons and their text,

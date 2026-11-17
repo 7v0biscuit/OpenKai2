@@ -273,23 +273,38 @@ std::optional<Card> parse_card(const std::string &id, const std::string &payload
     return card;
 }
 
-std::vector<unsigned> tag_effects(identity::Tag tag) {
+std::vector<unsigned> own_effects(identity::Tag tag) {
     switch (tag) {
     case identity::Tag::developer:
-        return {1u, 2u, 3u, 4u, 5u, 15u, 16u, 17u};
+        return {1u, 2u, 3u, 4u, 5u, 15u, 16u, 17u, 27u};
     case identity::Tag::twitch:
-        return {6u, 7u, 8u, 18u, 19u, 20u};
+        return {6u, 7u, 8u, 18u, 19u, 20u, 28u};
     case identity::Tag::youtube:
-        return {9u, 10u, 11u, 21u, 22u, 23u};
+        return {9u, 10u, 11u, 21u, 22u, 23u, 29u};
     case identity::Tag::tob:
-        return {12u, 13u, 14u, 24u, 25u, 26u};
+        return {12u, 13u, 14u, 24u, 25u, 26u, 30u};
     }
     return {};
 }
 
+std::vector<unsigned> tag_effects(identity::Tag tag) {
+    auto effects = own_effects(tag);
+    if (tag == identity::Tag::developer)
+        for (const auto other : identity::all_tags)
+            if (other != tag)
+                for (const auto effect : own_effects(other))
+                    effects.push_back(effect);
+    return effects;
+}
+
+bool tag_allows(identity::Tag tag, unsigned effect) {
+    const auto effects = tag_effects(tag);
+    return effect && std::find(effects.begin(), effects.end(), effect) != effects.end();
+}
+
 std::optional<identity::Tag> effect_tag(unsigned effect) {
     for (const auto tag : identity::all_tags) {
-        const auto effects = tag_effects(tag);
+        const auto effects = own_effects(tag);
         if (std::find(effects.begin(), effects.end(), effect) != effects.end())
             return tag;
     }
@@ -337,7 +352,7 @@ std::optional<std::string> parse_perks(const std::string &id, const std::string 
 }
 
 std::string format_flair(const Profile &profile, unsigned effect) {
-    if (!effect || effect > name_effect_count || !can_use_flair(profile) || effect_tag(effect) != identity::claimed_tag(profile.name))
+    if (!effect || effect > name_effect_count || !can_use_flair(profile) || !tag_allows(*identity::claimed_tag(profile.name), effect))
         return {};
     const std::string name = clean(profile.name, 24), proof = identity::tag_proof(name, "flair:" + profile.id + ":" + std::to_string(effect));
     if (proof.empty())
@@ -352,7 +367,7 @@ std::optional<unsigned> parse_flair(const std::string &id, const std::string &pa
         return std::nullopt;
     const unsigned effect = unsigned(std::stoul(f[1]));
     const auto tag = identity::claimed_tag(f[2]);
-    if (effect > name_effect_count || !tag || effect_tag(effect) != tag)
+    if (effect > name_effect_count || !tag || !tag_allows(*tag, effect))
         return std::nullopt;
     crypto::Signature signature{};
     if (f[3].size() != signature.size() * 2 || !crypto::from_hex(f[3], signature.data(), signature.size()) ||

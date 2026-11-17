@@ -86,8 +86,8 @@ COLORREF buttonTop = RGB(255, 186, 70), buttonBottom = RGB(250, 126, 22), button
          buttonShine = RGB(255, 245, 214), buttonInk = RGB(36, 16, 4);
 COLORREF colorOf(Rgb c) { return RGB(c.r, c.g, c.b); }
 struct NameColor {const wchar_t* name;COLORREF color;};
-constexpr NameColor name_colors[]={{L"Saiyan gold",RGB(255,204,64)},{L"Ki blue",RGB(92,176,255)},{L"Namekian green",RGB(112,214,124)},
-    {L"Galactic purple",RGB(182,128,255)},{L"Crimson",RGB(242,88,88)},{L"Sunset orange",RGB(255,146,60)},{L"Majin pink",RGB(255,126,196)},{L"Ice white",RGB(232,240,255)}};
+constexpr NameColor name_colors[]={{L"Super Saiyan gold",RGB(255,204,64)},{L"Kamehameha blue",RGB(92,176,255)},{L"Namekian green",RGB(112,214,124)},
+    {L"Frieza purple",RGB(182,128,255)},{L"Kaio-ken red",RGB(242,88,88)},{L"Goku gi orange",RGB(255,146,60)},{L"Majin pink",RGB(255,126,196)},{L"Kami white",RGB(232,240,255)}};
 constexpr int name_color_custom=int(sizeof(name_colors)/sizeof(name_colors[0]))+1;
 uint32_t storedColor(COLORREF color){return 0x1000000u|(uint32_t(GetRValue(color))<<16u)|(uint32_t(GetGValue(color))<<8u)|uint32_t(GetBValue(color));}
 COLORREF shownColor(uint32_t color){return RGB((color>>16u)&255u,(color>>8u)&255u,color&255u);}
@@ -1484,9 +1484,7 @@ struct Window {
         return color;
     }
     COLORREF nameInk(const std::string& id,COLORREF fallback) {return readableName(nameColorOf(id),fallback);}
-    static constexpr const wchar_t* name_effect_names[]={L"",L"Rainbow cycle",L"Rainbow wave",L"Golden shimmer",L"Ki pulse",L"Silver frost",
-        L"Stream pulse",L"Live glow",L"Purple wave",L"Red shimmer",L"Subscribe pulse",L"Spotlight",L"Ember",L"Storm",L"Toxic wave",
-        L"Super aura",L"Dragon star",L"Galaxy",L"Chat flood",L"Raid",L"Neon sign",L"Play button",L"Premiere",L"Trending",L"Lava",L"Lightning",L"Venom"};
+    static constexpr const wchar_t* name_effect_names[]={L"",L"Shenron wish",L"Fusion dance",L"Super Saiyan",L"Ki blast",L"Frost demon",L"Galick Gun",L"Majin Buu",L"Death Ball",L"Kaio-ken",L"Kaio-ken x20",L"Red Ribbon",L"Namek inferno",L"Kamehameha",L"Perfect Cell",L"Super Saiyan 2",L"Dragon Balls",L"Spirit Bomb",L"Majin magic",L"Candy beam",L"Instant Transmission",L"Champion belt",L"Cell Games",L"Dragon Fist",L"Planet Vegeta",L"Big Bang Attack",L"Piccolo",L"Powering up",L"Ginyu Force",L"Dynamite Kick",L"Kid Buu rampage"};
     bool effectPainted=false,pageEffectPainted=false,drawingRow=false,recordingMotion=false;
     struct Motion {RECT rect;std::vector<uint32_t> under;std::function<void(HDC)> draw;};
     std::vector<Motion> motions;
@@ -1579,7 +1577,7 @@ struct Window {
         if(profile && profile->id==id) {
             const auto tag=heldTag();if(!tag)return 0;
             const auto style=profileStyle(id);
-            return style && online::effect_tag(style->nameEffect)==tag ? style->nameEffect : 0u;
+            return style && online::tag_allows(*tag,style->nameEffect) ? style->nameEffect : 0u;
         }
         return directory ? directory->flair(id) : 0u;
     }
@@ -1632,7 +1630,21 @@ struct Window {
         case 24:return mix(RGB(150,20,0),RGB(255,150,20),int((std::sin(t*1.1-i*0.42)+1.0)*127.5));
         case 25:return mix(RGB(60,90,200),RGB(255,255,255),int(std::exp(-std::fmod(t*1.3,1.9)*9.0)*255.0*(0.6+0.4*std::sin(i*1.7))));
         case 26:return (std::sin(t*2.2-i*0.7)>0.0) ? mix(RGB(60,220,80),RGB(20,60,20),int((std::sin(t*5.0)+1.0)*40.0)) : RGB(170,60,220);
+        case 27:return mix(RGB(255,170,0),RGB(255,255,230),int((std::sin(t*6.0-i*0.6)+1.0)*127.5));
+        case 28:return hueColor(268.0+30.0*std::sin(t*5.0-i*0.7),0.68);
+        case 29:return mix(RGB(255,30,30),RGB(255,255,255),int(std::fabs(std::sin(t*4.0-i*0.45))*170.0));
+        case 30:return mix(RGB(200,110,40),RGB(255,210,140),int((std::sin(t*13.0+i*2.1)+1.0)*127.5));
         default:return ink;
+        }
+    }
+    static double effectLift(unsigned effect,size_t index,double now) {
+        const double t=now/1000.0,i=double(index);
+        switch(effect) {
+        case 27:return std::sin(t*6.0-i*0.6)*1.5;
+        case 28:return std::sin(t*5.0-i*0.7)*2.5;
+        case 29:return -std::fabs(std::sin(t*4.0-i*0.45))*3.0;
+        case 30:return std::fmod(std::sin(i*12.9898+std::floor(t*18.0)*78.233)*43758.5453,1.0)*1.6;
+        default:return 0.0;
         }
     }
     void drawName(HDC dc,const std::wstring& value,RECT r,UINT flags,const std::string& id,COLORREF color,unsigned effect=~0u) {
@@ -1649,7 +1661,7 @@ struct Window {
             keepProfileMotion();
             if(recordingMotion) {
                 const auto font=static_cast<HFONT>(GetCurrentObject(dc,OBJ_FONT));
-                recordMotion(dc,{r.left-p(4),r.top-p(2),r.right+p(8),r.bottom+p(2)},[this,value,r,flags,id,color,effect,font](HDC target) {
+                recordMotion(dc,{r.left-p(4),r.top-p(5),r.right+p(8),r.bottom+p(5)},[this,value,r,flags,id,color,effect,font](HDC target) {
                     const auto old=SelectObject(target,font);
                     const bool recording=std::exchange(recordingMotion,false);
                     drawName(target,value,r,flags,id,color,effect);
@@ -1673,7 +1685,8 @@ struct Window {
         const COLORREF labelTone=tag ? readableName(storedColor(tagColor(*tag)),ink) : color;
         for(size_t i=0;i<shown.size();++i) {
             const int left=x+extent(shown,i),right=x+extent(shown,i+1);
-            RECT cell{left,r.top,right+p(6),r.bottom};
+            const int lift=effect && i>=tagEnd ? int(std::lround(effectLift(effect,i,now)*double(p(100))/100.0)) : 0;
+            RECT cell{left,r.top+lift,right+p(6),r.bottom+lift};
             const COLORREF tone=i<tagEnd ? labelTone : effect ? readableName(storedColor(effectColor(effect,i,shown.size(),now)),ink) : color;
             SetTextColor(dc,tone);
             DrawTextW(dc,&shown[i],1,&cell,single);
@@ -1697,7 +1710,7 @@ struct Window {
         const auto tag=heldTag();if(!tag)return;
         const auto effects=online::tag_effects(*tag);
         for(const unsigned effect:effects)
-            SendMessageW(list,CB_ADDSTRING,0,reinterpret_cast<LPARAM>((wide(identity::tag_label(*tag))+L" "+name_effect_names[effect]).c_str()));
+            SendMessageW(list,CB_ADDSTRING,0,reinterpret_cast<LPARAM>((wide(identity::tag_label(online::effect_tag(effect).value_or(*tag)))+L" "+name_effect_names[effect]).c_str()));
         if(const auto found=style ? std::find(effects.begin(),effects.end(),style->nameEffect) : effects.end();found!=effects.end()) {
             const int index=name_color_custom+1+int(found-effects.begin());
             SendMessageW(list,CB_SETCURSEL,index,0);nameColorSelection=index;
@@ -1909,7 +1922,7 @@ struct Window {
         text(dc,presence,contentLeft+24,y+4,columnWidth,20,fonts.caption,player ? ink : muted,DT_CENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
         std::vector<std::pair<std::wstring,COLORREF>> tags;
         if(own)tags.emplace_back(L"YOU",orange);
-        if(const auto keyTag=online::effect_tag(effectOf(viewedPlayer)))
+        if(const auto keyTag=effectOf(viewedPlayer) ? identity::claimed_tag(viewedName) : std::nullopt)
             tags.emplace_back(L"VERIFIED "+wide(identity::tag_label(*keyTag)),readableName(storedColor(tagColor(*keyTag)),ink));
         if(isFriend(viewedPlayer))tags.emplace_back(L"FRIEND",green);
         if(isBlocked(viewedPlayer))tags.emplace_back(L"BLOCKED",red);
@@ -1943,7 +1956,7 @@ struct Window {
         row(6,L"Profile ID",wide(viewedPlayer.substr(0,16))+L"\u2026");
         text(dc,L"Right-click a name in Players, Friends or Rooms to open a profile. Ctrl+K finds players by name or profile ID.",side,630,width,40,fonts.caption,faint,DT_WORDBREAK|DT_NOPREFIX);
     }
-    enum MenuKind {menuHeader,menuSeparator,menuProfile,menuInvite,menuJoin,menuFriend,menuUnfriend,menuCopy,menuId,menuBlock};
+    enum MenuKind {menuHeader,menuSeparator,menuProfile,menuInvite,menuJoin,menuFriend,menuUnfriend,menuCopy,menuId,menuBlock,menuChannel};
     struct MenuEntry {UINT command=0;std::wstring label,detail;MenuKind kind=menuProfile;bool danger=false,disabled=false;};
     std::vector<MenuEntry> menuEntries;std::string menuPlayer;
     void menuGlyph(HDC dc,MenuKind kind,int cx,int cy,COLORREF color) {
@@ -1964,6 +1977,7 @@ struct Window {
             case menuCopy:g.DrawRectangle(&pen,8.f,8.f,12.f,13.f);line(4,16,4,3);line(4,3,15,3);break;
             case menuId:line(9,3,7,21);line(17,3,15,21);line(4,9,21,9);line(3,15,20,15);break;
             case menuBlock:g.DrawEllipse(&pen,3.f,3.f,18.f,18.f);line(6,18,18,6);break;
+            case menuChannel:{g.DrawRectangle(&pen,3.f,5.f,18.f,13.f);Gdiplus::PointF play[]={{10,8.5f},{15,11.5f},{10,14.5f}};g.FillPolygon(&brush,play,3);line(8,21,16,21);break;}
             default:break;
             }
         });
@@ -2037,7 +2051,8 @@ struct Window {
         const auto profile=activeProfile();const bool own=profile && profile->id==playerId;
         const auto player=directory && !playerId.empty() ? directory->player(playerId) : std::nullopt;
         const auto hosted=player && !roomChoice ? roomHostedBy(player->name) : std::nullopt;
-        enum {ViewProfile=1,InviteOrJoin,FriendToggle,CopyName,CopyId,BlockToggle};
+        enum {ViewProfile=1,InviteOrJoin,FriendToggle,CopyName,CopyId,BlockToggle,OpenChannel,CopyChannel};
+        const auto channel=playerId.empty() ? std::string() : channelOf(playerId);
         menuEntries.clear();menuPlayer=playerId;
         std::wstring presence=L"Offline";
         if(own)presence=L"This is you";
@@ -2051,6 +2066,7 @@ struct Window {
         if(roomChoice)menuEntries.push_back({InviteOrJoin,L"Join room",{},menuJoin,false,!(ready && !room && roomChoice->version==application_version)});
         else if(player && !own)menuEntries.push_back({InviteOrJoin,hosted ? L"Join their room" : L"Invite to play",{},hosted ? menuJoin : menuInvite,false,
                                                       !(ready && player->version==application_version && !isBlocked(playerId))});
+        if(online::valid_channel_link(channel))menuEntries.push_back({OpenChannel,L"Open channel",{},menuChannel});
         if(!playerId.empty() && !own) {
             const bool friendly=isFriend(playerId),sent=requestedFriends.count(playerId)>0;
             menuEntries.push_back({FriendToggle,friendly ? L"Remove friend" : sent ? L"Friend request sent" : L"Add friend",{},friendly ? menuUnfriend : menuFriend,false,
@@ -2059,6 +2075,7 @@ struct Window {
         menuEntries.push_back({0,{},{},menuSeparator});
         menuEntries.push_back({CopyName,L"Copy name",{},menuCopy});
         if(!playerId.empty())menuEntries.push_back({CopyId,L"Copy profile ID",{},menuId});
+        if(online::valid_channel_link(channel))menuEntries.push_back({CopyChannel,L"Copy channel link",{},menuCopy});
         if(!playerId.empty() && !own) {
             menuEntries.push_back({0,{},{},menuSeparator});
             menuEntries.push_back({BlockToggle,isBlocked(playerId) ? L"Unblock" : L"Block",{},menuBlock,!isBlocked(playerId)});
@@ -2086,6 +2103,11 @@ struct Window {
         case CopyName:status=copyText(wide(name)) ? L"Name copied." : L"Could not access the clipboard.";error=false;break;
         case CopyId:status=copyText(wide(playerId)) ? L"Profile ID copied." : L"Could not access the clipboard.";error=false;break;
         case BlockToggle:setBlocked(playerId,name,!isBlocked(playerId));break;
+        case OpenChannel: {
+            const auto result=reinterpret_cast<INT_PTR>(ShellExecuteW(hwnd,L"open",wide(channel).c_str(),nullptr,nullptr,SW_SHOWNORMAL));
+            status=result>32 ? L"Opening "+wide(channel) : std::wstring(L"Could not open the channel link.");error=result<=32;break;
+        }
+        case CopyChannel:status=copyText(wide(channel)) ? L"Channel link copied." : L"Could not access the clipboard.";error=false;break;
         default:return;
         }
         refreshEnabled();(pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);
@@ -2202,8 +2224,17 @@ struct Window {
             keepProfileMotion();
             const double now = profileClock();
             const int band = std::max(2, radius / 5);
-            ellipse(dc, cx, cy, radius + band + std::max(1, radius / 10), mix(ring, effectColor(effect, 0, 8, now), 70));
-            ellipse(dc, cx, cy, radius + band, readableName(storedColor(effectColor(effect, size_t(now / 120.0) % 8, 8, now)), ink));
+            const auto glow = [&](double shift) {
+                int red = 0, green = 0, blue = 0, samples = 0;
+                for (size_t index = 0; index < 2; ++index)
+                    for (const double back : {0.0, 45.0, 90.0, 135.0, 180.0}) {
+                        const COLORREF sample = effectColor(effect, index, 8, now - back + shift);
+                        red += GetRValue(sample); green += GetGValue(sample); blue += GetBValue(sample); ++samples;
+                    }
+                return RGB(red / samples, green / samples, blue / samples);
+            };
+            ellipse(dc, cx, cy, radius + band + std::max(1, radius / 10), mix(ring, glow(-300.0), 70));
+            ellipse(dc, cx, cy, radius + band, readableName(storedColor(glow(0.0)), ink));
         } else
             ellipse(dc, cx, cy, radius + std::max(1, radius / 8), ring);
         ellipse(dc, cx, cy, radius, tone);
@@ -5103,6 +5134,30 @@ struct Window {
             if (end == std::wstring::npos)
                 break;
             start = end + 1;
+        }
+        if (item.hwndItem == controls[ProfileNameColor] && item.itemID != UINT(-1) && !(item.itemState & ODS_COMBOBOXEDIT) && !value.empty()) {
+            const int index = int(item.itemID);
+            const auto effects = heldTag() ? online::tag_effects(*heldTag()) : std::vector<unsigned>{};
+            const size_t slot = size_t(std::max(0, index - name_color_custom - 1));
+            const unsigned effect = index > name_color_custom && slot < effects.size() ? effects[slot] : 0u;
+            COLORREF tone = enabled ? ink : muted;
+            if (index > 0 && index < name_color_custom) tone = readableName(storedColor(name_colors[index - 1].color), ink);
+            RECT cell = r;
+            cell.left += p(4);
+            if (index > 0 && index < name_color_custom) {
+                ellipse(dc, r.left + p(5), (r.top + r.bottom) / 2, p(5), storedColor(name_colors[index - 1].color));
+                cell.left += p(14);
+            }
+            if (effect) {
+                drawingRow = true;
+                drawName(dc, value, cell, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX, std::string(), tone, effect);
+                drawingRow = false;
+            } else {
+                SetTextColor(dc, tone);
+                DrawTextW(dc, value.c_str(), int(value.size()), &cell, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+            }
+            SelectObject(dc, old);
+            return;
         }
         if (item.hwndItem == controls[SplitStyleList]) {
             const auto style = splitStyle(item.itemID);

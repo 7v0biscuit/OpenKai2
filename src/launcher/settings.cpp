@@ -69,7 +69,7 @@ void validate_settings(const Settings &s) {
     if (s.profileStyles.size() > 32) throw std::runtime_error("Too many profile appearances");
     for (const auto& style : s.profileStyles) {
         if (style.id.size()!=64 || !std::all_of(style.id.begin(),style.id.end(),[](unsigned char c){return std::isxdigit(c)!=0;}) ||
-            !profileIds.insert(style.id).second || style.accent>=accent_count || style.pictureFit>3 || style.availability>2 || (style.nameColor && (style.nameColor>>24)!=1u) || style.fighter>fighter_count || style.sharing>2 || style.nameEffect>26 || style.link.size()>120 || style.link.find_first_of("\r\n\" ")!=std::string::npos || style.region>region_count || style.playstyle>playstyle_count || style.about.size()>480 || style.about.find_first_of("\r\n")!=std::string::npos || style.since<0 || style.initials.size()>8 || style.tagline.size()>192 ||
+            !profileIds.insert(style.id).second || style.accent>=accent_count || style.pictureFit>3 || style.availability>2 || (style.nameColor && (style.nameColor>>24)!=1u) || style.fighter>fighter_count || style.sharing>2 || style.nameEffect>30 || style.link.size()>120 || style.link.find_first_of("\r\n\" ")!=std::string::npos || style.region>region_count || style.playstyle>playstyle_count || style.about.size()>480 || style.about.find_first_of("\r\n")!=std::string::npos || style.since<0 || style.initials.size()>8 || style.tagline.size()>192 ||
             style.initials.find_first_of("\r\n")!=std::string::npos || style.tagline.find_first_of("\r\n")!=std::string::npos ||
             !speedrun::valid_image_file(style.image) || style.imageName.size()>1024 || style.imageName.find_first_of("\r\n")!=std::string::npos)
             throw std::runtime_error("Invalid profile appearance");

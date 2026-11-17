@@ -47,9 +47,9 @@ struct AccentChoice {
     Rgb color;
 };
 inline constexpr AccentChoice accents[] = {
-    {L"Theme color", {0, 0, 0}}, {L"Orange", {245, 155, 76}}, {L"Gold", {239, 211, 112}}, {L"Red", {244, 120, 133}},
-    {L"Pink", {231, 151, 191}}, {L"Purple", {169, 141, 226}}, {L"Blue", {94, 148, 240}}, {L"Cyan", {85, 209, 211}},
-    {L"Green", {126, 203, 151}}, {L"White", {230, 235, 242}}, {L"RGB (cycling)", {255, 64, 64}},
+    {L"Theme color", {0, 0, 0}}, {L"Goku orange", {245, 155, 76}}, {L"Super Saiyan gold", {239, 211, 112}}, {L"Kaio-ken red", {244, 120, 133}},
+    {L"Majin pink", {231, 151, 191}}, {L"Frieza purple", {169, 141, 226}}, {L"Vegeta blue", {94, 148, 240}}, {L"Bulma teal", {85, 209, 211}},
+    {L"Piccolo green", {126, 203, 151}}, {L"Kami white", {230, 235, 242}}, {L"Shenron rainbow (cycling)", {255, 64, 64}},
 };
 inline constexpr unsigned accent_count = sizeof(accents) / sizeof(accents[0]);
 inline constexpr unsigned rgb_accent = accent_count - 1u;

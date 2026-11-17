@@ -149,30 +149,40 @@ short tagline, an optional **Name color** and a **Main fighter**. Appearance is
 saved separately for each profile on this PC and does not change the public
 profile name, ID or private key.
 
-Tagged profiles also get animated name effects in the same list. Each tag has
-its own set, and a profile can only use its own tag's effects:
+Tagged profiles also get animated Dragon Ball Z name effects in the same list.
+Each tag has its own set, and a profile can only use its own tag's effects. The
+[DEV] key can use every effect, including the other tags' sets:
 
-- **[DEV]:** rainbow cycle, rainbow wave, golden shimmer, ki pulse, silver frost,
-  super aura, dragon star, galaxy.
-- **[TTV]:** stream pulse, live glow, purple wave, chat flood, raid, neon sign.
-- **[YT]:** red shimmer, subscribe pulse, spotlight, play button, premiere,
-  trending.
-- **[ToB]:** ember, storm, toxic wave, lava, lightning, venom.
+- **[DEV]:** Shenron wish, Fusion dance, Super Saiyan, Ki blast, Frost demon,
+  Super Saiyan 2, Dragon Balls, Spirit Bomb, Powering up.
+- **[TTV]:** Galick Gun, Majin Buu, Death Ball, Majin magic, Candy beam,
+  Instant Transmission, Ginyu Force.
+- **[YT]:** Kaio-ken, Kaio-ken x20, Red Ribbon, Champion belt, Cell Games,
+  Dragon Fist, Dynamite Kick.
+- **[ToB]:** Namek inferno, Kamehameha, Perfect Cell, Planet Vegeta, Big Bang
+  Attack, Piccolo, Kid Buu rampage.
+
+In Powering up, Ginyu Force, Dynamite Kick and Kid Buu rampage the letters of
+the name move as well as change color. The **Name color** list previews every
+color and effect in its own colors.
 
 The effects appear only when that tag's key is installed and a profile with the
 tag is active. The tag label is drawn in the tag's color and the avatar gets an
-animated ring in the effect's colors. Each effect is signed with the tag's key
-and checked by every launcher before it is shown, so other profiles cannot use
-or fake them. They always animate; with **Reduced motion** on they move slowly
-instead. A player with a verified effect also gets a **Verified** badge in their
-tag's color on their profile. Launchers older than this build show the newer
-effects as a plain name.
+animated ring that blends smoothly through the effect's colors. Each effect is
+signed with the tag's key and checked by every launcher before it is shown, so
+other profiles cannot use or fake them. They always animate; with **Reduced
+motion** on they move slowly instead. A player with a verified effect also gets
+a **Verified** badge in their tag's color on their profile. Older launchers show
+effects they do not know as a plain name.
 
 Tagged profiles can also add a **Channel link** (a Twitch, YouTube or Kick
 `https://` address). It is signed with the tag's key, and other players see an
-**Open channel** button on the player's profile.
+**Open channel** button on the player's profile. Right-click the player's name
+for **Open channel** and **Copy channel link**.
 
-Name colors come in presets, or choose **Custom color…** to pick any color. Very
+Name colors come in Dragon Ball Z presets (Super Saiyan gold, Kamehameha blue,
+Namekian green, Frieza purple, Kaio-ken red, Goku gi orange, Majin pink and Kami
+white), or choose **Custom color…** to pick any color. Very
 dark or very light colors are adjusted so the name stays readable. **Theme
 default** keeps the normal text color.
 

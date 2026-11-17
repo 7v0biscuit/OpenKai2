@@ -297,7 +297,12 @@ void service_format() {
                 on::effect_tag(11) == openkai2::identity::Tag::youtube && on::effect_tag(14) == openkai2::identity::Tag::tob &&
                 on::effect_tag(17) == openkai2::identity::Tag::developer && on::effect_tag(20) == openkai2::identity::Tag::twitch &&
                 on::effect_tag(21) == openkai2::identity::Tag::youtube && on::effect_tag(26) == openkai2::identity::Tag::tob &&
-                !on::effect_tag(27) && !on::effect_tag(0),
+                on::effect_tag(27) == openkai2::identity::Tag::developer && on::effect_tag(28) == openkai2::identity::Tag::twitch &&
+                on::effect_tag(29) == openkai2::identity::Tag::youtube && on::effect_tag(30) == openkai2::identity::Tag::tob &&
+                !on::effect_tag(31) && !on::effect_tag(0) &&
+                on::tag_allows(openkai2::identity::Tag::developer, 30) && on::tag_allows(openkai2::identity::Tag::developer, 6) &&
+                !on::tag_allows(openkai2::identity::Tag::twitch, 1) && !on::tag_allows(openkai2::identity::Tag::youtube, 28) &&
+                on::tag_effects(openkai2::identity::Tag::developer).size() == 30,
             "each tag owns its own name effects");
     require(on::valid_channel_link("https://www.twitch.tv/example") && on::valid_channel_link("https://youtu.be/abc_123") &&
                 !on::valid_channel_link("http://www.twitch.tv/example") && !on::valid_channel_link("https://evil.example/") &&
