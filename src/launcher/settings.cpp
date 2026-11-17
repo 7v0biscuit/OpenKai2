@@ -4,6 +4,8 @@
 #include "speedrun_images.h"
 #include "disc_image.h"
 #include "launcher/paths.h"
+#include "fighters.h"
+#include <array>
 #include <map>
 #include <algorithm>
 #include <cctype>
@@ -66,7 +68,7 @@ void validate_settings(const Settings &s) {
     if (s.profileStyles.size() > 32) throw std::runtime_error("Too many profile appearances");
     for (const auto& style : s.profileStyles) {
         if (style.id.size()!=64 || !std::all_of(style.id.begin(),style.id.end(),[](unsigned char c){return std::isxdigit(c)!=0;}) ||
-            !profileIds.insert(style.id).second || style.accent>=accent_count || style.pictureFit>1 || style.availability>2 || style.initials.size()>8 || style.tagline.size()>192 ||
+            !profileIds.insert(style.id).second || style.accent>=accent_count || style.pictureFit>1 || style.availability>2 || (style.nameColor && (style.nameColor>>24)!=1u) || style.fighter>fighter_count || style.sharing>2 || style.initials.size()>8 || style.tagline.size()>192 ||
             style.initials.find_first_of("\r\n")!=std::string::npos || style.tagline.find_first_of("\r\n")!=std::string::npos ||
             !speedrun::valid_image_file(style.image) || style.imageName.size()>1024 || style.imageName.find_first_of("\r\n")!=std::string::npos)
             throw std::runtime_error("Invalid profile appearance");
@@ -91,6 +93,7 @@ Settings read_settings(const std::filesystem::path &file) {
     std::vector<std::array<std::string,3>> profileImages;
     std::map<std::string,std::pair<unsigned,bool>> profileOptions;
     std::map<std::string,unsigned> profileAvailability;
+    std::map<std::string,std::array<unsigned,3>> profileCards;
     bool tabLayout = false, graphicsProfile = false;
     std::ifstream in(file);
     for (int attempt = 0; !in && attempt < 50 && std::filesystem::exists(file); ++attempt) {
@@ -266,6 +269,10 @@ Settings read_settings(const std::filesystem::path &file) {
             if (!profileOptions.emplace(id,std::make_pair(fit,notifications)).second)
                 throw std::runtime_error("Duplicate profile options");
         }
+        else if (key == "profile_card") {
+            std::string id;std::array<unsigned,3> card{};row >> std::quoted(id) >> card[0] >> card[1] >> card[2];
+            if(!row || !profileCards.emplace(id,card).second)throw std::runtime_error("Duplicate profile card");
+        }
         else if (key == "profile_image") {
             std::array<std::string,3> image;
             row >> std::quoted(image[0]) >> std::quoted(image[1]) >> std::quoted(image[2]);
@@ -343,6 +350,11 @@ Settings read_settings(const std::filesystem::path &file) {
         }
         found->pictureFit=options.first;found->notifications=options.second;
     }
+    for(const auto& [id,card]:profileCards) {
+        auto found=std::find_if(s.profileStyles.begin(),s.profileStyles.end(),[&](const auto& style){return style.id==id;});
+        if(found==s.profileStyles.end()) {s.profileStyles.push_back({id,{},{},0,{},{}});found=std::prev(s.profileStyles.end());}
+        found->nameColor=card[0];found->fighter=card[1];found->sharing=card[2];
+    }
     for(const auto& [id,availability]:profileAvailability) {
         auto found=std::find_if(s.profileStyles.begin(),s.profileStyles.end(),[&](const auto& style){return style.id==id;});
         if(found==s.profileStyles.end()) {s.profileStyles.push_back({id,{},{},0,{},{}});found=std::prev(s.profileStyles.end());}
@@ -407,6 +419,7 @@ void write_settings(const std::filesystem::path &file, const Settings &s) {
     out << "online_filters " << s.onlineRoomFilter << ' ' << s.onlinePlayerFilter << '\n';
     for (const auto& style : s.profileStyles) {
         out << "profile_availability " << std::quoted(style.id) << ' ' << style.availability << '\n';
+        out << "profile_card " << std::quoted(style.id) << ' ' << style.nameColor << ' ' << style.fighter << ' ' << style.sharing << '\n';
         out << "profile_options " << std::quoted(style.id) << ' ' << style.pictureFit << ' ' << style.notifications << '\n';
         if(!style.image.empty())out << "profile_image " << std::quoted(style.id) << ' ' << std::quoted(style.image) << ' ' << std::quoted(style.imageName) << '\n';
         out << "profile_style " << std::quoted(style.id) << ' ' << style.accent << ' ' << std::quoted(style.initials) << ' ' << std::quoted(style.tagline) << '\n';

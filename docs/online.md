@@ -127,10 +127,31 @@ source) or any MQTT broker, and set `online_room ... "<host>:<port>"` in
 
 ## Profile appearance
 
-Use **Customize profile** on Play to choose avatar initials, an accent and a
-short tagline. Appearance is saved separately for each profile on this PC.
-It does not change the public profile name, ID or private key, and is not sent
-to other players.
+Use **Customize profile** on Play to choose avatar initials, an accent, a
+short tagline, an optional **Name color** and a **Main fighter**. Appearance is
+saved separately for each profile on this PC and does not change the public
+profile name, ID or private key.
+
+Name colors come in presets, or choose **Custom color…** to pick any color. Very
+dark or very light colors are adjusted so the name stays readable. **Theme
+default** keeps the normal text color.
+
+## Player cards
+
+While you are online, other players see your player card: your picture, accent,
+initials, name color, main fighter and tagline. It shows next to your name in
+the Players, Friends and Rooms lists, for example "Online · Mains Goku ·
+“Kamehameha all day”". **Player card online** chooses what is shared:
+
+- **Everyone online sees my picture and card** shares everything.
+- **Share my card without the picture** shares everything except the picture.
+- **Keep my card on this PC** shares nothing, and other players see your initials.
+
+The shared picture is a small copy, up to 96 by 96 pixels, made from the first
+frame of an animated GIF. Your original file never leaves your PC. Cards are
+signed with the profile's key, so nobody else can change yours. Cards stay on
+the service while you are offline, so friends still see your picture. Choosing
+**Keep my card on this PC** removes the card from the service.
 
 **Copy profile ID** copies the public ID for sharing. **Use defaults** resets
 appearance without deleting the profile or its friends. If no profile exists,
@@ -146,8 +167,8 @@ displayed in a circle; choose **Fill the circle** to crop, or **Fit the whole pi
 Pictures may be up to 16 MB, with up to 300 GIF frames. The launcher copies
 files to `%LOCALAPPDATA%\OpenKai2\profiles\images`. Removing or replacing a
 picture keeps the original file. Each profile keeps its own picture, initials,
-accent and tagline. These appearance settings stay on this PC and are not
-uploaded to the online service.
+accent, tagline, name color and main fighter. See **Player cards** for what other
+players see.
 
 Use **Search rooms or players** to find a room, host or player by name. **Clear**
 restores the lists. **Ctrl+F** focuses the current page’s search. On Play and Online, it searches rooms and players. Room filters

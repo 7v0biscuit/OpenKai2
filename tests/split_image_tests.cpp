@@ -10,7 +10,6 @@ using namespace openkai2::speedrun;
 namespace {
 void require(bool ok,const char* message) {if(!ok)throw std::runtime_error(message);}
 template<class F> void rejects(F action) {try{action();}catch(const std::exception&){return;}throw std::runtime_error("Invalid image accepted");}
-// Tiny codec fixtures contain only solid color pixels, not launcher artwork.
 using namespace openkai2::test_images;
 template<size_t N> void write(const std::filesystem::path& file,const unsigned char (&bytes)[N]) {
     std::ofstream out(file,std::ios::binary);out.write(reinterpret_cast<const char*>(bytes),N);
@@ -23,7 +22,21 @@ int main() {
                 timing.frame_at(200)==2 && timing.frame_at(359)==2 && timing.frame_at(360)==0,"GIF frame timing changed");
         require(valid_image_file(std::string(64,'a')+".png") && valid_image_file(std::string(64,'b')+".jpeg"),"Valid image key rejected");
         require(!valid_image_file("../escape.png") && !valid_image_file(std::string(64,'c')+".bmp"),"Invalid image key accepted");
+        SplitImage half;half.width=4;half.height=2;half.frames.resize(1);half.frames[0].rgba.assign(32,0);
+        for(unsigned y=0;y<2;++y)for(unsigned x=0;x<2;++x){auto* px=&half.frames[0].rgba[(y*4+x)*4];px[0]=255;px[3]=255;}
+        const auto filled=thumbnail_pixels(half,4,false,0x0000ffu),fitted=thumbnail_pixels(half,4,true,0x00ff00u);
+        require(filled.size()==48 && filled[0]==255 && filled[2]==0 && filled[3*3+2]==255 && filled[3*3]==0,"Filled thumbnail lost its crop or background");
+        require(fitted[1]==255 && fitted[0]==0 && fitted[(4*1+0)*3]==255 && fitted[(4*3+3)*3+1]==255,"Fitted thumbnail lost its framing");
+        require(thumbnail_pixels(SplitImage{},8,false,0x102030u)[2]==0x30,"Empty thumbnail did not use the background");
 #ifdef _WIN32
+        {
+            SplitImage photo;photo.width=96;photo.height=96;photo.frames.resize(1);photo.frames[0].rgba.resize(96*96*4);
+            for(unsigned i=0;i<96*96;++i){auto* px=&photo.frames[0].rgba[i*4];px[0]=uint8_t(i*37);px[1]=uint8_t(i/96*2);px[2]=uint8_t((i*i)>>3);px[3]=255;}
+            const auto jpeg=encode_thumbnail(photo,false,0,9000);
+            require(!jpeg.empty() && jpeg.size()<=9000 && jpeg[0]==0xff && jpeg[1]==0xd8,"Profile thumbnail was not a small JPEG");
+            const auto decoded=decode_image_bytes(jpeg);
+            require(decoded.width>=56 && decoded.width==decoded.height && decoded.frames.size()==1,"Profile thumbnail did not decode");
+        }
         const auto root=std::filesystem::temp_directory_path()/L"OpenKai2 split image checks";
         std::filesystem::create_directories(root);
         struct Cleanup {std::filesystem::path path;~Cleanup(){std::error_code e;std::filesystem::remove_all(path,e);}} cleanup{root};
@@ -59,9 +72,9 @@ int main() {
         rejects([&]{load_split_image(root/L"large.png");});
 #endif
 #ifdef _WIN32
-        std::cout<<"Split image checks passed: PNG alpha, JPEG, animated GIF timing, disposal, imports and invalid files.\n";
+        std::cout<<"Split image checks passed: PNG alpha, JPEG, animated GIF timing, disposal, imports, profile thumbnails and invalid files.\n";
 #else
-        std::cout<<"Split image keys and animation timing passed. Decoding uses Windows WIC.\n";
+        std::cout<<"Split image keys, thumbnails and animation timing passed. Decoding uses Windows WIC.\n";
 #endif
         return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}

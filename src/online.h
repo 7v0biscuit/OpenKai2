@@ -43,6 +43,14 @@ struct FriendMessage {
     FriendKind kind = FriendKind::request;
 };
 
+struct Card {
+    unsigned accent = 0, fighter = 0;
+    uint32_t name_color = 0;
+    std::string initials, tagline, picture;
+    uint64_t revision = 0;
+};
+inline constexpr size_t card_picture_limit = 9000;
+
 struct Profile {
     crypto::Seed seed{};
     std::string id, name;
@@ -60,6 +68,10 @@ std::string format_invite(const Profile &profile, const Invite &invite, const st
 std::optional<Invite> parse_invite(const std::string &target, const std::string &payload);
 std::string format_friend(const Profile &profile, const FriendMessage &message, const std::string &target);
 std::optional<FriendMessage> parse_friend(const std::string &target, const std::string &from, const std::string &payload);
+std::string format_card(const Profile &profile, const Card &card);
+std::optional<Card> parse_card(const std::string &id, const std::string &payload);
+std::string to_base64(const std::string &bytes);
+std::optional<std::string> from_base64(const std::string &text);
 
 class Directory {
   public:
@@ -74,6 +86,9 @@ class Directory {
     bool invite(const std::string &player_id, const std::string &room_id, const std::string &token);
     bool send_friend(const std::string &player_id, FriendKind kind);
     void clear_friend(const std::string &from_id);
+    void set_card(const std::optional<Card> &card);
+    std::optional<Card> card(const std::string &id) const;
+    uint64_t card_revision(const std::string &id) const;
     std::vector<Room> rooms() const;
     std::vector<Player> players() const;
     std::optional<Room> room(const std::string &id) const;
@@ -88,12 +103,17 @@ class Directory {
   private:
     void received(const std::string &topic, const std::string &payload);
     void publish_presence();
+    void publish_card();
     mqtt::Client client_;
     Profile profile_;
     std::string version_, status_ = "online";
     mutable std::mutex mutex_;
     std::map<std::string, Room> rooms_;
     std::map<std::string, Player> players_;
+    std::map<std::string, Card> cards_;
+    std::optional<Card> card_;
+    uint64_t cardRevision_ = 0;
+    bool cardSent_ = false;
     std::map<std::string, std::pair<std::string, std::string>> names_;
     bool nameTaken_ = false;
     Notify notify_;

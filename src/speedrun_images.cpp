@@ -188,11 +188,114 @@ SplitImage decode_image(const std::vector<uint8_t>& bytes) {
     }
     return result;
 }
+
+std::vector<uint8_t> encode_jpeg(const std::vector<uint8_t>& rgb, unsigned side, float quality) {
+    const auto initialized = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    struct Apartment { HRESULT result; ~Apartment() { if (SUCCEEDED(result)) CoUninitialize(); } } apartment{initialized};
+    ComPtr<IWICImagingFactory> factory;
+    checked(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
+                             IID_IWICImagingFactory, reinterpret_cast<void**>(factory.address())));
+    ComPtr<IStream> memory;
+    checked(CreateStreamOnHGlobal(nullptr, TRUE, memory.address()));
+    ComPtr<IWICBitmapEncoder> encoder;
+    checked(factory->CreateEncoder(GUID_ContainerFormatJpeg, nullptr, encoder.address()));
+    checked(encoder->Initialize(memory.value, WICBitmapEncoderNoCache));
+    ComPtr<IWICBitmapFrameEncode> frame;
+    ComPtr<IPropertyBag2> options;
+    checked(encoder->CreateNewFrame(frame.address(), options.address()));
+    PROPBAG2 name{};
+    name.pstrName = const_cast<LPOLESTR>(L"ImageQuality");
+    VARIANT value{};
+    value.vt = VT_R4;
+    value.fltVal = quality;
+    checked(options->Write(1, &name, &value));
+    checked(frame->Initialize(options.value));
+    checked(frame->SetSize(side, side));
+    WICPixelFormatGUID format = GUID_WICPixelFormat24bppBGR;
+    checked(frame->SetPixelFormat(&format));
+    if (!IsEqualGUID(format, GUID_WICPixelFormat24bppBGR))
+        throw std::runtime_error("Could not encode the profile picture.");
+    std::vector<uint8_t> bgr(rgb.size());
+    for (size_t i = 0; i + 2 < rgb.size(); i += 3) {
+        bgr[i] = rgb[i + 2];
+        bgr[i + 1] = rgb[i + 1];
+        bgr[i + 2] = rgb[i];
+    }
+    checked(frame->WritePixels(side, side * 3, UINT(bgr.size()), bgr.data()));
+    checked(frame->Commit());
+    checked(encoder->Commit());
+    HGLOBAL handle = nullptr;
+    checked(GetHGlobalFromStream(memory.value, &handle));
+    STATSTG stat{};
+    checked(memory->Stat(&stat, STATFLAG_NONAME));
+    const auto bytes = size_t(stat.cbSize.QuadPart);
+    std::vector<uint8_t> out(bytes);
+    if (const void* data = GlobalLock(handle)) {
+        std::copy_n(static_cast<const uint8_t*>(data), bytes, out.begin());
+        GlobalUnlock(handle);
+    } else
+        out.clear();
+    return out;
+}
 #else
 SplitImage decode_image(const std::vector<uint8_t>&) {
     throw std::runtime_error("Custom split images require Windows.");
 }
+std::vector<uint8_t> encode_jpeg(const std::vector<uint8_t>&, unsigned, float) { return {}; }
 #endif
+}
+
+SplitImage decode_image_bytes(const std::vector<uint8_t>& bytes) { return decode_image(bytes); }
+
+std::vector<uint8_t> thumbnail_pixels(const SplitImage& image, unsigned side, bool fit, uint32_t background) {
+    std::vector<uint8_t> rgb(size_t(side) * side * 3);
+    const uint8_t back[3] = {uint8_t(background >> 16u), uint8_t(background >> 8u), uint8_t(background)};
+    for (size_t i = 0; i < rgb.size(); ++i)
+        rgb[i] = back[i % 3];
+    if (image.frames.empty() || !image.width || !image.height || !side)
+        return rgb;
+    const auto& source = image.frames.front().rgba;
+    const double scale = fit ? std::min(double(side) / image.width, double(side) / image.height)
+                             : std::max(double(side) / image.width, double(side) / image.height);
+    for (unsigned y = 0; y < side; ++y)
+        for (unsigned x = 0; x < side; ++x) {
+            const double cx = (x + 0.5 - side / 2.0) / scale + image.width / 2.0,
+                         cy = (y + 0.5 - side / 2.0) / scale + image.height / 2.0;
+            if (cx < 0 || cy < 0 || cx >= image.width || cy >= image.height)
+                continue;
+            const double reach = std::max(0.5, 0.5 / scale);
+            const int x0 = std::max(0, int(std::floor(cx - reach))), x1 = std::min(int(image.width) - 1, int(std::ceil(cx + reach)) - 1);
+            const int y0 = std::max(0, int(std::floor(cy - reach))), y1 = std::min(int(image.height) - 1, int(std::ceil(cy + reach)) - 1);
+            double sum[4]{}, count = 0;
+            for (int sy = y0; sy <= std::max(y0, y1); ++sy)
+                for (int sx = x0; sx <= std::max(x0, x1); ++sx) {
+                    const size_t at = (size_t(sy) * image.width + size_t(sx)) * 4;
+                    const double alpha = source[at + 3] / 255.0;
+                    for (unsigned c = 0; c < 3; ++c)
+                        sum[c] += source[at + c] * alpha;
+                    sum[3] += alpha;
+                    ++count;
+                }
+            const size_t target = (size_t(y) * side + x) * 3;
+            const double coverage = count ? sum[3] / count : 0.0;
+            for (unsigned c = 0; c < 3; ++c) {
+                const double color = sum[3] > 0 ? sum[c] / sum[3] : 0.0;
+                rgb[target + c] = uint8_t(std::lround(color * coverage + back[c] * (1.0 - coverage)));
+            }
+        }
+    return rgb;
+}
+
+std::vector<uint8_t> encode_thumbnail(const SplitImage& image, bool fit, uint32_t background, size_t limit) {
+    for (const unsigned side : {96u, 72u, 56u})
+        for (const float quality : {0.86f, 0.72f, 0.55f}) {
+            auto bytes = encode_jpeg(thumbnail_pixels(image, side, fit, background), side, quality);
+            if (bytes.empty())
+                return {};
+            if (bytes.size() <= limit)
+                return bytes;
+        }
+    return {};
 }
 
 size_t SplitImage::frame_at(uint64_t milliseconds) const {

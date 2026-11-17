@@ -260,6 +260,34 @@ void service_format() {
     const auto forged = on::parse_room(room.id, on::format_room(room));
     require(forged && forged->host == "Joint", "an unsigned [DEV] host loses the tag");
     require(!on::parse_room("../bad", on::format_room(room)), "bad room ids are refused");
+    for (const std::string bytes : {std::string(), std::string("f"), std::string("fo"), std::string("foo"), std::string("\xff\x00\x10\x80", 4)}) {
+        const auto decoded = on::from_base64(on::to_base64(bytes));
+        require(decoded && *decoded == bytes, "base64 round trips");
+    }
+    require(!on::from_base64("abc") && !on::from_base64("ab=c") && !on::from_base64("a*cd"), "damaged base64 is refused");
+    const auto owner = on::make_profile(on::new_seed(), "Bulma");
+    on::Card card;
+    card.accent = 5;
+    card.fighter = 27;
+    card.name_color = 0x1ff8800u;
+    card.initials = "BU";
+    card.tagline = "Capsule\tCorp";
+    card.picture = std::string("\xff\xd8\xff\xe0", 4) + std::string(600, 'j');
+    const auto payload = on::format_card(owner, card);
+    const auto parsed = on::parse_card(owner.id, payload);
+    require(parsed && parsed->accent == 5 && parsed->fighter == 27 && parsed->name_color == 0x1ff8800u &&
+                parsed->initials == "BU" && parsed->tagline == "Capsule Corp" && parsed->picture == card.picture,
+            "profile cards round trip");
+    require(!on::parse_card(on::make_profile(on::new_seed(), "Other").id, payload), "a card signed by someone else is refused");
+    auto tampered = payload;
+    tampered[2] = tampered[2] == '1' ? '2' : '1';
+    require(!on::parse_card(owner.id, tampered), "an edited card is refused");
+    card.name_color = 0;
+    card.picture = std::string(on::card_picture_limit + 1, 'x');
+    const auto plain = on::parse_card(owner.id, on::format_card(owner, card));
+    require(plain && plain->name_color == 0 && plain->picture.empty(), "oversized or unknown pictures are dropped");
+    require(on::format_card(owner, card).size() < 600 && on::to_base64(std::string(on::card_picture_limit, 'x')).size() < 12100,
+            "cards fit in one service packet");
     require(auto_delay(1) == 1 && auto_delay(60) <= 3 && auto_delay(150) >= 4 && auto_delay(100000) == max_delay,
             "input delay follows the ping");
 }
@@ -294,6 +322,30 @@ void service_rooms_invites_passwords() {
     require(wait_for([&] { return piccolo.players().size() == 1 && krillin.players().size() == 1; }),
             "launchers see each other");
     require(krillin.players()[0].name == "Piccolo", "player names are shown");
+    {
+        on::Card card;
+        card.accent = 3;
+        card.name_color = 0x10044ffu;
+        card.tagline = "Special Beam Cannon";
+        card.fighter = 7;
+        card.picture = std::string("\x89PNG\r\n\x1a\n", 8) + std::string(4000, 'p');
+        piccolo.set_card(card);
+        require(wait_for([&] { const auto seen = krillin.card(piccolo.id()); return seen && seen->picture == card.picture; }),
+                "a profile card with its picture reaches another launcher");
+        const auto first = krillin.card(piccolo.id())->revision;
+        card.picture.clear();
+        piccolo.set_card(card);
+        require(wait_for([&] { const auto seen = krillin.card(piccolo.id()); return seen && seen->picture.empty() && seen->revision != first; }),
+                "a changed card replaces the old one");
+        on::Directory late;
+        require(late.open(service, on::make_profile(on::new_seed(), "Yamcha"), "0.1.67", error), "a later launcher connects");
+        require(wait_for([&] { const auto seen = late.card(piccolo.id()); return seen && seen->name_color == 0x10044ffu; }),
+                "a launcher that connects later still sees the card");
+        piccolo.set_card(std::nullopt);
+        require(wait_for([&] { return !krillin.card(piccolo.id()); }), "a withdrawn card disappears");
+        late.close();
+        require(wait_for([&] { return piccolo.players().size() == 1 && krillin.players().size() == 1; }), "the later launcher leaves");
+    }
     for(const std::string status:{"away","do not disturb","hosting","in a match","online"}) {
         piccolo.set_status(status);piccolo.set_status(status);
         require(wait_for([&]{const auto player=krillin.player(piccolo.id());return player && player->status==status;}),

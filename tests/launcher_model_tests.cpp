@@ -157,6 +157,7 @@ int main() {
         s.profileStyles[0].pictureFit=1;s.profileStyles[0].notifications=false;s.profileStyles[0].availability=2;
         s.profileStyles[0].image=std::string(64,'d')+".gif";
         s.profileStyles[0].imageName="My \"portrait\".gif";
+        s.profileStyles[0].nameColor=0x1ffcc33u;s.profileStyles[0].fighter=29;s.profileStyles[1].sharing=2;
         s.onlineRoomFilter=2;s.onlinePlayerFilter=1;
         s.splitStyles={{"any.txt",0,"Raditz",std::string(64,'c')+".gif","My image.gif"},{"tournament-novice.txt",0,"First round",{},{} }};
         write_settings(root / "settings.ini", s);
@@ -169,7 +170,13 @@ int main() {
                 "Profile pictures or online filters did not round-trip independently");
         require(read.reducedMotion && !read.helpHints && read.profileStyles[0].pictureFit==1 && !read.profileStyles[0].notifications && read.profileStyles[0].availability==2 && read.profileStyles[1].notifications,
                 "Per-profile framing and quiet mode did not round-trip");
+        require(read.profileStyles[0].nameColor==0x1ffcc33u && read.profileStyles[0].fighter==29 && read.profileStyles[0].sharing==0 &&
+                read.profileStyles[1].nameColor==0 && read.profileStyles[1].fighter==0 && read.profileStyles[1].sharing==2,
+                "Name colors, main fighters or card sharing did not round-trip");
         auto badFit=s;badFit.profileStyles[0].pictureFit=2;rejects([&]{validate_settings(badFit);});
+        auto badColor=s;badColor.profileStyles[0].nameColor=0x2000000u;rejects([&]{validate_settings(badColor);});
+        auto badFighter=s;badFighter.profileStyles[0].fighter=99;rejects([&]{validate_settings(badFighter);});
+        auto badSharing=s;badSharing.profileStyles[0].sharing=3;rejects([&]{validate_settings(badSharing);});
         Settings profileBefore=s;profileBefore.onlineProfiles={"First","Second"};profileBefore.onlineKeys={std::string(64,'1'),std::string(64,'2')};
         profileBefore.onlineFriends={{std::string(64,'a'),std::string(64,'c'),"Friend"}};
         const auto recovery=profile_recovery(profileBefore,0,std::string(64,'a'));

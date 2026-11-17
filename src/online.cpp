@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "online.h"
 #include "dev_identity.h"
+#include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <random>
 #include <thread>
@@ -149,6 +151,115 @@ std::optional<Player> parse_player(const std::string &id, const std::string &pay
     if (player.name.empty())
         return std::nullopt;
     return player;
+}
+
+std::string to_base64(const std::string &bytes) {
+    static constexpr char digits[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string out;
+    out.reserve((bytes.size() + 2) / 3 * 4);
+    for (size_t i = 0; i < bytes.size(); i += 3) {
+        const uint32_t a = uint8_t(bytes[i]), b = i + 1 < bytes.size() ? uint8_t(bytes[i + 1]) : 0u,
+                       c = i + 2 < bytes.size() ? uint8_t(bytes[i + 2]) : 0u, v = (a << 16u) | (b << 8u) | c;
+        out.push_back(digits[(v >> 18u) & 63u]);
+        out.push_back(digits[(v >> 12u) & 63u]);
+        out.push_back(i + 1 < bytes.size() ? digits[(v >> 6u) & 63u] : '=');
+        out.push_back(i + 2 < bytes.size() ? digits[v & 63u] : '=');
+    }
+    return out;
+}
+
+std::optional<std::string> from_base64(const std::string &text) {
+    if (text.size() % 4u)
+        return std::nullopt;
+    const auto value = [](char c) -> int {
+        if (c >= 'A' && c <= 'Z')
+            return c - 'A';
+        if (c >= 'a' && c <= 'z')
+            return c - 'a' + 26;
+        if (c >= '0' && c <= '9')
+            return c - '0' + 52;
+        return c == '+' ? 62 : c == '/' ? 63 : -1;
+    };
+    std::string out;
+    out.reserve(text.size() / 4u * 3u);
+    for (size_t i = 0; i < text.size(); i += 4) {
+        const bool last = i + 4 == text.size();
+        const int pad = last ? (text[i + 3] == '=') + (text[i + 2] == '=') : 0;
+        if (pad == 1 && text[i + 2] == '=')
+            return std::nullopt;
+        uint32_t v = 0;
+        for (int k = 0; k < 4; ++k) {
+            const int d = k >= 4 - pad ? 0 : value(text[i + size_t(k)]);
+            if (d < 0)
+                return std::nullopt;
+            v = (v << 6u) | uint32_t(d);
+        }
+        out.push_back(char(v >> 16u));
+        if (pad < 2)
+            out.push_back(char((v >> 8u) & 255u));
+        if (pad < 1)
+            out.push_back(char(v & 255u));
+    }
+    return out;
+}
+
+namespace {
+std::string color_text(uint32_t color) {
+    if (!(color >> 24u))
+        return {};
+    static constexpr char hex[] = "0123456789abcdef";
+    std::string out(6, '0');
+    for (int i = 0; i < 6; ++i)
+        out[size_t(i)] = hex[(color >> (20 - 4 * i)) & 15u];
+    return out;
+}
+
+bool picture_bytes(const std::string &bytes) {
+    if (bytes.empty())
+        return true;
+    if (bytes.size() > card_picture_limit || bytes.size() < 8)
+        return false;
+    const auto byte = [&](size_t i) { return uint8_t(bytes[i]); };
+    return (byte(0) == 0xff && byte(1) == 0xd8) || (byte(0) == 0x89 && bytes.compare(1, 3, "PNG") == 0);
+}
+}
+
+std::string format_card(const Profile &profile, const Card &card) {
+    const std::string body = std::to_string(card.accent % 64u) + '\t' + color_text(card.name_color) + '\t' +
+                             clean(card.initials, 8) + '\t' + clean(card.tagline, 192) + '\t' +
+                             std::to_string(card.fighter % 64u) + '\t' +
+                             (picture_bytes(card.picture) ? to_base64(card.picture) : std::string());
+    return "1\t" + body + '\t' + signed_by(profile, "card\t" + body);
+}
+
+std::optional<Card> parse_card(const std::string &id, const std::string &payload) {
+    const auto f = fields(payload);
+    if (!valid_id(id) || f.size() != 8 || f[0] != "1" || f[1].empty() || f[1].size() > 2 || f[5].empty() ||
+        f[5].size() > 2 || (!f[2].empty() && f[2].size() != 6) || f[3].size() > 8 || f[4].size() > 192 ||
+        f[6].size() > (card_picture_limit + 2) / 3 * 4)
+        return std::nullopt;
+    const auto digits = [](const std::string &text, int base) {
+        return std::all_of(text.begin(), text.end(), [&](unsigned char c) {
+            return base == 10 ? std::isdigit(c) != 0 : std::isxdigit(c) != 0;
+        });
+    };
+    if (!digits(f[1], 10) || !digits(f[5], 10) || !digits(f[2], 16))
+        return std::nullopt;
+    if (!signed_ok(id, "card\t" + f[1] + '\t' + f[2] + '\t' + f[3] + '\t' + f[4] + '\t' + f[5] + '\t' + f[6], f[7]))
+        return std::nullopt;
+    Card card;
+    card.accent = unsigned(std::stoul(f[1])) % 64u;
+    card.fighter = unsigned(std::stoul(f[5])) % 64u;
+    card.name_color = f[2].empty() ? 0u : 0x1000000u | uint32_t(std::stoul(f[2], nullptr, 16));
+    card.initials = clean(f[3], 8);
+    card.tagline = clean(f[4], 192);
+    if (!f[6].empty()) {
+        auto picture = from_base64(f[6]);
+        if (!picture || !picture_bytes(*picture))
+            return std::nullopt;
+        card.picture = std::move(*picture);
+    }
+    return card;
 }
 
 std::string format_invite(const Profile &profile, const Invite &invite, const std::string &target) {
@@ -302,6 +413,51 @@ void Directory::publish_presence() {
     client_.publish(std::string(prefix) + "players/" + profile_.id, format_player(profile_, self), true);
 }
 
+void Directory::publish_card() {
+    std::optional<Card> card;
+    {
+        std::lock_guard lock(mutex_);
+        card = card_;
+    }
+    client_.publish(std::string(prefix) + "cards/" + profile_.id, card ? format_card(profile_, *card) : std::string(), true);
+}
+
+void Directory::set_card(const std::optional<Card> &card) {
+    {
+        std::lock_guard lock(mutex_);
+        const auto same = [](const Card &a, const Card &b) {
+            return a.accent == b.accent && a.fighter == b.fighter && a.name_color == b.name_color &&
+                   a.initials == b.initials && a.tagline == b.tagline && a.picture == b.picture;
+        };
+        if (card_.has_value() == card.has_value() && (!card || same(*card_, *card)) && cardSent_)
+            return;
+        card_ = card;
+        cardSent_ = true;
+        if (card) {
+            auto own = *card;
+            own.revision = ++cardRevision_;
+            cards_[profile_.id] = std::move(own);
+        } else
+            cards_.erase(profile_.id);
+    }
+    if (client_.connected() && !nameTaken_)
+        publish_card();
+}
+
+std::optional<Card> Directory::card(const std::string &id) const {
+    std::lock_guard lock(mutex_);
+    const auto found = cards_.find(id);
+    if (found == cards_.end())
+        return std::nullopt;
+    return found->second;
+}
+
+uint64_t Directory::card_revision(const std::string &id) const {
+    std::lock_guard lock(mutex_);
+    const auto found = cards_.find(id);
+    return found == cards_.end() ? 0u : found->second.revision;
+}
+
 bool Directory::open(const std::string &server, const Profile &profile, const std::string &version, std::string &error) {
     close();
     profile_ = profile;
@@ -316,6 +472,7 @@ bool Directory::open(const std::string &server, const Profile &profile, const st
     client_.subscribe(std::string(prefix) + "invites/" + profile_.id);
     client_.subscribe(std::string(prefix) + "friends/" + profile_.id + "/+");
     client_.subscribe(std::string(prefix) + "names/+");
+    client_.subscribe(std::string(prefix) + "cards/+");
     const std::string mine = name_topic(profile_.name);
     for (int i = 0; i < 30; ++i) {
         {
@@ -344,6 +501,8 @@ void Directory::close() {
     std::lock_guard lock(mutex_);
     rooms_.clear();
     players_.clear();
+    cards_.clear();
+    cardSent_ = false;
 }
 
 void Directory::set_status(const std::string &status) {
@@ -488,6 +647,17 @@ void Directory::received(const std::string &topic, const std::string &payload) {
             else if (auto player = parse_player(id, payload); player && players_.size() < 2000)
                 players_[id] = *player;
             else
+                return;
+        } else if (rest.rfind("cards/", 0) == 0) {
+            const std::string id = rest.substr(6);
+            if (id == profile_.id)
+                return;
+            if (payload.empty())
+                cards_.erase(id);
+            else if (auto card = parse_card(id, payload); card && (cards_.size() < 2000 || cards_.count(id))) {
+                card->revision = ++cardRevision_;
+                cards_[id] = std::move(*card);
+            } else
                 return;
         } else if (rest == "invites/" + profile_.id) {
             invite = parse_invite(profile_.id, payload);

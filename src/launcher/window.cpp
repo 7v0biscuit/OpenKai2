@@ -16,6 +16,7 @@
 #include "netplay.h"
 #include "room.h"
 #include "online.h"
+#include "fighters.h"
 #include <deque>
 #include "mods/budokai3.h"
 #include "mods/disc_identity.h"
@@ -83,6 +84,16 @@ COLORREF buttonTop = RGB(255, 186, 70), buttonBottom = RGB(250, 126, 22), button
          buttonHotBottom = RGB(255, 150, 44), buttonPressedTop = RGB(236, 120, 22), buttonPressedBottom = RGB(214, 96, 14),
          buttonShine = RGB(255, 245, 214), buttonInk = RGB(36, 16, 4);
 COLORREF colorOf(Rgb c) { return RGB(c.r, c.g, c.b); }
+struct NameColor {const wchar_t* name;COLORREF color;};
+constexpr NameColor name_colors[]={{L"Saiyan gold",RGB(255,204,64)},{L"Ki blue",RGB(92,176,255)},{L"Namekian green",RGB(112,214,124)},
+    {L"Galactic purple",RGB(182,128,255)},{L"Crimson",RGB(242,88,88)},{L"Sunset orange",RGB(255,146,60)},{L"Majin pink",RGB(255,126,196)},{L"Ice white",RGB(232,240,255)}};
+constexpr int name_color_custom=int(sizeof(name_colors)/sizeof(name_colors[0]))+1;
+uint32_t storedColor(COLORREF color){return 0x1000000u|(uint32_t(GetRValue(color))<<16u)|(uint32_t(GetGValue(color))<<8u)|uint32_t(GetBValue(color));}
+COLORREF shownColor(uint32_t color){return RGB((color>>16u)&255u,(color>>8u)&255u,color&255u);}
+double luminance(COLORREF color){
+    const auto channel=[](int value){const double c=value/255.0;return c<=0.03928 ? c/12.92 : std::pow((c+0.055)/1.055,2.4);};
+    return 0.2126*channel(GetRValue(color))+0.7152*channel(GetGValue(color))+0.0722*channel(GetBValue(color));
+}
 void apply_theme(unsigned choice, unsigned accent, const CustomColors &custom) {
     const auto t = make_theme(choice, accent, custom, GetTickCount64());
     background = colorOf(t.background); sidebar = colorOf(t.sidebar); panel = colorOf(t.panel);
@@ -297,7 +308,7 @@ enum Id {
     SettingsSearch, ClearSettingsSearch, ResetDisplay, ResetGame, UndoSettings,
     SettingsAll=1200, SettingsDisplay, SettingsGraphics, SettingsGame, SettingsLauncher,
     OpenNotifications=1210,
-    ProfileFit=1220, ProfileNotifications, ProfileCopyFrom, ProfileCopyStyle, ProfileRecover, ProfileManage, LauncherMotion, LauncherHints, ProfileAvailability,
+    ProfileFit=1220, ProfileNotifications, ProfileCopyFrom, ProfileCopyStyle, ProfileRecover, ProfileManage, LauncherMotion, LauncherHints, ProfileAvailability, ProfileNameColor, ProfileFighter, ProfileSharing,
     OpenHelp=1240,NextDockTab,PreviousDockTab,PageTop,PageBottom,SaveCurrent,UndoCurrent,ToggleLauncher,CopySetup,OpenIsoFolder
 };
 constexpr int pageCount = 8, onlinePage = 1, speedrunPage = 2, modsPage = 3, savesPage = 4, settingsPage = 5, updatesPage = 6,
@@ -378,9 +389,6 @@ void smoothDrawing(Gdiplus::Graphics& graphics) {
     graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHighQuality);
     graphics.SetCompositingQuality(Gdiplus::CompositingQualityHighQuality);
 }
-// Evaluate coverage in physical pixels so rounded edges remain smooth on every
-// GDI backend. Large panels use an analytic contour; small vector icons are
-// sampled at 4x resolution, then reduced before compositing onto the canvas.
 template<class Distance>
 bool contour(HDC dc, RECT r, Distance distance, COLORREF face, COLORREF outline, bool filled, RECT interior={}) {
     const auto& list=surfaces();
@@ -804,6 +812,10 @@ struct Window {
     } buffer;
     std::vector<uint32_t> ambient;
     std::map<std::string, speedrun::SplitImage> splitImages, profileImages;
+    struct RemoteCard {uint64_t revision=0;online::Card card;speedrun::SplitImage image;};
+    std::map<std::string,RemoteCard> remoteCards;
+    std::map<std::string,std::string> cardThumbnails;
+    uint32_t customNameColor=0x1ffcc40u;int nameColorSelection=0;
     int styleSelection = 0;
     bool imageAnimationTicking = false;
     bool cycling = false;
@@ -915,8 +927,6 @@ struct Window {
     std::deque<DeferredMessage> deferredMessages;
     bool deferDuringPaint(UINT message, WPARAM wp, LPARAM lp) {
         if (!painting) return false;
-        // Focus cancellation only changes transient control state. Handle it
-        // immediately so it cannot be replayed against a newly opened popup.
         switch (message) {
         case WM_COMMAND: case WM_TIMER: case WM_SIZE: case WM_DPICHANGED:
         case WM_CLOSE: case WM_DROPFILES: case WM_MOUSEWHEEL: case WM_VSCROLL:
@@ -925,9 +935,6 @@ struct Window {
             break;
         default: return false;
         }
-        // GDI and native controls can dispatch sent messages while a frame is
-        // being drawn. Keep its fonts, page data and bitmap alive until EndPaint.
-        // A DPI message owns a temporary RECT, so retain the value, not its pointer.
         if (message==WM_COMMAND && closingDropdowns &&
             (HIWORD(wp)==CBN_SELCHANGE || HIWORD(wp)==CBN_SELENDOK)) return true;
         DeferredMessage pending{message,wp,lp};
@@ -1004,7 +1011,7 @@ struct Window {
         {HomeSaves, L"Saves & backups", L"memory card import restore delete"},
         {HomeControls, L"Controls", L"keyboard controller bindings"},
         {OnlineTab, L"Online", L"friends rooms multiplayer"},
-        {HomeProfile, L"Customize profile", L"picture avatar gif name"},
+        {HomeProfile, L"Customize profile", L"picture avatar gif name color fighter card"},
         {SpeedrunTab, L"Speedrun", L"timer categories splits"},
         {OpenOverlay, L"Customize speedrun overlay", L"split images png jpeg gif"},
         {ModsTab, L"Mods", L"characters stages import"},
@@ -1343,6 +1350,9 @@ struct Window {
         SendMessageW(controls[ProfileFit],CB_SETCURSEL,style ? style->pictureFit : 0,0);
         SendMessageW(controls[ProfileAvailability],CB_SETCURSEL,style ? style->availability : 0,0);
         SendMessageW(controls[ProfileNotifications],CB_SETCURSEL,style && !style->notifications ? 1 : 0,0);
+        SendMessageW(controls[ProfileFighter],CB_SETCURSEL,style ? style->fighter : 0,0);
+        SendMessageW(controls[ProfileSharing],CB_SETCURSEL,style ? style->sharing : 0,0);
+        selectNameColor(style ? style->nameColor : 0);
         page=profilePage;layout();(pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);
     }
     std::filesystem::path profileImageDirectory() const {return settings_path().parent_path()/"profiles"/"images";}
@@ -1360,8 +1370,9 @@ struct Window {
         found->pictureFit=unsigned(std::max(0,selected(ProfileFit)));
         found->availability=unsigned(std::max(0,selected(ProfileAvailability)));
         found->notifications=selected(ProfileNotifications)!=1;
-        write_settings(settings_path(),next);settings=std::move(next);cycleTimer();openProfile();
-        status=file.empty() ? L"Profile picture removed. Your original file was kept." : L"Profile picture saved on this PC.";
+        found->nameColor=chosenNameColor();found->fighter=unsigned(std::max(0,selected(ProfileFighter)));found->sharing=unsigned(std::max(0,selected(ProfileSharing)));
+        write_settings(settings_path(),next);settings=std::move(next);cycleTimer();openProfile();publishCard();
+        status=file.empty() ? L"Profile picture removed. Your original file was kept." : found->sharing==0 ? L"Profile picture saved. Players online see it on your card." : L"Profile picture saved on this PC.";
         error=false;
     }
     void attachProfileImage(const std::filesystem::path& source) {
@@ -1381,6 +1392,98 @@ struct Window {
             imageAnimationTicking=true;SetTimer(hwnd,3,33,nullptr);
         }
         return found->second.frames.empty() ? nullptr : &found->second;
+    }
+    const RemoteCard* remoteCard(const std::string& id) {
+        if(id.empty() || !directory)return nullptr;
+        const auto revision=directory->card_revision(id);
+        if(!revision){remoteCards.erase(id);return nullptr;}
+        auto& entry=remoteCards[id];
+        if(entry.revision!=revision) {
+            entry=RemoteCard{};
+            if(const auto card=directory->card(id)) {
+                entry.card=*card;entry.revision=card->revision;
+                if(!card->picture.empty()) {
+                    try{entry.image=speedrun::decode_image_bytes(std::vector<uint8_t>(card->picture.begin(),card->picture.end()));}
+                    catch(const std::exception&){entry.image={};}
+                    if(entry.image.frames.size()>1)entry.image.frames.resize(1);
+                }
+            }
+        }
+        return entry.revision ? &entry : nullptr;
+    }
+    std::string playerNamed(const std::string& name) const {
+        if(!directory || name.empty())return {};
+        for(const auto& player:directory->players())if(player.name==name)return player.id;
+        return {};
+    }
+    uint32_t nameColorOf(const std::string& id) {
+        if(const auto style=profileStyle(id))return style->nameColor;
+        if(const auto remote=remoteCard(id))return remote->card.name_color;
+        return 0;
+    }
+    COLORREF readableName(uint32_t stored,COLORREF fallback) const {
+        if(!(stored>>24u))return fallback;
+        COLORREF color=shownColor(stored);
+        for(int step=0;step<4;++step) {
+            const double a=luminance(color),b=luminance(panel),ratio=(std::max(a,b)+0.05)/(std::min(a,b)+0.05);
+            if(ratio>=3.0)break;
+            color=mix(color,ink,110);
+        }
+        return color;
+    }
+    COLORREF nameInk(const std::string& id,COLORREF fallback) {return readableName(nameColorOf(id),fallback);}
+    std::wstring cardLine(const std::string& id) {
+        const auto remote=remoteCard(id);if(!remote)return {};
+        std::wstring line;
+        if(remote->card.fighter && remote->card.fighter<=fighter_count)line=L"Mains "+wide(fighter_names[remote->card.fighter-1u]);
+        if(!remote->card.tagline.empty())line+=(line.empty() ? L"\u201c" : L" \u00b7 \u201c")+wide(remote->card.tagline)+L"\u201d";
+        return line;
+    }
+    void labelCustomColor(int index) {
+        wchar_t label[48];
+        if(index==name_color_custom)swprintf(label,48,L"Custom #%06X",unsigned(customNameColor&0xffffffu));
+        else wcscpy(label,L"Custom color\u2026");
+        SendMessageW(controls[ProfileNameColor],CB_DELETESTRING,name_color_custom,0);
+        SendMessageW(controls[ProfileNameColor],CB_INSERTSTRING,name_color_custom,LPARAM(label));
+    }
+    void selectNameColor(uint32_t stored) {
+        int index=0;
+        if(stored>>24u) {
+            index=name_color_custom;
+            for(int i=0;i+1<name_color_custom;++i)if(storedColor(name_colors[i].color)==stored)index=i+1;
+        }
+        if(index==name_color_custom)customNameColor=stored;
+        labelCustomColor(index);SendMessageW(controls[ProfileNameColor],CB_SETCURSEL,index,0);nameColorSelection=index;
+    }
+    uint32_t chosenNameColor() const {
+        const int index=selected(ProfileNameColor);
+        if(index<=0)return 0;
+        return index<name_color_custom ? storedColor(name_colors[index-1].color) : customNameColor;
+    }
+    void publishCard() {
+        if(!directory || !directory->connected())return;
+        const auto profile=activeProfile();if(!profile || profile->id!=connectedProfile)return;
+        const auto style=profileStyle(profile->id);
+        if(style && style->sharing==2){directory->set_card(std::nullopt);return;}
+        online::Card card;
+        if(style) {
+            card.accent=style->accent;card.name_color=style->nameColor;card.initials=style->initials;card.tagline=style->tagline;card.fighter=style->fighter;
+            if(style->sharing==0 && !style->image.empty()) {
+                const COLORREF tone=style->accent && style->accent!=rgb_accent ? colorOf(accents[style->accent].color) : orange;
+                const auto key=style->image+':'+std::to_string(style->pictureFit)+':'+std::to_string(tone);
+                auto found=cardThumbnails.find(key);
+                if(found==cardThumbnails.end()) {
+                    std::string bytes;
+                    if(const auto image=profileImage(style->image)) {
+                        try{const auto jpeg=speedrun::encode_thumbnail(*image,style->pictureFit==1,storedColor(tone)&0xffffffu,online::card_picture_limit);bytes.assign(jpeg.begin(),jpeg.end());}
+                        catch(const std::exception& error){std::cout<<"[launcher:profile-card] "<<error.what()<<std::endl;}
+                    }
+                    found=cardThumbnails.emplace(key,std::move(bytes)).first;
+                }
+                card.picture=found->second;
+            }
+        }
+        directory->set_card(card);
     }
     static COLORREF avatarTone(const std::string &key) {
         static const COLORREF tones[] = {RGB(226, 118, 58), RGB(214, 170, 64), RGB(206, 86, 86),  RGB(84, 174, 124),
@@ -1440,18 +1543,20 @@ struct Window {
                 int presence = -1, bool dim = false) {
         const auto style=profileStyle(key);
         const auto own=style ? std::optional<online::Profile>{} : activeProfile();
-        const auto accent=style ? (style->accent==rgb_accent ? colorOf(cycling_accent(allowMotion() ? GetTickCount64() : 0)) : style->accent ? colorOf(accents[style->accent].color) : orange) : own && own->id==key ? orange : avatarTone(key);
+        const auto remote=style || (own && own->id==key) ? nullptr : remoteCard(key);
+        const unsigned accentIndex=style ? style->accent : remote && remote->card.accent<accent_count ? remote->card.accent : 0u;
+        const auto accent=style || remote ? (accentIndex==rgb_accent ? colorOf(cycling_accent(allowMotion() ? GetTickCount64() : 0)) : accentIndex ? colorOf(accents[accentIndex].color) : orange) : own && own->id==key ? orange : avatarTone(key);
         const COLORREF tone = dim ? mix(accent, panel, 150) : accent;
         ellipse(dc, cx, cy, radius + std::max(1, radius / 8), ring);
         ellipse(dc, cx, cy, radius, tone);
-        const auto image=style ? profileImage(style->image) : nullptr;
+        const auto image=style ? profileImage(style->image) : remote && !remote->image.frames.empty() ? &remote->image : nullptr;
         if(image) {
-            paintRoundPhoto(dc,*image,cx,cy,std::max(1,radius-std::max(1,p(2))),style->pictureFit==1);
+            paintRoundPhoto(dc,*image,cx,cy,std::max(1,radius-std::max(1,p(2))),style && style->pictureFit==1);
         } else {
         auto old = SelectObject(dc, radius >= p(18) ? fonts.strong : fonts.label);
         SetBkMode(dc, TRANSPARENT);
         SetTextColor(dc, dim ? mix(RGB(255, 255, 255), panel, 110) : RGB(255, 255, 255));
-        const auto letters = style && !style->initials.empty() ? wide(style->initials) : initials(name);
+        const auto letters = style && !style->initials.empty() ? wide(style->initials) : remote && !remote->card.initials.empty() ? wide(remote->card.initials) : initials(name);
         RECT r{cx - radius, cy - radius, cx + radius + 1, cy + radius + 1};
         DrawTextW(dc, letters.c_str(), int(letters.size()), &r, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
         SelectObject(dc, old);
@@ -1658,8 +1763,6 @@ struct Window {
         const bool added = found != hintText.end();
         auto& text = hintText[id];
         text = std::move(value);
-        // The unmanifested launcher can load common-controls v5, which rejects
-        // the v6-only lpReserved field included in sizeof(TOOLINFOW).
         TOOLINFOW tool{TTTOOLINFOW_V2_SIZE};
         tool.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
         tool.hwnd = hwnd;
@@ -1692,6 +1795,9 @@ struct Window {
         hint(HomeCreateRoom,L"Choose a room name, visibility and password on Online before hosting.");
         hint(ProfileImageChoose,L"Choose your own PNG, JPEG or animated GIF, up to 16 MB. You can also drop a picture onto your Profile page.");
         hint(ProfileImageRemove,L"Return to initials. Your original picture is kept.");
+        hint(ProfileNameColor,L"Color your name in player lists. Very dark or very light colors are adjusted so everyone can read them.");
+        hint(ProfileFighter,L"Show your main fighter on your player card.");
+        hint(ProfileSharing,L"Choose what players online see: your picture, accent, initials, tagline, name color and main fighter.");
         hint(RefreshRooms,L"Refresh rooms and ping, or reconnect to the service (Ctrl+R).");
         hint(OnlineSearch,L"Search room names, hosts and player names. Clear restores the full lists.");
         hint(RoomFilter,L"Show matching versions by default, all versions, or rooms without a password.");
@@ -1911,6 +2017,9 @@ struct Window {
         SendMessageW(controls[OnlineSearch],EM_SETLIMITTEXT,128,0);
         {std::vector<std::wstring> names;for(const auto& choice:accents)names.emplace_back(choice.name);combo(ProfileAccent,names,0);}
         combo(ProfileAvailability,{L"Available",L"Away",L"Do not disturb"},0);
+        {std::vector<std::wstring> names{L"Theme default"};for(const auto& choice:name_colors)names.emplace_back(choice.name);names.emplace_back(L"Custom color\u2026");combo(ProfileNameColor,names,0);}
+        {std::vector<std::wstring> names{L"No main fighter"};for(const auto* name:fighter_names)names.push_back(wide(name));combo(ProfileFighter,names,0);}
+        combo(ProfileSharing,{L"Everyone online sees my picture and card",L"Share my card without the picture",L"Keep my card on this PC"},0);
         combo(ProfileFit,{L"Fill the circle",L"Fit the whole picture"},0);
         combo(ProfileNotifications,{L"Sound & desktop alerts",L"Quiet — launcher inbox only"},0);
         combo(ProfileCopyFrom,{},0);
@@ -2279,19 +2388,23 @@ struct Window {
             position(OnlineProfile,contentLeft+24,166,std::min(340,content-460),40);
             position(ProfileManage,right-390,166,210,40);
             position(ProfileRecover,right-166,166,142,40);
-            position(ProfileInitials,side,330,(width-16)/2,40);
-            position(ProfileTagline,side,410,width,40);
-            position(ProfileAccent,side+(width+16)/2,330,(width-16)/2,40);
-            position(ProfileAvailability,side,490,width,40);
-            position(ProfileNotifications,side,570,width,40);
-            position(ProfileSave,side,650,160,40);
-            position(ProfileReset,side+174,650,130,40);
+            const int half=(width-16)/2,second=side+(width+16)/2;
+            position(ProfileInitials,side,330,half,40);
+            position(ProfileAccent,second,330,half,40);
+            position(ProfileNameColor,side,410,half,40);
+            position(ProfileFighter,second,410,half,40);
+            position(ProfileTagline,side,490,width,40);
+            position(ProfileAvailability,side,570,half,40);
+            position(ProfileNotifications,second,570,half,40);
+            position(ProfileSharing,side,650,width,40);
+            position(ProfileSave,side,712,160,40);
+            position(ProfileReset,side+174,712,130,40);
             position(ProfileCopyId,contentLeft+24,480,split-contentLeft-48,36);
             position(ProfileImageChoose,contentLeft+24,532,split-contentLeft-48,36);
             position(ProfileImageRemove,contentLeft+24,580,split-contentLeft-48,36);
             position(ProfileFit,contentLeft+24,664,split-contentLeft-48,40);
-            position(ProfileCopyFrom,side,794,width,40);
-            position(ProfileCopyStyle,side,850,160,40);
+            position(ProfileCopyFrom,side,830,width-176,40);
+            position(ProfileCopyStyle,side+width-160,830,160,40);
         } else if (page == savesPage) {
             position(BackToPlay, right - 150, 28, 150, 34);
             const int panelBottom = h - 64;
@@ -2678,7 +2791,7 @@ struct Window {
             L"Customize split names, images and layout. PS2 time and verification stay protected.",
             L"Reorder the dock or hide tabs you do not use.",
             L"Personalize your theme. Unchanged colors follow the selected palette.",
-            L"Your picture, initials and tagline are saved on this PC.",
+            L"Your player card: picture, name color, main fighter and tagline. Choose what players online see.",
             L"Search pages and tools. Use the arrow keys and Enter to open a result.",
             L"Review friend requests and match invitations.",
             L"Quick controls, setup guidance and tools for reporting a problem."};
@@ -2818,7 +2931,7 @@ struct Window {
         const auto name=profile ? wide(profile->name) : std::wstring(L"Local player");
         if(profile)avatar(dc,p(g.friendsLeft+33),p(g.friendsBottom-70),p(16),name,profile->id,panel);
         else {ellipse(dc,p(g.friendsLeft+33),p(g.friendsBottom-70),p(16),mix(panel,orange,25));text(dc,L"P",g.friendsLeft+17,g.friendsBottom-82,32,24,fonts.strong,orange,DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX);}
-        text(dc,name,g.friendsLeft+58,g.friendsBottom-89,g.friendsWidth-76,22,fonts.strong,ink,DT_LEFT|DT_END_ELLIPSIS|DT_SINGLELINE|DT_NOPREFIX);
+        text(dc,name,g.friendsLeft+58,g.friendsBottom-89,g.friendsWidth-76,22,fonts.strong,profile ? nameInk(profile->id,ink) : ink,DT_LEFT|DT_END_ELLIPSIS|DT_SINGLELINE|DT_NOPREFIX);
         const auto style=profile ? profileStyle(profile->id) : nullptr;
         const auto activity=directory && directory->connected() ? statusLabel(profile_status(style ? style->availability : 0,running(),room!=nullptr,roomHost)) : profile ? std::wstring(L"Offline · local profile") : std::wstring(L"Create an online profile");
         text(dc,activity,g.friendsLeft+58,g.friendsBottom-65,g.friendsWidth-76,18,fonts.label,muted,DT_LEFT|DT_END_ELLIPSIS|DT_SINGLELINE|DT_NOPREFIX);
@@ -2841,7 +2954,7 @@ struct Window {
         const auto row=SendMessageW(controls[RoomList],LB_GETCURSEL,0,0);
         const auto chosen=row>=0 && size_t(row)<roomRows.size() ? &roomRows[size_t(row)] : nullptr;
         if(chosen) {
-            avatar(dc,p(g.details+42),p((g.detailsTop+81)),p(22),wide(chosen->host),chosen->host,panel);
+            {const auto hostId=playerNamed(chosen->host);avatar(dc,p(g.details+42),p((g.detailsTop+81)),p(22),wide(chosen->host),hostId.empty() ? chosen->host : hostId,panel);}
             text(dc,wide(chosen->name.empty() ? chosen->host+"'s room" : chosen->name),g.details+20,(g.detailsTop+118),g.detailsWidth()-40,64,fonts.title,ink,DT_LEFT|DT_WORDBREAK|DT_END_ELLIPSIS|DT_NOPREFIX);
             text(dc,L"Hosted by "+wide(chosen->host),g.details+20,(g.detailsTop+187),g.detailsWidth()-40,22,fonts.caption,muted,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
             fill(dc,{p(g.details+20),p((g.detailsTop+220)),p(g.right-20),p((g.detailsTop+221))},border);
@@ -2870,20 +2983,30 @@ struct Window {
         const auto style=profileStyle(profile->id);
         heading(dc,L"Your player card",contentLeft+24,266,split-contentLeft-48);
         avatar(dc,p((contentLeft+split)/2),p(340),p(42),wide(profile->name),profile->id,panel);
-        text(dc,wide(profile->name),contentLeft+24,396,split-contentLeft-48,24,fonts.brand,ink,DT_CENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
-        text(dc,style && !style->tagline.empty() ? wide(style->tagline) : L"Add a tagline to your player card.",contentLeft+24,430,split-contentLeft-48,36,fonts.caption,muted,DT_CENTER|DT_WORDBREAK|DT_END_ELLIPSIS|DT_NOPREFIX);
+        text(dc,wide(profile->name),contentLeft+24,396,split-contentLeft-48,24,fonts.brand,readableName(chosenNameColor(),ink),DT_CENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+        text(dc,style && !style->tagline.empty() ? L"\u201c"+wide(style->tagline)+L"\u201d" : L"Add a tagline to your player card.",contentLeft+24,426,split-contentLeft-48,22,fonts.caption,muted,DT_CENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+        if(const int fighter=selected(ProfileFighter);fighter>0 && unsigned(fighter)<=fighter_count)
+            text(dc,L"MAINS "+wide(fighter_names[size_t(fighter-1)]),contentLeft+24,450,split-contentLeft-48,20,fonts.label,orange,DT_CENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
         caps(dc,L"PICTURE FRAMING",contentLeft+24,640,split-contentLeft-48);
         text(dc,style && !style->imageName.empty() ? wide(style->imageName) : L"PNG, JPEG or animated GIF",contentLeft+24,728,split-contentLeft-48,40,fonts.caption,muted,DT_WORDBREAK|DT_END_ELLIPSIS|DT_NOPREFIX);
-        text(dc,L"Up to 16 MB. Your original picture is kept. Pictures and card details stay on this PC.",contentLeft+24,790,split-contentLeft-48,70,fonts.caption,muted,DT_WORDBREAK|DT_NOPREFIX);
+        const int sharing=selected(ProfileSharing);
+        text(dc,sharing==2 ? L"Up to 16 MB. Your original picture is kept. Your picture and card stay on this PC." :
+                sharing==1 ? L"Up to 16 MB. Your original picture is kept. Your picture stays on this PC; players online see the rest of your card." :
+                             L"Up to 16 MB. Your original picture is kept. Players online see a small copy of your picture and your card. Animated pictures share their first frame.",
+             contentLeft+24,790,split-contentLeft-48,90,fonts.caption,muted,DT_WORDBREAK|DT_NOPREFIX);
         heading(dc,L"Appearance & notifications",side,266,width);
-        caps(dc,L"INITIALS",side,306,(width-16)/2);
-        caps(dc,L"AVATAR ACCENT",side+(width+16)/2,306,(width-16)/2);
-        caps(dc,L"TAGLINE",side,386,width);
-        caps(dc,L"ONLINE AVAILABILITY",side,466,width);
-        caps(dc,L"INVITES & FRIEND REQUESTS",side,546,width);
-        text(dc,L"Availability is shared online. Quiet mode and Do not disturb keep requests in Notifications without desktop alerts.",side,710,width,40,fonts.caption,muted,DT_WORDBREAK|DT_NOPREFIX);
-        caps(dc,L"COPY APPEARANCE FROM ANOTHER PROFILE",side,770,width);
-        text(dc,L"Copies the picture, initials, tagline and accent. Your name, friends and alert preferences stay yours.",side+174,846,width-174,48,fonts.caption,muted,DT_WORDBREAK|DT_NOPREFIX);
+        const int half=(width-16)/2,second=side+(width+16)/2;
+        caps(dc,L"INITIALS",side,306,half);
+        caps(dc,L"AVATAR ACCENT",second,306,half);
+        caps(dc,L"NAME COLOR",side,386,half);
+        caps(dc,L"MAIN FIGHTER",second,386,half);
+        caps(dc,L"TAGLINE",side,466,width);
+        caps(dc,L"ONLINE AVAILABILITY",side,546,half);
+        caps(dc,L"INVITES & FRIEND REQUESTS",second,546,half);
+        caps(dc,L"PLAYER CARD ONLINE",side,626,width);
+        text(dc,L"Availability is shared online. Quiet mode and Do not disturb keep requests in Notifications without desktop alerts.",side,762,width,40,fonts.caption,muted,DT_WORDBREAK|DT_NOPREFIX);
+        caps(dc,L"COPY APPEARANCE FROM ANOTHER PROFILE",side,806,width);
+        text(dc,L"Copies the picture, initials, tagline, accent, name color and main fighter. Your name and friends stay yours.",side,876,width,36,fonts.caption,muted,DT_WORDBREAK|DT_NOPREFIX);
     }
     void paintSaves(HDC dc, int h, int content) {
         const int right = contentLeft + content, panelBottom = h - 64;
@@ -3642,7 +3765,7 @@ struct Window {
         const int nameLeft = cx + 30 + 16, identity = grid.x(1) - 16 - nameLeft;
         caps(dc, L"YOUR PROFILE", nameLeft, onlineProfileTop + 20, identity);
         text(dc, profile ? wide(profile->name) : std::wstring(L"No profile yet"), nameLeft, onlineProfileTop + 36, identity, 26,
-             fonts.brand, profile ? ink : muted, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+             fonts.brand, profile ? nameInk(profile->id, ink) : muted, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
         ellipse(dc, p(nameLeft + 4), p(onlineProfileTop + 74), p(3), serviceTone);
         text(dc, service, nameLeft + 14, onlineProfileTop + 65, identity - 14, 18, fonts.caption, taken ? red : online ? ink : muted,
              DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
@@ -3774,9 +3897,6 @@ struct Window {
         for (int i = 0; i < 3; ++i) {
             const int begin = contentLeft + 20 + columnsWidth * (i ? splitColumns[i - 1] : splitNameColumn) / 100 + 8;
             const int edge = contentLeft + 20 + columnsWidth * splitColumns[i] / 100 - 8;
-            // DrawText's right alignment can clip the last glyph when character
-            // spacing is enabled. Measure and draw these column labels without
-            // tracking, leaving a little room for glyph overhang at the edge.
             const int headingWidth = measure(dc, headings[i], fonts.label) + 2;
             if (headingWidth <= edge - begin)
                 text(dc, headings[i], begin, splitsTop + 46, edge - begin, 16, fonts.label, muted,
@@ -3896,7 +4016,6 @@ struct Window {
         } else {
             if (ambient.size() != pixels) {
                 fill(memory, {0,0,rect.right,buffer.frame.height}, background);
-                // The content canvas spans the window; navigation lives in the dock.
                 buffer.frame.radial(rect, rect.right * 3 / 4, -p(160), p(620), ember, 12);
                 buffer.frame.radial(rect, 0, rect.bottom + p(60), p(440), orange, 5);
                 ambient.assign(buffer.frame.pixels, buffer.frame.pixels + pixels);
@@ -4300,7 +4419,8 @@ struct Window {
             title = wide(room.name.empty() ? room.host + "'s room" : room.name);
             line = L"Hosted by " + wide(room.host);
             titleColor = same ? ink : muted;
-            avatar(dc, r.left + p(14) + radius, cy, radius, wide(room.host), room.host, ring, -1, !same);
+            const auto hostId = playerNamed(room.host);
+            avatar(dc, r.left + p(14) + radius, cy, radius, wide(room.host), hostId.empty() ? room.host : hostId, ring, -1, !same);
             if (!same) {
                 const auto value = L"V" + wide(room.version);
                 tag(dc, right, cy, value, red);
@@ -4332,6 +4452,9 @@ struct Window {
             line = statusLabel(player.status);
             if (const auto hosted = hostingLine(player.name); !hosted.empty())
                 line = hosted;
+            else if (const auto card = cardLine(player.id); !card.empty())
+                line += L" \u00b7 " + card;
+            titleColor = nameInk(player.id, titleColor);
             avatar(dc, r.left + p(14) + radius, cy, radius, title, player.id, ring, busy ? 2 : 1);
             if (player.version != application_version) {
                 const auto value = L"V" + wide(player.version);
@@ -4357,7 +4480,9 @@ struct Window {
             line = on ? statusLabel(status) : L"Offline";
             if (const auto hosted = hostingLine(friendRows[row].second); on && !hosted.empty())
                 line = hosted;
-            titleColor = on ? ink : muted;
+            else if (const auto card = cardLine(friendRows[row].first); on && !card.empty())
+                line += L" \u00b7 " + card;
+            titleColor = on ? nameInk(friendRows[row].first, ink) : muted;
             avatar(dc, r.left + p(12) + radius, cy, radius, title, friendRows[row].first, ring, on ? (busy ? 2 : 1) : 0, !on);
         }
         SetTextColor(dc, titleColor);
@@ -6073,6 +6198,7 @@ struct Window {
                 directory = std::move(opened);
                 std::cout << "[launcher:online] connected as " << settings.onlineName
                           << (directory->name_taken() ? " (name taken by another profile)" : "") << std::endl;
+                publishCard();
             } else
                 std::cout << "[launcher:online] could not connect: " << problem << std::endl;
             refreshOnlineLists();
@@ -6914,7 +7040,6 @@ struct Window {
                     if (notification == CBN_SELENDCANCEL)
                         return;
                 }
-                // Native Windows can close the popup before sending its last preview.
                 if (notification == CBN_SELCHANGE && dropdownOriginal.count(id))return;
                 if (notification == CBN_SELENDOK) {
                     const auto foreground=GetForegroundWindow();
@@ -6968,6 +7093,19 @@ struct Window {
             saveProfileImage({},{});return;
         }
         if (notification==BN_CLICKED && id==HomeProfile) {openProfile();return;}
+        if(id==ProfileNameColor && notification==CBN_SELCHANGE) {
+            int index=selected(ProfileNameColor);
+            if(index==name_color_custom) {
+                static COLORREF recent[16]{};
+                CHOOSECOLORW choice{};choice.lStructSize=sizeof(choice);choice.hwndOwner=hwnd;choice.rgbResult=shownColor(customNameColor);
+                choice.lpCustColors=recent;choice.Flags=CC_FULLOPEN|CC_RGBINIT;
+                if(ChooseColorW(&choice))customNameColor=storedColor(choice.rgbResult);
+                else index=nameColorSelection;
+                labelCustomColor(index);SendMessageW(controls[ProfileNameColor],CB_SETCURSEL,index,0);
+            }
+            nameColorSelection=index;(pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);return;
+        }
+        if((id==ProfileFighter || id==ProfileSharing) && notification==CBN_SELCHANGE) {(pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);return;}
         if(notification==BN_CLICKED && id==ProfileManage) {page=onlinePage;layout();focusControl(OnlineName);return;}
         if(notification==BN_CLICKED && id==ProfileRecover) {recoverProfile();return;}
         if(notification==BN_CLICKED && id==ProfileCopyStyle) {
@@ -6982,7 +7120,7 @@ struct Window {
             Settings next=settings;
             next.profileStyles.erase(std::remove_if(next.profileStyles.begin(),next.profileStyles.end(),[&](const auto& style){return style.id==target->id;}),next.profileStyles.end());
             next.profileStyles.push_back(std::move(copied));write_settings(settings_path(),next);settings=std::move(next);
-            cycleTimer();openProfile();status=L"Appearance copied from "+wide(source.name)+L".";error=false;return;
+            cycleTimer();openProfile();publishCard();status=L"Appearance copied from "+wide(source.name)+L".";error=false;return;
         }
         if (notification==BN_CLICKED && (id==ProfileSave || id==ProfileReset || id==ProfileCopyId)) {
             const auto profile=activeProfile();if(!profile)return;
@@ -7010,10 +7148,14 @@ struct Window {
                     updated.accent=unsigned(std::max(0,selected(ProfileAccent)));
                     updated.availability=unsigned(std::max(0,selected(ProfileAvailability)));
                     updated.pictureFit=unsigned(std::max(0,selected(ProfileFit)));updated.notifications=selected(ProfileNotifications)!=1;
+                    updated.nameColor=chosenNameColor();updated.fighter=unsigned(std::max(0,selected(ProfileFighter)));updated.sharing=unsigned(std::max(0,selected(ProfileSharing)));
                     next.profileStyles.push_back(std::move(updated));
                 }
-                write_settings(settings_path(),next);settings=std::move(next);cycleTimer();openProfile();
-                status=id==ProfileSave ? L"Profile appearance saved on this PC." : L"Profile appearance reset.";error=false;
+                write_settings(settings_path(),next);settings=std::move(next);cycleTimer();openProfile();publishCard();
+                const auto saved=profileStyle(profile->id);
+                status=id!=ProfileSave ? L"Profile appearance reset." : saved && saved->sharing==2 ? L"Profile saved. Your card stays on this PC." :
+                       directory && directory->connected() ? L"Profile saved. Players online now see your card." : L"Profile saved. Players will see your card when you go online.";
+                error=false;
             }
             (pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);return;
         }

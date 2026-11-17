@@ -70,6 +70,8 @@ struct Settings {
         std::string image, imageName;
         unsigned pictureFit = 0, availability = 0;
         bool notifications = true;
+        uint32_t nameColor = 0;
+        unsigned fighter = 0, sharing = 0;
     };
     std::vector<ProfileStyle> profileStyles;
     std::string onlineRoom, onlinePassword, onlineLobby;

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
+#include "fighters.h"
 #include "randomizer.h"
 #include "cpu_difficulty.h"
 #include <cstring>
@@ -112,13 +113,6 @@ Randomizer &active() {
     return value;
 }
 
-const char *display_name(uint8_t id) {
-    static constexpr const char *names[] = {
-        "Goku", "Kid Gohan", "Teen Gohan", "Vegeta", "Krillin", "Trunks", "Piccolo", "Tien", "Yamcha", "Raditz",
-        "Nappa", "Captain Ginyu", "Recoome", "Zarbon", "Dodoria", "Frieza", "Android 16", "Android 17", "Android 18",
-        "Android 19", "Cell", "Hercule", "Saibaman", "Cell Jr.", "Great Saiyaman", "Dr. Gero", "Goten", "Kid Trunks",
-        "Gohan", "Majin Buu", "Super Buu", "Kid Buu", "Dabura", "Videl", "Majin Vegeta", "Supreme Kai"};
-    return id < sizeof(names) / sizeof(names[0]) ? names[id] : "Unknown";
-}
+const char *display_name(uint8_t id) { return id < fighter_count ? fighter_names[id] : "Unknown"; }
 
 }
