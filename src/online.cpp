@@ -273,14 +273,73 @@ std::optional<Card> parse_card(const std::string &id, const std::string &payload
     return card;
 }
 
+std::pair<unsigned, unsigned> tag_effects(identity::Tag tag) {
+    switch (tag) {
+    case identity::Tag::developer:
+        return {1u, 5u};
+    case identity::Tag::twitch:
+        return {6u, 8u};
+    case identity::Tag::youtube:
+        return {9u, 11u};
+    case identity::Tag::tob:
+        return {12u, 14u};
+    }
+    return {0u, 0u};
+}
+
+std::optional<identity::Tag> effect_tag(unsigned effect) {
+    for (const auto tag : identity::all_tags) {
+        const auto [first, last] = tag_effects(tag);
+        if (effect >= first && effect <= last)
+            return tag;
+    }
+    return std::nullopt;
+}
+
 bool can_use_flair(const Profile &profile) {
-    return identity::claimed_tag(profile.name) == identity::Tag::developer && identity::developer_seed().has_value();
+    const auto tag = identity::claimed_tag(profile.name);
+    return tag && identity::tag_seed(*tag).has_value();
+}
+
+bool valid_channel_link(const std::string &link) {
+    static const char *const allowed[] = {"https://www.twitch.tv/", "https://twitch.tv/", "https://www.youtube.com/",
+                                          "https://youtube.com/", "https://youtu.be/", "https://kick.com/"};
+    if (link.size() > 120)
+        return false;
+    bool prefixed = false;
+    for (const char *prefix : allowed) {
+        const size_t length = std::char_traits<char>::length(prefix);
+        if (link.size() > length && link.compare(0, length, prefix) == 0)
+            prefixed = true;
+    }
+    return prefixed && std::all_of(link.begin(), link.end(), [](unsigned char c) {
+               return std::isalnum(c) || c == '/' || c == '.' || c == ':' || c == '_' || c == '-' || c == '@' || c == '?' || c == '=';
+           });
+}
+
+std::string format_perks(const Profile &profile, const std::string &link) {
+    if (!valid_channel_link(link) || !can_use_flair(profile))
+        return {};
+    const std::string name = clean(profile.name, 24), proof = identity::tag_proof(name, "perks:" + profile.id + ":" + link);
+    return proof.empty() ? std::string() : "1\t" + name + '\t' + link + '\t' + proof;
+}
+
+std::optional<std::string> parse_perks(const std::string &id, const std::string &payload) {
+    const auto f = fields(payload);
+    if (!valid_id(id) || f.size() != 4 || f[0] != "1" || f[1].size() > 24 || !valid_channel_link(f[2]))
+        return std::nullopt;
+    const auto tag = identity::claimed_tag(f[1]);
+    crypto::Signature signature{};
+    if (!tag || f[3].size() != signature.size() * 2 || !crypto::from_hex(f[3], signature.data(), signature.size()) ||
+        !identity::verify_tag_claim(*tag, f[1], "perks:" + id + ":" + f[2], signature))
+        return std::nullopt;
+    return f[2];
 }
 
 std::string format_flair(const Profile &profile, unsigned effect) {
-    if (!effect || effect > name_effect_count || !can_use_flair(profile))
+    if (!effect || effect > name_effect_count || !can_use_flair(profile) || effect_tag(effect) != identity::claimed_tag(profile.name))
         return {};
-    const std::string name = clean(profile.name, 24), proof = developer_only_proof(name, "flair:" + profile.id + ":" + std::to_string(effect));
+    const std::string name = clean(profile.name, 24), proof = identity::tag_proof(name, "flair:" + profile.id + ":" + std::to_string(effect));
     if (proof.empty())
         return {};
     return "1\t" + std::to_string(effect) + '\t' + name + '\t' + proof;
@@ -288,14 +347,18 @@ std::string format_flair(const Profile &profile, unsigned effect) {
 
 std::optional<unsigned> parse_flair(const std::string &id, const std::string &payload) {
     const auto f = fields(payload);
-    if (!valid_id(id) || f.size() != 4 || f[0] != "1" || f[1].size() != 1 || f[1][0] < '1' ||
-        f[1][0] > char('0' + name_effect_count) || f[2].size() > 24 || identity::claimed_tag(f[2]) != identity::Tag::developer)
+    if (!valid_id(id) || f.size() != 4 || f[0] != "1" || f[1].empty() || f[1].size() > 2 || f[1][0] == '0' ||
+        !std::all_of(f[1].begin(), f[1].end(), [](unsigned char c) { return std::isdigit(c) != 0; }) || f[2].size() > 24)
+        return std::nullopt;
+    const unsigned effect = unsigned(std::stoul(f[1]));
+    const auto tag = identity::claimed_tag(f[2]);
+    if (effect > name_effect_count || !tag || effect_tag(effect) != tag)
         return std::nullopt;
     crypto::Signature signature{};
     if (f[3].size() != signature.size() * 2 || !crypto::from_hex(f[3], signature.data(), signature.size()) ||
-        !identity::verify_claim(f[2], "flair:" + id + ":" + f[1], signature))
+        !identity::verify_tag_claim(*tag, f[2], "flair:" + id + ":" + f[1], signature))
         return std::nullopt;
-    return unsigned(f[1][0] - '0');
+    return effect;
 }
 
 std::string format_invite(const Profile &profile, const Invite &invite, const std::string &target) {
@@ -512,6 +575,30 @@ void Directory::set_flair(unsigned effect) {
         client_.publish(std::string(prefix) + "flair/" + profile_.id, payload, true);
 }
 
+void Directory::set_link(const std::string &link) {
+    const auto payload = format_perks(profile_, link);
+    {
+        std::lock_guard lock(mutex_);
+        const std::string shown = payload.empty() ? std::string() : link;
+        if (link_ == shown && linkSent_)
+            return;
+        link_ = shown;
+        linkSent_ = true;
+        if (shown.empty())
+            links_.erase(profile_.id);
+        else
+            links_[profile_.id] = shown;
+    }
+    if (client_.connected() && !nameTaken_)
+        client_.publish(std::string(prefix) + "perks/" + profile_.id, payload, true);
+}
+
+std::string Directory::link(const std::string &id) const {
+    std::lock_guard lock(mutex_);
+    const auto found = links_.find(id);
+    return found == links_.end() ? std::string() : found->second;
+}
+
 unsigned Directory::flair(const std::string &id) const {
     std::lock_guard lock(mutex_);
     const auto found = flairs_.find(id);
@@ -540,6 +627,7 @@ bool Directory::open(const std::string &server, const Profile &profile, const st
     client_.subscribe(std::string(prefix) + "names/+");
     client_.subscribe(std::string(prefix) + "cards/+");
     client_.subscribe(std::string(prefix) + "flair/+");
+    client_.subscribe(std::string(prefix) + "perks/+");
     const std::string mine = name_topic(profile_.name);
     for (int i = 0; i < 30; ++i) {
         {
@@ -572,6 +660,8 @@ void Directory::close() {
     cardSent_ = false;
     flairs_.clear();
     flairSent_ = false;
+    links_.clear();
+    linkSent_ = false;
 }
 
 void Directory::set_status(const std::string &status) {
@@ -725,6 +815,16 @@ void Directory::received(const std::string &topic, const std::string &payload) {
                 flairs_.erase(id);
             else if (auto effect = parse_flair(id, payload); effect && (flairs_.size() < 200 || flairs_.count(id)))
                 flairs_[id] = *effect;
+            else
+                return;
+        } else if (rest.rfind("perks/", 0) == 0) {
+            const std::string id = rest.substr(6);
+            if (id == profile_.id)
+                return;
+            if (payload.empty())
+                links_.erase(id);
+            else if (auto link = parse_perks(id, payload); link && (links_.size() < 200 || links_.count(id)))
+                links_[id] = *link;
             else
                 return;
         } else if (rest.rfind("cards/", 0) == 0) {

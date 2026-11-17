@@ -32,8 +32,11 @@ that tag's key file once. After that any profile can carry the tag with any name
 **Rename** beside **New profile** renames the active profile and keeps its tag:
 `[TTV] Biscuit` can become `[TTV] Joint` or `[TTV] Slender` by typing only the new
 name. Friends, picture and stats stay with the profile. Without the key the tag is
-removed, and other players' games check each tag's signature. Animated name
-effects stay [DEV] only.
+removed, and other players' games check each tag's signature. Each tag has its
+own animated name effects (see **Profile appearance**).
+
+The [TTV] and [YT] keys were replaced. Key files issued before this change no
+longer work in new builds; ask the developer for the new file.
 
 ## Finding a match
 
@@ -146,12 +149,24 @@ short tagline, an optional **Name color** and a **Main fighter**. Appearance is
 saved separately for each profile on this PC and does not change the public
 profile name, ID or private key.
 
-The **[DEV]** profile, and no other tag, also has animated name effects in the same list: rainbow
-cycle, rainbow wave, golden shimmer, ki pulse and silver frost. They appear only
-when the developer key is installed and the [DEV] profile is active. Each effect is
-signed with that key and checked by every launcher before it is shown, so
-other profiles cannot use or fake them. They always animate; with **Reduced
-motion** on they move slowly instead.
+Tagged profiles also get animated name effects in the same list. Each tag has
+its own set, and a profile can only use its own tag's effects:
+
+- **[DEV]:** rainbow cycle, rainbow wave, golden shimmer, ki pulse, silver frost.
+- **[TTV]:** stream pulse, live glow, purple wave.
+- **[YT]:** red shimmer, subscribe pulse, spotlight.
+- **[ToB]:** ember, storm, toxic wave.
+
+The effects appear only when that tag's key is installed and a profile with the
+tag is active. The tag label is drawn in the tag's color and the avatar gets an
+animated ring in the effect's colors. Each effect is signed with the tag's key
+and checked by every launcher before it is shown, so other profiles cannot use
+or fake them. They always animate; with **Reduced motion** on they move slowly
+instead.
+
+Tagged profiles can also add a **Channel link** (a Twitch, YouTube or Kick
+`https://` address). It is signed with the tag's key, and other players see an
+**Open channel** button on the player's profile.
 
 Name colors come in presets, or choose **Custom color…** to pick any color. Very
 dark or very light colors are adjusted so the name stays readable. **Theme
@@ -207,7 +222,10 @@ On Play, the Friends panel shows **All friends**, **Online friends**,
 Choose **Customize profile** on Online or Play, then **Choose picture…** to
 select a PNG, JPEG or animated GIF from your PC. You can also drop a picture
 onto the Profile page. GIFs animate on Profile, Play and Online. Pictures are
-displayed in a circle; choose **Fill the circle** to crop, or **Fit the whole picture** to keep its edges. Initials are used when no picture is set.
+displayed in a circle. **Picture framing** chooses **Fill the circle** (crop to
+the center), **Fit the whole picture** (keep its edges), **Fill, keep the top**
+(crop but keep the top, good for faces) or **Zoom in**. Changing it saves right
+away and also updates the shared card. Initials are used when no picture is set.
 
 Pictures may be up to 16 MB, with up to 300 GIF frames. The launcher copies
 files to `%LOCALAPPDATA%\OpenKai2\profiles\images`. Removing or replacing a

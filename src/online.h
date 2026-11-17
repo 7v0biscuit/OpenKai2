@@ -8,6 +8,7 @@
 #include <vector>
 #include "ed25519.h"
 #include "mqtt.h"
+#include "dev_identity.h"
 
 namespace openkai2::online {
 
@@ -51,7 +52,10 @@ struct Card {
     uint64_t revision = 0;
 };
 inline constexpr size_t card_picture_limit = 9000;
-inline constexpr unsigned name_effect_count = 5;
+inline constexpr unsigned name_effect_count = 14;
+std::optional<identity::Tag> effect_tag(unsigned effect);
+std::pair<unsigned, unsigned> tag_effects(identity::Tag tag);
+bool valid_channel_link(const std::string &link);
 
 struct Profile {
     crypto::Seed seed{};
@@ -73,6 +77,8 @@ std::optional<FriendMessage> parse_friend(const std::string &target, const std::
 std::string format_card(const Profile &profile, const Card &card);
 std::optional<Card> parse_card(const std::string &id, const std::string &payload);
 std::string format_flair(const Profile &profile, unsigned effect);
+std::string format_perks(const Profile &profile, const std::string &link);
+std::optional<std::string> parse_perks(const std::string &id, const std::string &payload);
 std::optional<unsigned> parse_flair(const std::string &id, const std::string &payload);
 bool can_use_flair(const Profile &profile);
 std::string to_base64(const std::string &bytes);
@@ -96,6 +102,8 @@ class Directory {
     uint64_t card_revision(const std::string &id) const;
     void set_flair(unsigned effect);
     unsigned flair(const std::string &id) const;
+    void set_link(const std::string &link);
+    std::string link(const std::string &id) const;
     std::vector<Room> rooms() const;
     std::vector<Player> players() const;
     std::optional<Room> room(const std::string &id) const;
@@ -124,6 +132,9 @@ class Directory {
     std::map<std::string, unsigned> flairs_;
     unsigned flair_ = 0;
     bool flairSent_ = false;
+    std::map<std::string, std::string> links_;
+    std::string link_;
+    bool linkSent_ = false;
     std::map<std::string, std::pair<std::string, std::string>> names_;
     bool nameTaken_ = false;
     Notify notify_;

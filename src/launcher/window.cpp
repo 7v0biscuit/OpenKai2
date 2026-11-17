@@ -311,7 +311,7 @@ enum Id {
     OpenNotifications=1210,
     ProfileFit=1220, ProfileNotifications, ProfileCopyFrom, ProfileCopyStyle, ProfileRecover, ProfileManage, LauncherMotion, LauncherHints, ProfileAvailability, ProfileNameColor, ProfileFighter, ProfileSharing, ProfileFriendAlerts,
     OpenHelp=1240,NextDockTab,PreviousDockTab,PageTop,PageBottom,SaveCurrent,UndoCurrent,ToggleLauncher,CopySetup,OpenIsoFolder,
-    ProfileAbout=1300, ProfileRegion, ProfilePlaystyle, ProfilePreview, PlayerAction, PlayerFriend, PlayerBlock, PlayerCopyId, PlayerProfile, ProfileRename
+    ProfileAbout=1300, ProfileRegion, ProfilePlaystyle, ProfilePreview, PlayerAction, PlayerFriend, PlayerBlock, PlayerCopyId, PlayerProfile, ProfileRename, ProfileLink, PlayerChannel
 };
 constexpr int pageCount = 8, onlinePage = 1, speedrunPage = 2, modsPage = 3, savesPage = 4, settingsPage = 5, updatesPage = 6,
               controlsPage = 7, importPage = 8, overlayPage = 9, tabsPage = 10, colorsPage = 11,
@@ -895,6 +895,7 @@ struct Window {
     std::string connectedProfile, onlineProblem;
     std::vector<online::Room> roomRows, availableRooms;
     std::vector<std::pair<std::string, std::string>> playerRows, friendRows;
+    std::vector<std::wstring> shownFriendTexts, shownPlayerTexts;
     std::map<std::string, int> roomPings;
     std::vector<online::Player> playerDetails;
     std::vector<std::string> friendStatus;
@@ -1126,7 +1127,7 @@ struct Window {
             settingsHeight=grid.height();
         }
         return std::max(page == helpPage ? 940 : page == overlayPage ? 880 : page == onlinePage ? 740 : page == controlsPage ? controlsHeight :
-                        page == settingsPage ? settingsHeight : page == profilePage ? 1110 : page == playerPage ? 760 : page == 0 ? (width<1100 ? 1040 : 740) : page == savesPage ? 780 : 680, pageVisibleHeight());
+                        page == settingsPage ? settingsHeight : page == profilePage ? (heldTag() ? 1200 : 1110) : page == playerPage ? 760 : page == 0 ? (width<1100 ? 1040 : 740) : page == savesPage ? 780 : 680, pageVisibleHeight());
     }
     void scrollPage(int value) {
         scrollGliding=false;
@@ -1399,6 +1400,7 @@ struct Window {
         SendMessageW(controls[ProfileRegion],CB_SETCURSEL,style ? style->region : 0,0);
         SendMessageW(controls[ProfilePlaystyle],CB_SETCURSEL,style ? style->playstyle : 0,0);
         SetWindowTextW(controls[ProfileAbout],style ? wide(style->about).c_str() : L"");
+        SetWindowTextW(controls[ProfileLink],style ? wide(style->link).c_str() : L"");
         selectNameColor(style ? style->nameColor : 0);
         refreshEffectChoices(style);
         page=profilePage;layout();(pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);
@@ -1420,7 +1422,7 @@ struct Window {
         found->notifications=selected(ProfileNotifications)!=1;
         found->nameColor=chosenNameColor();found->fighter=unsigned(std::max(0,selected(ProfileFighter)));found->sharing=unsigned(std::max(0,selected(ProfileSharing)));
         found->friendAlerts=selected(ProfileFriendAlerts)!=1;found->nameEffect=chosenEffect();
-        found->about=utf8(trimmed(textOf(ProfileAbout)));found->region=unsigned(std::max(0,selected(ProfileRegion)));found->playstyle=unsigned(std::max(0,selected(ProfilePlaystyle)));
+        found->about=utf8(trimmed(textOf(ProfileAbout)));if(heldTag())found->link=utf8(trimmed(textOf(ProfileLink)));found->region=unsigned(std::max(0,selected(ProfileRegion)));found->playstyle=unsigned(std::max(0,selected(ProfilePlaystyle)));
         write_settings(settings_path(),next);settings=std::move(next);cycleTimer();openProfile();publishCard();
         status=file.empty() ? L"Profile picture removed. Your original file was kept." : found->sharing==0 ? L"Profile picture saved. Players online see it on your card." : L"Profile picture saved on this PC.";
         error=false;
@@ -1482,17 +1484,111 @@ struct Window {
         return color;
     }
     COLORREF nameInk(const std::string& id,COLORREF fallback) {return readableName(nameColorOf(id),fallback);}
-    static constexpr const wchar_t* name_effect_names[]={L"Rainbow cycle",L"Rainbow wave",L"Golden shimmer",L"Ki pulse",L"Silver frost"};
-    bool effectPainted=false;
-    bool developerProfile() const {const auto profile=activeProfile();return profile && online::can_use_flair(*profile);}
+    static constexpr const wchar_t* name_effect_names[]={L"",L"Rainbow cycle",L"Rainbow wave",L"Golden shimmer",L"Ki pulse",L"Silver frost",
+        L"Stream pulse",L"Live glow",L"Purple wave",L"Red shimmer",L"Subscribe pulse",L"Spotlight",L"Ember",L"Storm",L"Toxic wave"};
+    bool effectPainted=false,pageEffectPainted=false,drawingRow=false,recordingMotion=false;
+    struct Motion {RECT rect;std::vector<uint32_t> under;std::function<void(HDC)> draw;};
+    std::vector<Motion> motions;
+    bool motionTick=false;
+    bool paintMotionsInPlace(const RECT& update,const RECT& client) {
+        if(!std::exchange(motionTick,false) || motions.empty() || pageDirty || painting==false || paintedPage!=page || paintedScroll!=pageScroll ||
+           paintedSize!=std::pair<int,int>{client.right,client.bottom} || !buffer.dc || !buffer.frame.pixels)return false;
+        const int visibleHeight=std::max(1,unscale(client.bottom)-shellHeader-shellDockReserve);
+        const LONG top=p(shellHeader),bottom=p(shellHeader+visibleHeight),shift=top-p(pageScroll);
+        RECT bounds{};bool any=false;
+        for(const auto& motion:motions) {
+            const RECT shown{motion.rect.left,motion.rect.top+shift,motion.rect.right,motion.rect.bottom+shift};
+            if(shown.bottom<=top || shown.top>=bottom)continue;
+            if(shown.top<top || shown.bottom>bottom || shown.bottom>buffer.frame.height)return false;
+            if(!any)bounds=shown;else UnionRect(&bounds,&bounds,&shown);
+            any=true;
+        }
+        if(!any || update.left<bounds.left || update.top<bounds.top || update.right>bounds.right || update.bottom>bounds.bottom)return false;
+        GdiFlush();
+        for(const auto& motion:motions) {
+            const RECT shown{motion.rect.left,motion.rect.top+shift,motion.rect.right,motion.rect.bottom+shift};
+            if(shown.bottom<=top || shown.top>=bottom)continue;
+            const size_t width=size_t(motion.rect.right-motion.rect.left);
+            for(LONG y=shown.top;y<shown.bottom;++y)
+                std::copy_n(motion.under.begin()+ptrdiff_t(size_t(y-shown.top)*width),width,
+                            buffer.frame.pixels+size_t(y)*size_t(buffer.frame.width)+size_t(shown.left));
+        }
+        for(const auto& motion:motions) {
+            if(motion.rect.bottom+shift<=top || motion.rect.top+shift>=bottom)continue;
+            const int saved=SaveDC(buffer.dc);
+            SetViewportOrgEx(buffer.dc,0,shift,nullptr);
+            IntersectClipRect(buffer.dc,motion.rect.left,motion.rect.top,motion.rect.right,motion.rect.bottom);
+            motion.draw(buffer.dc);
+            RestoreDC(buffer.dc,saved);
+        }
+        return true;
+    }
+    void recordMotion(HDC dc,RECT r,std::function<void(HDC)> draw) {
+        if(!recordingMotion || dc!=buffer.dc || !buffer.frame.pixels)return;
+        r.left=std::max(0L,r.left);r.top=std::max(0L,r.top);
+        r.right=std::min(LONG(buffer.frame.width),r.right);r.bottom=std::min(LONG(buffer.frame.height),r.bottom);
+        if(r.right<=r.left || r.bottom<=r.top)return;
+        GdiFlush();
+        Motion motion{r,{},std::move(draw)};
+        const size_t width=size_t(r.right-r.left);
+        motion.under.reserve(width*size_t(r.bottom-r.top));
+        for(LONG y=r.top;y<r.bottom;++y) {
+            const auto row=buffer.frame.pixels+size_t(y)*size_t(buffer.frame.width)+size_t(r.left);
+            motion.under.insert(motion.under.end(),row,row+width);
+        }
+        motions.push_back(std::move(motion));
+    }
+    void replayMotions() {
+        if(motions.empty())return;
+        GdiFlush();
+        for(const auto& motion:motions) {
+            const size_t width=size_t(motion.rect.right-motion.rect.left);
+            for(LONG y=motion.rect.top;y<motion.rect.bottom;++y)
+                std::copy_n(motion.under.begin()+ptrdiff_t(size_t(y-motion.rect.top)*width),width,
+                            buffer.frame.pixels+size_t(y)*size_t(buffer.frame.width)+size_t(motion.rect.left));
+        }
+        for(const auto& motion:motions) {
+            const int saved=SaveDC(buffer.dc);
+            IntersectClipRect(buffer.dc,motion.rect.left,motion.rect.top,motion.rect.right,motion.rect.bottom);
+            motion.draw(buffer.dc);
+            RestoreDC(buffer.dc,saved);
+        }
+    }
+    std::optional<identity::Tag> heldTag() const {
+        const auto profile=activeProfile();if(!profile)return std::nullopt;
+        const auto now=GetTickCount64();
+        if(heldTagChecked && heldTagId==profile->id && now-heldTagTime<3000)return heldTagValue;
+        heldTagChecked=true;heldTagId=profile->id;heldTagTime=now;
+        heldTagValue=online::can_use_flair(*profile) ? identity::claimed_tag(profile->name) : std::nullopt;
+        return heldTagValue;
+    }
+    bool developerProfile() const {return heldTag().has_value();}
+    static COLORREF tagColor(identity::Tag tag) {
+        switch(tag) {
+        case identity::Tag::developer:return RGB(255,140,40);
+        case identity::Tag::twitch:return RGB(170,116,255);
+        case identity::Tag::youtube:return RGB(255,72,72);
+        case identity::Tag::tob:return RGB(60,214,186);
+        }
+        return RGB(255,140,40);
+    }
     unsigned effectOf(const std::string& id) {
         if(id.empty())return 0;
         const auto profile=activeProfile();
         if(profile && profile->id==id) {
-            if(!online::can_use_flair(*profile))return 0;
-            const auto style=profileStyle(id);return style ? style->nameEffect : 0u;
+            const auto tag=heldTag();if(!tag)return 0;
+            const auto style=profileStyle(id);
+            return style && online::effect_tag(style->nameEffect)==tag ? style->nameEffect : 0u;
         }
         return directory ? directory->flair(id) : 0u;
+    }
+    std::string channelOf(const std::string& id) {
+        const auto profile=activeProfile();
+        if(profile && profile->id==id) {
+            const auto style=profileStyle(id);
+            return heldTag() && style && online::valid_channel_link(style->link) ? style->link : std::string();
+        }
+        return directory ? directory->link(id) : std::string();
     }
     static COLORREF hueColor(double hue,double saturation) {
         hue=std::fmod(hue,360.0);if(hue<0)hue+=360.0;
@@ -1502,7 +1598,7 @@ struct Window {
         return RGB(int((r+m)*255),int((g+m)*255),int((b+m)*255));
     }
     void keepProfileMotion() {
-        effectPainted=true;
+        effectPainted=true;if(!drawingRow)pageEffectPainted=true;
         if(!imageAnimationTicking && hwnd){imageAnimationTicking=true;SetTimer(hwnd,3,33,nullptr);}
     }
     static COLORREF effectColor(unsigned effect,size_t index,size_t count,double now) {
@@ -1514,26 +1610,60 @@ struct Window {
         case 3:return mix(RGB(255,190,40),RGB(255,252,228),sweep(0.55));
         case 4:return mix(RGB(255,112,28),RGB(255,238,176),int((std::sin(t*3.4)+1.0)*127.5));
         case 5:return mix(RGB(140,186,255),RGB(246,250,255),sweep(0.45));
+        case 6:return mix(RGB(145,70,255),RGB(238,226,255),int((std::sin(t*3.0)+1.0)*127.5));
+        case 7:return mix(RGB(255,70,96),RGB(255,242,244),int(std::pow(std::max(0.0,std::sin(t*4.6)),6.0)*255.0));
+        case 8:return hueColor(275.0+38.0*std::sin(t*2.2-i*0.5),0.62);
+        case 9:return mix(RGB(255,44,44),RGB(255,246,246),sweep(0.55));
+        case 10:return mix(RGB(206,24,36),RGB(255,112,112),int((std::sin(t*3.6)+1.0)*127.5));
+        case 11:return mix(RGB(236,236,240),RGB(255,52,52),sweep(0.5));
+        case 12:return mix(RGB(255,86,18),RGB(255,224,96),int(std::clamp(0.5+0.5*std::sin(t*9.0+i*1.7)*std::sin(t*5.3+i*0.9),0.0,1.0)*255.0));
+        case 13:return mix(RGB(86,148,255),RGB(248,252,255),int(std::exp(-std::fmod(t+i*0.045,2.2)*14.0)*255.0));
+        case 14:return hueColor(112.0+30.0*std::sin(t*2.4-i*0.45),0.7);
         default:return ink;
         }
     }
     void drawName(HDC dc,const std::wstring& value,RECT r,UINT flags,const std::string& id,COLORREF color,unsigned effect=~0u) {
         if(effect==~0u)effect=effectOf(id);
         SetBkMode(dc,TRANSPARENT);
-        if(!effect || value.empty()) {SetTextColor(dc,color);DrawTextW(dc,value.c_str(),int(value.size()),&r,flags);return;}
-        keepProfileMotion();
-        const double now=profileClock();
-        std::vector<int> widths;int total=0;
-        for(const wchar_t c:value){SIZE size{};GetTextExtentPoint32W(dc,&c,1,&size);widths.push_back(size.cx);total+=size.cx;}
+        const auto tag=value.empty() ? std::nullopt : identity::claimed_tag(utf8(value));
+        size_t tagEnd=0;
+        if(tag && value.front()==L'[') {
+            const auto label=wide(identity::tag_label(*tag));
+            if(value.size()>=label.size() && _wcsnicmp(value.c_str(),label.c_str(),label.size())==0)tagEnd=label.size();
+        }
+        if(!effect && !tagEnd) {SetTextColor(dc,color);DrawTextW(dc,value.c_str(),int(value.size()),&r,flags);return;}
+        if(effect) {
+            keepProfileMotion();
+            if(recordingMotion) {
+                const auto font=static_cast<HFONT>(GetCurrentObject(dc,OBJ_FONT));
+                recordMotion(dc,{r.left-p(4),r.top-p(2),r.right+p(8),r.bottom+p(2)},[this,value,r,flags,id,color,effect,font](HDC target) {
+                    const auto old=SelectObject(target,font);
+                    const bool recording=std::exchange(recordingMotion,false);
+                    drawName(target,value,r,flags,id,color,effect);
+                    recordingMotion=recording;
+                    SelectObject(target,old);
+                });
+            }
+        }
+        const double now=effect ? profileClock() : 0.0;
+        std::wstring shown=value;
+        const auto extent=[&](const std::wstring& text,size_t count){SIZE size{};GetTextExtentPoint32W(dc,text.c_str(),int(count),&size);return int(size.cx);};
+        const int room=r.right-r.left;
+        if(extent(shown,shown.size())>room && room>0) {
+            while(shown.size()>1 && extent(shown+L"\u2026",shown.size()+1)>room)shown.pop_back();
+            shown+=L"\u2026";
+        }
+        const int total=extent(shown,shown.size());
         int x=(flags&DT_CENTER) ? (r.left+r.right-total)/2 : (flags&DT_RIGHT) ? r.right-total : r.left;
         x=std::max<int>(x,r.left);
         const UINT single=(flags&~UINT(DT_CENTER|DT_RIGHT|DT_END_ELLIPSIS|DT_WORDBREAK))|DT_LEFT|DT_NOCLIP|DT_SINGLELINE;
-        for(size_t i=0;i<value.size();++i) {
-            if(x+widths[i]>r.right+p(2))break;
-            RECT cell{x,r.top,x+widths[i]+p(6),r.bottom};
-            SetTextColor(dc,readableName(storedColor(effectColor(effect,i,value.size(),now)),ink));
-            DrawTextW(dc,&value[i],1,&cell,single);
-            x+=widths[i];
+        const COLORREF labelTone=tag ? readableName(storedColor(tagColor(*tag)),ink) : color;
+        for(size_t i=0;i<shown.size();++i) {
+            const int left=x+extent(shown,i),right=x+extent(shown,i+1);
+            RECT cell{left,r.top,right+p(6),r.bottom};
+            const COLORREF tone=i<tagEnd ? labelTone : effect ? readableName(storedColor(effectColor(effect,i,shown.size(),now)),ink) : color;
+            SetTextColor(dc,tone);
+            DrawTextW(dc,&shown[i],1,&cell,single);
         }
     }
     void nameText(HDC dc,const std::wstring& value,int x,int y,int w,int h,HFONT font,COLORREF color,UINT flags,const std::string& id,unsigned effect=~0u) {
@@ -1542,16 +1672,22 @@ struct Window {
         SelectObject(dc,old);
     }
     unsigned chosenEffect() const {
-        const int index=selected(ProfileNameColor);
-        return developerProfile() && index>name_color_custom ? unsigned(index-name_color_custom) : 0u;
+        const int index=selected(ProfileNameColor);const auto tag=heldTag();
+        if(!tag || index<=name_color_custom)return 0u;
+        const auto [first,last]=online::tag_effects(*tag);
+        const unsigned effect=first+unsigned(index-name_color_custom-1);
+        return effect<=last ? effect : 0u;
     }
     void refreshEffectChoices(const Settings::ProfileStyle* style) {
         const auto list=controls[ProfileNameColor];
         while(SendMessageW(list,CB_GETCOUNT,0,0)>name_color_custom+1)SendMessageW(list,CB_DELETESTRING,name_color_custom+1,0);
-        if(!developerProfile())return;
-        for(const auto* label:name_effect_names)SendMessageW(list,CB_ADDSTRING,0,reinterpret_cast<LPARAM>((std::wstring(L"[DEV] ")+label).c_str()));
-        if(style && style->nameEffect && style->nameEffect<=online::name_effect_count) {
-            SendMessageW(list,CB_SETCURSEL,name_color_custom+int(style->nameEffect),0);nameColorSelection=name_color_custom+int(style->nameEffect);
+        const auto tag=heldTag();if(!tag)return;
+        const auto [first,last]=online::tag_effects(*tag);
+        for(unsigned effect=first;effect<=last;++effect)
+            SendMessageW(list,CB_ADDSTRING,0,reinterpret_cast<LPARAM>((wide(identity::tag_label(*tag))+L" "+name_effect_names[effect]).c_str()));
+        if(style && style->nameEffect>=first && style->nameEffect<=last) {
+            const int index=name_color_custom+1+int(style->nameEffect-first);
+            SendMessageW(list,CB_SETCURSEL,index,0);nameColorSelection=index;
         }
     }
     std::wstring cardLine(const std::string& id) {
@@ -1682,7 +1818,7 @@ struct Window {
         try{write_settings(settings_path(),next);settings=std::move(next);publishCard();}
         catch(const std::exception& problem){std::cout<<"[launcher:online] "<<problem.what()<<std::endl;}
     }
-    struct ShownCard {bool shared=false;online::Card card;const speedrun::SplitImage* image=nullptr;bool fit=false;};
+    struct ShownCard {bool shared=false;online::Card card;const speedrun::SplitImage* image=nullptr;unsigned fit=0;};
     ShownCard shownCard(const std::string& id) {
         ShownCard out;
         const auto profile=activeProfile();
@@ -1694,7 +1830,7 @@ struct Window {
                 out.card.accent=style->accent;out.card.name_color=style->nameColor;out.card.initials=style->initials;out.card.tagline=style->tagline;
                 out.card.fighter=style->fighter;out.card.region=style->region;out.card.playstyle=style->playstyle;out.card.about=style->about;
                 out.card.matches=style->matches;out.card.since=style->since;
-                if(style->sharing==0){out.image=profileImage(style->image);out.fit=style->pictureFit==1;}
+                if(style->sharing==0){out.image=profileImage(style->image);out.fit=style->pictureFit;}
             }
             return out;
         }
@@ -1763,7 +1899,7 @@ struct Window {
         if(isFriend(viewedPlayer))tags.emplace_back(L"FRIEND",green);
         if(isBlocked(viewedPlayer))tags.emplace_back(L"BLOCKED",red);
         if(recentSeen(viewedPlayer))tags.emplace_back(L"PLAYED BEFORE",sky);
-        if(player && player->version!=application_version)tags.emplace_back(L"V"+wide(player->version),red);
+        if(player && player->version!=application_version)tags.emplace_back(player->version.empty() ? std::wstring(L"OTHER VERSION") : L"V"+wide(player->version),red);
         if(!tags.empty()) {
             int total=0;for(const auto& tagValue:tags)total+=unscale(tagWidth(dc,tagValue.first))+6;
             int x=(contentLeft+split)/2+total/2;
@@ -1788,7 +1924,7 @@ struct Window {
         row(2,L"Online matches",shown.shared ? std::to_wstring(shown.card.matches) : L"Not shown");
         row(3,L"Member since",shown.shared && shown.card.since>0 ? dateText(shown.card.since) : L"Not shown");
         row(4,L"Matches together",own ? std::wstring(L"\u2014") : recentSeen(viewedPlayer) ? playedText(recentSeen(viewedPlayer)) : std::wstring(L"Not yet"));
-        row(5,L"OpenKai2 version",player ? wide(player->version) : std::wstring(L"Offline"));
+        row(5,L"OpenKai2 version",!player ? std::wstring(L"Offline") : player->version.empty() ? std::wstring(L"Unknown") : wide(player->version));
         row(6,L"Profile ID",wide(viewedPlayer.substr(0,16))+L"\u2026");
         text(dc,L"Right-click a name in Players, Friends or Rooms to open a profile. Ctrl+K finds players by name or profile ID.",side,630,width,40,fonts.caption,faint,DT_WORDBREAK|DT_NOPREFIX);
     }
@@ -1952,6 +2088,7 @@ struct Window {
         }
         const auto style=profileStyle(profile->id);
         directory->set_flair(style ? style->nameEffect : 0u);
+        directory->set_link(style && online::valid_channel_link(style->link) ? style->link : std::string());
         if(style && style->sharing==2){directory->set_card(std::nullopt);return;}
         online::Card card;
         if(style) {
@@ -1964,7 +2101,7 @@ struct Window {
                 if(found==cardThumbnails.end()) {
                     std::string bytes;
                     if(const auto image=profileImage(style->image)) {
-                        try{const auto jpeg=speedrun::encode_thumbnail(*image,style->pictureFit==1,storedColor(tone)&0xffffffu,online::card_picture_limit);bytes.assign(jpeg.begin(),jpeg.end());}
+                        try{const auto jpeg=speedrun::encode_thumbnail(*image,style->pictureFit,storedColor(tone)&0xffffffu,online::card_picture_limit);bytes.assign(jpeg.begin(),jpeg.end());}
                         catch(const std::exception& error){std::cout<<"[launcher:profile-card] "<<error.what()<<std::endl;}
                     }
                     found=cardThumbnails.emplace(key,std::move(bytes)).first;
@@ -1995,17 +2132,18 @@ struct Window {
         }
         return out.empty() ? std::wstring(L"?") : out;
     }
-    void paintRoundPhoto(HDC dc,const speedrun::SplitImage& image,int cx,int cy,int radius,bool fit) {
+    void paintRoundPhoto(HDC dc,const speedrun::SplitImage& image,int cx,int cy,int radius,unsigned mode) {
         const int side=std::max(2,radius*2);
         const auto& frame=image.frames[image.frame_at(allowMotion() ? GetTickCount64() : 0)].rgba;
-        const double scale=fit ? std::min(double(side)/image.width,double(side)/image.height) : std::max(double(side)/image.width,double(side)/image.height);
+        const auto framing=speedrun::picture_framing(image.width,image.height,unsigned(side),mode);
+        const bool fit=framing.fit;const double scale=framing.scale;
         std::vector<unsigned char> pixels(size_t(side)*side*4);
         for(int y=0;y<side;++y)for(int x=0;x<side;++x) {
             const double coverage=std::clamp(radius+.5-std::hypot(x+.5-radius,y+.5-radius),0.0,1.0);
             if(coverage<=0)continue;
             if(fit && (std::abs(x+.5-side/2.0)>image.width*scale/2 || std::abs(y+.5-side/2.0)>image.height*scale/2))continue;
-            const double sx=std::clamp((x+.5-side/2.0)/scale+image.width/2.0-.5,0.0,double(image.width-1));
-            const double sy=std::clamp((y+.5-side/2.0)/scale+image.height/2.0-.5,0.0,double(image.height-1));
+            const double sx=std::clamp((x+.5-side/2.0)/scale+framing.centerX-.5,0.0,double(image.width-1));
+            const double sy=std::clamp((y+.5-side/2.0)/scale+framing.centerY-.5,0.0,double(image.height-1));
             const unsigned x0=unsigned(sx),y0=unsigned(sy),x1=std::min(x0+1,image.width-1),y1=std::min(y0+1,image.height-1);
             const double fx=sx-x0,fy=sy-y0;
             const unsigned xx[]={x0,x1,x0,x1},yy[]={y0,y0,y1,y1};
@@ -2035,13 +2173,28 @@ struct Window {
         const auto remote=style || (own && own->id==key) ? nullptr : remoteCard(key);
         const unsigned accentIndex=style ? style->accent : remote && remote->card.accent<accent_count ? remote->card.accent : 0u;
         if((style || remote) && accentIndex==rgb_accent)keepProfileMotion();
+        if(recordingMotion && dc==buffer.dc && (((style || remote) && accentIndex==rgb_accent) || effectOf(key))) {
+            const int outer=radius+std::max(2,radius/5)+std::max(1,radius/10)+p(3);
+            recordMotion(dc,{cx-outer,cy-outer,cx+outer+1,cy+outer+1},[this,cx,cy,radius,name,key,ring,presence,dim](HDC target) {
+                const bool recording=std::exchange(recordingMotion,false);
+                avatar(target,cx,cy,radius,name,key,ring,presence,dim);
+                recordingMotion=recording;
+            });
+        }
         const auto accent=style || remote ? (accentIndex==rgb_accent ? colorOf(cycling_accent(uint64_t(profileClock()))) : accentIndex ? colorOf(accents[accentIndex].color) : orange) : own && own->id==key ? orange : avatarTone(key);
         const COLORREF tone = dim ? mix(accent, panel, 150) : accent;
-        ellipse(dc, cx, cy, radius + std::max(1, radius / 8), ring);
+        if (const unsigned effect = effectOf(key)) {
+            keepProfileMotion();
+            const double now = profileClock();
+            const int band = std::max(2, radius / 5);
+            ellipse(dc, cx, cy, radius + band + std::max(1, radius / 10), mix(ring, effectColor(effect, 0, 8, now), 70));
+            ellipse(dc, cx, cy, radius + band, readableName(storedColor(effectColor(effect, size_t(now / 120.0) % 8, 8, now)), ink));
+        } else
+            ellipse(dc, cx, cy, radius + std::max(1, radius / 8), ring);
         ellipse(dc, cx, cy, radius, tone);
         const auto image=style ? profileImage(style->image) : remote && !remote->image.frames.empty() ? &remote->image : nullptr;
         if(image) {
-            paintRoundPhoto(dc,*image,cx,cy,std::max(1,radius-std::max(1,p(2))),style && style->pictureFit==1);
+            paintRoundPhoto(dc,*image,cx,cy,std::max(1,radius-std::max(1,p(2))),style ? style->pictureFit : 0u);
         } else {
         auto old = SelectObject(dc, radius >= p(18) ? fonts.strong : fonts.label);
         SetBkMode(dc, TRANSPARENT);
@@ -2187,7 +2340,7 @@ struct Window {
     void conceal(int id) {
         if (planning) {
             if (auto found = planning->find(id); found != planning->end())
-                found->second.visible = false;
+                found->second.visible = found->second.wanted = false;
         } else
             ShowWindow(controls.at(id), SW_HIDE);
     }
@@ -2289,6 +2442,8 @@ struct Window {
         hint(ProfileFighter,L"Show your main fighter on your player card.");
         hint(ProfileSharing,L"Choose what players online see: your picture, accent, initials, tagline, name color and main fighter.");
         hint(ProfileRename,L"Rename the active profile to the name typed beside it. A [TTV], [YT] or [ToB] tag stays with the new name.");
+        hint(PlayerChannel,L"Open this player's Twitch, YouTube or Kick channel in your browser.");
+        hint(ProfileLink,L"Your Twitch, YouTube or Kick link. Only profiles with a [DEV], [TTV], [YT] or [ToB] key can share one.");
         hint(PlayerProfile,L"Open the selected player's profile. You can also right-click any name.");
         hint(ProfilePreview,L"See your player card the way other players see it.");
         hint(ProfileAbout,L"Up to 160 characters. Shown on your player profile.");
@@ -2400,6 +2555,7 @@ struct Window {
                                                           {PlayerBlock,L"Block"},
                                                           {PlayerCopyId,L"Copy profile ID"},
                                                           {PlayerProfile,L"Profile"},
+                                                          {PlayerChannel,L"Open channel"},
                                                           {ProfileSave, L"Save profile"},
                                                           {ProfileReset, L"Use defaults"},
                                                           {ProfileCopyId, L"Copy profile ID"},
@@ -2528,8 +2684,10 @@ struct Window {
         {std::vector<std::wstring> names{L"Not shown"};for(const auto* name:region_names)names.push_back(wide(name));combo(ProfileRegion,names,0);}
         {std::vector<std::wstring> names{L"Not shown"};for(const auto* name:playstyle_names)names.push_back(wide(name));combo(ProfilePlaystyle,names,0);}
         edit(ProfileAbout,L"A few words about you, your mains or when you play");
+        edit(ProfileLink,L"https://www.twitch.tv/yourname or a YouTube or Kick link");
+        SendMessageW(controls[ProfileLink],EM_SETLIMITTEXT,120,0);
         SendMessageW(controls[ProfileAbout],EM_SETLIMITTEXT,160,0);
-        combo(ProfileFit,{L"Fill the circle",L"Fit the whole picture"},0);
+        combo(ProfileFit,{L"Fill the circle",L"Fit the whole picture",L"Fill, keep the top",L"Zoom in"},0);
         combo(ProfileNotifications,{L"Sound & desktop alerts",L"Quiet — launcher inbox only"},0);
         combo(ProfileCopyFrom,{},0);
         edit(ProfileInitials,L"Up to two letters");edit(ProfileTagline,L"A short tagline");
@@ -2872,6 +3030,7 @@ struct Window {
             if(!own)position(PlayerFriend,contentLeft+24,520,buttonWidth,36);
             position(PlayerCopyId,contentLeft+24,own ? 520 : 564,buttonWidth,36);
             if(!own)position(PlayerBlock,contentLeft+24,608,buttonWidth,36);
+            if(!channelOf(viewedPlayer).empty())position(PlayerChannel,contentLeft+24,own ? 564 : 652,buttonWidth,36);
         } else if (page == 0) {
             const LoungeLayout g(content,h);
             position(HomeFriendScope,g.friendsLeft+16,154,g.friendsWidth-32,32);
@@ -2939,6 +3098,7 @@ struct Window {
             position(ProfileFit,contentLeft+24,664,split-contentLeft-48,40);
             position(ProfileCopyFrom,side,990,width-176,40);
             position(ProfileCopyStyle,side+width-160,990,160,40);
+            if(heldTag())position(ProfileLink,side,1124,width,40);
         } else if (page == savesPage) {
             position(BackToPlay, right - 150, 28, 150, 34);
             const int panelBottom = h - 64;
@@ -3536,7 +3696,13 @@ struct Window {
         const int right=contentLeft+content,split=contentLeft+std::clamp(content/3,260,340),side=split+44,width=right-side-24;
         panelBox(dc,contentLeft,124,right,226);
         heading(dc,L"Active profile",contentLeft+24,136,content-48);
-        panelBox(dc,contentLeft,246,split,1076);panelBox(dc,split+20,246,right,1076);
+        const bool perks=heldTag().has_value();
+        panelBox(dc,contentLeft,246,split,perks ? 1176 : 1076);panelBox(dc,split+20,246,right,perks ? 1176 : 1076);
+        if(perks) {
+            const auto tag=*heldTag();const int perkSide=split+44,perkWidth=right-perkSide-24;
+            caps(dc,wide(identity::tag_label(tag))+L" CHANNEL LINK",perkSide,1100,perkWidth,readableName(storedColor(tagColor(tag)),ink));
+            text(dc,L"Players see an Open channel button on your card",perkSide+perkWidth/3,1098,perkWidth-perkWidth/3,18,fonts.caption,faint,DT_RIGHT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+        }
         const auto profile=activeProfile();if(!profile)return;
         const auto style=profileStyle(profile->id);
         heading(dc,L"Your player card",contentLeft+24,266,split-contentLeft-48);
@@ -3810,13 +3976,33 @@ struct Window {
             const auto image=style ? profileImages.find(style->image) : profileImages.end();
             animated=animated || (image!=profileImages.end() && image->second.frames.size()>1);
         }
-        const bool effects=effectPainted;effectPainted=false;
+        const bool effects=effectPainted,pageEffects=pageEffectPainted;effectPainted=pageEffectPainted=false;
         if (!effects && (!animated || !allowMotion())) {KillTimer(hwnd,3);imageAnimationTicking=false;return;}
-        if (dropdownOpen() || IsIconic(hwnd) || (!appActive && !effects)) {effectPainted=effects;return;}
-        (pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);
+        if (dropdownOpen() || IsIconic(hwnd) || (!appActive && !effects)) {effectPainted=effects;pageEffectPainted=pageEffects;return;}
+        const bool full=(animated && allowMotion()) || (pageEffects && motions.empty());
+        if (full) (pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);
+        else if (pageEffects) {
+            RECT client{};GetClientRect(hwnd,&client);
+            const int visibleHeight=std::max(1,unscale(client.bottom)-shellHeader-shellDockReserve);
+            const LONG top=p(shellHeader),bottom=p(shellHeader+visibleHeight),shift=top-p(pageScroll);
+            motionTick=true;
+            for (const auto& motion:motions) {
+                RECT area{motion.rect.left,std::max(top,motion.rect.top+shift),motion.rect.right,std::min(bottom,motion.rect.bottom+shift)};
+                if (area.bottom>area.top) InvalidateRect(hwnd,&area,FALSE);
+            }
+        }
         if (effects)
-            for (const int list : {PlayerList, FriendList})
-                if (controls.count(list) && IsWindowVisible(controls[list])) InvalidateRect(controls[list],nullptr,FALSE);
+            for (const int list : {PlayerList, FriendList}) {
+                if (!controls.count(list) || !IsWindowVisible(controls[list])) continue;
+                const auto& rows = list == PlayerList ? playerRows : friendRows;
+                const auto top = SendMessageW(controls[list], LB_GETTOPINDEX, 0, 0);
+                for (size_t row = size_t(std::max<LRESULT>(0, top)); row < rows.size() && row < size_t(std::max<LRESULT>(0, top)) + 24; ++row) {
+                    RECT item{};
+                    if (SendMessageW(controls[list], LB_GETITEMRECT, row, reinterpret_cast<LPARAM>(&item)) != LB_ERR &&
+                        (effectOf(rows[row].first) || [&] { const auto remote = remoteCard(rows[row].first); return remote && remote->card.accent == rgb_accent; }()))
+                        InvalidateRect(controls[list], &item, FALSE);
+                }
+            }
         const int id = page == overlayPage ? SplitStyleList : SplitList;
         if (controls.count(id) && IsWindowVisible(controls[id])) InvalidateRect(controls[id],nullptr,FALSE);
     }
@@ -4546,8 +4732,15 @@ struct Window {
         if (rect.right <= 0 || rect.bottom <= 0) {
             return;
         }
+        const RECT& update = ps.rcPaint;
+        if (paintMotionsInPlace(update, rect)) {
+            if (update.right > update.left && update.bottom > update.top)
+                BitBlt(dc, update.left, update.top, update.right - update.left, update.bottom - update.top, buffer.dc, update.left, update.top, SRCCOPY);
+            return;
+        }
         const auto glowing = renderFrame(rect);
-        BitBlt(dc, 0, 0, rect.right, rect.bottom, buffer.dc, 0, 0, SRCCOPY);
+        if (update.right > update.left && update.bottom > update.top)
+            BitBlt(dc, update.left, update.top, update.right - update.left, update.bottom - update.top, buffer.dc, update.left, update.top, SRCCOPY);
         if (paintedPage != page || paintedScroll != pageScroll || paintedSize != std::pair<int, int>{rect.right, rect.bottom} || paintedGlow != glowing) {
             paintedPage = page;
             paintedScroll = pageScroll;
@@ -4589,7 +4782,9 @@ struct Window {
                 if(_wcsicmp(kind,L"EDIT")==0 && !(GetWindowLongPtrW(control,GWL_STYLE)&ES_MULTILINE))
                     editFrame(memory,id);
             }
+            replayMotions();
         } else {
+            motions.clear();recordingMotion=true;
             if (ambient.size() != pixels) {
                 fill(memory, {0,0,rect.right,buffer.frame.height}, background);
                 buffer.frame.radial(rect, rect.right * 3 / 4, -p(160), p(620), ember, 12);
@@ -4648,6 +4843,7 @@ struct Window {
                 if(_wcsicmp(kind,L"EDIT")==0 && !(GetWindowLongPtrW(control,GWL_STYLE)&ES_MULTILINE))
                     editFrame(memory,id);
             }
+            recordingMotion=false;
             GdiFlush();
             pageCache.assign(buffer.frame.pixels, buffer.frame.pixels + pixels);
             pageCachePage = page;
@@ -4850,6 +5046,8 @@ struct Window {
         }
         const bool chosen = (item.itemState & ODS_SELECTED) != 0;
         const bool list = item.CtlType == ODT_LISTBOX;
+        std::optional<Canvas> rowCanvas;
+        if (r.right > r.left && r.bottom > r.top) {rowCanvas.emplace(item.hDC, r);dc = rowCanvas->dc;}
         const bool friends = item.hwndItem == controls[FriendList];
         const COLORREF base = friends ? panel : list ? field : panel;
         fill(dc, r, base);
@@ -4857,8 +5055,12 @@ struct Window {
             fill(dc, r, mix(base, orange, 26));
             fill(dc, {r.left, r.top + p(list ? 8 : 6), r.left + p(3), r.bottom - p(list ? 8 : 6)}, orange);
         }
-        if (item.itemID != UINT(-1) && drawOnlineRow(dc, item, r, chosen, base))
-            return;
+        if (item.itemID != UINT(-1)) {
+            drawingRow=true;
+            const bool online=drawOnlineRow(dc, item, r, chosen, base);
+            drawingRow=false;
+            if (online) return;
+        }
         std::wstring value;
         if (item.itemID != UINT(-1)) {
             const UINT getLength = list ? LB_GETTEXTLEN : CB_GETLBTEXTLEN, getText = list ? LB_GETTEXT : CB_GETLBTEXT;
@@ -5000,7 +5202,7 @@ struct Window {
             const auto hostId = playerNamed(room.host);
             avatar(dc, r.left + p(14) + radius, cy, radius, wide(room.host), hostId.empty() ? room.host : hostId, ring, -1, !same);
             if (!same) {
-                const auto value = L"V" + wide(room.version);
+                const auto value = room.version.empty() ? std::wstring(L"OTHER VERSION") : L"V" + wide(room.version);
                 tag(dc, right, cy, value, red);
                 right -= tagWidth(dc, value) + p(6);
             } else {
@@ -5035,7 +5237,7 @@ struct Window {
             titleColor = nameInk(player.id, titleColor);
             avatar(dc, r.left + p(14) + radius, cy, radius, title, player.id, ring, busy ? 2 : 1);
             if (player.version != application_version) {
-                const auto value = L"V" + wide(player.version);
+                const auto value = player.version.empty() ? std::wstring(L"OTHER VERSION") : L"V" + wide(player.version);
                 tag(dc, right, cy, value, red);
                 right -= tagWidth(dc, value) + p(6);
             }
@@ -6545,13 +6747,24 @@ struct Window {
         const auto last = value.find_last_not_of(L" \t");
         return first == std::wstring::npos ? std::wstring() : value.substr(first, last - first + 1);
     }
+    mutable std::string activeName, activeKey;
+    mutable std::optional<online::Profile> activeValue;
+    mutable bool heldTagChecked=false;
+    mutable std::string heldTagId;
+    mutable ULONGLONG heldTagTime=0;
+    mutable std::optional<identity::Tag> heldTagValue;
     std::optional<online::Profile> activeProfile() const {
         for (size_t i = 0; i < settings.onlineProfiles.size() && i < settings.onlineKeys.size(); ++i)
             if (settings.onlineProfiles[i] == settings.onlineName) {
+                if (activeValue && activeName == settings.onlineName && activeKey == settings.onlineKeys[i])
+                    return activeValue;
                 crypto::Seed seed{};
                 if (!crypto::from_hex(settings.onlineKeys[i], seed.data(), seed.size()))
                     return std::nullopt;
-                return online::make_profile(seed, settings.onlineName);
+                activeValue = online::make_profile(seed, settings.onlineName);
+                activeName = settings.onlineName;
+                activeKey = settings.onlineKeys[i];
+                return activeValue;
             }
         return std::nullopt;
     }
@@ -6704,6 +6917,7 @@ struct Window {
             return false;
         }
         const auto installed = identity::install_tag_key(file);
+        heldTagChecked = false;
         if (installed != tag) {
             status = installed ? L"That key is for " + wide(identity::tag_label(*installed)) + L", not " + label + L". It was added." :
                                  L"That file is not an OpenKai2 name tag key.";
@@ -7109,15 +7323,25 @@ struct Window {
             const auto found = std::find_if(players.begin(), players.end(), [&](const auto &player) { return player.id == row.first; });
             friendStatus.push_back(found == players.end() ? std::string() : found->status.empty() ? std::string("online") : found->status);
         }
-        SendMessageW(controls[FriendList], WM_SETREDRAW, FALSE, 0);
-        SendMessageW(controls[FriendList], LB_RESETCONTENT, 0, 0);
-        for (size_t i = 0; i < friendRows.size(); ++i) {
-            const auto label = (friendLabels[i].first ? L"On · " : L"Off · ") + friendLabels[i].second;
-            SendMessageW(controls[FriendList], LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
-            if (friendRows[i].first == selectedFriend)
-                SendMessageW(controls[FriendList], LB_SETCURSEL, WPARAM(i), 0);
+        std::vector<std::wstring> friendTexts;
+        for (size_t i = 0; i < friendRows.size(); ++i)
+            friendTexts.push_back((friendLabels[i].first ? L"On · " : L"Off · ") + friendLabels[i].second + L"\t" + wide(friendRows[i].first));
+        if (friendTexts != shownFriendTexts || SendMessageW(controls[FriendList], LB_GETCOUNT, 0, 0) != LRESULT(friendRows.size())) {
+            shownFriendTexts = friendTexts;
+            const auto top = SendMessageW(controls[FriendList], LB_GETTOPINDEX, 0, 0);
+            SendMessageW(controls[FriendList], WM_SETREDRAW, FALSE, 0);
+            SendMessageW(controls[FriendList], LB_RESETCONTENT, 0, 0);
+            for (size_t i = 0; i < friendRows.size(); ++i) {
+                const auto label = friendTexts[i].substr(0, friendTexts[i].find(L'\t'));
+                SendMessageW(controls[FriendList], LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
+                if (friendRows[i].first == selectedFriend)
+                    SendMessageW(controls[FriendList], LB_SETCURSEL, WPARAM(i), 0);
+            }
+            if (top > 0 && size_t(top) < friendRows.size())
+                SendMessageW(controls[FriendList], LB_SETTOPINDEX, WPARAM(top), 0);
+            SendMessageW(controls[FriendList], WM_SETREDRAW, TRUE, 0);
         }
-        SendMessageW(controls[FriendList], WM_SETREDRAW, TRUE, 0);
+        InvalidateRect(controls[FriendList], nullptr, FALSE);
         playerDetails.clear();
         auto others = browse_players(players,settings.onlinePlayerFilter!=0,query,[&](const auto& id){return isFriend(id);});
         std::stable_sort(others.begin(), others.end(), [&](const online::Player &a, const online::Player &b) {
@@ -7137,19 +7361,26 @@ struct Window {
             labels.push_back(wide(player.name) + (player.impostor ? L" (name not verified)" : L"") + L" · " + wide(player.status) +
                              (player.version == application_version ? L"" : L" · version " + wide(player.version)));
         }
-        SendMessageW(controls[PlayerList], WM_SETREDRAW, FALSE, 0);
-        SendMessageW(controls[PlayerList], LB_RESETCONTENT, 0, 0);
-        int playerSelection = -1;
-        for (size_t i = 0; i < labels.size(); ++i) {
-            if (playerRows[i].first == selectedPlayer)
-                playerSelection = int(i);
-            SendMessageW(controls[PlayerList], LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(labels[i].c_str()));
+        std::vector<std::wstring> playerTexts;
+        for (size_t i = 0; i < labels.size(); ++i)
+            playerTexts.push_back(labels[i] + L"\t" + wide(playerRows[i].first));
+        if (playerTexts != shownPlayerTexts || SendMessageW(controls[PlayerList], LB_GETCOUNT, 0, 0) != LRESULT(labels.size())) {
+            shownPlayerTexts = playerTexts;
+            SendMessageW(controls[PlayerList], WM_SETREDRAW, FALSE, 0);
+            SendMessageW(controls[PlayerList], LB_RESETCONTENT, 0, 0);
+            int playerSelection = -1;
+            for (size_t i = 0; i < labels.size(); ++i) {
+                if (playerRows[i].first == selectedPlayer)
+                    playerSelection = int(i);
+                SendMessageW(controls[PlayerList], LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(labels[i].c_str()));
+            }
+            if (playerSelection >= 0)
+                SendMessageW(controls[PlayerList], LB_SETCURSEL, WPARAM(playerSelection), 0);
+            for(size_t i=0;i<playerRows.size();++i)
+                if(playerRows[i].first==playerAnchor)SendMessageW(controls[PlayerList],LB_SETTOPINDEX,i,0);
+            SendMessageW(controls[PlayerList], WM_SETREDRAW, TRUE, 0);
         }
-        if (playerSelection >= 0)
-            SendMessageW(controls[PlayerList], LB_SETCURSEL, WPARAM(playerSelection), 0);
-        for(size_t i=0;i<playerRows.size();++i)
-            if(playerRows[i].first==playerAnchor)SendMessageW(controls[PlayerList],LB_SETTOPINDEX,i,0);
-        SendMessageW(controls[PlayerList], WM_SETREDRAW, TRUE, 0);
+        InvalidateRect(controls[PlayerList], nullptr, FALSE);
         if (selectedPlayerId().empty() || !isFriend(selectedPlayerId()))
             SetWindowTextW(controls[AddFriend], L"Add friend");
         else
@@ -7839,6 +8070,16 @@ struct Window {
             nameColorSelection=index;(pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);return;
         }
         if((id==ProfileFighter || id==ProfileSharing) && notification==CBN_SELCHANGE) {(pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);return;}
+        if(id==ProfileFit && notification==CBN_SELCHANGE) {
+            const auto profile=activeProfile();if(!profile)return;
+            Settings next=settings;
+            auto found=std::find_if(next.profileStyles.begin(),next.profileStyles.end(),[&](const auto& style){return style.id==profile->id;});
+            if(found==next.profileStyles.end()){next.profileStyles.push_back({profile->id,{},{},0,{},{}});found=std::prev(next.profileStyles.end());}
+            found->pictureFit=unsigned(std::clamp(selected(ProfileFit),0,int(speedrun::framing_modes)-1));
+            try{write_settings(settings_path(),next);settings=std::move(next);}catch(const std::exception& problem){status=wide(problem.what());error=true;return;}
+            publishCard();status=L"Picture framing updated.";error=false;
+            (pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);return;
+        }
         if(notification==BN_CLICKED && id==ProfileManage) {page=onlinePage;layout();focusControl(OnlineName);return;}
         if(notification==BN_CLICKED && id==ProfileRecover) {recoverProfile();return;}
         if(notification==BN_CLICKED && id==ProfileCopyStyle) {
@@ -7884,6 +8125,14 @@ struct Window {
                     updated.pictureFit=unsigned(std::max(0,selected(ProfileFit)));updated.notifications=selected(ProfileNotifications)!=1;
                     updated.nameColor=chosenNameColor();updated.fighter=unsigned(std::max(0,selected(ProfileFighter)));updated.sharing=unsigned(std::max(0,selected(ProfileSharing)));
                     updated.friendAlerts=selected(ProfileFriendAlerts)!=1;updated.nameEffect=chosenEffect();
+                    if(heldTag()) {
+                        const auto link=utf8(trimmed(textOf(ProfileLink)));
+                        if(!link.empty() && !online::valid_channel_link(link)) {
+                            status=L"Channel links must start with https://www.twitch.tv/, https://www.youtube.com/, https://youtu.be/ or https://kick.com/.";
+                            error=true;return;
+                        }
+                        updated.link=link;
+                    }
                     updated.about=utf8(trimmed(textOf(ProfileAbout)));updated.region=unsigned(std::max(0,selected(ProfileRegion)));updated.playstyle=unsigned(std::max(0,selected(ProfilePlaystyle)));
                     next.profileStyles.push_back(std::move(updated));
                 } else if (const auto old=profileStyle(profile->id)) {
@@ -8113,6 +8362,15 @@ struct Window {
         }
         if (notification == BN_CLICKED && id == ProfilePreview) {
             if (const auto profile = activeProfile()) openPlayer(profile->id, profile->name);
+            return;
+        }
+        if (notification == BN_CLICKED && id == PlayerChannel && page == playerPage) {
+            const auto link = channelOf(viewedPlayer);
+            if (online::valid_channel_link(link)) {
+                const auto result = reinterpret_cast<INT_PTR>(ShellExecuteW(hwnd, L"open", wide(link).c_str(), nullptr, nullptr, SW_SHOWNORMAL));
+                status = result > 32 ? L"Opening " + wide(link) : std::wstring(L"Could not open the channel link.");
+                error = result <= 32;
+            }
             return;
         }
         if (notification == BN_CLICKED && page == playerPage && (id == PlayerAction || id == PlayerFriend || id == PlayerBlock || id == PlayerCopyId)) {

@@ -75,7 +75,7 @@ struct Settings {
         unsigned fighter = 0, sharing = 0;
         bool friendAlerts = true;
         unsigned nameEffect = 0;
-        std::string about;
+        std::string about, link;
         unsigned region = 0, playstyle = 0;
         uint32_t matches = 0;
         int64_t since = 0;

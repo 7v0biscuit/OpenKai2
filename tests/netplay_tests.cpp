@@ -291,8 +291,21 @@ void service_format() {
     require(on::format_flair(owner, 1).empty() && !on::can_use_flair(owner), "only the developer key can publish a name effect");
     require(!on::can_use_flair(on::make_profile(on::new_seed(), "[TTV] Bulma")) &&
                 on::format_flair(on::make_profile(on::new_seed(), "[YT] Bulma"), 2).empty(),
-            "stream tags cannot use name effects");
+            "a tag without its key cannot use name effects");
     const std::string forgedProof(128, 'a');
+    require(on::effect_tag(1) == openkai2::identity::Tag::developer && on::effect_tag(6) == openkai2::identity::Tag::twitch &&
+                on::effect_tag(11) == openkai2::identity::Tag::youtube && on::effect_tag(14) == openkai2::identity::Tag::tob &&
+                !on::effect_tag(15) && !on::effect_tag(0),
+            "each tag owns its own name effects");
+    require(on::valid_channel_link("https://www.twitch.tv/example") && on::valid_channel_link("https://youtu.be/abc_123") &&
+                !on::valid_channel_link("http://www.twitch.tv/example") && !on::valid_channel_link("https://evil.example/") &&
+                !on::valid_channel_link("https://www.twitch.tv/a b") && !on::valid_channel_link("https://www.twitch.tv/"),
+            "only Twitch, YouTube and Kick links are shared");
+    require(!on::parse_flair(owner.id, "1\t6\t[DEV] Biscuit\t" + forgedProof) && !on::parse_flair(owner.id, "1\t2\t[TTV] Bulma\t" + forgedProof),
+            "an effect from another tag's set is refused");
+    require(!on::parse_perks(owner.id, "1\t[TTV] Bulma\thttps://www.twitch.tv/x\t" + forgedProof) &&
+                on::format_perks(owner, "https://www.twitch.tv/x").empty(),
+            "channel links need a signed tag");
     require(!on::parse_flair(owner.id, "1\t1\t[DEV] Biscuit\t" + forgedProof), "a forged name effect is refused");
     require(!on::parse_flair(owner.id, "1\t1\tBulma\t" + forgedProof), "a name effect without the [DEV] tag is refused");
     require(!on::parse_flair(owner.id, "1\t9\t[DEV] Biscuit\t" + forgedProof) && !on::parse_flair("bad", "1\t1\t[DEV] Biscuit\t" + forgedProof),

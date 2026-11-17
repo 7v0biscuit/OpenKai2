@@ -247,7 +247,18 @@ std::vector<uint8_t> encode_jpeg(const std::vector<uint8_t>&, unsigned, float) {
 
 SplitImage decode_image_bytes(const std::vector<uint8_t>& bytes) { return decode_image(bytes); }
 
-std::vector<uint8_t> thumbnail_pixels(const SplitImage& image, unsigned side, bool fit, uint32_t background) {
+Framing picture_framing(unsigned width, unsigned height, unsigned side, unsigned mode) {
+    Framing out{1.0, width / 2.0, height / 2.0, mode == 1};
+    if (!width || !height || !side)
+        return out;
+    const double fill = std::max(double(side) / width, double(side) / height);
+    out.scale = mode == 1 ? std::min(double(side) / width, double(side) / height) : mode == 3 ? fill * 1.4 : fill;
+    if (mode == 2)
+        out.centerY = std::min(height / 2.0, side / 2.0 / out.scale);
+    return out;
+}
+
+std::vector<uint8_t> thumbnail_pixels(const SplitImage& image, unsigned side, unsigned mode, uint32_t background) {
     std::vector<uint8_t> rgb(size_t(side) * side * 3);
     const uint8_t back[3] = {uint8_t(background >> 16u), uint8_t(background >> 8u), uint8_t(background)};
     for (size_t i = 0; i < rgb.size(); ++i)
@@ -255,12 +266,12 @@ std::vector<uint8_t> thumbnail_pixels(const SplitImage& image, unsigned side, bo
     if (image.frames.empty() || !image.width || !image.height || !side)
         return rgb;
     const auto& source = image.frames.front().rgba;
-    const double scale = fit ? std::min(double(side) / image.width, double(side) / image.height)
-                             : std::max(double(side) / image.width, double(side) / image.height);
+    const auto frame = picture_framing(image.width, image.height, side, mode);
+    const double scale = frame.scale;
     for (unsigned y = 0; y < side; ++y)
         for (unsigned x = 0; x < side; ++x) {
-            const double cx = (x + 0.5 - side / 2.0) / scale + image.width / 2.0,
-                         cy = (y + 0.5 - side / 2.0) / scale + image.height / 2.0;
+            const double cx = (x + 0.5 - side / 2.0) / scale + frame.centerX,
+                         cy = (y + 0.5 - side / 2.0) / scale + frame.centerY;
             if (cx < 0 || cy < 0 || cx >= image.width || cy >= image.height)
                 continue;
             const double reach = std::max(0.5, 0.5 / scale);
@@ -286,10 +297,10 @@ std::vector<uint8_t> thumbnail_pixels(const SplitImage& image, unsigned side, bo
     return rgb;
 }
 
-std::vector<uint8_t> encode_thumbnail(const SplitImage& image, bool fit, uint32_t background, size_t limit) {
+std::vector<uint8_t> encode_thumbnail(const SplitImage& image, unsigned mode, uint32_t background, size_t limit) {
     for (const unsigned side : {96u, 72u, 56u})
         for (const float quality : {0.86f, 0.72f, 0.55f}) {
-            auto bytes = encode_jpeg(thumbnail_pixels(image, side, fit, background), side, quality);
+            auto bytes = encode_jpeg(thumbnail_pixels(image, side, mode, background), side, quality);
             if (bytes.empty())
                 return {};
             if (bytes.size() <= limit)
