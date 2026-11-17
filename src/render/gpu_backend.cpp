@@ -122,9 +122,8 @@ struct GpuRasterBackend::Impl {
     std::array<uint16_t,512> clut{};std::array<uint32_t,2> cbp{};uint32_t clutGeneration=0;
     std::array<uint32_t,8> loadedPaletteKey{};Pages loadedPalettePages;bool loadedPaletteValid=false;
     std::vector<uint32_t> commands,palette,activeTiles;
-    gpu::Command pendingCommand{};
     std::array<std::vector<uint32_t>,65536> tileCommands;
-    std::map<std::array<uint32_t,3>,uint32_t> paletteOffsets;
+    std::map<std::array<uint32_t,3>,uint32_t> paletteOffsets;std::array<uint32_t,3> lastPaletteKey{};uint32_t lastPaletteOffset=0;bool lastPaletteValid=false;
     std::array<uint32_t,5> target{},sourceKey{};Pages sourcePages;bool sourceValid=false;size_t references=0;
     std::array<uint32_t,12> footprintKey{};int covered[4]{};bool footprintValid=false;
     struct Shadow{uint32_t base=0,width=0,psm=0;bool used=false,valid=false;uint64_t touched=0;Pages pages,stale;};
@@ -173,7 +172,21 @@ struct GpuRasterBackend::Impl {
         if(hdHashes.size()+done.size()>16384u)hdHashes.clear();
         for(const auto& [key,hash]:done){hdHashes.emplace(key,hash);hdInFlight.erase(key);}
     }
-    struct HdMemo{std::array<uint64_t,3> key{};uint64_t versions=0,result=0;Pages pages;std::vector<uint16_t> list;bool valid=false;};
+    struct HdMemo{std::array<uint64_t,3> key{};uint64_t versions=0,result=0,clock=0;Pages pages;std::vector<uint16_t> list;bool valid=false;};uint64_t versionClock=1;
+    struct VersionChange{uint64_t clock=0;Pages pages;};std::array<VersionChange,32> versionChanges{};
+    void versionsChanged(const Pages& pages){
+        for(unsigned p=0;p<gpu::PageCount;++p)if(pages[p])++pageVersion[p];
+        ++versionClock;versionChanges[versionClock%versionChanges.size()]={versionClock,pages};
+    }
+    bool unchangedSince(uint64_t clock,const Pages& pages)const{
+        if(clock==versionClock)return true;
+        if(versionClock-clock>=versionChanges.size())return false;
+        for(uint64_t c=clock+1;c<=versionClock;++c){
+            const auto& change=versionChanges[c%versionChanges.size()];
+            if(change.clock!=c || (change.pages&pages).any())return false;
+        }
+        return true;
+    }
     std::array<HdMemo,64> hdMemo{};
     static constexpr size_t hdDecodePerFrame=256u*1024u;size_t hdDecodeBudget=hdDecodePerFrame;
     uint64_t pageContent(unsigned p){
@@ -207,9 +220,10 @@ struct GpuRasterBackend::Impl {
             for(unsigned p=0;p<gpu::PageCount;++p)if(memo.pages[p])memo.list.push_back(uint16_t(p));
         }
         if(!textureCurrent(t.psm,t.tbp0,width,w,h,memo.pages,memoKey[0]))return 0u;
+        if(memo.result && !(memo.pages&cpuDirty).any() && unchangedSince(memo.clock,memo.pages)){memo.clock=versionClock;return memo.result;}
         bool dirty=false;const uint64_t versions=versionsOf(memo.list,dirty);
-        if(memo.result && !dirty && versions==memo.versions)return memo.result;
-        const auto remember=[&](uint64_t result){memo.result=dirty ? 0u : result;memo.versions=versions;return result;};
+        if(memo.result && !dirty && versions==memo.versions){memo.clock=versionClock;return memo.result;}
+        const auto remember=[&](uint64_t result){memo.result=dirty ? 0u : result;memo.versions=versions;memo.clock=versionClock;return result;};
         uint64_t stamp=1469598103934665603ull;
         for(const auto p:memo.list){stamp^=pageContent(p);stamp*=1099511628211ull;}
         uint64_t colors=0u;
@@ -415,7 +429,7 @@ struct GpuRasterBackend::Impl {
     void upload(){
         if(!cpuDirty.any())return;
         invalidateShadows(cpuDirty);
-        for(unsigned p=0;p<gpu::PageCount;++p)if(cpuDirty[p])++pageVersion[p];
+        versionsChanged(cpuDirty);
         struct Segment{unsigned offset;std::vector<uint8_t> bytes;};std::vector<Segment> segments;
         for(unsigned page=0;page<gpu::PageCount;){
             if(!cpuDirty[page]){++page;continue;}const unsigned first=page;while(page<gpu::PageCount && cpuDirty[page])++page;
@@ -465,7 +479,7 @@ struct GpuRasterBackend::Impl {
             if(!seedDepth.empty())r->compute->hires_seed(seedDepth,seedX,seedDepthY);
             if(groups)r->compute->raster_hires(cmd,bins,refs,colors,hiresParams,groups);
             else r->compute->raster(cmd,bins,refs,colors);
-        });commands.clear();commands.reserve(commandWords);palette.clear();activeTiles.clear();paletteOffsets.clear();references=0u;batchWrites.reset();batchSources.reset();batchDepth=false;
+        });commands.clear();commands.reserve(commandWords);palette.clear();activeTiles.clear();paletteOffsets.clear();lastPaletteValid=false;references=0u;batchWrites.reset();batchSources.reset();batchDepth=false;
     }
     void materialize(const Pages& requested,WaitReason reason=waitOther){
         footprintValid=false;
@@ -473,8 +487,7 @@ struct GpuRasterBackend::Impl {
         if(!resources || !pages.any())return;submit();
         statistics.readbacks+=pages.count()*gpu::PageBytes;totalReadbacks.fetch_add(pages.count()*gpu::PageBytes,std::memory_order_relaxed);
         RuntimeWorkTimer wait(RuntimeWork::gpuWait);WaitTimer timed{reason};
-        device->invoke([r=resources,ranges=pageRanges(pages),ram=vram](gpu::Host&){r->compute->read(ranges,ram);});gpuDirty&=~pages;++blockEpoch;
-        for(unsigned p=0;p<gpu::PageCount;++p)if(pages[p])++pageVersion[p];
+        device->invoke([r=resources,ranges=pageRanges(pages),ram=vram](gpu::Host&){r->compute->read(ranges,ram);});gpuDirty&=~pages;++blockEpoch;versionsChanged(pages);
     }
     void materialize(WaitReason reason=waitOther){Pages all;all.set();materialize(all,reason);}
     bool transferFormat(unsigned psm)const{const unsigned bpp=lut[(psm&63u)*8u+3u];return lut[(psm&63u)*8u] && (bpp==4u || bpp==8u || bpp==16u || bpp==24u || bpp==32u);}
@@ -495,8 +508,9 @@ struct GpuRasterBackend::Impl {
     uint32_t paletteFor(const GSDrawState& state){
         const auto& t=state.context.tex0;
         const std::array<uint32_t,3> key={clutGeneration,uint32_t(t.psm)|(uint32_t(t.cpsm)<<8u)|(uint32_t(t.csm)<<16u)|(uint32_t(t.csa)<<24u),uint32_t(state.texa.ta0)|(uint32_t(state.texa.ta1)<<8u)|(uint32_t(state.texa.aem)<<16u)};
-        if(auto i=paletteOffsets.find(key);i!=paletteOffsets.end())return i->second;
-        const auto start=uint32_t(palette.size());paletteOffsets.emplace(key,start);
+        if(lastPaletteValid && key==lastPaletteKey)return lastPaletteOffset;
+        if(auto i=paletteOffsets.find(key);i!=paletteOffsets.end()){lastPaletteKey=key;lastPaletteOffset=i->second;lastPaletteValid=true;return i->second;}
+        const auto start=uint32_t(palette.size());paletteOffsets.emplace(key,start);lastPaletteKey=key;lastPaletteOffset=start;lastPaletteValid=true;
         const bool sixteen=t.cpsm==2u || t.cpsm==10u;const unsigned base=(unsigned(t.csa)&(sixteen ? 31u : 15u))*16u;
         for(unsigned i=0;i<256u;++i){
             const unsigned source=fourBit(t.psm) ? i&15u : i;unsigned at=(base+source)&(sixteen ? 511u : 255u);
@@ -530,9 +544,6 @@ struct GpuRasterBackend::Impl {
             }
         }
         if(c.scissor.x0>c.scissor.x1 || c.scissor.y0>c.scissor.y1)return false;
-        // Clamping both ends of an offscreen triangle collapses its bounds to
-        // the scissor edge and still queues work for that tile. Keep an extra
-        // pixel at the right and bottom edges for the rasterizer's fill rules.
         if(triangle && (maxX<float(c.scissor.x0) || maxY<float(c.scissor.y0) ||
                         minX>float(c.scissor.x1)+1.0f || minY>float(c.scissor.y1)+1.0f)){
             cmd[2u]=1u;cmd[4u]=0u;return true;
@@ -551,8 +562,6 @@ struct GpuRasterBackend::Impl {
         cmd[0]=point ? 0u : line ? 1u : sprite ? 6u : 3u;cmd[1]=unsigned(textured)|(unsigned(s.prim.fst)<<1u)|(unsigned(s.prim.iip)<<2u)|(unsigned(s.prim.abe)<<3u)|(unsigned(s.prim.fge)<<4u)|(unsigned(s.linearFilter)<<5u)|(unsigned(s.pabe)<<6u);
         cmd[2]=unsigned(x0);cmd[3]=unsigned(y0);cmd[4]=unsigned(x1);cmd[5]=unsigned(y1);cmd[6]=c.frame.fbp*32u;cmd[7]=c.zbuf.zbp*32u;cmd[8]=width;
         const bool depthEnabled=(c.test&0x10000u)!=0u;
-        // ZTE=0 bypasses ZTST and blocks writes even when ZMSK is clear.
-        // Normalize the compute command so native and scaled targets agree.
         cmd[9]=depthEnabled ? uint32_t(c.test) : (uint32_t(c.test)&~(3u<<17u))|(1u<<17u);
         cmd[10]=uint32_t(c.alpha);cmd[11]=uint32_t(c.alpha>>32u)&255u;cmd[12]=c.frame.fbmsk;cmd[13]=c.zbuf.psm;cmd[14]=c.zbuf.zmask || !depthEnabled;cmd[15]=uint32_t(c.fba)&1u;
         cmd[16]=t.psm;cmd[17]=t.tbp0;cmd[18]=t.tbw;cmd[19]=s.textureWidth;cmd[20]=s.textureHeight;cmd[21]=uint32_t(c.clamp);cmd[22]=uint32_t(c.clamp>>32u);cmd[23]=t.tfx;cmd[24]=t.tcc;
@@ -627,18 +636,16 @@ void GpuRasterBackend::Submit(const GSPrimitiveBatch& batch){
     } timing{(++sampled&15u)==0u,{}};if(timing.on)timing.began=std::chrono::steady_clock::now();
     std::lock_guard lock(m->mutex);Pages writes,sources;bool footprint=false;
     if(!m->vram || !batch.vertexCount)return;
-    // Encode before appending: culled primitives must not grow or clear the
-    // command buffer. Every used field is overwritten; HD slots are optional.
-    auto& pending=m->pendingCommand;pending[89]=pending[90]=pending[91]=pending[92]=pending[93]=0u;
-    if(m->cpuFrame || !m->encode(batch,pending.data(),writes,sources,footprint) || !m->ready()){
+    const size_t at=m->commands.size();m->commands.resize(at+gpu::CommandWords);
+    if(m->cpuFrame || !m->encode(batch,m->commands.data()+at,writes,sources,footprint) || !m->ready()){
+        m->commands.resize(at);
         const char* reason=gpu_draw_unsupported(batch);
         countFallback(batch,reason ? reason : m->cpuFrame ? "after-earlier-fallback" : !m->ready() ? "device-not-ready" : "draw-area");
         m->footprintValid=false;m->loadedPaletteValid=false;
         m->materialize();m->cpu.Submit(batch);m->cpuDirty.set();m->cpuFrame=true;++m->statistics.cpuDraws;totalCpuDraws.fetch_add(1u,std::memory_order_relaxed);return;
     }
     ++m->statistics.gpuDraws;totalGpuDraws.fetch_add(1u,std::memory_order_relaxed);
-    if(pending[2u]>pending[4u]){++m->statistics.culled;totalCulled.fetch_add(1u,std::memory_order_relaxed);return;}
-    const size_t at=m->commands.size();m->commands.insert(m->commands.end(),pending.begin(),pending.end());
+    if(m->commands[at+2u]>m->commands[at+4u]){m->commands.resize(at);++m->statistics.culled;totalCulled.fetch_add(1u,std::memory_order_relaxed);return;}
     if(!footprint){
         if((writes&m->loadedPalettePages).any())m->loadedPaletteValid=false;
         const uint32_t* encoded=m->commands.data()+at;
@@ -731,7 +738,7 @@ void GpuRasterBackend::UploadImage(const uint8_t* data,uint32_t bytes){
         std::vector<uint32_t> job={0u,moved,before.copiedPixels,t.trxreg.rrw,t.bitbltbuf.dpsm,t.bitbltbuf.dbp,std::max<unsigned>(t.bitbltbuf.dbw,1u),t.trxpos.dsax,t.trxpos.dsay,0u,0u,0u,0u,0u};
         job.resize(job.size()+(used+3u)/4u+1u,0u);std::memcpy(job.data()+14u,data,std::min(used,bytes));
         m->transferOnGpu(std::move(job));m->invalidateShadows(pages);
-        for(unsigned p=0;p<gpu::PageCount;++p)if(pages[p])++m->pageVersion[p];
+        m->versionsChanged(pages);
         if(after.copiedPixels>=after.totalPixels)m->uploadedRectangle(t);
         m->cpuDirty|=pages&~m->gpuDirty;if((pages&m->loadedPalettePages).any())m->loadedPaletteValid=false;return;
     }
