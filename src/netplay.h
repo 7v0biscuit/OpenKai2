@@ -19,7 +19,7 @@
 
 namespace openkai2::netplay {
 
-inline constexpr uint32_t protocol_version = 3;
+inline constexpr uint32_t protocol_version = 4;
 inline constexpr uint16_t default_port = 7350;
 inline constexpr unsigned max_delay = 8;
 inline constexpr uint64_t hash_interval = 120;
@@ -153,6 +153,7 @@ class Session {
     };
     std::deque<Delayed> delayed_;
     uint64_t confirmed_ = 0, rollbackTo_ = ~0ull, frontier_ = 0, captured_ = ~0ull, newestRemote_ = 0;
+    bool heardRemote_ = false;
     int64_t remoteAdvantage_ = 0;
     uint64_t recentRollback_ = 0, recentRollbackAt_ = 0;
     bool resyncWanted_ = false, resyncReady_ = false;

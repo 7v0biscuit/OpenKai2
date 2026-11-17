@@ -19,6 +19,8 @@ static_assert(probe == probe_message);
 constexpr uint32_t max_message = 96u << 20;
 constexpr size_t max_snapshot = 160u << 20;
 constexpr auto remote_timeout = std::chrono::seconds(20);
+constexpr auto first_input_timeout = std::chrono::minutes(5);
+const std::string loading_message = "Waiting for the other player to load the match";
 std::atomic<Session *> current{nullptr};
 
 void put32(std::vector<uint8_t> &out, uint32_t value) {
@@ -132,28 +134,35 @@ Input neutral_input() { return {0xff, 0xff, 128, 128, 128, 128}; }
 std::vector<uint8_t> compress(const std::vector<uint8_t> &data) {
     std::vector<uint8_t> out;
     put64(out, data.size());
-    size_t i = 0, literal = 0;
-    auto flush = [&](size_t end) {
-        if (end > literal) {
-            put_varint(out, uint64_t(end - literal) << 1);
-            out.insert(out.end(), data.begin() + std::ptrdiff_t(literal), data.begin() + std::ptrdiff_t(end));
-        }
+    const size_t size = data.size();
+    std::vector<uint32_t> table(size_t(1) << 16, UINT32_MAX);
+    const auto word = [&](size_t at) {
+        uint32_t value;
+        std::memcpy(&value, data.data() + at, 4);
+        return value;
     };
-    while (i < data.size()) {
-        size_t run = 1;
-        while (i + run < data.size() && data[i + run] == data[i])
-            ++run;
-        if (run >= 8) {
-            flush(i);
-            put_varint(out, (uint64_t(run) << 1) | 1u);
-            out.push_back(data[i]);
-            i += run;
+    size_t i = 0, literal = 0;
+    while (i + 4 <= size) {
+        const uint32_t hash = (word(i) * 2654435761u) >> 16;
+        const uint32_t candidate = table[hash];
+        table[hash] = uint32_t(i);
+        if (candidate != UINT32_MAX && word(candidate) == word(i)) {
+            size_t length = 4;
+            while (i + length < size && data[candidate + length] == data[i + length])
+                ++length;
+            put_varint(out, i - literal);
+            out.insert(out.end(), data.begin() + std::ptrdiff_t(literal), data.begin() + std::ptrdiff_t(i));
+            put_varint(out, length);
+            put_varint(out, i - candidate);
+            i += length;
             literal = i;
         } else {
-            i += run;
+            i += 1 + ((i - literal) >> 7);
         }
     }
-    flush(data.size());
+    put_varint(out, size - literal);
+    out.insert(out.end(), data.begin() + std::ptrdiff_t(literal), data.end());
+    put_varint(out, 0);
     return out;
 }
 
@@ -164,23 +173,25 @@ bool decompress(const std::vector<uint8_t> &data, std::vector<uint8_t> &out) {
         return false;
     out.clear();
     out.reserve(size_t(size));
-    while (in.ok && in.at < in.size) {
-        const uint64_t token = in.varint();
-        const uint64_t count = token >> 1;
-        if (!in.ok || out.size() + count > size)
+    for (;;) {
+        const uint64_t literals = in.varint();
+        if (!in.ok || literals > size - out.size() || !in.need(size_t(literals)))
             return false;
-        if (token & 1u) {
-            if (!in.need(1))
-                return false;
-            out.insert(out.end(), size_t(count), data[in.at++]);
-        } else {
-            if (!in.need(size_t(count)))
-                return false;
-            out.insert(out.end(), data.begin() + std::ptrdiff_t(in.at), data.begin() + std::ptrdiff_t(in.at + count));
-            in.at += size_t(count);
-        }
+        out.insert(out.end(), data.begin() + std::ptrdiff_t(in.at), data.begin() + std::ptrdiff_t(in.at + literals));
+        in.at += size_t(literals);
+        const uint64_t length = in.varint();
+        if (!in.ok)
+            return false;
+        if (!length)
+            break;
+        const uint64_t distance = in.varint();
+        if (!in.ok || !distance || distance > out.size() || length > size - out.size())
+            return false;
+        const size_t from = out.size() - size_t(distance);
+        for (size_t k = 0; k < length; ++k)
+            out.push_back(out[from + k]);
     }
-    return in.ok && out.size() == size;
+    return in.at == in.size && out.size() == size;
 }
 
 std::vector<CardFile> read_card_files(const std::filesystem::path &root) {
@@ -701,6 +712,11 @@ void Session::read_loop() {
 void Session::accept_remote(uint64_t tick, const Input &value) {
     remote_[tick] = value;
     newestRemote_ = std::max(newestRemote_, tick);
+    if (!heardRemote_) {
+        heardRemote_ = true;
+        if (status_.message == loading_message)
+            status_.message.clear();
+    }
     if (const auto guess = predicted_.find(tick); guess != predicted_.end()) {
         if (guess->second != value) {
             rollbackTo_ = std::min(rollbackTo_, tick);
@@ -991,11 +1007,13 @@ bool Session::wait_remote(uint64_t tick, Input &out) {
         if (status_.phase == Phase::ended || stopping_ || (machine_.stopping && machine_.stopping()))
             return false;
         const auto waited = std::chrono::steady_clock::now() - began;
-        if (waited > remote_timeout) {
+        if (waited > (heardRemote_ ? std::chrono::duration_cast<std::chrono::seconds>(remote_timeout) : first_input_timeout)) {
             lock.unlock();
-            end("The other player stopped responding");
+            end(heardRemote_ ? "The other player stopped responding" : "The other player could not load the match");
             return false;
         }
+        if (!heardRemote_ && waited > std::chrono::seconds(1))
+            status_.message = loading_message;
         if (waited > std::chrono::milliseconds(50))
             status_.waiting = true;
         changed_.wait_for(lock, std::chrono::milliseconds(options_.lag_ms ? 2 : 50));

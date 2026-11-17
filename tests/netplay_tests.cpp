@@ -34,6 +34,31 @@ void compression_round_trip() {
     auto broken = packed;
     broken.resize(broken.size() / 2);
     require(!decompress(broken, back), "truncated data is rejected");
+    std::vector<uint8_t> mixed;
+    uint32_t seed = 12345;
+    std::vector<uint8_t> block(4096);
+    for (auto &byte : block) {
+        seed = seed * 1664525u + 1013904223u;
+        byte = uint8_t(seed >> 24);
+    }
+    for (int copy = 0; copy < 64; ++copy) {
+        mixed.insert(mixed.end(), block.begin(), block.end());
+        mixed.insert(mixed.end(), size_t(copy * 37), uint8_t(copy));
+        seed = seed * 1664525u + 1013904223u;
+        mixed.push_back(uint8_t(seed >> 24));
+    }
+    const auto packedMixed = compress(mixed);
+    require(packedMixed.size() < mixed.size() / 8, "repeated blocks compress");
+    require(decompress(packedMixed, back) && back == mixed, "repeated block round trip");
+    const std::vector<uint8_t> tiny{7, 7, 7};
+    require(decompress(compress(tiny), back) && back == tiny, "short data round trip");
+    require(decompress(compress({}), back) && back.empty(), "empty data round trip");
+    for (size_t at = 8; at < packedMixed.size(); at += 97) {
+        auto damaged = packedMixed;
+        damaged[at] ^= 0x5a;
+        if (decompress(damaged, back))
+            require(back.size() == mixed.size(), "damaged data decoded to the wrong size");
+    }
 }
 
 void snapshot_round_trip() {
