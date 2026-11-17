@@ -1396,6 +1396,7 @@ struct Window {
         SendMessageW(controls[ProfilePlaystyle],CB_SETCURSEL,style ? style->playstyle : 0,0);
         SetWindowTextW(controls[ProfileAbout],style ? wide(style->about).c_str() : L"");
         selectNameColor(style ? style->nameColor : 0);
+        refreshEffectChoices(style);
         page=profilePage;layout();(pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);
     }
     std::filesystem::path profileImageDirectory() const {return settings_path().parent_path()/"profiles"/"images";}
@@ -1414,7 +1415,7 @@ struct Window {
         found->availability=unsigned(std::max(0,selected(ProfileAvailability)));
         found->notifications=selected(ProfileNotifications)!=1;
         found->nameColor=chosenNameColor();found->fighter=unsigned(std::max(0,selected(ProfileFighter)));found->sharing=unsigned(std::max(0,selected(ProfileSharing)));
-        found->friendAlerts=selected(ProfileFriendAlerts)!=1;
+        found->friendAlerts=selected(ProfileFriendAlerts)!=1;found->nameEffect=chosenEffect();
         found->about=utf8(trimmed(textOf(ProfileAbout)));found->region=unsigned(std::max(0,selected(ProfileRegion)));found->playstyle=unsigned(std::max(0,selected(ProfilePlaystyle)));
         write_settings(settings_path(),next);settings=std::move(next);cycleTimer();openProfile();publishCard();
         status=file.empty() ? L"Profile picture removed. Your original file was kept." : found->sharing==0 ? L"Profile picture saved. Players online see it on your card." : L"Profile picture saved on this PC.";
@@ -1477,6 +1478,75 @@ struct Window {
         return color;
     }
     COLORREF nameInk(const std::string& id,COLORREF fallback) {return readableName(nameColorOf(id),fallback);}
+    static constexpr const wchar_t* name_effect_names[]={L"Rainbow cycle",L"Rainbow wave",L"Golden shimmer",L"Ki pulse",L"Silver frost"};
+    bool effectPainted=false;
+    bool developerProfile() const {const auto profile=activeProfile();return profile && online::can_use_flair(*profile);}
+    unsigned effectOf(const std::string& id) {
+        if(id.empty())return 0;
+        const auto profile=activeProfile();
+        if(profile && profile->id==id) {
+            if(!online::can_use_flair(*profile))return 0;
+            const auto style=profileStyle(id);return style ? style->nameEffect : 0u;
+        }
+        return directory ? directory->flair(id) : 0u;
+    }
+    static COLORREF hueColor(double hue,double saturation) {
+        hue=std::fmod(hue,360.0);if(hue<0)hue+=360.0;
+        const double c=saturation,x=c*(1-std::fabs(std::fmod(hue/60.0,2.0)-1)),m=1-c;
+        double r=0,g=0,b=0;
+        if(hue<60){r=c;g=x;}else if(hue<120){r=x;g=c;}else if(hue<180){g=c;b=x;}else if(hue<240){g=x;b=c;}else if(hue<300){r=x;b=c;}else{r=c;b=x;}
+        return RGB(int((r+m)*255),int((g+m)*255),int((b+m)*255));
+    }
+    static COLORREF effectColor(unsigned effect,size_t index,size_t count,uint64_t now) {
+        const double t=double(now)/1000.0,i=double(index);
+        const auto sweep=[&](double speed){const double band=std::fmod(t*speed,1.0)*(double(count)+8.0)-4.0;return int(std::exp(-(i-band)*(i-band)/3.0)*255.0);};
+        switch(effect) {
+        case 1:return hueColor(t*72.0,0.62);
+        case 2:return hueColor(t*110.0-i*24.0,0.66);
+        case 3:return mix(RGB(255,190,40),RGB(255,252,228),sweep(0.55));
+        case 4:return mix(RGB(255,112,28),RGB(255,238,176),int((std::sin(t*3.4)+1.0)*127.5));
+        case 5:return mix(RGB(140,186,255),RGB(246,250,255),sweep(0.45));
+        default:return ink;
+        }
+    }
+    void drawName(HDC dc,const std::wstring& value,RECT r,UINT flags,const std::string& id,COLORREF color,unsigned effect=~0u) {
+        if(effect==~0u)effect=effectOf(id);
+        SetBkMode(dc,TRANSPARENT);
+        if(!effect || value.empty()) {SetTextColor(dc,color);DrawTextW(dc,value.c_str(),int(value.size()),&r,flags);return;}
+        effectPainted=true;
+        if(allowMotion() && !imageAnimationTicking){imageAnimationTicking=true;SetTimer(hwnd,3,33,nullptr);}
+        const uint64_t now=allowMotion() ? GetTickCount64() : 0;
+        std::vector<int> widths;int total=0;
+        for(const wchar_t c:value){SIZE size{};GetTextExtentPoint32W(dc,&c,1,&size);widths.push_back(size.cx);total+=size.cx;}
+        int x=(flags&DT_CENTER) ? (r.left+r.right-total)/2 : (flags&DT_RIGHT) ? r.right-total : r.left;
+        x=std::max<int>(x,r.left);
+        const UINT single=(flags&~UINT(DT_CENTER|DT_RIGHT|DT_END_ELLIPSIS|DT_WORDBREAK))|DT_LEFT|DT_NOCLIP|DT_SINGLELINE;
+        for(size_t i=0;i<value.size();++i) {
+            if(x+widths[i]>r.right+p(2))break;
+            RECT cell{x,r.top,x+widths[i]+p(6),r.bottom};
+            SetTextColor(dc,readableName(storedColor(effectColor(effect,i,value.size(),now)),ink));
+            DrawTextW(dc,&value[i],1,&cell,single);
+            x+=widths[i];
+        }
+    }
+    void nameText(HDC dc,const std::wstring& value,int x,int y,int w,int h,HFONT font,COLORREF color,UINT flags,const std::string& id,unsigned effect=~0u) {
+        auto old=SelectObject(dc,font);
+        drawName(dc,value,{p(x),p(y),p(x+w),p(y+h)},flags,id,color,effect);
+        SelectObject(dc,old);
+    }
+    unsigned chosenEffect() const {
+        const int index=selected(ProfileNameColor);
+        return developerProfile() && index>name_color_custom ? unsigned(index-name_color_custom) : 0u;
+    }
+    void refreshEffectChoices(const Settings::ProfileStyle* style) {
+        const auto list=controls[ProfileNameColor];
+        while(SendMessageW(list,CB_GETCOUNT,0,0)>name_color_custom+1)SendMessageW(list,CB_DELETESTRING,name_color_custom+1,0);
+        if(!developerProfile())return;
+        for(const auto* label:name_effect_names)SendMessageW(list,CB_ADDSTRING,0,reinterpret_cast<LPARAM>((std::wstring(L"[DEV] ")+label).c_str()));
+        if(style && style->nameEffect && style->nameEffect<=online::name_effect_count) {
+            SendMessageW(list,CB_SETCURSEL,name_color_custom+int(style->nameEffect),0);nameColorSelection=name_color_custom+int(style->nameEffect);
+        }
+    }
     std::wstring cardLine(const std::string& id) {
         const auto remote=remoteCard(id);if(!remote)return {};
         std::wstring line;
@@ -1503,6 +1573,10 @@ struct Window {
     uint32_t chosenNameColor() const {
         const int index=selected(ProfileNameColor);
         if(index<=0)return 0;
+        if(index>name_color_custom) {
+            const auto profile=activeProfile();const auto style=profile ? profileStyle(profile->id) : nullptr;
+            return style ? style->nameColor : 0u;
+        }
         return index<name_color_custom ? storedColor(name_colors[index-1].color) : customNameColor;
     }
     static std::wstring seenText(int64_t seen) {
@@ -1664,7 +1738,7 @@ struct Window {
         const bool busyPlayer=player && (player->status=="in a match" || player->status=="hosting" || player->status=="joining" || player->status=="away" || player->status=="do not disturb");
         ellipse(dc,p(cx+44),p(cy+44),p(12),panel);ellipse(dc,p(cx+44),p(cy+44),p(9),player ? (busyPlayer ? gold : green) : faint);
         const int columnWidth=split-contentLeft-48;
-        text(dc,name,contentLeft+24,292,columnWidth,30,fonts.brand,readableName(shown.shared ? shown.card.name_color : 0u,ink),DT_CENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+        nameText(dc,name,contentLeft+24,292,columnWidth,30,fonts.brand,readableName(shown.shared ? shown.card.name_color : 0u,ink),DT_CENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX,viewedPlayer);
         int y=326;
         if(player && player->impostor){text(dc,L"NAME NOT VERIFIED",contentLeft+24,y,columnWidth,18,fonts.label,red,DT_CENTER|DT_SINGLELINE|DT_NOPREFIX);y+=22;}
         if(shown.shared && !shown.card.tagline.empty()){text(dc,L"\u201c"+wide(shown.card.tagline)+L"\u201d",contentLeft+24,y,columnWidth,22,fonts.caption,muted,DT_CENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);y+=24;}
@@ -1759,9 +1833,8 @@ struct Window {
             if(!menuPlayer.empty())avatar(dc,cx,cy,radius,entry.label,menuPlayer,raised);
             else {ellipse(dc,cx,cy,radius,mix(raised,orange,60));}
             auto old=SelectObject(dc,fonts.strong);
-            SetTextColor(dc,menuPlayer.empty() ? ink : nameInk(menuPlayer,ink));
             RECT name{cx+radius+p(10),r.top+p(8),r.right-p(10),cy+p(2)};
-            DrawTextW(dc,entry.label.c_str(),-1,&name,DT_LEFT|DT_BOTTOM|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+            drawName(dc,entry.label,name,DT_LEFT|DT_BOTTOM|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX,menuPlayer,menuPlayer.empty() ? ink : nameInk(menuPlayer,ink),allowMotion() ? ~0u : 0u);
             SelectObject(dc,fonts.caption);SetTextColor(dc,muted);
             RECT line{name.left,cy+p(3),name.right,r.bottom-p(6)};
             DrawTextW(dc,entry.detail.c_str(),-1,&line,DT_LEFT|DT_TOP|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
@@ -1870,6 +1943,7 @@ struct Window {
             catch(const std::exception& problem){std::cout<<"[launcher:profile-card] "<<problem.what()<<std::endl;}
         }
         const auto style=profileStyle(profile->id);
+        directory->set_flair(style ? style->nameEffect : 0u);
         if(style && style->sharing==2){directory->set_card(std::nullopt);return;}
         online::Card card;
         if(style) {
@@ -3396,7 +3470,7 @@ struct Window {
         const auto name=profile ? wide(profile->name) : std::wstring(L"Local player");
         if(profile)avatar(dc,p(g.friendsLeft+33),p(g.friendsBottom-70),p(16),name,profile->id,panel);
         else {ellipse(dc,p(g.friendsLeft+33),p(g.friendsBottom-70),p(16),mix(panel,orange,25));text(dc,L"P",g.friendsLeft+17,g.friendsBottom-82,32,24,fonts.strong,orange,DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX);}
-        text(dc,name,g.friendsLeft+58,g.friendsBottom-89,g.friendsWidth-76,22,fonts.strong,profile ? nameInk(profile->id,ink) : ink,DT_LEFT|DT_END_ELLIPSIS|DT_SINGLELINE|DT_NOPREFIX);
+        nameText(dc,name,g.friendsLeft+58,g.friendsBottom-89,g.friendsWidth-76,22,fonts.strong,profile ? nameInk(profile->id,ink) : ink,DT_LEFT|DT_END_ELLIPSIS|DT_SINGLELINE|DT_NOPREFIX,profile ? profile->id : std::string());
         const auto style=profile ? profileStyle(profile->id) : nullptr;
         const auto activity=directory && directory->connected() ? statusLabel(profile_status(style ? style->availability : 0,running(),room!=nullptr,roomHost)) : profile ? std::wstring(L"Offline · local profile") : std::wstring(L"Create an online profile");
         text(dc,activity,g.friendsLeft+58,g.friendsBottom-65,g.friendsWidth-76,18,fonts.label,muted,DT_LEFT|DT_END_ELLIPSIS|DT_SINGLELINE|DT_NOPREFIX);
@@ -3449,7 +3523,7 @@ struct Window {
         const auto style=profileStyle(profile->id);
         heading(dc,L"Your player card",contentLeft+24,266,split-contentLeft-48);
         avatar(dc,p((contentLeft+split)/2),p(340),p(42),wide(profile->name),profile->id,panel);
-        text(dc,wide(profile->name),contentLeft+24,396,split-contentLeft-48,24,fonts.brand,readableName(chosenNameColor(),ink),DT_CENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+        nameText(dc,wide(profile->name),contentLeft+24,396,split-contentLeft-48,24,fonts.brand,readableName(chosenNameColor(),ink),DT_CENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX,profile->id,chosenEffect());
         text(dc,style && !style->tagline.empty() ? L"\u201c"+wide(style->tagline)+L"\u201d" : L"Add a tagline to your player card.",contentLeft+24,426,split-contentLeft-48,22,fonts.caption,muted,DT_CENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
         if(const int fighter=selected(ProfileFighter);fighter>0 && unsigned(fighter)<=fighter_count)
             text(dc,L"MAINS "+wide(fighter_names[size_t(fighter-1)]),contentLeft+24,450,split-contentLeft-48,20,fonts.label,orange,DT_CENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
@@ -3718,9 +3792,14 @@ struct Window {
             const auto image=style ? profileImages.find(style->image) : profileImages.end();
             animated=animated || (image!=profileImages.end() && image->second.frames.size()>1);
         }
+        const bool effects=effectPainted;effectPainted=false;
+        animated=animated || effects;
         if (!animated || !allowMotion()) {KillTimer(hwnd,3);imageAnimationTicking=false;return;}
-        if (dropdownOpen() || IsIconic(hwnd) || !appActive) return;
+        if (dropdownOpen() || IsIconic(hwnd) || !appActive) {effectPainted=effects;return;}
         (pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);
+        if (effects)
+            for (const int list : {PlayerList, FriendList})
+                if (controls.count(list) && IsWindowVisible(controls[list])) InvalidateRect(controls[list],nullptr,FALSE);
         const int id = page == overlayPage ? SplitStyleList : SplitList;
         if (controls.count(id) && IsWindowVisible(controls[id])) InvalidateRect(controls[id],nullptr,FALSE);
     }
@@ -4243,8 +4322,9 @@ struct Window {
         }
         const int nameLeft = cx + 30 + 16, identity = grid.x(1) - 16 - nameLeft;
         caps(dc, L"YOUR PROFILE", nameLeft, onlineProfileTop + 20, identity);
-        text(dc, profile ? wide(profile->name) : std::wstring(L"No profile yet"), nameLeft, onlineProfileTop + 36, identity, 26,
-             fonts.brand, profile ? nameInk(profile->id, ink) : muted, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        nameText(dc, profile ? wide(profile->name) : std::wstring(L"No profile yet"), nameLeft, onlineProfileTop + 36, identity, 26,
+                 fonts.brand, profile ? nameInk(profile->id, ink) : muted, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX,
+                 profile ? profile->id : std::string());
         ellipse(dc, p(nameLeft + 4), p(onlineProfileTop + 74), p(3), serviceTone);
         text(dc, service, nameLeft + 14, onlineProfileTop + 65, identity - 14, 18, fonts.caption, taken ? red : online ? ink : muted,
              DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
@@ -4974,7 +5054,9 @@ struct Window {
         SetTextColor(dc, titleColor);
         SelectObject(dc, friends ? fonts.body : fonts.strong);
         RECT top{textLeft, r.top + p(friends ? 5 : 6), right - p(6), cy + p(friends ? 2 : 3)};
-        DrawTextW(dc, title.c_str(), int(title.size()), &top, DT_SINGLELINE | DT_BOTTOM | DT_END_ELLIPSIS | DT_NOPREFIX);
+        const std::string titleId = players ? playerDetails[row].id : friends ? friendRows[row].first : std::string();
+        drawName(dc, title, top, DT_SINGLELINE | DT_BOTTOM | DT_END_ELLIPSIS | DT_NOPREFIX, titleId, titleColor,
+                 titleColor == muted ? 0u : ~0u);
         SelectObject(dc, fonts.caption);
         SetTextColor(dc, titleColor == ink ? mix(muted, ink, 60) : muted);
         RECT bottom{textLeft, cy + p(2), right - p(6), r.bottom - p(4)};
@@ -7694,7 +7776,7 @@ struct Window {
                     updated.availability=unsigned(std::max(0,selected(ProfileAvailability)));
                     updated.pictureFit=unsigned(std::max(0,selected(ProfileFit)));updated.notifications=selected(ProfileNotifications)!=1;
                     updated.nameColor=chosenNameColor();updated.fighter=unsigned(std::max(0,selected(ProfileFighter)));updated.sharing=unsigned(std::max(0,selected(ProfileSharing)));
-                    updated.friendAlerts=selected(ProfileFriendAlerts)!=1;
+                    updated.friendAlerts=selected(ProfileFriendAlerts)!=1;updated.nameEffect=chosenEffect();
                     updated.about=utf8(trimmed(textOf(ProfileAbout)));updated.region=unsigned(std::max(0,selected(ProfileRegion)));updated.playstyle=unsigned(std::max(0,selected(ProfilePlaystyle)));
                     next.profileStyles.push_back(std::move(updated));
                 } else if (const auto old=profileStyle(profile->id)) {

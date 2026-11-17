@@ -74,6 +74,7 @@ struct Settings {
         uint32_t nameColor = 0;
         unsigned fighter = 0, sharing = 0;
         bool friendAlerts = true;
+        unsigned nameEffect = 0;
         std::string about;
         unsigned region = 0, playstyle = 0;
         uint32_t matches = 0;

@@ -271,6 +271,31 @@ std::optional<Card> parse_card(const std::string &id, const std::string &payload
     return card;
 }
 
+bool can_use_flair(const Profile &profile) {
+    return identity::claims_developer(profile.name) && identity::developer_seed().has_value();
+}
+
+std::string format_flair(const Profile &profile, unsigned effect) {
+    if (!effect || effect > name_effect_count || !can_use_flair(profile))
+        return {};
+    const std::string name = clean(profile.name, 24), proof = developer_proof(name, "flair:" + profile.id + ":" + std::to_string(effect));
+    if (proof.empty())
+        return {};
+    return "1\t" + std::to_string(effect) + '\t' + name + '\t' + proof;
+}
+
+std::optional<unsigned> parse_flair(const std::string &id, const std::string &payload) {
+    const auto f = fields(payload);
+    if (!valid_id(id) || f.size() != 4 || f[0] != "1" || f[1].size() != 1 || f[1][0] < '1' ||
+        f[1][0] > char('0' + name_effect_count) || f[2].size() > 24 || !identity::claims_developer(f[2]))
+        return std::nullopt;
+    crypto::Signature signature{};
+    if (f[3].size() != signature.size() * 2 || !crypto::from_hex(f[3], signature.data(), signature.size()) ||
+        !identity::verify_claim(f[2], "flair:" + id + ":" + f[1], signature))
+        return std::nullopt;
+    return unsigned(f[1][0] - '0');
+}
+
 std::string format_invite(const Profile &profile, const Invite &invite, const std::string &target) {
     const std::string name = clean(own_name(invite.from_name), 24);
     const std::string body = target + '\t' + invite.room_id + '\t' + invite.nonce + '\t' + clean(invite.token, 64);
@@ -462,6 +487,30 @@ std::optional<Card> Directory::card(const std::string &id) const {
     return found->second;
 }
 
+void Directory::set_flair(unsigned effect) {
+    const auto payload = format_flair(profile_, effect);
+    {
+        std::lock_guard lock(mutex_);
+        const unsigned shown = payload.empty() ? 0u : effect;
+        if (flair_ == shown && flairSent_)
+            return;
+        flair_ = shown;
+        flairSent_ = true;
+        if (shown)
+            flairs_[profile_.id] = shown;
+        else
+            flairs_.erase(profile_.id);
+    }
+    if (client_.connected() && !nameTaken_)
+        client_.publish(std::string(prefix) + "flair/" + profile_.id, payload, true);
+}
+
+unsigned Directory::flair(const std::string &id) const {
+    std::lock_guard lock(mutex_);
+    const auto found = flairs_.find(id);
+    return found == flairs_.end() ? 0u : found->second;
+}
+
 uint64_t Directory::card_revision(const std::string &id) const {
     std::lock_guard lock(mutex_);
     const auto found = cards_.find(id);
@@ -483,6 +532,7 @@ bool Directory::open(const std::string &server, const Profile &profile, const st
     client_.subscribe(std::string(prefix) + "friends/" + profile_.id + "/+");
     client_.subscribe(std::string(prefix) + "names/+");
     client_.subscribe(std::string(prefix) + "cards/+");
+    client_.subscribe(std::string(prefix) + "flair/+");
     const std::string mine = name_topic(profile_.name);
     for (int i = 0; i < 30; ++i) {
         {
@@ -513,6 +563,8 @@ void Directory::close() {
     players_.clear();
     cards_.clear();
     cardSent_ = false;
+    flairs_.clear();
+    flairSent_ = false;
 }
 
 void Directory::set_status(const std::string &status) {
@@ -656,6 +708,16 @@ void Directory::received(const std::string &topic, const std::string &payload) {
                 players_.erase(id);
             else if (auto player = parse_player(id, payload); player && players_.size() < 2000)
                 players_[id] = *player;
+            else
+                return;
+        } else if (rest.rfind("flair/", 0) == 0) {
+            const std::string id = rest.substr(6);
+            if (id == profile_.id)
+                return;
+            if (payload.empty())
+                flairs_.erase(id);
+            else if (auto effect = parse_flair(id, payload); effect && (flairs_.size() < 200 || flairs_.count(id)))
+                flairs_[id] = *effect;
             else
                 return;
         } else if (rest.rfind("cards/", 0) == 0) {

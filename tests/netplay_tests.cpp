@@ -287,6 +287,12 @@ void service_format() {
             "profile cards round trip");
     require(!on::parse_card(owner.id, "1\t5\t\tBU\tx\t27\t\tsig"), "first-format cards are refused");
     require(!on::parse_card(on::make_profile(on::new_seed(), "Other").id, payload), "a card signed by someone else is refused");
+    require(on::format_flair(owner, 1).empty() && !on::can_use_flair(owner), "only the developer key can publish a name effect");
+    const std::string forgedProof(128, 'a');
+    require(!on::parse_flair(owner.id, "1\t1\t[DEV] Biscuit\t" + forgedProof), "a forged name effect is refused");
+    require(!on::parse_flair(owner.id, "1\t1\tBulma\t" + forgedProof), "a name effect without the [DEV] tag is refused");
+    require(!on::parse_flair(owner.id, "1\t9\t[DEV] Biscuit\t" + forgedProof) && !on::parse_flair("bad", "1\t1\t[DEV] Biscuit\t" + forgedProof),
+            "unknown name effects and bad ids are refused");
     auto tampered = payload;
     tampered[2] = tampered[2] == '1' ? '2' : '1';
     require(!on::parse_card(owner.id, tampered), "an edited card is refused");

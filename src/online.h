@@ -51,6 +51,7 @@ struct Card {
     uint64_t revision = 0;
 };
 inline constexpr size_t card_picture_limit = 9000;
+inline constexpr unsigned name_effect_count = 5;
 
 struct Profile {
     crypto::Seed seed{};
@@ -71,6 +72,9 @@ std::string format_friend(const Profile &profile, const FriendMessage &message, 
 std::optional<FriendMessage> parse_friend(const std::string &target, const std::string &from, const std::string &payload);
 std::string format_card(const Profile &profile, const Card &card);
 std::optional<Card> parse_card(const std::string &id, const std::string &payload);
+std::string format_flair(const Profile &profile, unsigned effect);
+std::optional<unsigned> parse_flair(const std::string &id, const std::string &payload);
+bool can_use_flair(const Profile &profile);
 std::string to_base64(const std::string &bytes);
 std::optional<std::string> from_base64(const std::string &text);
 
@@ -90,6 +94,8 @@ class Directory {
     void set_card(const std::optional<Card> &card);
     std::optional<Card> card(const std::string &id) const;
     uint64_t card_revision(const std::string &id) const;
+    void set_flair(unsigned effect);
+    unsigned flair(const std::string &id) const;
     std::vector<Room> rooms() const;
     std::vector<Player> players() const;
     std::optional<Room> room(const std::string &id) const;
@@ -115,6 +121,9 @@ class Directory {
     std::optional<Card> card_;
     uint64_t cardRevision_ = 0;
     bool cardSent_ = false;
+    std::map<std::string, unsigned> flairs_;
+    unsigned flair_ = 0;
+    bool flairSent_ = false;
     std::map<std::string, std::pair<std::string, std::string>> names_;
     bool nameTaken_ = false;
     Notify notify_;

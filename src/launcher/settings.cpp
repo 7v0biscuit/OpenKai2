@@ -69,7 +69,7 @@ void validate_settings(const Settings &s) {
     if (s.profileStyles.size() > 32) throw std::runtime_error("Too many profile appearances");
     for (const auto& style : s.profileStyles) {
         if (style.id.size()!=64 || !std::all_of(style.id.begin(),style.id.end(),[](unsigned char c){return std::isxdigit(c)!=0;}) ||
-            !profileIds.insert(style.id).second || style.accent>=accent_count || style.pictureFit>1 || style.availability>2 || (style.nameColor && (style.nameColor>>24)!=1u) || style.fighter>fighter_count || style.sharing>2 || style.region>region_count || style.playstyle>playstyle_count || style.about.size()>480 || style.about.find_first_of("\r\n")!=std::string::npos || style.since<0 || style.initials.size()>8 || style.tagline.size()>192 ||
+            !profileIds.insert(style.id).second || style.accent>=accent_count || style.pictureFit>1 || style.availability>2 || (style.nameColor && (style.nameColor>>24)!=1u) || style.fighter>fighter_count || style.sharing>2 || style.nameEffect>5 || style.region>region_count || style.playstyle>playstyle_count || style.about.size()>480 || style.about.find_first_of("\r\n")!=std::string::npos || style.since<0 || style.initials.size()>8 || style.tagline.size()>192 ||
             style.initials.find_first_of("\r\n")!=std::string::npos || style.tagline.find_first_of("\r\n")!=std::string::npos ||
             !speedrun::valid_image_file(style.image) || style.imageName.size()>1024 || style.imageName.find_first_of("\r\n")!=std::string::npos)
             throw std::runtime_error("Invalid profile appearance");
@@ -97,6 +97,7 @@ Settings read_settings(const std::filesystem::path &file) {
     std::map<std::string,std::array<unsigned,3>> profileCards;
     std::map<std::string,int64_t> friendSeen;
     std::map<std::string,bool> profileAlerts;
+    std::map<std::string,unsigned> profileEffects;
     std::map<std::string,std::tuple<unsigned,unsigned,uint32_t,int64_t,std::string>> profileMore;
     bool tabLayout = false, graphicsProfile = false;
     std::ifstream in(file);
@@ -306,6 +307,10 @@ Settings read_settings(const std::filesystem::path &file) {
             if (!row.fail() && list.size() < 2000)
                 list.push_back(entry);
         }
+        else if (key == "profile_effect") {
+            std::string id;unsigned effect=0;row >> std::quoted(id) >> effect;
+            if(row.fail() || !profileEffects.emplace(id,effect).second)throw std::runtime_error("Duplicate profile effect");
+        }
         else if (key == "profile_alerts") {
             std::string id;bool alerts=true;row >> std::quoted(id) >> alerts;
             if(row.fail() || !profileAlerts.emplace(id,alerts).second)throw std::runtime_error("Duplicate profile alerts");
@@ -382,6 +387,11 @@ Settings read_settings(const std::filesystem::path &file) {
         auto found=std::find_if(s.profileStyles.begin(),s.profileStyles.end(),[&](const auto& style){return style.id==id;});
         if(found==s.profileStyles.end()) {s.profileStyles.push_back({id,{},{},0,{},{}});found=std::prev(s.profileStyles.end());}
         std::tie(found->region,found->playstyle,found->matches,found->since,found->about)=more;
+    }
+    for(const auto& [id,effect]:profileEffects) {
+        auto found=std::find_if(s.profileStyles.begin(),s.profileStyles.end(),[&](const auto& style){return style.id==id;});
+        if(found==s.profileStyles.end()) {s.profileStyles.push_back({id,{},{},0,{},{}});found=std::prev(s.profileStyles.end());}
+        found->nameEffect=effect;
     }
     for(const auto& [id,alerts]:profileAlerts) {
         auto found=std::find_if(s.profileStyles.begin(),s.profileStyles.end(),[&](const auto& style){return style.id==id;});
@@ -465,6 +475,8 @@ void write_settings(const std::filesystem::path &file, const Settings &s) {
     for (const auto& style : s.profileStyles) {
         out << "profile_availability " << std::quoted(style.id) << ' ' << style.availability << '\n';
         out << "profile_alerts " << std::quoted(style.id) << ' ' << style.friendAlerts << '\n';
+        if (style.nameEffect)
+            out << "profile_effect " << std::quoted(style.id) << ' ' << style.nameEffect << '\n';
         out << "profile_more " << std::quoted(style.id) << ' ' << style.region << ' ' << style.playstyle << ' ' << style.matches << ' ' << style.since << ' ' << std::quoted(style.about) << '\n';
         out << "profile_card " << std::quoted(style.id) << ' ' << style.nameColor << ' ' << style.fighter << ' ' << style.sharing << '\n';
         out << "profile_options " << std::quoted(style.id) << ' ' << style.pictureFit << ' ' << style.notifications << '\n';

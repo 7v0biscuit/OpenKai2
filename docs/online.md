@@ -137,6 +137,12 @@ short tagline, an optional **Name color** and a **Main fighter**. Appearance is
 saved separately for each profile on this PC and does not change the public
 profile name, ID or private key.
 
+The **[DEV]** profile also has animated name effects in the same list: rainbow
+cycle, rainbow wave, golden shimmer, ki pulse and silver frost. They appear only
+when the developer key is installed and the [DEV] profile is active. Each effect is
+signed with that key and checked by every launcher before it is shown, so
+other profiles cannot use or fake them.
+
 Name colors come in presets, or choose **Custom color…** to pick any color. Very
 dark or very light colors are adjusted so the name stays readable. **Theme
 default** keeps the normal text color.
