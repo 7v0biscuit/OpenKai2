@@ -1130,7 +1130,7 @@ struct Window {
         const int controlsHeight = width < 1180 ? 1120 : 760;
         int settingsHeight = 970;
         if (page == settingsPage && controls.count(SettingsSearch)) {
-            ui::SettingsLayout grid(width);
+            ui::SettingsLayout grid(width,contentLeft,waveStyle());
             grid.filter(searchText(trimmed(textOf(SettingsSearch))));
             settingsHeight=grid.height();
         }
@@ -3713,7 +3713,7 @@ struct Window {
                 }
             }
         } else {
-            ui::SettingsLayout grid(content);
+            ui::SettingsLayout grid(content,contentLeft,waveStyle());
             grid.filter(searchText(trimmed(textOf(SettingsSearch))));
             position(SettingsSearch,contentLeft+10,123,content-276,24);
             position(ClearSettingsSearch,right-244,116,64,38);
@@ -5020,7 +5020,7 @@ struct Window {
         fill(dc, {p(contentLeft + 20), p(joinTop), p(split - 6 - 20), p(joinTop) + 1}, mix(panel, border, 160));
     }
     void paintSettings(HDC dc,int h,int content) {
-        ui::SettingsLayout grid(content);
+        ui::SettingsLayout grid(content,contentLeft,waveStyle());
         grid.filter(searchText(trimmed(textOf(SettingsSearch))));
         const wchar_t* titles[]={L"Display",L"Graphics",L"Game",L"Launcher"};
         const wchar_t* notes[]={L"Window, presentation and sound. Game simulation stays at 60 FPS.",
@@ -5041,7 +5041,15 @@ struct Window {
                  DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
             for(size_t index=0;index<labels[group].size();++index) {
                 const auto cell=grid.label(top,int(index));
-                caps(dc,labels[group][index],cell.x,cell.y,cell.width,muted);
+                if(grid.list) {
+                    const int rowTop=top+ui::SettingsLayout::header+int(index)*ui::SettingsLayout::listRow;
+                    if(index>0) {
+                        Gdiplus::Graphics graphics(dc);
+                        Gdiplus::LinearGradientBrush divider(Gdiplus::PointF(Gdiplus::REAL(p(contentLeft+24)),0),Gdiplus::PointF(Gdiplus::REAL(p(contentLeft+content-24)),0),Gdiplus::Color(70,255,236,210),Gdiplus::Color(8,255,236,210));
+                        graphics.FillRectangle(&divider,Gdiplus::REAL(p(contentLeft+24)),Gdiplus::REAL(p(rowTop)),Gdiplus::REAL(p(content-48)),Gdiplus::REAL(std::max(1,p(1))));
+                    }
+                    text(dc,labels[group][index],cell.x,rowTop+14,cell.width,28,fonts.body,ink,DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+                } else caps(dc,labels[group][index],cell.x,cell.y,cell.width,muted);
             }
         }
         if(!any) {
@@ -5230,7 +5238,15 @@ struct Window {
             motions.clear();recordingMotion=true;
             if (ambient.size() != pixels) {
                 fill(memory, {0,0,rect.right,buffer.frame.height}, waveStyle() ? waveSkyLow() : background);
-                if (waveStyle()) buildWaveBackdrop(memory, rect.right, rect.bottom);
+                if (waveStyle()) {
+                    buildWaveBackdrop(memory, rect.right, rect.bottom);
+                    if (buffer.frame.height > rect.bottom) {
+                        Gdiplus::Graphics graphics(memory);
+                        Gdiplus::LinearGradientBrush deeper(Gdiplus::Point(0, int(rect.bottom) - 1), Gdiplus::Point(0, buffer.frame.height + 1),
+                            drawingColor(waveSkyLow()), drawingColor(mix(waveSkyLow(), waveSkyTop(), 190)));
+                        graphics.FillRectangle(&deeper, 0, int(rect.bottom), int(rect.right), buffer.frame.height - int(rect.bottom));
+                    }
+                }
                 else {
                 buffer.frame.radial(rect, rect.right * 3 / 4, -p(160), p(620), ember, 12);
                 buffer.frame.radial(rect, 0, rect.bottom + p(60), p(440), orange, 5);

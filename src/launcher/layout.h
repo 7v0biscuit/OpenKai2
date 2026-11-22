@@ -30,21 +30,28 @@ inline bool matchesTerms(const std::wstring& text,const std::wstring& query) {
 }
 
 struct SettingsLayout {
-    static constexpr int top=224, padding=24, gap=16, header=68, row=72, fieldHeight=40;
+    static constexpr int top=224, padding=24, gap=16, header=68, row=72, fieldHeight=40, listRow=56;
     int left, width, columns, column;
+    bool list;
     std::array<int,4> sections{};
     static constexpr std::array<int,4> fields{6,8,7,7};
 
-    explicit SettingsLayout(int contentWidth,int contentLeft=36) : left(contentLeft),width(contentWidth),
-        columns(contentWidth<1040 ? 2 : 3),column((contentWidth-2*padding-(columns-1)*gap)/columns) {
+    explicit SettingsLayout(int contentWidth,int contentLeft=36,bool listMode=false) : left(contentLeft),width(contentWidth),
+        columns(listMode ? 1 : contentWidth<1040 ? 2 : 3),column((contentWidth-2*padding-(columns-1)*gap)/columns),list(listMode) {
         filter(L"");
     }
+    int rowHeight() const {return list ? listRow : row;}
     int rows(int count) const {return (count+columns-1)/columns;}
-    int bottom(int y,int count) const {return y+header+rows(count)*row+12;}
+    int bottom(int y,int count) const {return y+header+rows(count)*rowHeight()+(list ? 4 : 12);}
+    int labelWidth() const {return std::clamp(width*2/5,180,420);}
     Cell field(int y,int index) const {
+        if(list) return {left+padding+labelWidth(),y+header+index*listRow+8,width-2*padding-labelWidth(),fieldHeight};
         return {left+padding+(index%columns)*(column+gap),y+header+(index/columns)*row+20,column,fieldHeight};
     }
-    Cell label(int y,int index) const {auto c=field(y,index);c.y-=20;c.height=16;return c;}
+    Cell label(int y,int index) const {
+        if(list) return {left+padding,y+header+index*listRow+20,labelWidth()-16,16};
+        auto c=field(y,index);c.y-=20;c.height=16;return c;
+    }
     void filter(const std::wstring& query) {
         static const wchar_t* words[]={
             L"display window mode resolution aspect ratio frame rate cap fps vsync audio volume",
