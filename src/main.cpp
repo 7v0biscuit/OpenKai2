@@ -20,6 +20,7 @@
 #include "launcher/version.h"
 #include "speedrun_host.h"
 #include "speedrun_overlay.h"
+#include "retroachievements.h"
 #include "speedrun_items.h"
 #include "machine_state.h"
 #include "guest_random.h"
@@ -308,6 +309,7 @@ int main(int argc, char* argv[]) {
                   << "[disc] ISO SHA-256: " << disc.image_sha256 << std::endl;
         const auto category=online.enabled ? openkai2::speedrun::Category::off : openkai2::speedrun::Category(preferences.speedrun);
         const bool speedrun=category!=openkai2::speedrun::Category::off;
+        const bool hardcore=!preferences.raToken.empty() && preferences.raHardcore && !online.enabled && !preferences.achievementsPaused;
         const auto runProfile=openkai2::speedrun::run_profile(category,online.enabled ? 0u : std::min(preferences.cpuDifficulty,6u));
         openkai2::launcher::SpeedrunCards runCards;
         PS2Runtime runtime;
@@ -319,7 +321,16 @@ int main(int argc, char* argv[]) {
             overlay.category=category;
             overlay.permadeath=speedrun && !run::tournament(category) && preferences.permadeath;
             overlay.fps_counter=preferences.fpsCounter;
-            overlay.load_state=speedrun || online.enabled ? 0u : loadState;
+            overlay.achievements_paused=preferences.achievementsPaused;
+            overlay.ra_hardcore=hardcore;
+            if (!preferences.raToken.empty() && !preferences.achievementsPaused) {
+                overlay.ra_user=preferences.raUser;overlay.ra_token=preferences.raToken;
+                overlay.ra_hash=openkai2::retro::disc_hash(image);
+                std::cout << "[achievements] RetroAchievements hash " << (overlay.ra_hash.empty() ? std::string("unavailable") : overlay.ra_hash)
+                          << (hardcore ? " hardcore" : " softcore") << std::endl;
+            }
+            if (preferences.achievementsPaused) std::cout << "[achievements] paused: Unlock all changed this memory card" << std::endl;
+            overlay.load_state=speedrun || online.enabled || hardcore ? 0u : loadState;
             if (const char* menu=std::getenv("OPENKAI2_MAIN_MENU"); menu && *menu=='1') {
                 overlay.skip_to_menu=true;
 #ifdef _WIN32
@@ -334,8 +345,8 @@ int main(int argc, char* argv[]) {
             overlay.background=preferences.overlayBackground;
             overlay.margin=preferences.overlayMargin;overlay.shape=preferences.overlayShape;overlay.title=preferences.overlayTitle;
             overlay.split_rows=run::overlay_split_rows[std::min(preferences.overlaySplits,3u)];
-            overlay.cpu=online.enabled ? 0u : std::min(preferences.cpuDifficulty,6u);
-            overlay.randomizer=preferences.randomizer && !online.enabled;
+            overlay.cpu=online.enabled || hardcore ? 0u : std::min(preferences.cpuDifficulty,6u);
+            overlay.randomizer=preferences.randomizer && !online.enabled && !hardcore;
             overlay.decimals=run::tournament(category) ? 3u : std::min(preferences.overlayDecimals,3u);
             for (unsigned role=0;role<run::overlay_color_roles;++role) {
                 const auto& c=run::overlay_colors[std::min(preferences.overlayColors[role],run::overlay_color_count-1u)];
@@ -380,7 +391,8 @@ int main(int argc, char* argv[]) {
         PS2Runtime::setIoPaths(paths);
         openkai2::speedrun::install_run_settings(runtime.memory().getRDRAM(),PS2_RAM_SIZE,runProfile);
         const auto modsDirectory=openkai2::mods::default_mods_directory();
-        const auto mods=speedrun || online.enabled ? std::vector<std::filesystem::path>{} : openkai2::mods::enabled_mod_folders(modsDirectory);
+        const auto mods=speedrun || online.enabled || hardcore ? std::vector<std::filesystem::path>{} : openkai2::mods::enabled_mod_folders(modsDirectory);
+        if (hardcore) std::cout << "[achievements] hardcore: mods, CPU difficulty, randomizer and save states are off" << std::endl;
         if (speedrun) std::cout << "[speedrun] " << openkai2::speedrun::category_name(category)
                                 << " run: mods are off" << std::endl;
         if (online.enabled) {
@@ -421,7 +433,7 @@ int main(int argc, char* argv[]) {
         if (!alternates.empty())
             std::cout << "[mods] select: R2 switches characters on shared spots" << std::endl;
         openkai2::mods::install_alternates(runtime.memory().getRDRAM(),PS2_RAM_SIZE,std::move(alternates));
-        const unsigned cpuLevel=online.enabled ? 0u : std::min(preferences.cpuDifficulty,6u);
+        const unsigned cpuLevel=online.enabled || hardcore ? 0u : std::min(preferences.cpuDifficulty,6u);
         openkai2::cpu::install(runtime.memory().getRDRAM(),PS2_RAM_SIZE,cpuLevel,!online.enabled,speedrun);
         originalAiInitializer = runtime.lookupFunction(0x223bd0u);
         struct RestoreAiInitializer {
@@ -431,7 +443,7 @@ int main(int argc, char* argv[]) {
         } restoreAi{runtime,originalAiInitializer};
         if (!originalAiInitializer || !runtime.replaceFunction(0x223bd0u, initializeBattleAi))
             throw std::runtime_error("Cannot bind the battle AI initializer");
-        const bool randomize=preferences.randomizer && !online.enabled;
+        const bool randomize=preferences.randomizer && !online.enabled && !hardcore;
         openkai2::randomizer::active().enable(randomize,uint64_t(std::chrono::steady_clock::now().time_since_epoch().count()));
         {
             const char *discMode = std::getenv("OPENKAI2_DISC_TIMING");

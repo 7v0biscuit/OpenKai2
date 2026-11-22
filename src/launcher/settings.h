@@ -85,6 +85,9 @@ struct Settings {
     bool onlineListed = true;
     unsigned launcherTheme = 0, launcherAccent = 0, startPage = 0, lastPage = 0, launcherInterface = 1, waveSky = 0;
     bool waveEmblem = true;
+    std::string raUser, raToken;
+    bool raHardcore = false, achievementsPaused = false;
+    int64_t achievementsPausedAt = 0;
     std::array<unsigned, tab_count> tabOrder = default_tab_order;
     unsigned hiddenTabs = 0;
     CustomColors launcherColors = no_custom_colors();

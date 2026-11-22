@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: GPL-3.0-only
+function(openkai2_add_rcheevos project_root)
+    if(TARGET openkai2_rcheevos)
+        return()
+    endif()
+    set(root "${project_root}/third_party/rcheevos")
+    file(GLOB sources "${root}/src/rcheevos/*.c" "${root}/src/rapi/*.c" "${root}/src/rhash/*.c")
+    list(APPEND sources "${root}/src/rc_client.c" "${root}/src/rc_compat.c" "${root}/src/rc_util.c" "${root}/src/rc_version.c")
+    add_library(openkai2_rcheevos STATIC ${sources})
+    target_include_directories(openkai2_rcheevos PUBLIC "${root}/include" PRIVATE "${root}/src")
+    target_compile_definitions(openkai2_rcheevos PUBLIC RC_STATIC)
+    set_target_properties(openkai2_rcheevos PROPERTIES C_STANDARD 99 POSITION_INDEPENDENT_CODE ON)
+endfunction()

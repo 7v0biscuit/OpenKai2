@@ -58,6 +58,8 @@ void validate_settings(const Settings &s) {
         s.overlaySize > 3 || s.overlayBackground > 4 || s.overlayMargin > 2 || s.overlayShape > 1 || s.overlayTitle.size() > 192 || s.overlaySplitNames.size() > 2400 || s.overlaySplits > 3 || s.overlayDecimals > 3 ||
         std::any_of(s.overlayColors.begin(), s.overlayColors.end(), [](unsigned c) { return c >= speedrun::overlay_color_count; }) || (s.renderer != "auto" && s.renderer != "gpu" && s.renderer != "vulkan" && s.renderer != "cpu"))
         throw std::runtime_error("Invalid graphics settings");
+    if (s.raUser.size() > 64 || s.raToken.size() > 128 || s.raUser.find_first_of("\r\n") != std::string::npos || s.raToken.find_first_of("\r\n") != std::string::npos)
+        throw std::runtime_error("Invalid RetroAchievements sign-in");
     if (s.onlinePort < 1 || s.onlinePort > 65535 || s.onlineDelay > 8 || s.runAhead > 2 || s.imageEffect > 5 || s.brightness > 3 || s.onlineVisibility > 2 || s.onlineKeys.size() > 32 || s.onlineName.size() > 64 ||
         s.onlineAddress.size() > 255 || s.onlineRoom.size() > 64 || s.onlinePassword.size() > 64 ||
         s.onlineLobby.size() > 255 || s.onlineProfiles.size() > 32 || s.onlineRoomFilter > 2 || s.onlinePlayerFilter > 1 || s.homeFriendScope > 3)
@@ -146,6 +148,10 @@ Settings read_settings(const std::filesystem::path &file) {
         }
         else if (key == "launcher_wave")
             row >> s.waveSky >> s.waveEmblem;
+        else if (key == "retroachievements")
+            row >> std::quoted(s.raUser) >> std::quoted(s.raToken) >> s.raHardcore;
+        else if (key == "achievements_paused")
+            row >> s.achievementsPaused >> s.achievementsPausedAt;
         else if (key == "fps")
             row >> s.fps;
         else if (key == "width")
@@ -457,6 +463,8 @@ void write_settings(const std::filesystem::path &file, const Settings &s) {
         << "\nlauncher_window " << s.windowLeft << ' ' << s.windowTop << ' ' << s.windowWidth << ' '
         << s.windowHeight << ' ' << s.windowMaximized << "\nlauncher_skin " << s.launcherTheme << ' ' << s.launcherAccent << ' ' << s.startPage << ' ' << s.lastPage
         << "\nlauncher_motion " << s.reducedMotion << ' ' << s.helpHints << "\nlauncher_interface " << s.launcherInterface << "\nlauncher_wave_default 1\nlauncher_wave " << s.waveSky << ' ' << s.waveEmblem
+        << "\nretroachievements " << std::quoted(s.raUser) << ' ' << std::quoted(s.raToken) << ' ' << s.raHardcore
+        << "\nachievements_paused " << s.achievementsPaused << ' ' << s.achievementsPausedAt
         << "\nlauncher_tabs";
     for (unsigned tab : s.tabOrder)
         out << ' ' << tab;

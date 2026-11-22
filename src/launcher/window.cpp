@@ -14,6 +14,8 @@
 #include "speedrun_images.h"
 #include "dev_identity.h"
 #include "name_style.h"
+#include "achievements.h"
+#include "retroachievements.h"
 #include "netplay.h"
 #include "room.h"
 #include "online.h"
@@ -332,14 +334,15 @@ enum Id {
     OpenNotifications=1210,
     ProfileFit=1220, ProfileNotifications, ProfileCopyFrom, ProfileCopyStyle, ProfileRecover, ProfileManage, LauncherMotion, LauncherHints, ProfileAvailability, ProfileNameColor, ProfileFighter, ProfileSharing, ProfileFriendAlerts,
     OpenHelp=1240,NextDockTab,PreviousDockTab,PageTop,PageBottom,SaveCurrent,UndoCurrent,ToggleLauncher,CopySetup,OpenIsoFolder,
-    ProfileAbout=1300, ProfileRegion, ProfilePlaystyle, ProfilePreview, PlayerAction, PlayerFriend, PlayerBlock, PlayerCopyId, PlayerProfile, ProfileRename, ProfileLink, PlayerChannel, LauncherInterface, OpenWaveHome, WaveSky, WaveEmblem
+    ProfileAbout=1300, ProfileRegion, ProfilePlaystyle, ProfilePreview, PlayerAction, PlayerFriend, PlayerBlock, PlayerCopyId, PlayerProfile, ProfileRename, ProfileLink, PlayerChannel, LauncherInterface, OpenWaveHome, WaveSky, WaveEmblem,
+    OpenAchievements, RaUser, RaPassword, RaSignIn, RaSignOut, RaHardcore, RaCopyHash, RaOpenSet, RaRefresh, RaOpenSite
 };
 constexpr int pageCount = 8, onlinePage = 1, speedrunPage = 2, modsPage = 3, savesPage = 4, settingsPage = 5, updatesPage = 6,
               controlsPage = 7, importPage = 8, overlayPage = 9, tabsPage = 10, colorsPage = 11,
-              profilePage = 12, finderPage = 13, notificationsPage=14, helpPage=15, playerPage=16, wavePage=17;
+              profilePage = 12, finderPage = 13, notificationsPage=14, helpPage=15, playerPage=16, wavePage=17, achievementsPage=18;
 constexpr UINT controlKeyMessage = WM_APP + 40, controlClearMessage = WM_APP + 41,
                pageClipMessage = WM_APP + 42, restoreUiMessage = WM_APP + 43,
-               deferredUiMessage = WM_APP + 44, glideMessage = WM_APP + 45;
+               deferredUiMessage = WM_APP + 44, glideMessage = WM_APP + 45, retroMessage = WM_APP + 46;
 constexpr std::array<int, 17> padChoices{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17};
 constexpr int controlsTop = 112, controlRowTop = 196;
 constexpr std::array<unsigned, 4> audioVolumes{100u, 75u, 50u, 25u};
@@ -1055,6 +1058,7 @@ struct Window {
         {CopySetup,L"Copy setup summary",L"support settings report clipboard"},
         {OpenIsoFolder,L"Open ISO folder",L"disc location explorer"},
         {OpenNotifications,L"Notifications",L"friend requests invitations online"},
+        {OpenAchievements,L"Achievements",L"trophies retroachievements points unlocks hardcore"},
         {OpenWaveHome,L"Wave home",L"home menu ps3 wave bar categories"}
     };
     std::vector<size_t> actionRows;
@@ -1151,7 +1155,7 @@ struct Window {
             settingsHeight=grid.height();
         }
         if (page == wavePage) return pageVisibleHeight();
-        return std::max(page == helpPage ? 940 : page == overlayPage ? (waveStyle() ? 1820 : 880) : page == onlinePage ? (waveStyle() ? 1420 : 740) : page == modsPage && waveStyle() ? 960 : page == speedrunPage && waveStyle() ? 900 :page == colorsPage && waveStyle() ? 680 : page == controlsPage ? controlsHeight :
+        return std::max(page == achievementsPage ? achievementsHeight() : page == helpPage ? 940 : page == overlayPage ? (waveStyle() ? 1820 : 880) : page == onlinePage ? (waveStyle() ? 1420 : 740) : page == modsPage && waveStyle() ? 960 : page == speedrunPage && waveStyle() ? 900 :page == colorsPage && waveStyle() ? 680 : page == controlsPage ? controlsHeight :
                         page == settingsPage ? settingsHeight : page == profilePage ? 1200 : page == playerPage ? 820 : page == 0 ? (width<1100 ? 1040 : 740) : page == savesPage ? 780 : 680, pageVisibleHeight());
     }
     void scrollPage(int value) {
@@ -1288,7 +1292,7 @@ struct Window {
     int p(int n) const { return MulDiv(n, int(dpi), 96); }
     int unscale(int n) const { return MulDiv(n, 96, int(dpi)); }
     int navigationPage() const {
-        return page == wavePage ? 0 : page == helpPage ? helpOrigin : page == notificationsPage ? onlinePage : page == finderPage ? finderFrom : page == savesPage || page == controlsPage ? 0 :
+        return page == wavePage || page == achievementsPage ? 0 : page == helpPage ? helpOrigin : page == notificationsPage ? onlinePage : page == finderPage ? finderFrom : page == savesPage || page == controlsPage ? 0 :
                page == profilePage ? profileReturnPage : page == playerPage ? playerNavigation : page == importPage ? modsPage : page == overlayPage ? speedrunPage : page == tabsPage || page == colorsPage ? settingsPage : page;
     }
     std::vector<int> visibleTabs() const {
@@ -1353,6 +1357,7 @@ struct Window {
                               {LoadState,L"Load state",L"Continue from your last save state.",PlayTab,false},
                               {HomeSaves,L"Saves & backups",L"Memory card, imports and recovery copies.",SavesTab,true},
                               {HomeControls,L"Controls",L"Keyboard and controller bindings.",ControlsTab,true},
+                              {OpenAchievements,L"Achievements",L"Built-in trophies and RetroAchievements.",OpenAchievements,true},
                               {ChooseIso,L"Choose ISO",L"Pick the Budokai 2 disc image.",UpdatesTab,false},
                               {VerifyIso,L"Verify ISO",L"Check the disc against the USA retail release.",FindAction,false}}},
             {OnlineTab,L"Network",{{OnlineTab,L"Online lobby",L"Rooms, players and friends.",OnlineTab,true},
@@ -1381,6 +1386,103 @@ struct Window {
     bool waveTicking=false;
     UINT waveInterval=16;
     bool waveStyle() const {return settings.launcherInterface==1;}
+    int64_t restoredBefore=0;
+    bool deletedBudokai=false;
+    struct RetroReply { int kind=0; retro::LoginResult login; retro::Lookup lookup; retro::SetInfo set; std::string hash; };
+    achievements::Progress achievementProgress;
+    retro::SetInfo retroSet;
+    std::string retroHash;
+    std::wstring retroStatus;
+    unsigned retroGame=0;
+    bool retroBusy=false,retroChecked=false,retroLookupFailed=false;
+    static constexpr int achievementRow=58,achievementsTop=464;
+    int retroTop() const {return achievementsTop+64+int(achievements::definition_count)*achievementRow+16;}
+    int achievementsHeight() const {
+        const size_t extra=retroSet.entries.size();
+        return extra ? retroTop()+64+int(extra)*achievementRow+40 : retroTop()+20;
+    }
+    void openAchievements() {
+        if(page!=achievementsPage)page=achievementsPage;
+        achievementProgress=achievements::load(achievements::progress_path());
+        if(const auto cached=retro::load_cache(retro::cache_path());cached.ok && retroSet.entries.empty())retroSet=cached;
+        SetWindowTextW(controls[RaUser],wide(settings.raUser).c_str());
+        SendMessageW(controls[RaHardcore],CB_SETCURSEL,settings.raHardcore ? 1 : 0,0);
+        layout();refreshEnabled();
+        if(!retroChecked)checkRetro();
+        (pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);
+    }
+    void checkRetro() {
+        if(retroBusy)return;
+        retroBusy=true;retroStatus=L"Checking RetroAchievements\u2026";
+        const auto iso=settings.iso;const auto user=settings.raUser,token=settings.raToken;const HWND target=hwnd;
+        std::thread([iso,user,token,target] {
+            auto* reply=new RetroReply;reply->kind=1;
+            std::error_code missing;
+            reply->hash=!iso.empty() && std::filesystem::is_regular_file(iso,missing) ? retro::disc_hash(iso) : std::string();
+            if(!reply->hash.empty()) {
+                reply->lookup=retro::resolve(reply->hash);
+                if(reply->lookup.ok && reply->lookup.game && !token.empty())reply->set=retro::fetch_set(user,token,reply->lookup.game);
+            }
+            if(!PostMessageW(target,retroMessage,0,reinterpret_cast<LPARAM>(reply)))delete reply;
+        }).detach();
+        if(page==achievementsPage)(pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);
+    }
+    void signInRetro() {
+        const auto user=utf8(trimmed(textOf(RaUser))),password=utf8(textOf(RaPassword));
+        if(user.empty() || password.empty()) {
+            status=L"Type your RetroAchievements username and password.";error=true;
+            focusControl(user.empty() ? RaUser : RaPassword);(pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);return;
+        }
+        if(retroBusy)return;
+        retroBusy=true;retroStatus=L"Signing in\u2026";
+        SetWindowTextW(controls[RaPassword],L"");
+        const HWND target=hwnd;
+        std::thread([user,password,target] {
+            auto* reply=new RetroReply;reply->kind=2;
+            reply->login=retro::login(user,password);
+            if(!PostMessageW(target,retroMessage,0,reinterpret_cast<LPARAM>(reply)))delete reply;
+        }).detach();
+        refreshEnabled();(pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);
+    }
+    void retroArrived(RetroReply* raw) {
+        std::unique_ptr<RetroReply> reply(raw);
+        retroBusy=false;
+        if(reply->kind==2) {
+            if(reply->login.ok) {
+                settings.raUser=reply->login.user;settings.raToken=reply->login.token;
+                saveAchievementState();
+                SetWindowTextW(controls[RaUser],wide(settings.raUser).c_str());
+                status=L"Signed in to RetroAchievements as "+wide(settings.raUser)+L".";error=false;
+                retroChecked=false;checkRetro();
+            } else {
+                retroStatus=wide(reply->login.error);status=retroStatus;error=true;
+            }
+        } else {
+            retroChecked=true;retroHash=reply->hash;retroLookupFailed=false;
+            if(retroHash.empty())retroStatus=L"Verify your Budokai 2 ISO on Play to check RetroAchievements.";
+            else if(!reply->lookup.ok){retroStatus=wide(reply->lookup.error);retroLookupFailed=true;}
+            else {
+                retroGame=reply->lookup.game;
+                if(!retroGame)retroStatus=L"This disc is not linked on RetroAchievements yet. Built-in achievements work now; the set loads once RetroAchievements links this disc's hash.";
+                else if(settings.raToken.empty())retroStatus=L"This disc is linked on RetroAchievements. Sign in to load its achievements.";
+                else if(reply->set.ok) {
+                    const auto cached=retro::load_cache(retro::cache_path());
+                    for(auto& entry:reply->set.entries)
+                        for(const auto& known:cached.entries)
+                            if(known.id==entry.id){entry.unlocked=known.unlocked;entry.hardcore=known.hardcore;entry.when=known.when;}
+                    reply->set.hash=retroHash;
+                    retroSet=std::move(reply->set);
+                    retroStatus=wide(retroSet.title)+L": "+std::to_wstring(retroSet.entries.size())+L" achievements, "+std::to_wstring(retroSet.earned())+L" of "+std::to_wstring(retroSet.points())+L" points earned.";
+                } else retroStatus=wide(reply->set.error);
+            }
+        }
+        if(page==achievementsPage){layout();refreshEnabled();(pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);}
+    }
+    void saveAchievementState() {
+        try{write_settings(settings_path(),settings);}
+        catch(const std::exception& problem){std::cout<<"[launcher:achievements] "<<problem.what()<<std::endl;}
+        if(page==achievementsPage)(pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);
+    }
     ULONGLONG pageEnterAt=0;
     double pageEnter(double delay=0.0) const {
         if(!pageEnterAt)return 1.0;
@@ -3070,6 +3172,8 @@ struct Window {
                                                           {HomeArrange, L"Arrange tabs"},
                                                           {ProfileRecover,L"Undo removal"},
                                                           {ProfileManage,L"Manage online profiles"},
+                                                          {RaSignIn,L"Sign in"},{RaSignOut,L"Sign out"},{RaCopyHash,L"Copy disc hash"},
+                                                          {RaOpenSet,L"Open set page"},{RaRefresh,L"Refresh"},{RaOpenSite,L"Create an account"},
                                                           {ProfileCopyStyle,L"Copy appearance"},
                                                           {ProfilePreview,L"Preview my card"},
                                                           {PlayerAction,L"Invite to play"},
@@ -3197,6 +3301,7 @@ struct Window {
         combo(LauncherMotion,{L"Smooth",L"Reduced motion"},settings.reducedMotion ? 1 : 0);
         combo(LauncherHints,{L"On",L"Off"},settings.helpHints ? 0 : 1);
         combo(LauncherInterface,{L"Classic",L"Wave home (PS3 inspired)"},int(settings.launcherInterface));
+        combo(RaHardcore,{L"Softcore: save states allowed",L"Hardcore: no save states, mods or CPU changes"},settings.raHardcore ? 1 : 0);
         combo(WaveSky,{L"Time of day",L"Saiyan sunset",L"Namek",L"Kaio-ken",L"Kami's lookout",L"Frieza night",L"Ki blue"},int(settings.waveSky));
         combo(WaveEmblem,{L"Shown",L"Hidden"},settings.waveEmblem ? 0 : 1);
         hint(WaveSky,L"Colors of the wave home and the sky behind every page. Time of day changes through the day.");
@@ -3322,6 +3427,11 @@ struct Window {
         edit(OnlineAddress, L"Or type an address (IP or IP:port)");
         edit(OnlineRoom, L"Room name");
         edit(OnlinePassword, L"No password");
+        edit(RaUser, L"RetroAchievements username");
+        edit(RaPassword, L"Password");
+        SetWindowLongPtrW(controls[RaPassword], GWL_STYLE, GetWindowLongPtrW(controls[RaPassword], GWL_STYLE) | ES_PASSWORD);
+        SendMessageW(controls[RaPassword], EM_SETPASSWORDCHAR, WPARAM(L'\u2022'), 0);
+        SetWindowTextW(controls[RaUser], wide(settings.raUser).c_str());
         edit(OnlineLobby, L"Server address");
         edit(JoinPassword, L"Only for locked rooms");
         list(RoomList, L"Rooms", 50, false);
@@ -3333,7 +3443,7 @@ struct Window {
         SetWindowTextW(controls[OnlineRoom], wide(settings.onlineRoom).c_str());
         SetWindowTextW(controls[OnlinePassword], wide(settings.onlinePassword).c_str());
         SetWindowTextW(controls[OnlineLobby], wide(settings.onlineLobby).c_str());
-        for (auto [id, limit] : {std::pair{OnlineName, 24}, {OnlinePort, 5}, {OnlineAddress, 255}, {OnlineRoom, 40},
+        for (auto [id, limit] : {std::pair{RaUser, 64}, {RaPassword, 128}, {OnlineName, 24}, {OnlinePort, 5}, {OnlineAddress, 255}, {OnlineRoom, 40},
                                  {OnlinePassword, 64}, {OnlineLobby, 255}, {JoinPassword, 64}})
             SendMessageW(controls[id], EM_SETLIMITTEXT, WPARAM(limit), 0);
         for (auto [id, c] : controls)
@@ -3553,6 +3663,22 @@ struct Window {
         } else if(page==notificationsPage) {
             SetWindowTextW(controls[NavigateBack],L"Back to Online");
             position(NavigateBack,right-166,28,166,36);
+        } else if(page==achievementsPage) {
+            SetWindowTextW(controls[NavigateBack],waveStyle() ? L"Back to Home" : L"Back to Play");
+            position(NavigateBack,right-166,28,166,36);
+            const int row=324,gap=12;
+            if(settings.raToken.empty()) {
+                const int field=std::clamp((content-48-2*gap-160-190-2*gap)/2,160,320);
+                position(RaUser,contentLeft+34,row,field-20,40);
+                position(RaPassword,contentLeft+34+field+gap,row,field-20,40);
+                position(RaSignIn,contentLeft+24+2*(field+gap),row,160,40);
+                position(RaOpenSite,contentLeft+24+2*(field+gap)+160+gap,row,190,40);
+            } else {
+                const int combo=std::clamp(content-48-4*(150+gap),260,440);
+                position(RaHardcore,contentLeft+24,row,combo,40);
+                int x=contentLeft+24+combo+gap;
+                for(const int id:{RaRefresh,RaCopyHash,RaOpenSet,RaSignOut}){position(id,x,row,150,40);x+=150+gap;}
+            }
         } else if(page==playerPage) {
             SetWindowTextW(controls[NavigateBack],L"Back");
             position(NavigateBack,right-166,28,166,36);
@@ -4179,7 +4305,7 @@ struct Window {
     }
     void paintHeader(HDC dc,int w,int content) {
         const wchar_t* titles[]={L"Play",L"Online",L"Speedrun",L"Mods",L"Saves & backups",L"Settings",
-            L"Updates",L"Controls",L"Import tool",L"Speedrun overlay",L"Arrange tabs",L"Theme colors",L"Profile",L"Find an action",L"Notifications",L"Help & shortcuts",L"Player profile"};
+            L"Updates",L"Controls",L"Import tool",L"Speedrun overlay",L"Arrange tabs",L"Theme colors",L"Profile",L"Find an action",L"Notifications",L"Help & shortcuts",L"Player profile",L"Home",L"Achievements"};
         const wchar_t* subtitles[]={
             L"Start the game, manage your saves, or find an online match.",
             L"Find a room, invite friends, or host a versus match.",
@@ -4197,9 +4323,11 @@ struct Window {
             L"Search pages, tools and players. Use the arrow keys and Enter to open a result.",
             L"Review friend requests and match invitations.",
             L"Quick controls, setup guidance and tools for reporting a problem.",
-            L"Their player card, status and what you can do together."};
+            L"Their player card, status and what you can do together.",
+            L"",
+            L"Built-in trophies and RetroAchievements. Unlock all pauses both so it cannot earn them for you."};
         const RECT tile{p(contentLeft),p(28),p(contentLeft+40),p(68)};
-        const int icon=page==helpPage ? OpenHelp : page==profilePage || page==playerPage ? HomeProfile : page==finderPage ? FindAction : page==notificationsPage ? OpenNotifications :
+        const int icon=page==achievementsPage ? OpenAchievements : page==helpPage ? OpenHelp : page==profilePage || page==playerPage ? HomeProfile : page==finderPage ? FindAction : page==notificationsPage ? OpenNotifications :
             PlayTab+(page==controlsPage || page==savesPage ? page : navigationPage());
         const double enter=waveStyle() ? pageEnter() : 1.0,later=waveStyle() ? pageEnter(90.0) : 1.0;
         if(waveStyle()) {
@@ -4290,6 +4418,71 @@ struct Window {
             text(dc,L"Verify your ISO on Play before joining this match.",contentLeft+24,394,content-48,36,fonts.caption,muted,DT_WORDBREAK|DT_NOPREFIX);
         if(notice->waiting)
             text(dc,std::to_wstring(notice->waiting)+L" more waiting",contentLeft+24,520,content-48,24,fonts.caption,muted);
+    }
+    void achievementRowPaint(HDC dc,int top,int content,bool unlocked,const std::wstring& title,const std::wstring& detail,unsigned points,const std::wstring& state,COLORREF tone) {
+        const int right=contentLeft+content,cy=top+achievementRow/2;
+        if(unlocked) {
+            buffer.frame.halo({p(contentLeft+44),p(cy),p(contentLeft+45),p(cy+1)},0,p(26),tone,60);
+            ellipse(dc,p(contentLeft+44),p(cy),p(16),tone);
+            navigationIcon(dc,OpenAchievements,{p(contentLeft+32),p(cy-12),p(contentLeft+56),p(cy+12)},RGB(30,20,10),p(18));
+        } else {
+            ellipse(dc,p(contentLeft+44),p(cy),p(16),mix(panel,border,140));
+            ellipse(dc,p(contentLeft+44),p(cy),p(14),mix(panel,RGB(0,0,0),40));
+            navigationIcon(dc,OpenAchievements,{p(contentLeft+32),p(cy-12),p(contentLeft+56),p(cy+12)},faint,p(18));
+        }
+        text(dc,title,contentLeft+76,top+8,content-300,24,fonts.strong,unlocked ? ink : mix(ink,muted,140),DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+        text(dc,detail,contentLeft+76,top+32,content-300,20,fonts.caption,muted,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+        if(points)text(dc,std::to_wstring(points)+(points==1 ? L" pt" : L" pts"),right-210,top+8,186,24,fonts.strong,unlocked ? tone : muted,DT_RIGHT|DT_SINGLELINE|DT_NOPREFIX);
+        text(dc,state,right-210,top+32,186,20,fonts.caption,unlocked ? green : faint,DT_RIGHT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+        fill(dc,{p(contentLeft+24),p(top+achievementRow-1),p(right-24),p(top+achievementRow)},mix(panel,border,70));
+    }
+    void paintAchievements(HDC dc,int h,int content) {
+        const int right=contentLeft+content;
+        const unsigned earned=unsigned(achievementProgress.unlocked.size()),points=achievementProgress.points(),total=achievements::total_points();
+        panelBox(dc,contentLeft,124,right,232);
+        heading(dc,L"OpenKai2 achievements",contentLeft+24,140,content-48);
+        text(dc,std::to_wstring(earned)+L" of "+std::to_wstring(achievements::definition_count)+L" unlocked \u00b7 "+std::to_wstring(points)+L" of "+std::to_wstring(total)+L" points \u00b7 "+
+                 std::to_wstring(achievementProgress.wins)+L" battles won",contentLeft+24,168,content-48,20,fonts.caption,muted,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+        const RECT track{p(contentLeft+24),p(198),p(right-24),p(206)};
+        box(dc,track,mix(panel,RGB(0,0,0),60),mix(panel,border,120),4);
+        if(total)box(dc,{track.left,track.top,track.left+LONG((track.right-track.left)*double(points)/double(total)),track.bottom},gold,gold,4);
+        if(settings.achievementsPaused)
+            text(dc,L"Paused: Unlock all changed your memory card. Restore a backup from before Unlock all, or delete the Budokai 2 save, to earn achievements again.",
+                 contentLeft+24,212,content-48,18,fonts.caption,red,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+        panelBox(dc,contentLeft,248,right,448);
+        heading(dc,L"RetroAchievements",contentLeft+24,264,content-48);
+        const bool signedIn=!settings.raToken.empty();
+        text(dc,signedIn ? L"Signed in as "+wide(settings.raUser) : std::wstring(L"Sign in with your free retroachievements.org account to earn their achievements too."),
+             contentLeft+24,292,content-48,20,fonts.caption,signedIn ? green : muted,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+        text(dc,retroStatus,contentLeft+24,394,content-48,20,fonts.caption,retroLookupFailed ? red : muted,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+        if(!retroHash.empty())
+            text(dc,L"Disc hash "+wide(retroHash)+(retroGame ? L" \u00b7 game "+std::to_wstring(retroGame) : std::wstring(L" \u00b7 set "+std::to_wstring(retro::budokai2_game))),
+                 contentLeft+24,416,content-48,20,fonts.caption,faint,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+        panelBox(dc,contentLeft,achievementsTop,right,retroTop()-16);
+        heading(dc,L"Built-in",contentLeft+24,achievementsTop+16,content-48);
+        text(dc,L"Tracked in the game on this PC. They pause while Unlock all is in effect.",contentLeft+140,achievementsTop+19,content-164,20,fonts.caption,muted,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+        int y=achievementsTop+56;
+        for(const auto& definition:achievements::definitions) {
+            const auto found=achievementProgress.unlocked.find(definition.id);
+            std::wstring state;
+            if(found!=achievementProgress.unlocked.end())state=L"Unlocked "+dateText(found->second);
+            else if(definition.goal>1)state=std::to_wstring(achievementProgress.count(definition))+L" / "+std::to_wstring(definition.goal);
+            else state=L"Locked";
+            achievementRowPaint(dc,y,content,found!=achievementProgress.unlocked.end(),wide(definition.title),wide(definition.description),definition.points,state,gold);
+            y+=achievementRow;
+        }
+        if(!retroSet.entries.empty()) {
+            const int top=retroTop();
+            panelBox(dc,contentLeft,top,right,top+56+int(retroSet.entries.size())*achievementRow+8);
+            heading(dc,wide(retroSet.title.empty() ? std::string("RetroAchievements set") : retroSet.title),contentLeft+24,top+16,content-48);
+            text(dc,std::to_wstring(retroSet.earned())+L" of "+std::to_wstring(retroSet.points())+L" points",contentLeft+24,top+19,content-48,20,fonts.caption,muted,DT_RIGHT|DT_SINGLELINE|DT_NOPREFIX);
+            int row=top+56;
+            for(const auto& entry:retroSet.entries) {
+                achievementRowPaint(dc,row,content,entry.unlocked,wide(entry.title),wide(entry.description),entry.points,
+                    entry.unlocked ? (entry.hardcore ? L"Hardcore " : L"Unlocked ")+(entry.when ? dateText(entry.when) : std::wstring()) : std::wstring(L"Locked"),sky);
+                row+=achievementRow;
+            }
+        }
     }
     void rule(HDC dc, int x, int y, int width) {
         const int steps = 24;
@@ -5695,6 +5888,8 @@ struct Window {
                 paintHelp(memory,pageHeight,content);
             } else if(page==notificationsPage) {
                 paintNotifications(memory,pageHeight,content);
+            } else if(page==achievementsPage) {
+                paintAchievements(memory,pageHeight,content);
             } else if (page == 0) {
                 paintPlay(memory, content);
                 paintHeader(memory, w, content);
@@ -5816,6 +6011,7 @@ struct Window {
         else if(id==OnlineTab){g.DrawEllipse(&pen,2.f,2.f,20.f,20.f);g.DrawEllipse(&pen,8.f,2.f,8.f,20.f);line(2,12,22,12);}
         else if(id==SavesTab){g.DrawRectangle(&pen,4.f,3.f,16.f,18.f);g.DrawRectangle(&pen,8.f,3.f,8.f,6.f);g.DrawRectangle(&pen,8.f,14.f,8.f,7.f);}
         else if(id==SpeedrunTab){g.DrawEllipse(&pen,4.f,6.f,16.f,16.f);line(9,2,15,2);line(12,2,12,6);line(12,14,15,10);}
+        else if(id==OpenAchievements){g.DrawArc(&pen,6.f,-6.f,12.f,20.f,0.f,180.f);line(6,3,18,3);g.DrawArc(&pen,2.f,3.f,6.f,6.f,90.f,180.f);g.DrawArc(&pen,16.f,3.f,6.f,6.f,270.f,180.f);line(12,14,12,18);line(8,20,16,20);line(9,18,15,18);}
         else if(id==ControlsTab){
             Gdiplus::GraphicsPath path;path.AddBezier(7.f,7.f,2.f,6.f,0.f,20.f,4.f,20.f);
             path.AddBezier(4.f,20.f,6.f,20.f,7.f,16.f,9.f,16.f);path.AddLine(9.f,16.f,15.f,16.f);
@@ -7286,6 +7482,14 @@ struct Window {
             if (gameSaveList() && size_t(row) < savedGames.size()) selectedGames.push_back(savedGames[size_t(row)]);
             if (!gameSaveList() && size_t(row) < backups.size()) selectedBackups.push_back(backups[size_t(row)]);
         }
+        if (kind == Job::restore) {
+            std::error_code missing;
+            const auto written = std::filesystem::last_write_time(source, missing);
+            restoredBefore = missing ? 0 : int64_t(std::chrono::duration_cast<std::chrono::seconds>(
+                (written - std::filesystem::file_time_type::clock::now() + std::chrono::system_clock::now()).time_since_epoch()).count());
+        }
+        if (kind == Job::deleteSaves)
+            deletedBudokai = std::find(selectedGames.begin(), selectedGames.end(), std::string("BASLUS-20779DBZ2")) != selectedGames.end();
         auto updates = background ? updateProgress : progress;
         {
             std::lock_guard lock(updates->mutex);
@@ -7436,6 +7640,17 @@ struct Window {
                 } else {
                     status = result.message;
                     error = false;
+                    if (result.kind == Job::unlock) {
+                        settings.achievementsPaused = true;
+                        settings.achievementsPausedAt = int64_t(std::time(nullptr));
+                        saveAchievementState();
+                    } else if (settings.achievementsPaused && result.kind == Job::restore && restoredBefore < settings.achievementsPausedAt && restoredBefore > 0) {
+                        settings.achievementsPaused = false;
+                        saveAchievementState();
+                    } else if (settings.achievementsPaused && result.kind == Job::deleteSaves && deletedBudokai) {
+                        settings.achievementsPaused = false;
+                        saveAchievementState();
+                    }
                     if (result.disc) {
                         disc = std::move(result.disc);
                         settings.iso = result.image;
@@ -8952,6 +9167,26 @@ struct Window {
         if(id==ToggleLauncher && notification==BN_CLICKED) {toggleFullscreen();return;}
         if (id == FindAction && notification == BN_CLICKED) { openActionFinder(); return; }
         if(id==OpenNotifications && notification==BN_CLICKED) {page=notificationsPage;layout();(pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);return;}
+        if(id==OpenAchievements && notification==BN_CLICKED) {openAchievements();return;}
+        if(id==RaSignIn && notification==BN_CLICKED) {signInRetro();return;}
+        if(id==RaSignOut && notification==BN_CLICKED) {
+            settings.raToken.clear();retroSet={};retroChecked=false;retroStatus.clear();
+            try{std::filesystem::remove(retro::cache_path());}catch(const std::exception&){}
+            saveAchievementState();status=L"Signed out of RetroAchievements.";error=false;
+            layout();refreshEnabled();checkRetro();return;
+        }
+        if(id==RaRefresh && notification==BN_CLICKED) {retroChecked=false;checkRetro();return;}
+        if(id==RaCopyHash && notification==BN_CLICKED) {
+            if(!retroHash.empty() && copyText(wide(retroHash))){status=L"Disc hash copied. Share it when asking RetroAchievements to link this disc.";error=false;}
+            (pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);return;
+        }
+        if(id==RaOpenSet && notification==BN_CLICKED) {ShellExecuteW(hwnd,L"open",wide(retro::set_page).c_str(),nullptr,nullptr,SW_SHOWNORMAL);return;}
+        if(id==RaOpenSite && notification==BN_CLICKED) {ShellExecuteW(hwnd,L"open",wide(retro::site).c_str(),nullptr,nullptr,SW_SHOWNORMAL);return;}
+        if(id==RaHardcore && notification==CBN_SELCHANGE) {
+            settings.raHardcore=selected(RaHardcore)==1;saveAchievementState();
+            status=settings.raHardcore ? L"Hardcore on: save states, mods, CPU difficulty and the randomizer are off while you play." : L"Softcore on: save states and mods are allowed.";
+            error=false;(pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);return;
+        }
         if (id == ActionSearch && notification == EN_CHANGE) { refreshActions(); return; }
         if ((id == ActionOpen && notification == BN_CLICKED) || (id == ActionList && notification == LBN_DBLCLK)) {
             openSelectedAction(); return;
@@ -10419,6 +10654,9 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
             return 0;
         case onlineNotice:
             self->noticesArrived();
+            return 0;
+        case retroMessage:
+            self->retroArrived(reinterpret_cast<Window::RetroReply*>(lp));
             return 0;
         case WM_SIZE:
             if (wp==SIZE_MINIMIZED) {self->wasMinimized=true;return 0;}

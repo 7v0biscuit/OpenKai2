@@ -1,0 +1,160 @@
+// SPDX-License-Identifier: GPL-3.0-only
+#include "achievements.h"
+#include "disc_image.h"
+#include <algorithm>
+#include <fstream>
+#include <sstream>
+#include <system_error>
+
+namespace openkai2::achievements {
+
+const Definition *find(const std::string &id) {
+    for (const auto &definition : definitions)
+        if (id == definition.id)
+            return &definition;
+    return nullptr;
+}
+
+unsigned total_points() {
+    unsigned total = 0;
+    for (const auto &definition : definitions)
+        total += definition.points;
+    return total;
+}
+
+unsigned Progress::points() const {
+    unsigned total = 0;
+    for (const auto &[id, stamp] : unlocked)
+        if (const auto *definition = find(id))
+            total += definition->points;
+    return total;
+}
+
+unsigned Progress::count(const Definition &definition) const {
+    const std::string id = definition.id;
+    if (has(id))
+        return definition.goal;
+    if (id.rfind("wins_", 0) == 0 || id == "first_win")
+        return std::min(wins, definition.goal);
+    return 0;
+}
+
+std::filesystem::path progress_path() { return default_cache_directory().parent_path() / "achievements.ini"; }
+
+Progress load(const std::filesystem::path &file) {
+    Progress progress;
+    std::ifstream in(file);
+    std::string line;
+    while (std::getline(in, line)) {
+        std::istringstream row(line);
+        std::string key;
+        row >> key;
+        if (key == "unlocked") {
+            std::string id;
+            int64_t stamp = 0;
+            if (row >> id >> stamp && find(id))
+                progress.unlocked[id] = stamp;
+        } else if (key == "wins") {
+            row >> progress.wins;
+        } else if (key == "battles") {
+            row >> progress.battles;
+        }
+    }
+    return progress;
+}
+
+void save(const std::filesystem::path &file, const Progress &progress) {
+    std::error_code error;
+    std::filesystem::create_directories(file.parent_path(), error);
+    const auto temporary = file.string() + ".tmp";
+    {
+        std::ofstream out(temporary, std::ios::trunc);
+        out << "version 1\nwins " << progress.wins << "\nbattles " << progress.battles << '\n';
+        for (const auto &[id, stamp] : progress.unlocked)
+            out << "unlocked " << id << ' ' << stamp << '\n';
+        if (!out)
+            return;
+    }
+    std::filesystem::rename(temporary, file, error);
+    if (error) {
+        std::filesystem::remove(file, error);
+        std::filesystem::rename(temporary, file, error);
+    }
+}
+
+void Tracker::unlock(const char *id, int64_t stamp, std::vector<const Definition *> &out) {
+    if (progress_.has(id))
+        return;
+    progress_.unlocked[id] = stamp;
+    if (const auto *definition = find(id))
+        out.push_back(definition);
+}
+
+std::vector<const Definition *> Tracker::update(const speedrun::GuestState &state, double now, bool online, int64_t stamp) {
+    std::vector<const Definition *> out;
+    if (state.dragon_world && !dragon_world_)
+        unlock("dragon_world", stamp, out);
+    dragon_world_ = state.dragon_world;
+    if (state.credits && !credits_)
+        unlock("credits", stamp, out);
+    credits_ = state.credits;
+    if (state.champion && !champion_)
+        unlock("champion", stamp, out);
+    champion_ = state.champion;
+
+    if (state.battle && !state.battle_over && !live_ && state.health_known && state.player_max > 0) {
+        live_ = true;
+        started_ = now;
+        player_max_ = state.player_max;
+        lowest_ = state.player_health;
+    }
+    if (live_ && state.battle && state.health_known) {
+        player_ = state.player_health;
+        opponent_ = state.opponent_health;
+        reason_ = state.reason;
+        lowest_ = std::min(lowest_, player_);
+    }
+    if (live_ && (state.battle_over || !state.battle)) {
+        live_ = false;
+        int result = 0;
+        if (player_ <= 0)
+            result = -1;
+        else if (opponent_ <= 0)
+            result = 1;
+        else if (reason_ == speedrun::timeout_reason)
+            result = player_ < opponent_ ? -1 : player_ > opponent_ ? 1 : 0;
+        if (result != 0) {
+            ++progress_.battles;
+            ++session_battles_;
+            if (session_battles_ >= 20)
+                unlock("marathon", stamp, out);
+        }
+        if (result > 0) {
+            ++progress_.wins;
+            unlock("first_win", stamp, out);
+            if (progress_.wins >= 10)
+                unlock("wins_10", stamp, out);
+            if (progress_.wins >= 50)
+                unlock("wins_50", stamp, out);
+            if (progress_.wins >= 200)
+                unlock("wins_200", stamp, out);
+            if (lowest_ >= player_max_ && player_max_ > 0)
+                unlock("flawless", stamp, out);
+            if (player_max_ > 0 && player_ < player_max_ * 0.1f)
+                unlock("comeback", stamp, out);
+            if (reason_ == speedrun::timeout_reason && opponent_ > 0)
+                unlock("time_up", stamp, out);
+            if (now - started_ < 20.0)
+                unlock("quick_win", stamp, out);
+            if (lost_last_)
+                unlock("rematch", stamp, out);
+            if (online)
+                unlock("online_win", stamp, out);
+        }
+        if (result != 0)
+            lost_last_ = result < 0;
+    }
+    return out;
+}
+
+}

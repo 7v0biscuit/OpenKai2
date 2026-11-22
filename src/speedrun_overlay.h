@@ -14,6 +14,8 @@ struct OverlayOptions {
     Category category = Category::off;
     bool permadeath = false;
     bool fps_counter = false;
+    bool achievements_paused = false, ra_hardcore = false;
+    std::string ra_user, ra_token, ra_hash;
     bool randomizer = false;
     bool skip_to_menu = false;
     unsigned load_state = 0;

@@ -15,6 +15,7 @@ files.
 [Speedrun mode](docs/speedrun.md) ·
 [Graphics](docs/graphics.md) ·
 [Save states](docs/save-states.md) ·
+[Achievements](docs/achievements.md) ·
 [Modding](docs/modding.md) ·
 [Report an issue](https://github.com/7v0biscuit/OpenKai2/issues/new/choose)
 
@@ -36,13 +37,15 @@ files.
   friends, invites, a room browser and room passwords. Both games run in lockstep
   and check that they stay in sync. [Experimental]
 - **Save states:** F5 saves and F9 loads the whole console outside speedrun and online play.
+- **Achievements:** fourteen built-in achievements, plus RetroAchievements sign-in with
+  softcore and hardcore modes. Unlock all pauses both. See [docs/achievements.md](docs/achievements.md).
 - **Run-ahead:** optional 1 or 2 frames of run-ahead in **Settings > Game** to cut input lag
   offline, shown at your monitor's full refresh rate. See [docs/windows.md](docs/windows.md).
 - **Randomizer:** a random character, with its own moves and skills, for every
   Dragon World and World Tournament fight. Works with speedruns and permadeath.
 - **Launcher:** a lounge with friends, searchable rooms and selected-room details;
   six dock tabs, Play shortcuts for controls and saves, keyboard shortcut help,
-  thirteen coordinated color themes, custom
+  twenty-one coordinated color themes, custom
   colors, local PNG/JPEG/GIF player cards, profile recovery, availability and quiet
   notifications, reduced motion, ISO verification, saves and backups,
   automatic updates and Discord activity. See [Windows](docs/windows.md).

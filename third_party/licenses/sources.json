@@ -27,5 +27,6 @@
   "soundtouch.txt": "https://github.com/PCSX2/pcsx2/blob/dcfd663c1903025864a865d3fcf508d0caab70c7/3rdparty/soundtouch/COPYING.TXT",
   "inter-ofl.txt": "https://github.com/google/fonts/blob/main/ofl/inter/OFL.txt",
   "barlow-condensed-ofl.txt": "https://github.com/google/fonts/blob/main/ofl/barlowcondensed/OFL.txt",
-  "openkai2-display.txt": "https://github.com/7v0biscuit/OpenKai2/tree/main/third_party/openkai2-display"
+  "openkai2-display.txt": "https://github.com/7v0biscuit/OpenKai2/tree/main/third_party/openkai2-display",
+  "rcheevos.txt": "https://github.com/RetroAchievements/rcheevos/blob/1433173220a7eaede6a9ed7a18e94117be1821e0/LICENSE"
 }

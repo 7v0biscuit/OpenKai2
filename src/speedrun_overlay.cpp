@@ -28,6 +28,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <ctime>
 #include <iostream>
 #include <sstream>
@@ -35,6 +36,9 @@
 #include <set>
 #ifdef _WIN32
 #include "launcher/display_font.h"
+#include "achievements.h"
+#include "retroachievements.h"
+#include <deque>
 #endif
 
 namespace openkai2::speedrun {
@@ -264,6 +268,78 @@ struct Overlay {
     double skip_started = 0, last_press = 0;
     uint64_t last_fields = 0;
     bool own_font = false, own_label = false;
+    std::unique_ptr<openkai2::achievements::Tracker> tracker;
+    std::unique_ptr<openkai2::retro::Session> retro;
+    uint64_t achievement_fields = 0;
+    bool paused_told = false;
+    struct Banner {
+        std::string heading, title, detail;
+        unsigned points = 0;
+        bool retro = false;
+        double start = -1;
+    };
+    std::deque<Banner> banners;
+    void achievements(PS2Runtime &runtime, double now, uint64_t fields) {
+        if (fields == achievement_fields)
+            return;
+        achievement_fields = fields;
+        if (tracker) {
+            const auto state = read_guest(runtime.memory().getRDRAM(), PS2_RAM_SIZE);
+            const auto unlocked = tracker->update(state, now, openkai2::netplay::active() != nullptr, int64_t(std::time(nullptr)));
+            if (!unlocked.empty()) {
+                for (const auto *definition : unlocked)
+                    banners.push_back({"ACHIEVEMENT UNLOCKED", definition->title, definition->description, definition->points, false, -1});
+                openkai2::achievements::save(openkai2::achievements::progress_path(), tracker->progress());
+            }
+        }
+        if (retro) {
+            retro->frame();
+            for (auto &event : retro->take()) {
+                using Kind = openkai2::retro::Event::Kind;
+                if (event.kind == Kind::unlocked)
+                    banners.push_back({options.ra_hardcore ? "RETROACHIEVEMENT UNLOCKED  HARDCORE" : "RETROACHIEVEMENT UNLOCKED", event.title, event.description, event.points, true, -1});
+                else if (event.kind == Kind::completed)
+                    banners.push_back({"SET MASTERED", event.title, "Every RetroAchievement in this set is earned.", 0, true, -1});
+                else
+                    toast(event.title);
+            }
+        }
+    }
+    void banner(double now) {
+        while (!banners.empty() && banners.front().start >= 0 && now - banners.front().start > 5.2)
+            banners.pop_front();
+        if (banners.empty())
+            return;
+        auto &shown = banners.front();
+        if (shown.start < 0)
+            shown.start = now;
+        const double age = now - shown.start;
+        const double in = std::clamp(age / 0.35, 0.0, 1.0), out = std::clamp((5.2 - age) / 0.45, 0.0, 1.0);
+        const double ease = 1.0 - std::pow(1.0 - in, 3.0), fade = std::min(1.0, out);
+        const float s = std::max(0.75f, float(GetScreenHeight()) / 1080.0f);
+        const float big = 24 * s, small = 15 * s, tiny = 13 * s;
+        const std::string points = shown.points ? std::to_string(shown.points) + (shown.points == 1 ? " point" : " points") : std::string();
+        const float width = std::max({label_width(shown.title, big) + (points.empty() ? 0.0f : label_width(points, small) + 28 * s),
+                                      label_width(shown.detail, small), label_width(shown.heading, tiny)}) + 96 * s;
+        const float height = 92 * s, x = (float(GetScreenWidth()) - width) / 2;
+        const float y = float(-height + (height + 56 * s) * ease);
+        const auto alpha = [&](int value) { return uint8_t(std::clamp(value * fade, 0.0, 255.0)); };
+        const Color gold = shown.retro ? Color{120, 200, 255, alpha(255)} : Color{255, 204, 72, alpha(255)};
+        DrawRectangleRounded({x - 3 * s, y - 3 * s, width + 6 * s, height + 6 * s}, 0.3f, 8, Color{gold.r, gold.g, gold.b, alpha(90)});
+        DrawRectangleRounded({x, y, width, height}, 0.3f, 8, Color{14, 12, 26, alpha(232)});
+        const float glint = float(std::fmod(age * 0.6, 1.4) - 0.2) * width;
+        if (glint > 0 && glint < width)
+            DrawRectangleGradientH(int(x + glint - 40 * s), int(y), int(80 * s), int(3 * s), Color{gold.r, gold.g, gold.b, 0}, Color{255, 255, 255, alpha(180)});
+        DrawCircleV({x + 42 * s, y + height / 2}, 24 * s, Color{gold.r, gold.g, gold.b, alpha(60)});
+        DrawCircleV({x + 42 * s, y + height / 2}, 17 * s, gold);
+        DrawCircleV({x + 42 * s, y + height / 2}, 7 * s, Color{14, 12, 26, alpha(255)});
+        const float left = x + 80 * s;
+        label(shown.heading, left, y + 12 * s, tiny, Color{gold.r, gold.g, gold.b, alpha(235)});
+        const float titled = label(shown.title, left, y + 30 * s, big, Color{250, 248, 240, alpha(255)});
+        if (!points.empty())
+            label(points, left + titled + 16 * s, y + 36 * s, small, Color{gold.r, gold.g, gold.b, alpha(235)});
+        label(shown.detail, left, y + 62 * s, small, Color{210, 204, 220, alpha(230)});
+    }
     struct ImageAsset {
         SplitImage image;
         Texture2D texture{};
@@ -885,18 +961,28 @@ void report_gpu_waits(double now) {
         std::cout << line.str() << std::endl;
 }
 
+std::atomic<uint8_t *> guest_memory{nullptr};
+
 void draw(PS2Runtime &runtime, void *) {
     if (!overlay)
         return;
     const double now = seconds();
     report_gpu_waits(now);
     const uint64_t fields = runtime.memory().gs().vsyncTick.load(std::memory_order_acquire);
+    guest_memory.store(runtime.memory().getRDRAM(), std::memory_order_release);
+    overlay->achievements(runtime, now, fields);
+    if (overlay->options.achievements_paused && !overlay->paused_told && fields > 120) {
+        overlay->paused_told = true;
+        toast("Achievements are paused: Unlock all changed this memory card");
+    }
     if (overlay->speedrun)
         overlay->update(runtime, now, fields);
     overlay->last_fields = fields;
     auto *session = openkai2::netplay::active();
     if (session && (IsKeyPressed(KEY_F5) || IsKeyPressed(KEY_F9)))
         toast("Save states are off in online play");
+    else if (overlay->options.ra_hardcore && (IsKeyPressed(KEY_F5) || IsKeyPressed(KEY_F9)))
+        toast("Save states are off in RetroAchievements hardcore mode");
     else if (overlay->speedrun && (IsKeyPressed(KEY_F5) ||
              (IsKeyPressed(KEY_F9) && !tournament(overlay->options.category))))
         toast("Manual save and load are disabled during speedruns");
@@ -909,7 +995,9 @@ void draw(PS2Runtime &runtime, void *) {
     if (overlay->options.load_state && !overlay->speedrun && !session)
         load_on_start(overlay->options.load_state, fields);
     capture_frame(fields);
-    if (!overlay->speedrun && !session && IsKeyPressed(KEY_F6)) {
+    if (overlay->options.ra_hardcore && IsKeyPressed(KEY_F6))
+        toast("CPU difficulty is locked in RetroAchievements hardcore mode");
+    else if (!overlay->speedrun && !session && IsKeyPressed(KEY_F6)) {
         unsigned level = 0;
         if (openkai2::cpu::cycle(level))
             toast(std::string("CPU difficulty: ") + openkai2::cpu::level_name(level));
@@ -947,11 +1035,13 @@ void draw(PS2Runtime &runtime, void *) {
         overlay->notice(message);
     if (session)
         overlay->online(session->status());
+    overlay->banner(now);
 }
 
 void shutdown(PS2Runtime &, void *) {
     if (!overlay)
         return;
+    overlay->retro.reset();
     if (overlay->speedrun) {
         const double now = seconds();
         if (overlay->timer.phase() == Phase::running) {
@@ -1001,6 +1091,37 @@ void install_overlay(PS2Runtime &runtime, OverlayOptions options) {
         overlay->livesplit = std::make_unique<LiveSplit>();
         std::cout << "[speedrun] log=" << overlay->log.path().string()
                   << " splits=" << overlay->options.splits.string() << std::endl;
+    }
+    if (!overlay->options.achievements_paused) {
+        overlay->tracker = std::make_unique<openkai2::achievements::Tracker>(openkai2::achievements::load(openkai2::achievements::progress_path()));
+        if (!overlay->options.ra_token.empty() && !overlay->options.ra_hash.empty()) {
+            openkai2::retro::Session::Config config;
+            config.user = overlay->options.ra_user;
+            config.token = overlay->options.ra_token;
+            config.hash = overlay->options.ra_hash;
+            config.hardcore = overlay->options.ra_hardcore;
+            config.cache = openkai2::retro::cache_path();
+            config.read = [](uint32_t address, uint8_t *buffer, uint32_t bytes) -> uint32_t {
+                if (address < PS2_RAM_SIZE) {
+                    const uint8_t *memory = guest_memory.load(std::memory_order_acquire);
+                    if (!memory)
+                        return 0;
+                    const uint32_t count = std::min<uint32_t>(bytes, uint32_t(PS2_RAM_SIZE - address));
+                    std::memcpy(buffer, memory + address, count);
+                    return count;
+                }
+                if (address >= 0x02000000u && address < 0x02004000u) {
+                    const uint8_t *scratch = ps2GetScratchpadHostPtr();
+                    if (!scratch)
+                        return 0;
+                    const uint32_t offset = address - 0x02000000u, count = std::min<uint32_t>(bytes, 0x4000u - offset);
+                    std::memcpy(buffer, scratch + offset, count);
+                    return count;
+                }
+                return 0;
+            };
+            overlay->retro = std::make_unique<openkai2::retro::Session>(std::move(config));
+        }
     }
     runtime.setDebugUiCallbacks(start, draw, shutdown, nullptr);
 }

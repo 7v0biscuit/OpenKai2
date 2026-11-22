@@ -33,6 +33,12 @@ unchanged; the family is renamed and Windows line metrics follow the original
 typographic metrics. The font, license and modification notes are in
 third_party/openkai2-display/, with the unmodified source in third_party/bangers/.
 
+Achievement support uses rcheevos by RetroAchievements.org, version v12.5.0
+(revision 1433173220a7eaede6a9ed7a18e94117be1821e0):
+https://github.com/RetroAchievements/rcheevos
+The sources in third_party/rcheevos/ retain their MIT notice. Achievement sets
+are downloaded from RetroAchievements at run time and are not included.
+
 Portable Windows bundles include third-party notices in licenses/. The source
 locations for those notices and the pinned FFmpeg build recipe are recorded in
 third_party/licenses/sources.json.
