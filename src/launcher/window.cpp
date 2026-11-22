@@ -1138,7 +1138,7 @@ struct Window {
         }
         if (page == wavePage) return pageVisibleHeight();
         return std::max(page == helpPage ? 940 : page == overlayPage ? 880 : page == onlinePage ? 740 : page == controlsPage ? controlsHeight :
-                        page == settingsPage ? settingsHeight : page == profilePage ? (heldTag() ? 1200 : 1110) : page == playerPage ? 760 : page == 0 ? (width<1100 ? 1040 : 740) : page == savesPage ? 780 : 680, pageVisibleHeight());
+                        page == settingsPage ? settingsHeight : page == profilePage ? 1200 : page == playerPage ? 820 : page == 0 ? (width<1100 ? 1040 : 740) : page == savesPage ? 780 : 680, pageVisibleHeight());
     }
     void scrollPage(int value) {
         scrollGliding=false;
@@ -1403,7 +1403,13 @@ struct Window {
         } else command(item.action,BN_CLICKED);
         (pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);
     }
-    struct WaveGeometry {double rowY,baseX,spacing,itemGap,itemTop;};
+    struct WaveGeometry {double rowY,baseX,spacing,itemGap,itemTop;
+        double itemY(double offset,double above) const {
+            if(offset>=0)return itemTop+offset*itemGap;
+            if(offset>=-1)return itemTop+(above-itemTop)*(-offset);
+            return above+(offset+1)*itemGap*0.85;
+        }
+    };
     WaveGeometry waveGeometry(int width,int height) const {
         return {height*0.29,width*0.27,double(p(156)),double(p(70)),height*0.29+double(p(96))};
     }
@@ -1421,7 +1427,7 @@ struct Window {
         const double at=waveItemAt[size_t(waveCategory)];
         for(int j=0;j<int(items.size());++j) {
             const double offset=j-at;
-            const double cy=offset>=-0.5 ? g.itemTop+offset*g.itemGap : g.rowY-p(74)+(offset+0.5)*g.itemGap*0.9;
+            const double cy=g.itemY(offset,g.rowY-p(66));
             if(std::fabs(y-cy)<g.itemGap/2 && x>g.baseX-p(60) && x<client.right-p(40)) {
                 if(j==waveItem[size_t(waveCategory)])waveActivate();else{waveItem[size_t(waveCategory)]=j;startWave();}
                 return true;
@@ -1596,6 +1602,17 @@ struct Window {
                 buffer.frame.halo({LONG(cx-glow/4),LONG(g.rowY-glow/4),LONG(cx+glow/4),LONG(g.rowY+glow/4)},0,glow,RGB(255,214,140),int(70*focus*enter));
             }
             navigationIcon(dc,categories[size_t(i)].icon,{LONG(cx-size/2),LONG(g.rowY-size/2),LONG(cx+size/2),LONG(g.rowY+size/2)},fade(RGB(255,250,240),alpha),size);
+            if(categories[size_t(i)].icon==OnlineTab && hasNotice() && alpha>0.2) {
+                const int count=noticeCount(),bx=int(cx+size*0.42),by=int(g.rowY-size*0.42),radius=p(9);
+                const double beat=0.5+0.5*std::sin(now*3.0);
+                buffer.frame.halo({LONG(bx),LONG(by),LONG(bx+1),LONG(by+1)},0,radius+p(8),orange,int(50+40*beat));
+                ellipse(dc,bx,by,radius,orange);
+                const std::wstring label=count>9 ? L"9+" : std::to_wstring(count);
+                auto previous=SelectObject(dc,fonts.label);SetBkMode(dc,TRANSPARENT);SetTextColor(dc,RGB(30,14,6));
+                RECT digits{bx-radius,by-radius,bx+radius+1,by+radius+1};
+                DrawTextW(dc,label.c_str(),-1,&digits,DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX);
+                SelectObject(dc,previous);
+            }
             if(focus>0.02)
                 text(dc,categories[size_t(i)].name,unscale(int(cx))-100,unscale(int(g.rowY))+40,200,24,fonts.body,fade(RGB(255,248,232),alpha*focus),DT_CENTER|DT_SINGLELINE|DT_NOPREFIX);
         }
@@ -1607,9 +1624,10 @@ struct Window {
         for(int j=0;j<int(items.size());++j) {
             const double offset=j-at;
             const double focus=std::max(0.0,1.0-std::fabs(offset));
-            const double cy=offset>=-0.5 ? g.itemTop+offset*g.itemGap+focus*p(6) : g.rowY-p(74)+(offset+0.5)*g.itemGap*0.9;
-            if(cy<p(110) || cy>height-p(60))continue;
-            const double alpha=columnAlpha*(offset<-0.5 ? 0.45 : 0.55+0.45*focus)*std::clamp(1.0-(std::fabs(offset)-3.5)*0.5,0.0,1.0);
+            const double cy=g.itemY(offset,g.rowY-p(66))+(offset>=0 ? focus*p(6) : 0.0);
+            if(cy<p(96) || cy>height-p(60))continue;
+            const double crossing=offset<0 && offset>-1 ? 1.0-std::sin(-offset*3.1416)*0.8 : 1.0;
+            const double alpha=columnAlpha*crossing*(offset<-0.5 ? 0.45 : 0.55+0.45*focus)*std::clamp(1.0-(std::fabs(offset)-3.5)*0.5,0.0,1.0);
             if(alpha<0.02)continue;
             const int tile=int(p(40)+p(14)*focus);
             const RECT box{LONG(columnX-tile/2),LONG(cy-tile/2),LONG(columnX+tile/2),LONG(cy+tile/2)};
@@ -2194,6 +2212,40 @@ struct Window {
         catch(const std::exception& problem){std::cout<<"[launcher:online] "<<problem.what()<<std::endl;}
     }
     struct ShownCard {bool shared=false;online::Card card;const speedrun::SplitImage* image=nullptr;unsigned fit=0;};
+    std::vector<std::pair<std::wstring,COLORREF>> profileBadges(const ShownCard& shown,const std::string& id,const std::wstring& name) {
+        std::vector<std::pair<std::wstring,COLORREF>> badges;
+        if(const auto keyTag=effectOf(id) ? identity::claimed_tag(utf8(name)) : std::nullopt)
+            badges.emplace_back(wide(identity::tag_label(*keyTag)),readableName(storedColor(tagColor(*keyTag)),ink));
+        if(!shown.shared)return badges;
+        const auto& card=shown.card;
+        if(card.matches>=200)badges.emplace_back(L"LEGEND",gold);
+        else if(card.matches>=50)badges.emplace_back(L"Z WARRIOR",orange);
+        else if(card.matches>=10)badges.emplace_back(L"FIGHTER",green);
+        else if(card.matches>=1)badges.emplace_back(L"ROOKIE",sky);
+        const int64_t now=int64_t(std::time(nullptr));
+        if(card.since>0 && now-card.since>=365*86400)badges.emplace_back(L"VETERAN",RGB(196,150,255));
+        else if(card.since>0 && card.since<1767225600)badges.emplace_back(L"EARLY FIGHTER",RGB(120,210,255));
+        if(!card.tagline.empty() && !card.about.empty() && card.fighter && (!card.picture.empty() || shown.image))badges.emplace_back(L"COMPLETE CARD",RGB(140,230,170));
+        return badges;
+    }
+    static unsigned profileLevel(uint32_t matches) {return std::min(99u,1u+matches/5u);}
+    void paintBadges(HDC dc,const std::vector<std::pair<std::wstring,COLORREF>>& badges,int centre,int y) {
+        if(badges.empty())return;
+        int total=0;for(const auto& badge:badges)total+=unscale(tagWidth(dc,badge.first))+6;
+        int x=centre+total/2;
+        for(const auto& badge:badges){tag(dc,p(x),p(y),badge.first,badge.second,false);x-=unscale(tagWidth(dc,badge.first))+6;}
+    }
+    void paintLevel(HDC dc,const ShownCard& shown,int left,int y,int width) {
+        if(!shown.shared)return;
+        const uint32_t matches=shown.card.matches;
+        const unsigned level=profileLevel(matches);
+        const double progress=level>=99 ? 1.0 : double(matches%5u)/5.0;
+        text(dc,L"LEVEL "+std::to_wstring(level),left,y,120,22,fonts.strong,ink,DT_LEFT|DT_SINGLELINE|DT_NOPREFIX);
+        text(dc,level>=99 ? std::wstring(L"Max level") : std::to_wstring(5u-matches%5u)+L" matches to next level",left+120,y+2,width-120,20,fonts.caption,muted,DT_RIGHT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+        const RECT track{p(left),p(y+28),p(left+width),p(y+34)};
+        box(dc,track,mix(panel,RGB(0,0,0),60),mix(panel,border,120),3);
+        if(progress>0)box(dc,{track.left,track.top,track.left+LONG((track.right-track.left)*progress),track.bottom},orange,orange,3);
+    }
     ShownCard shownCard(const std::string& id) {
         ShownCard out;
         const auto profile=activeProfile();
@@ -2237,7 +2289,7 @@ struct Window {
     }
     void paintPlayer(HDC dc,int h,int content) {
         const int right=contentLeft+content,split=contentLeft+std::clamp(content/3,260,340),side=split+44,width=right-side-24;
-        panelBox(dc,contentLeft,124,split,700);panelBox(dc,split+20,124,right,700);
+        panelBox(dc,contentLeft,124,split,764);panelBox(dc,split+20,124,right,764);
         if(viewedPlayer.empty())return;
         const auto profile=activeProfile();const bool own=profile && profile->id==viewedPlayer;
         const auto shown=shownCard(viewedPlayer);
@@ -2282,6 +2334,9 @@ struct Window {
             int x=(contentLeft+split)/2+total/2;
             for(const auto& tagValue:tags){tag(dc,p(x),p(y+40),tagValue.first,tagValue.second);x-=unscale(tagWidth(dc,tagValue.first))+6;}
         }
+        const int badgeY=y+(tags.empty() ? 40 : 66);
+        paintBadges(dc,profileBadges(shown,viewedPlayer,name),(contentLeft+split)/2,badgeY);
+        paintLevel(dc,shown,contentLeft+24,badgeY+20,columnWidth);
         heading(dc,L"About",side,144,width);
         if(!shown.shared)
             text(dc,own ? L"Your card is kept on this PC. Choose what to share on your Profile page." : L"This player has not shared a player card.",side,180,width,60,fonts.body,muted,DT_WORDBREAK|DT_NOPREFIX);
@@ -3448,11 +3503,11 @@ struct Window {
             position(NavigateBack,right-166,28,166,36);
             const int split=contentLeft+std::clamp(content/3,260,340),buttonWidth=split-contentLeft-48;
             const auto profile=activeProfile();const bool own=profile && profile->id==viewedPlayer;
-            position(PlayerAction,contentLeft+24,476,buttonWidth,36);
-            if(!own)position(PlayerFriend,contentLeft+24,520,buttonWidth,36);
-            position(PlayerCopyId,contentLeft+24,own ? 520 : 564,buttonWidth,36);
-            if(!own)position(PlayerBlock,contentLeft+24,608,buttonWidth,36);
-            if(!channelOf(viewedPlayer).empty())position(PlayerChannel,contentLeft+24,own ? 564 : 652,buttonWidth,36);
+            position(PlayerAction,contentLeft+24,536,buttonWidth,36);
+            if(!own)position(PlayerFriend,contentLeft+24,580,buttonWidth,36);
+            position(PlayerCopyId,contentLeft+24,own ? 580 : 624,buttonWidth,36);
+            if(!own)position(PlayerBlock,contentLeft+24,668,buttonWidth,36);
+            if(!channelOf(viewedPlayer).empty())position(PlayerChannel,contentLeft+24,own ? 624 : 712,buttonWidth,36);
         } else if (page == 0) {
             const LoungeLayout g(content,h);
             position(HomeFriendScope,g.friendsLeft+16,154,g.friendsWidth-32,32);
@@ -4158,7 +4213,7 @@ struct Window {
         panelBox(dc,contentLeft,124,right,226);
         heading(dc,L"Active profile",contentLeft+24,136,content-48);
         const bool perks=heldTag().has_value();
-        panelBox(dc,contentLeft,246,split,perks ? 1176 : 1076);panelBox(dc,split+20,246,right,perks ? 1176 : 1076);
+        panelBox(dc,contentLeft,246,split,1176);panelBox(dc,split+20,246,right,perks ? 1176 : 1076);
         if(perks) {
             const auto tag=*heldTag();const int perkSide=split+44,perkWidth=right-perkSide-24;
             caps(dc,wide(identity::tag_label(tag))+L" CHANNEL LINK",perkSide,1100,perkWidth,readableName(storedColor(tagColor(tag)),ink));
@@ -4188,6 +4243,15 @@ struct Window {
         stat(962,L"Member since",style && style->since>0 ? dateText(style->since) : std::wstring(L"First time online"));
         stat(990,L"Friends",std::to_wstring(friendCount()));
         stat(1018,L"Recent opponents",std::to_wstring(recentCount()));
+        {
+            auto mine=shownCard(profile->id);
+            if(!mine.shared && style) {
+                mine.shared=true;mine.card.matches=style->matches;mine.card.since=style->since;mine.card.tagline=style->tagline;
+                mine.card.about=style->about;mine.card.fighter=style->fighter;mine.image=profileImage(style->image);
+            }
+            paintLevel(dc,mine,contentLeft+24,1050,split-contentLeft-48);
+            paintBadges(dc,profileBadges(mine,profile->id,wide(profile->name)),(contentLeft+split)/2,1112);
+        }
         heading(dc,L"Appearance & notifications",side,266,width);
         const int half=(width-16)/2,second=side+(width+16)/2;
         caps(dc,L"INITIALS",side,306,half);
@@ -5205,12 +5269,14 @@ struct Window {
             return;
         }
         const RECT& update = ps.rcPaint;
+        if (toastAt) motionTick = false;
         if (paintMotionsInPlace(update, rect)) {
             if (update.right > update.left && update.bottom > update.top)
                 BitBlt(dc, update.left, update.top, update.right - update.left, update.bottom - update.top, buffer.dc, update.left, update.top, SRCCOPY);
             return;
         }
         const auto glowing = renderFrame(rect);
+        paintToast(buffer.dc);
         if (update.right > update.left && update.bottom > update.top)
             BitBlt(dc, update.left, update.top, update.right - update.left, update.bottom - update.top, buffer.dc, update.left, update.top, SRCCOPY);
         if (paintedPage != page || paintedScroll != pageScroll || paintedSize != std::pair<int, int>{rect.right, rect.bottom} || paintedGlow != glowing) {
@@ -5491,7 +5557,17 @@ struct Window {
                 if(id==OnlineTab && noticeCount()>0)ellipse(dc,r.right-p(12),r.top+p(9),p(3),orange);
             } else if(id==OpenNotifications) {
                 navigationIcon(dc,OpenNotifications,{r.left-p(7),r.top,r.right,r.bottom},hasNotice() ? orange : muted);
-                if(hasNotice()) ellipse(dc,r.right-p(7),r.top+p(7),p(3),orange);
+                if(hasNotice()) {
+                    const int count=noticeCount();
+                    const std::wstring label=count>9 ? L"9+" : std::to_wstring(count);
+                    const int cx=r.right-p(8),cy=r.top+p(8),radius=p(8);
+                    ellipse(dc,cx,cy,radius+std::max(1,p(1)),surface(id,r));
+                    ellipse(dc,cx,cy,radius,orange);
+                    auto previous=SelectObject(dc,fonts.label);SetBkMode(dc,TRANSPARENT);SetTextColor(dc,buttonInk);
+                    RECT digits{cx-radius,cy-radius,cx+radius+1,cy+radius+1};
+                    DrawTextW(dc,label.c_str(),-1,&digits,DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX);
+                    SelectObject(dc,previous);
+                }
             } else if (id == FindAction) {
                 navigationIcon(dc,FindAction,{r.left-p(3),r.top,r.right,r.bottom},muted);
                 textRect.left += p(44); textRect.right -= p(64);
@@ -7979,8 +8055,76 @@ struct Window {
             view.detail = L"wants to be your friend";
         return view;
     }
+    std::wstring toastTitle,toastText;
+    ULONGLONG toastAt=0;
+    static constexpr ULONGLONG toastLife=6500;
+    double toastPresence() const {
+        if(!toastAt)return 0.0;
+        const double age=double(GetTickCount64()-toastAt);
+        if(age>=double(toastLife))return 0.0;
+        const double in=std::min(1.0,age/280.0),out=std::min(1.0,(double(toastLife)-age)/420.0);
+        return std::min(1.0-std::pow(1.0-in,3.0),out);
+    }
+    RECT toastRect() const {
+        RECT client{};GetClientRect(hwnd,&client);
+        const int width=p(360),height=p(78),top=p(page==wavePage ? 104 : shellHeader+12);
+        const int slide=int((1.0-toastPresence())*p(48));
+        return {client.right-p(margin)-width+slide,top,client.right-p(margin)+slide,top+height};
+    }
+    void showToast(const std::wstring& title,const std::wstring& message) {
+        toastTitle=title;toastText=message;toastAt=GetTickCount64();
+        SetTimer(hwnd,7,16,nullptr);
+        RECT area=toastRect();area.left-=p(60);area.bottom+=p(8);InvalidateRect(hwnd,&area,FALSE);
+    }
+    void animateToast() {
+        RECT client{};GetClientRect(hwnd,&client);
+        RECT area{client.right-p(margin)-p(440),p(shellHeader),client.right,p(page==wavePage ? 104 : shellHeader+12)+p(92)};
+        if(!toastPresence() && toastAt && GetTickCount64()-toastAt>=toastLife){toastAt=0;KillTimer(hwnd,7);}
+        else {
+            const double age=double(GetTickCount64()-toastAt);
+            SetTimer(hwnd,7,age<300 || age>double(toastLife)-450 ? 16 : 250,nullptr);
+        }
+        InvalidateRect(hwnd,&area,FALSE);
+    }
+    void paintToast(HDC dc) {
+        const double presence=toastPresence();
+        if(presence<=0.01)return;
+        const RECT r=toastRect();
+        {
+            Gdiplus::Graphics graphics(dc);
+            graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+            const Gdiplus::REAL x=Gdiplus::REAL(r.left),y=Gdiplus::REAL(r.top),w=Gdiplus::REAL(r.right-r.left),h=Gdiplus::REAL(r.bottom-r.top),radius=Gdiplus::REAL(p(12));
+            Gdiplus::GraphicsPath card;
+            card.AddArc(x,y,radius*2,radius*2,180,90);card.AddArc(x+w-radius*2,y,radius*2,radius*2,270,90);
+            card.AddArc(x+w-radius*2,y+h-radius*2,radius*2,radius*2,0,90);card.AddArc(x,y+h-radius*2,radius*2,radius*2,90,90);card.CloseFigure();
+            Gdiplus::SolidBrush shadow(Gdiplus::Color(BYTE(70*presence),0,0,0));
+            Gdiplus::Matrix shift;shift.Translate(0,Gdiplus::REAL(p(4)));
+            Gdiplus::GraphicsPath dropped;dropped.AddPath(&card,FALSE);dropped.Transform(&shift);
+            graphics.FillPath(&shadow,&dropped);
+            const COLORREF tint=waveStyle() ? mix(waveSkyTop(),RGB(255,255,255),30) : raised;
+            Gdiplus::LinearGradientBrush face(Gdiplus::PointF(0,y),Gdiplus::PointF(0,y+h),Gdiplus::Color(BYTE(235*presence),GetRValue(tint),GetGValue(tint),GetBValue(tint)),
+                Gdiplus::Color(BYTE(235*presence),GetRValue(tint)*3/4,GetGValue(tint)*3/4,GetBValue(tint)*3/4));
+            graphics.FillPath(&face,&card);
+            Gdiplus::SolidBrush accentBar(Gdiplus::Color(BYTE(255*presence),GetRValue(orange),GetGValue(orange),GetBValue(orange)));
+            graphics.SetClip(&card);
+            graphics.FillRectangle(&accentBar,x,y,Gdiplus::REAL(p(4)),h);
+            const double life=std::clamp(double(GetTickCount64()-toastAt)/double(toastLife),0.0,1.0);
+            Gdiplus::SolidBrush timer(Gdiplus::Color(BYTE(90*presence),255,236,200));
+            graphics.FillRectangle(&timer,x,y+h-Gdiplus::REAL(std::max(1,p(2))),Gdiplus::REAL(w*(1.0-life)),Gdiplus::REAL(std::max(1,p(2))));
+            graphics.ResetClip();
+            Gdiplus::Pen edge(Gdiplus::Color(BYTE(80*presence),255,236,210),float(std::max(1,p(1))));
+            graphics.DrawPath(&edge,&card);
+        }
+        if(presence<0.45)return;
+        const RECT icon{r.left+p(16),r.top+p(19),r.left+p(56),r.top+p(59)};
+        navigationIcon(dc,OpenNotifications,icon,orange,p(28));
+        const int left=unscale(r.left)+66,top=unscale(r.top);
+        text(dc,toastTitle,left,top+14,unscale(r.right-r.left)-80,24,fonts.strong,ink,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+        text(dc,toastText,left,top+40,unscale(r.right-r.left)-80,22,fonts.caption,muted,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+    }
     void notify(const std::wstring &title, const std::wstring &message) {
         const auto profile=activeProfile();const auto style=profile ? profileStyle(profile->id) : nullptr;
+        if(!style || style->availability!=2)showToast(title,message);
         if(style && (!style->notifications || style->availability==2))return;
         NOTIFYICONDATAW data{};
         data.cbSize = sizeof data;
@@ -8728,7 +8872,7 @@ struct Window {
                 refreshMods();
             layout();
             (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
-            SetFocus(controls[id]);
+            SetFocus(waveStyle() ? hwnd : controls[id]);
             return;
         }
         if (id == SaveListKind && notification == CBN_SELCHANGE) {
@@ -9905,6 +10049,8 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
                 self->animateImages();
             else if (wp == 6)
                 self->animateWave();
+            else if (wp == 7)
+                self->animateToast();
             else if (wp == 2)
                 self->cycleFrame();
             else
@@ -9947,6 +10093,11 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
             self->dropped(reinterpret_cast<HDROP>(wp));
             return 0;
         case WM_LBUTTONDOWN:
+            if (self->toastPresence() > 0.3) {
+                const RECT card = self->toastRect();
+                const POINT at{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
+                if (PtInRect(&card, at)) { self->toastAt = 0; KillTimer(hwnd, 7); self->command(OpenNotifications, BN_CLICKED); return 0; }
+            }
             if (self->page == wavePage) { self->waveClick(GET_X_LPARAM(lp), GET_Y_LPARAM(lp)); return 0; }
             if (self->waveStyle() && GET_Y_LPARAM(lp) < self->p(shellHeader) && GET_X_LPARAM(lp) < self->p(260)) { self->openWaveHome(); return 0; }
             break;
