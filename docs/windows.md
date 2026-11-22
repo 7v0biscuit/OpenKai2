@@ -57,7 +57,13 @@ A message in the corner names your new character when a fight starts.
 
 ### Making the launcher your own
 
-- **Theme:** thirteen color palettes for the entire launcher, including its
+- **Interface style:** **Wave home** (the default) opens on an animated menu bar
+  over a moving sky, with glass panels and pages that slide in. **Classic** keeps
+  the dock layout. Older settings switch to Wave home once; after that your
+  choice is kept. In Wave home, Start on, Arrange tabs and Theme colors apply
+  to the home menu and pages, and parts that only exist in Classic are hidden
+  from the Theme colors list.
+- **Theme:** twenty-one color palettes for the entire launcher, including its
   title bar, fields, selection focus and game panel. Illustrated backgrounds
   have been removed. Choose a theme to apply its complete palette; **Undo
   change** restores your previous theme, accent and custom colors.
@@ -74,12 +80,21 @@ A message in the corner names your new character when a fight starts.
   - **Ice Blue:** dark blue-grey and icy cyan.
   - **Nimbus Yellow:** warm cream and yellow, with ochre controls for contrast.
   - **Emerald:** dark teal and emerald green.
+  - **Super Saiyan Blue:** deep navy and bright Saiyan blue.
+  - **Ultra Instinct:** cool graphite and silver.
+  - **Namek Sky:** teal sky with Namekian green.
+  - **Frieza Frost:** frosted white and purple.
+  - **Kaio-ken Crimson:** dark crimson and red.
+  - **Planet Vegeta Dusk:** dusky plum and sunset orange.
+  - **Capsule Corp Navy:** navy and capsule yellow.
+  - **Time Chamber:** bright white with deep red controls.
 
   Existing theme choices keep their position in the list and use the matching
   new color palette. Your own profile and split images remain supported.
 - **Accent color:** the theme's own color, or Goku orange, Super Saiyan gold,
   Kaio-ken red, Majin pink, Frieza purple, Vegeta blue, Bulma teal, Piccolo
-  green or Kami white for buttons and highlights. **Shenron rainbow (cycling)**
+  green, Kami white, Super Saiyan Blue, Ultra Instinct silver, Super Saiyan
+  Rose, Hakai purple or Senzu lime for buttons and highlights. **Shenron rainbow (cycling)**
   moves slowly through every color, once round the color wheel per minute,
   redrawn at 60 FPS. Accent colors removed in v0.1.100 move to the closest one
   that remains (for example Crimson to Kaio-ken red, Amber to Super Saiyan gold,

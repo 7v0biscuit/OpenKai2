@@ -64,7 +64,7 @@ int main() {
         }
         {
             using namespace openkai2::launcher;
-            require(std::wstring(accents[rgb_accent].name) == L"Shenron rainbow (cycling)", "The RGB accent is not the last accent");
+            require(std::wstring(accents[rgb_accent].name) == L"Shenron rainbow (cycling)", "The RGB accent moved from its saved position");
             const auto step = [](Rgb a, Rgb b) {
                 return std::max({std::abs(int(a.r) - int(b.r)), std::abs(int(a.g) - int(b.g)), std::abs(int(a.b) - int(b.b))});
             };
@@ -187,6 +187,15 @@ int main() {
                 "Channel links or picture framing did not round-trip");
         auto badEffect=s;badEffect.profileStyles[0].nameEffect=31;rejects([&]{validate_settings(badEffect);});
         auto badInterface=s;badInterface.launcherInterface=2;rejects([&]{validate_settings(badInterface);});
+        {
+            auto classic=s;classic.launcherInterface=0;write_settings(root/"classic.ini",classic);
+            require(read_settings(root/"classic.ini").launcherInterface==0,"Choosing the classic interface did not stick");
+            std::ifstream saved(root/"classic.ini");std::string text,line;
+            while(std::getline(saved,line))if(line.rfind("launcher_wave_default",0)!=0)text+=line+"\n";
+            saved.close();std::ofstream(root/"classic.ini")<<text;
+            require(read_settings(root/"classic.ini").launcherInterface==1,"Settings from before the wave default did not switch to the wave interface");
+            require(Settings{}.launcherInterface==1,"The wave interface is not the default");
+        }
         require(read.profileStyles[0].about=="Main \"Kid\" Buu, loves rematches" && read.profileStyles[0].region==4 && read.profileStyles[0].playstyle==2 &&
                 read.profileStyles[0].matches==77 && read.profileStyles[0].since==1763337600 && read.profileStyles[1].about.empty(),
                 "Profile details did not round-trip");
@@ -390,13 +399,14 @@ int main() {
                 require(!parse_look_code("OPENKAI2-LOOK 1 99 0", theme, accent, pasted) && !parse_look_code("hello", theme, accent, pasted) &&
                             !parse_look_code(look_code(0, 0, custom).substr(0, 30), theme, accent, pasted),
                         "A broken launcher look was accepted");
-                require(theme_count == 13u && accent_count == 11u, "Themes or accent colors are missing");
+                require(theme_count == 21u && accent_count == 16u && rgb_accent == 10u, "Themes or accent colors are missing");
                 for (unsigned old = 0; old < 29u; ++old)
                     require(retired_accent(old) < accent_count, "A retired accent color has no replacement");
                 require(retired_accent(28) == rgb_accent && retired_accent(25) == 3u && retired_accent(17) == 2u,
                         "A retired accent color moved to the wrong replacement");
-                for (unsigned a = 1; a + 1 < accent_count; ++a)
-                    for (unsigned b = a + 1; b + 1 < accent_count; ++b) {
+                for (unsigned a = 1; a < accent_count; ++a)
+                    for (unsigned b = a + 1; b < accent_count; ++b) {
+                        if (a == rgb_accent || b == rgb_accent) continue;
                         const auto d = [](int x, int y) { return unsigned(x > y ? x - y : y - x); };
                         const Rgb x = accents[a].color, y = accents[b].color;
                         require(d(x.r, y.r) + d(x.g, y.g) + d(x.b, y.b) > 90u, "Two accent colors look almost the same");

@@ -33,6 +33,14 @@ inline constexpr ThemeChoice themes[] = {
     {L"Ice Blue", {12,25,31}, {17,34,43}, {23,44,54}, {151,219,241}, {211,244,255}, {16,37,48}, {30,69,85}, {193,228,238}, false},
     {L"Nimbus Yellow", {250,246,231}, {255,252,241}, {255,253,247}, {135,91,0}, {117,75,0}, {255,250,226}, {248,229,167}, {88,70,32}, true},
     {L"Emerald", {9,22,23}, {13,31,33}, {19,42,44}, {65,212,191}, {160,237,220}, {12,31,34}, {22,64,65}, {177,223,218}, false},
+    {L"Super Saiyan Blue", {8,20,36}, {11,29,48}, {14,40,64}, {84,186,255}, {196,236,255}, {10,28,54}, {24,66,112}, {186,218,246}, false},
+    {L"Ultra Instinct", {16,17,24}, {23,25,34}, {32,35,46}, {198,210,232}, {240,244,255}, {22,24,34}, {58,62,88}, {214,220,236}, false},
+    {L"Namek Sky", {9,22,30}, {13,31,41}, {18,40,52}, {150,230,120}, {214,250,196}, {12,32,40}, {30,76,74}, {192,226,214}, false},
+    {L"Frieza Frost", {236,232,246}, {245,242,252}, {255,255,255}, {120,72,200}, {84,46,150}, {236,226,252}, {222,212,248}, {74,60,110}, true},
+    {L"Kaio-ken Crimson", {26,9,11}, {36,13,16}, {48,18,22}, {255,96,88}, {255,190,176}, {38,12,14}, {96,26,26}, {236,196,190}, false},
+    {L"Planet Vegeta Dusk", {24,11,20}, {34,16,29}, {46,22,40}, {255,160,60}, {255,214,160}, {40,16,32}, {96,36,60}, {236,202,214}, false},
+    {L"Capsule Corp Navy", {11,15,26}, {16,22,37}, {23,31,50}, {255,196,72}, {255,232,170}, {14,22,44}, {30,46,86}, {200,210,232}, false},
+    {L"Time Chamber", {246,244,238}, {252,251,247}, {255,255,255}, {160,40,40}, {120,28,28}, {252,248,238}, {238,226,200}, {84,72,52}, true},
 };
 inline constexpr unsigned theme_count = sizeof(themes) / sizeof(themes[0]);
 inline constexpr unsigned legacy_themes[] = {0, 1, 2, 3, 4, 7, 6, 2, 3, 8, 5, 9, 7, 1, 4, 5, 2, 3, 10, 9};
@@ -50,9 +58,11 @@ inline constexpr AccentChoice accents[] = {
     {L"Theme color", {0, 0, 0}}, {L"Goku orange", {245, 155, 76}}, {L"Super Saiyan gold", {239, 211, 112}}, {L"Kaio-ken red", {244, 120, 133}},
     {L"Majin pink", {231, 151, 191}}, {L"Frieza purple", {169, 141, 226}}, {L"Vegeta blue", {94, 148, 240}}, {L"Bulma teal", {85, 209, 211}},
     {L"Piccolo green", {126, 203, 151}}, {L"Kami white", {230, 235, 242}}, {L"Shenron rainbow (cycling)", {255, 64, 64}},
+    {L"Super Saiyan Blue", {36, 180, 250}}, {L"Ultra Instinct silver", {190, 195, 205}}, {L"Super Saiyan Rose", {255, 70, 170}},
+    {L"Hakai purple", {120, 60, 230}}, {L"Senzu lime", {170, 220, 84}},
 };
 inline constexpr unsigned accent_count = sizeof(accents) / sizeof(accents[0]);
-inline constexpr unsigned rgb_accent = accent_count - 1u;
+inline constexpr unsigned rgb_accent = 10u;
 inline constexpr unsigned retired_accents[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 7, 8, 4, 3, 6, 5, 9, 2, 8, 1, 5, 7, 4, 8, 6, 3, 7, 1, 10};
 constexpr unsigned retired_accent(unsigned old) { return old < sizeof(retired_accents) / sizeof(retired_accents[0]) ? retired_accents[old] : 0u; }
 inline constexpr unsigned rgb_cycle_ms = 60000u, rgb_frame_ms = 16u;

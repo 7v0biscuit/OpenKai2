@@ -436,7 +436,7 @@ int main(int argc,char** argv) {
         std::filesystem::create_directories(root);
         struct Cleanup {std::filesystem::path path;~Cleanup(){std::error_code ec;std::filesystem::remove_all(path,ec);}} cleanup{root};
         require(SetEnvironmentVariableW(L"LOCALAPPDATA",root.c_str())!=FALSE,"Cannot isolate settings");
-        Settings initial;initial.autoUpdates=true;initial.discordPresence=false;
+        Settings initial;initial.autoUpdates=true;initial.discordPresence=false;initial.launcherInterface=0;
         initial.onlineName="UI test";initial.onlineProfiles={"UI test"};initial.onlineKeys={std::string(64,'a')};
         initial.onlineLobby="127.0.0.1:9";
         write_settings(settings_path(),initial);

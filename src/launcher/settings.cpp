@@ -100,7 +100,7 @@ Settings read_settings(const std::filesystem::path &file) {
     std::map<std::string,unsigned> profileEffects;
     std::map<std::string,std::string> profileLinks;
     std::map<std::string,std::tuple<unsigned,unsigned,uint32_t,int64_t,std::string>> profileMore;
-    bool tabLayout = false, graphicsProfile = false;
+    bool tabLayout = false, graphicsProfile = false, waveDefault = false;
     std::ifstream in(file);
     for (int attempt = 0; !in && attempt < 50 && std::filesystem::exists(file); ++attempt) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -139,6 +139,11 @@ Settings read_settings(const std::filesystem::path &file) {
             row >> s.reducedMotion >> s.helpHints;
         else if (key == "launcher_interface")
             row >> s.launcherInterface;
+        else if (key == "launcher_wave_default") {
+            unsigned marker = 0;
+            row >> marker;
+            waveDefault = marker == 1;
+        }
         else if (key == "launcher_wave")
             row >> s.waveSky >> s.waveEmblem;
         else if (key == "fps")
@@ -424,6 +429,8 @@ Settings read_settings(const std::filesystem::path &file) {
         if(found==s.profileStyles.end()) {s.profileStyles.push_back({id,{},{},0,{},{}});found=std::prev(s.profileStyles.end());}
         found->availability=availability;
     }
+    if (!waveDefault)
+        s.launcherInterface = 1;
     validate_settings(s);
     if (s.hdTextures && s.internalScale == 1)
         s.internalScale = 2;
@@ -449,7 +456,7 @@ void write_settings(const std::filesystem::path &file, const Settings &s) {
         << "\ndiscord_presence " << s.discordPresence << "\nimport_iso " << std::quoted(path_utf8(s.importIso))
         << "\nlauncher_window " << s.windowLeft << ' ' << s.windowTop << ' ' << s.windowWidth << ' '
         << s.windowHeight << ' ' << s.windowMaximized << "\nlauncher_skin " << s.launcherTheme << ' ' << s.launcherAccent << ' ' << s.startPage << ' ' << s.lastPage
-        << "\nlauncher_motion " << s.reducedMotion << ' ' << s.helpHints << "\nlauncher_interface " << s.launcherInterface << "\nlauncher_wave " << s.waveSky << ' ' << s.waveEmblem
+        << "\nlauncher_motion " << s.reducedMotion << ' ' << s.helpHints << "\nlauncher_interface " << s.launcherInterface << "\nlauncher_wave_default 1\nlauncher_wave " << s.waveSky << ' ' << s.waveEmblem
         << "\nlauncher_tabs";
     for (unsigned tab : s.tabOrder)
         out << ' ' << tab;

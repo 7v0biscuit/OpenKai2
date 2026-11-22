@@ -118,7 +118,17 @@ void apply_theme(unsigned choice, unsigned accent, const CustomColors &custom) {
         field = lift(waveTint, 16); raised = lift(waveTint, 44); hover = lift(waveTint, 62); border = lift(waveTint, 104);
         ink = RGB(252, 248, 242); muted = RGB(204, 194, 214); faint = RGB(146, 136, 162);
         heroFrom = RGB(36, 28, 62); heroTo = RGB(120, 62, 40);
+        COLORREF* const lifted[] = {&background, nullptr, &panel, &field, &raised, &hover, &border, &ink, &muted, &faint};
+        for (unsigned role = 0; role < sizeof(lifted) / sizeof(lifted[0]); ++role)
+            if (lifted[role] && custom[role] >= 0)
+                *lifted[role] = RGB((custom[role] >> 16) & 255, (custom[role] >> 8) & 255, custom[role] & 255);
     }
+}
+bool wave_color_role(unsigned role) { return role != 1 && (role < 15 || role > 18); }
+COLORREF shown_role_color(unsigned role, COLORREF themed) {
+    if (!wavePalette) return themed;
+    COLORREF* const lifted[] = {&background, nullptr, &panel, &field, &raised, &hover, &border, &ink, &muted, &faint};
+    return role < sizeof(lifted) / sizeof(lifted[0]) && lifted[role] ? *lifted[role] : themed;
 }
 
 constexpr int contentLeft = 36, margin = 36;
@@ -1327,6 +1337,17 @@ struct Window {
     struct WaveItem { int action; const wchar_t* title; const wchar_t* detail; int icon; bool opensPage; };
     struct WaveCategory { int icon; const wchar_t* name; std::vector<WaveItem> items; };
     std::vector<WaveCategory> waveCategories() const {
+        auto all=waveCategoryList();
+        std::vector<WaveCategory> ordered;
+        for(const int tab:visibleTabs())
+            for(auto& category:all)
+                if(category.icon==PlayTab+tab && !category.items.empty()){ordered.push_back(std::move(category));category.items.clear();}
+        for(const int keep:{PlayTab,SettingsTab})
+            if(std::none_of(ordered.begin(),ordered.end(),[&](const WaveCategory& c){return c.icon==keep;}))
+                for(auto& category:all)if(category.icon==keep && !category.items.empty()){ordered.insert(keep==PlayTab ? ordered.begin() : ordered.end(),std::move(category));category.items.clear();}
+        return ordered;
+    }
+    std::vector<WaveCategory> waveCategoryList() const {
         return {
             {PlayTab,L"Game",{{Play,L"Play Budokai 2",L"Start the game from your USA disc.",PlayTab,false},
                               {LoadState,L"Load state",L"Continue from your last save state.",PlayTab,false},
@@ -1346,7 +1367,7 @@ struct Window {
                                       {SettingsGraphics,L"Graphics",L"Renderer, upscaling and image effects.",SettingsTab,true},
                                       {SettingsGame,L"Game",L"Difficulty, textures and music.",SettingsTab,true},
                                       {SettingsLauncher,L"Launcher",L"Theme, accent and interface style.",SettingsTab,true},
-                                      {ArrangeTabs,L"Arrange tabs",L"Order and hide dock tabs.",SettingsTab,true},
+                                      {ArrangeTabs,L"Arrange tabs",L"Order and hide home categories.",SettingsTab,true},
                                       {OpenHelp,L"Help & shortcuts",L"Controls, setup and support tools.",OpenHelp,true}}},
             {UpdatesTab,L"Updates",{{UpdatesTab,L"System update",L"Channel, checks and installs.",UpdatesTab,true},
                                     {ReleaseNotes,L"Release notes",L"What changed in each version.",UpdatesTab,true},
@@ -1360,6 +1381,18 @@ struct Window {
     bool waveTicking=false;
     UINT waveInterval=16;
     bool waveStyle() const {return settings.launcherInterface==1;}
+    ULONGLONG pageEnterAt=0;
+    double pageEnter(double delay=0.0) const {
+        if(!pageEnterAt)return 1.0;
+        const double t=std::clamp((double(GetTickCount64()-pageEnterAt)-delay)/340.0,0.0,1.0);
+        return 1.0-std::pow(1.0-t,3.0);
+    }
+    void animatePageEnter() {
+        const bool done=!pageEnterAt || GetTickCount64()-pageEnterAt>=460 || page==wavePage || !waveStyle();
+        if(done){pageEnterAt=0;KillTimer(hwnd,8);}
+        if(IsIconic(hwnd) || dropdownOpen())return;
+        (pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);
+    }
     int dockReserve() const {return waveStyle() ? waveDockReserve : shellDockReserve;}
     void startWave() {
         if(!waveTicking && hwnd){waveTicking=true;waveTick=GetTickCount64();waveInterval=16;SetTimer(hwnd,6,16,nullptr);}
@@ -1463,7 +1496,7 @@ struct Window {
     COLORREF waveSkyTop() const {return waveSkyColors()[0];}
     COLORREF waveSkyMid() const {return waveSkyColors()[1];}
     COLORREF waveSkyLow() const {return waveSkyColors()[2];}
-    unsigned waveBackdropKey() const {return waveSkyChoice()*4u+(settings.waveEmblem ? 1u : 0u)+unsigned(orange)*32u;}
+    unsigned waveBackdropKey() const {return (waveSkyChoice()*4u+(settings.waveEmblem ? 1u : 0u)+unsigned(orange)*32u)^(unsigned(ballColor)*2654435761u)^(unsigned(ballStars)*40503u);}
     void buildWaveBackdrop(HDC dc,int width,int height) {
         Gdiplus::Graphics graphics(dc);
         graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
@@ -1493,8 +1526,9 @@ struct Window {
         ball.AddEllipse(Gdiplus::REAL(ballX-ballR),Gdiplus::REAL(ballY-ballR),Gdiplus::REAL(ballR*2),Gdiplus::REAL(ballR*2));
         Gdiplus::PathGradientBrush ballFill(&ball);
         ballFill.SetCenterPoint(Gdiplus::PointF(Gdiplus::REAL(ballX-ballR*0.38),Gdiplus::REAL(ballY-ballR*0.42)));
-        ballFill.SetCenterColor(Gdiplus::Color(70,255,232,150));
-        Gdiplus::Color ballEdge(26,255,128,24);
+        const COLORREF ballLight=mix(ballColor,RGB(255,240,190),150);
+        ballFill.SetCenterColor(Gdiplus::Color(70,GetRValue(ballLight),GetGValue(ballLight),GetBValue(ballLight)));
+        Gdiplus::Color ballEdge(26,GetRValue(ballColor),GetGValue(ballColor),GetBValue(ballColor));
         ballFill.SetSurroundColors(&ballEdge,&edges);
         graphics.FillPath(&ballFill,&ball);
         Gdiplus::Pen rim(Gdiplus::Color(40,255,210,140),float(std::max(1,p(2))));
@@ -1503,7 +1537,7 @@ struct Window {
             const double sx=ballX+std::cos(star*1.5708+0.78)*ballR*0.30,sy=ballY+std::sin(star*1.5708+0.78)*ballR*0.30,sr=ballR*0.12;
             Gdiplus::PointF points[10];
             for(int k=0;k<10;++k){const double angle=-1.5708+k*0.6283,r=k%2 ? sr*0.42 : sr;points[k]={Gdiplus::REAL(sx+std::cos(angle)*r),Gdiplus::REAL(sy+std::sin(angle)*r)};}
-            Gdiplus::SolidBrush starBrush(Gdiplus::Color(70,226,48,36));
+            Gdiplus::SolidBrush starBrush(Gdiplus::Color(70,GetRValue(ballStars),GetGValue(ballStars),GetBValue(ballStars)));
             graphics.FillPolygon(&starBrush,points,10);
         }
         Gdiplus::GraphicsPath shine;
@@ -1865,7 +1899,7 @@ struct Window {
     std::vector<Motion> motions;
     bool motionTick=false;
     bool paintMotionsInPlace(const RECT& update,const RECT& client) {
-        if(!std::exchange(motionTick,false) || motions.empty() || pageDirty || painting==false || paintedPage!=page || paintedScroll!=pageScroll ||
+        if(!std::exchange(motionTick,false) || motions.empty() || page==wavePage || pageDirty || painting==false || paintedPage!=page || paintedScroll!=pageScroll ||
            paintedSize!=std::pair<int,int>{client.right,client.bottom} || !buffer.dc || !buffer.frame.pixels)return false;
         const int visibleHeight=std::max(1,unscale(client.bottom)-shellHeader-dockReserve());
         const LONG top=p(shellHeader),bottom=p(shellHeader+visibleHeight),shift=top-p(pageScroll);
@@ -2679,14 +2713,29 @@ struct Window {
             Gdiplus::GraphicsPath rounded;
             rounded.AddArc(x,y,r*2,r*2,180,90);rounded.AddArc(x+w-r*2,y,r*2,r*2,270,90);
             rounded.AddArc(x+w-r*2,y+h-r*2,r*2,r*2,0,90);rounded.AddArc(x,y+h-r*2,r*2,r*2,90,90);rounded.CloseFigure();
-            Gdiplus::LinearGradientBrush glass(Gdiplus::PointF(0,y),Gdiplus::PointF(0,y+h+1),Gdiplus::Color(176,24,20,44),Gdiplus::Color(150,20,16,36));
+            const bool tinted=settings.launcherColors[2]>=0;
+            const COLORREF tone=tinted ? panel : RGB(24,20,44),lower=tinted ? mix(panel,RGB(0,0,0),40) : RGB(20,16,36);
+            const double rise=pageEnter(std::clamp(double(top-124)*0.25,0.0,160.0));
+            const BYTE upper=BYTE(176*(0.45+0.55*rise)),bottomAlpha=BYTE(150*(0.45+0.55*rise));
+            Gdiplus::LinearGradientBrush glass(Gdiplus::PointF(0,y),Gdiplus::PointF(0,y+h+1),Gdiplus::Color(upper,GetRValue(tone),GetGValue(tone),GetBValue(tone)),Gdiplus::Color(bottomAlpha,GetRValue(lower),GetGValue(lower),GetBValue(lower)));
             graphics.FillPath(&glass,&rounded);
             graphics.SetClip(&rounded);
-            Gdiplus::LinearGradientBrush shine(Gdiplus::PointF(0,y-1),Gdiplus::PointF(0,y+Gdiplus::REAL(p(48))),Gdiplus::Color(18,255,240,220),Gdiplus::Color(0,255,240,220));
+            Gdiplus::LinearGradientBrush shine(Gdiplus::PointF(0,y-1),Gdiplus::PointF(0,y+Gdiplus::REAL(p(48))),Gdiplus::Color(BYTE(18+60*(1.0-rise)),255,240,220),Gdiplus::Color(0,255,240,220));
             graphics.FillRectangle(&shine,x,y,w,Gdiplus::REAL(p(48)));
             graphics.ResetClip();
             Gdiplus::Pen edge(Gdiplus::Color(64,255,232,200),float(std::max(1,p(1))));
             graphics.DrawPath(&edge,&rounded);
+            if(rise<1.0) {
+                const Gdiplus::REAL glint=x+w*Gdiplus::REAL(rise)*1.2f-w*0.1f,span=std::max<Gdiplus::REAL>(Gdiplus::REAL(p(60)),w*0.18f);
+                Gdiplus::LinearGradientBrush sweep(Gdiplus::PointF(glint-span,0),Gdiplus::PointF(glint+span,0),Gdiplus::Color(0,255,236,200),Gdiplus::Color(0,255,236,200));
+                Gdiplus::Color stops[]={Gdiplus::Color(0,255,236,200),Gdiplus::Color(BYTE(170*(1.0-rise)),255,240,214),Gdiplus::Color(0,255,236,200)};
+                Gdiplus::REAL at[]={0.0f,0.5f,1.0f};
+                sweep.SetInterpolationColors(stops,at,3);
+                Gdiplus::Pen glow(&sweep,float(std::max(1,p(2))));
+                graphics.SetClip(Gdiplus::RectF(glint-span,y-2,span*2,h+4));
+                graphics.DrawPath(&glow,&rounded);
+                graphics.ResetClip();
+            }
             return;
         }
         const int darkness=(GetRValue(background)*299+GetGValue(background)*587+GetBValue(background)*114)/1000;
@@ -2952,7 +3001,7 @@ struct Window {
         apply_theme(settings.launcherTheme, settings.launcherAccent, settings.launcherColors);
         if (settings.startPage && settings.lastPage < tab_count && !((settings.hiddenTabs >> settings.lastPage) & 1u))
             page = int(settings.lastPage);
-        if (waveStyle()) page = wavePage;
+        if (waveStyle() && page == 0) page = wavePage;
         presence.enable(settings.discordPresence);
         fonts.make(dpi);
         for (auto [id, label] :
@@ -3232,7 +3281,7 @@ struct Window {
             combo(LauncherTheme, names, int(std::min(settings.launcherTheme, theme_count - 1u)));
             combo(LauncherAccent, colors, int(std::min(settings.launcherAccent, accent_count - 1u)));
         }
-        combo(StartPage, {L"Play", L"Last page used"}, int(std::min(settings.startPage, 1u)));
+        combo(StartPage, {L"Home", L"Last page used"}, int(std::min(settings.startPage, 1u)));
         combo(RandomizerMode, {L"Off", L"On"}, settings.randomizer ? 1 : 0);
         combo(LoadTimes, {L"Fastest (this PC)", L"Accurate (PS2)"}, settings.ps2LoadTimes ? 1 : 0);
         combo(RunAhead, {L"Off", L"1 frame", L"2 frames"}, int(std::min(settings.runAhead, 2u)));
@@ -3445,7 +3494,11 @@ struct Window {
         GetClientRect(hwnd, &rect);
         if (rect.right<=0 || rect.bottom<=0) return;
         const bool pageChanged=laidOutPage!=page;
-        if(pageChanged){pageScroll=0;laidOutPage=page;scrollGliding=false;glideActive=false;}
+        if(pageChanged){
+            pageScroll=0;laidOutPage=page;scrollGliding=false;glideActive=false;motions.clear();motionTick=false;pageDirty=true;
+            if(waveStyle() && page!=wavePage && allowMotion() && hwnd){pageEnterAt=GetTickCount64();SetTimer(hwnd,8,16,nullptr);}
+            else pageEnterAt=0;
+        }
         for (unsigned pass=0;pass<3;++pass) {
             const auto previous=rect;
             const int canvas=pageCanvasHeight();
@@ -4148,15 +4201,17 @@ struct Window {
         const RECT tile{p(contentLeft),p(28),p(contentLeft+40),p(68)};
         const int icon=page==helpPage ? OpenHelp : page==profilePage || page==playerPage ? HomeProfile : page==finderPage ? FindAction : page==notificationsPage ? OpenNotifications :
             PlayTab+(page==controlsPage || page==savesPage ? page : navigationPage());
+        const double enter=waveStyle() ? pageEnter() : 1.0,later=waveStyle() ? pageEnter(90.0) : 1.0;
         if(waveStyle()) {
-            buffer.frame.halo({tile.left+p(14),tile.top+p(14),tile.right-p(14),tile.bottom-p(14)},0,p(30),RGB(255,214,150),60);
-            navigationIcon(dc,icon,tile,RGB(255,250,240),p(34));
+            buffer.frame.halo({tile.left+p(14),tile.top+p(14),tile.right-p(14),tile.bottom-p(14)},0,p(int(30+26*(1.0-enter))),RGB(255,214,150),int(60+90*(1.0-enter)));
+            navigationIcon(dc,icon,tile,mix(background,RGB(255,250,240),int(255*(0.35+0.65*enter))),p(34));
         } else {
             box(dc,tile,mix(panel,orange,22),mix(border,orange,70),12);
             navigationIcon(dc,icon,{tile.left-p(7),tile.top,tile.right,tile.bottom},orange);
         }
-        text(dc,titles[page],contentLeft+56,27,content-264,42,fonts.title,ink,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
-        text(dc,subtitles[page],contentLeft+56,74,content-56,32,fonts.caption,muted,DT_LEFT|DT_WORDBREAK|DT_NOPREFIX);
+        const int slide=int(std::lround(28.0*(1.0-enter))),slideLater=int(std::lround(36.0*(1.0-later)));
+        text(dc,titles[page],contentLeft+56+slide,27,content-264,42,fonts.title,mix(background,ink,int(255*enter)),DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+        text(dc,subtitles[page],contentLeft+56+slideLater,74,content-56,32,fonts.caption,mix(background,muted,int(255*later)),DT_LEFT|DT_WORDBREAK|DT_NOPREFIX);
         if(page<pageCount && page!=controlsPage && page!=savesPage) {
             const auto label=stateLabel();const int width=measure(dc,label,fonts.caption);
             const int left=w-margin-width-16;
@@ -4849,12 +4904,14 @@ struct Window {
         SendMessageW(list, LB_RESETCONTENT, 0, 0);
         const auto look = make_theme(settings.launcherTheme, settings.launcherAccent, settings.launcherColors);
         for (unsigned role = 0; role < color_role_count; ++role) {
-            const Rgb color = look.*(color_roles[role].member);
+            if (waveStyle() && !wave_color_role(role)) continue;
+            const COLORREF color = shown_role_color(role, colorOf(look.*(color_roles[role].member)));
             wchar_t hex[8]{};
-            swprintf(hex, 8, L"#%02X%02X%02X", color.r, color.g, color.b);
+            swprintf(hex, 8, L"#%02X%02X%02X", GetRValue(color), GetGValue(color), GetBValue(color));
             const std::wstring row = std::wstring(hex) + L" \u00b7 " + color_roles[role].name +
                                      (settings.launcherColors[role] >= 0 ? L" (changed)" : L"") + L" \u00b7 " + color_roles[role].about;
-            SendMessageW(list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(row.c_str()));
+            const auto added = SendMessageW(list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(row.c_str()));
+            if (added >= 0) SendMessageW(list, LB_SETITEMDATA, WPARAM(added), LPARAM(role));
         }
         SendMessageW(list, LB_SETTOPINDEX, WPARAM(std::max<LRESULT>(top, 0)), 0);
         SendMessageW(list, LB_SETCURSEL, chosen, 0);
@@ -4884,7 +4941,7 @@ struct Window {
     void paintTabs(HDC dc, int h, int content) {
         const int right = contentLeft + content, panelBottom = h - 64;
         if (waveStyle()) {
-            waveSection(dc, 124, 196, content, L"Tab order", L"Reorder or hide tabs. Ctrl+1 to Ctrl+6 follow this order. The wave home lists every page.");
+            waveSection(dc, 124, 196, content, L"Tab order", L"Reorder or hide tabs. The home menu and Ctrl+1 to Ctrl+6 follow this order.");
             waveSection(dc, 212, 268 + int(dock_tab_count) * 40 + 70, content, L"Tabs", std::wstring());
             return;
         }
@@ -5564,6 +5621,9 @@ struct Window {
             pageScroll = 0;
         if (page == wavePage) {
             pageScroll = 0;
+            motions.clear();
+            motionTick = false;
+            recordingMotion = false;
             buffer.make(rect.right, rect.bottom);
             paintWave(buffer.dc, rect.right, rect.bottom);
             if (!waveTicking) startWave();
@@ -9614,7 +9674,8 @@ struct Window {
         }
         if (((id == ColorPick || id == ColorReset || id == ColorResetAll) && notification == BN_CLICKED) ||
             (id == ColorList && notification == LBN_DBLCLK)) {
-            const auto row = SendMessageW(controls[ColorList], LB_GETCURSEL, 0, 0);
+            const auto picked = SendMessageW(controls[ColorList], LB_GETCURSEL, 0, 0);
+            const auto row = picked < 0 ? picked : SendMessageW(controls[ColorList], LB_GETITEMDATA, WPARAM(picked), 0);
             std::wstring message;
             if (id == ColorResetAll) {
                 if (MessageBoxW(hwnd, L"Return every color to the theme?", L"Reset colors", MB_YESNO | MB_ICONQUESTION) != IDYES)
@@ -9635,11 +9696,11 @@ struct Window {
                 for (unsigned i = 0; i < 16 && i < color_role_count; ++i)
                     if (!saved[i])
                         saved[i] = colorOf(look.*(color_roles[i + 6u < color_role_count ? i + 6u : i].member));
-                const Rgb current = look.*(color_roles[row].member);
+                const COLORREF current = shown_role_color(unsigned(row), colorOf(look.*(color_roles[row].member)));
                 CHOOSECOLORW choice{};
                 choice.lStructSize = sizeof(choice);
                 choice.hwndOwner = hwnd;
-                choice.rgbResult = colorOf(current);
+                choice.rgbResult = current;
                 choice.lpCustColors = saved;
                 choice.Flags = CC_FULLOPEN | CC_RGBINIT | CC_ANYCOLOR;
                 if (!ChooseColorW(&choice))
@@ -10325,6 +10386,8 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
                 self->animateWave();
             else if (wp == 7)
                 self->animateToast();
+            else if (wp == 8)
+                self->animatePageEnter();
             else if (wp == 2)
                 self->cycleFrame();
             else
