@@ -98,6 +98,13 @@ struct Reader {
     }
 };
 
+uint32_t shown_color(uint32_t color) { return (color >> 24u) == 1u ? color : 0u; }
+
+unsigned shown_effect(const std::string &verified, unsigned effect) {
+    const auto tag = identity::claimed_tag(verified);
+    return tag && effect && online::tag_allows(*tag, effect) ? effect : 0u;
+}
+
 bool safe_relative(const std::string &path) {
     if (path.empty() || path.size() > 512)
         return false;
@@ -400,6 +407,8 @@ int Session::handshake() {
         Reader in{payload.data(), payload.size()};
         const uint32_t version = in.u32();
         const std::string identity = in.text(), name = in.text(64), password = in.text(128), theirs = in.text(64);
+        const uint32_t theirColor = in.u32();
+        const unsigned theirEffect = in.need(1) ? in.data[in.at++] : 0u;
         std::string problem;
         if (!in.ok || version != protocol_version)
             problem = "The other player has a different OpenKai2 version";
@@ -420,6 +429,8 @@ int Session::handshake() {
         out.push_back(uint8_t(options_.delay));
         put_text(out, ours);
         put_text(out, proof("session:" + theirs));
+        put32(out, options_.name_color);
+        out.push_back(uint8_t(options_.name_effect));
         const auto sent = std::chrono::steady_clock::now();
         if (!write_frame(welcome, out) || !read_frame(type, payload) || type != profile) {
             end("The other player did not finish joining");
@@ -441,6 +452,8 @@ int Session::handshake() {
         status_.delay = delay;
         status_.ping_ms = unsigned(rtt + 0.5);
         status_.opponent = verified.empty() ? "Player 2" : verified;
+        status_.opponent_color = shown_color(theirColor);
+        status_.opponent_effect = shown_effect(verified, theirEffect);
     } else {
         const std::string ours = identity::random_nonce();
         std::vector<uint8_t> out;
@@ -449,6 +462,8 @@ int Session::handshake() {
         put_text(out, options_.name);
         put_text(out, options_.password);
         put_text(out, ours);
+        put32(out, options_.name_color);
+        out.push_back(uint8_t(options_.name_effect));
         if (!write_frame(hello, out) || !read_frame(type, payload, 180000)) {
             end("The host did not answer");
             return 0;
@@ -465,6 +480,8 @@ int Session::handshake() {
         }
         ++in.at;
         const std::string theirs = in.text(64), signature = in.text(256);
+        const uint32_t theirColor = in.u32();
+        const unsigned theirEffect = in.need(1) ? in.data[in.at++] : 0u;
         std::vector<uint8_t> answer;
         put_text(answer, proof("session:" + theirs));
         if (!write_frame(profile, answer) || !read_frame(type, payload) || type != confirm || payload.empty()) {
@@ -477,6 +494,8 @@ int Session::handshake() {
         options_.delay = delay;
         status_.delay = delay;
         status_.opponent = verified.empty() ? "Player 1" : verified;
+        status_.opponent_color = shown_color(theirColor);
+        status_.opponent_effect = shown_effect(verified, theirEffect);
     }
     std::lock_guard lock(mutex_);
     status_.phase = Phase::syncing;

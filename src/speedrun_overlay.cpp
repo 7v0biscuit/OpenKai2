@@ -10,6 +10,7 @@
 #include "host_input.h"
 #include "machine_state.h"
 #include "netplay.h"
+#include "name_style.h"
 #include "render/gpu_backend.h"
 #include "render/hd_textures.h"
 #include "randomizer.h"
@@ -21,6 +22,7 @@
 #include <raylib.h>
 #include "rlgl.h"
 #include <algorithm>
+#include <cctype>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -480,30 +482,75 @@ struct Overlay {
 
     void online(const openkai2::netplay::Status &status) {
         namespace net = openkai2::netplay;
-        std::string text;
+        std::string before, name, after;
         Color color{245, 245, 240, 235};
         if (status.phase == net::Phase::playing) {
-            text = "Online  vs " + status.opponent + "   " + std::to_string(status.ping_ms) + " ms   delay " +
-                   std::to_string(status.delay);
+            before = "Online  vs ";
+            name = status.opponent;
+            after = "   " + std::to_string(status.ping_ms) + " ms   delay " + std::to_string(status.delay);
             if (status.rollback_frames)
-                text += "   rollback " + std::to_string(status.rollback_frames);
+                after += "   rollback " + std::to_string(status.rollback_frames);
             if (status.waiting)
-                text += "   waiting for " + status.opponent;
+                after += "   waiting for " + status.opponent;
         } else {
-            text = status.message;
+            before = status.message;
         }
         if (status.desynced) {
-            text += "   out of sync";
+            after += "   out of sync";
             color = Color{255, 120, 110, 240};
         }
-        if (text.empty())
+        if (before.empty() && name.empty() && after.empty())
             return;
         const float s = std::max(0.75f, float(GetScreenHeight()) / 1080.0f), size = 16 * s;
-        const float width = label_width(text, size), x = (float(GetScreenWidth()) - width) / 2 - 10 * s;
+        const std::string whole = before + name + after;
+        const float width = label_width(whole, size), x = (float(GetScreenWidth()) - width) / 2 - 10 * s;
         const float y = 14 * s;
         DrawRectangleRounded({x, y, width + 20 * s, size + 10 * s}, 0.35f, 6, Color{10, 12, 18, 160});
-        label(text, x + 10 * s, y + 5 * s, size, color);
+        label(before, x + 10 * s, y + 5 * s, size, color);
+        styled_name(name, status.opponent_color, status.opponent_effect, x + 10 * s + label_width(before, size), y + 5 * s, size, color);
+        label(after, x + 10 * s + label_width(before + name, size), y + 5 * s, size, color);
     }
+
+    void styled_name(const std::string &name, uint32_t stored, unsigned effect, float x, float y, float size, Color base) {
+        namespace style = openkai2::name_style;
+        if (name.empty())
+            return;
+        std::vector<size_t> starts;
+        for (size_t i = 0; i < name.size(); ++i)
+            if ((static_cast<unsigned char>(name[i]) & 0xc0u) != 0x80u)
+                starts.push_back(i);
+        const auto tag = openkai2::identity::claimed_tag(name);
+        size_t tag_end = 0;
+        if (tag && name.front() == '[') {
+            const std::string text = openkai2::identity::tag_label(*tag);
+            if (name.size() >= text.size() && std::equal(text.begin(), text.end(), name.begin(), [](char a, char b) { return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b)); }))
+                tag_end = text.size();
+        }
+        if (!effect && !tag_end && !(stored >> 24u)) {
+            label(name, x, y, size, base);
+            return;
+        }
+        const double ms = GetTime() * 1000.0;
+        const style::Rgb backdrop{10, 12, 18}, ink{base.r, base.g, base.b};
+        size_t tag_letters = 0, name_letters = 0;
+        for (const size_t start : starts)
+            (start < tag_end ? tag_letters : name_letters)++;
+        for (size_t letter = 0; letter < starts.size(); ++letter) {
+            const size_t start = starts[letter], end = letter + 1 < starts.size() ? starts[letter + 1] : name.size();
+            style::Rgb tone = ink;
+            if (start < tag_end)
+                tone = style::tag_color(*tag, letter, tag_letters, ms);
+            else if (effect)
+                tone = style::effect_color(effect, letter, starts.size(), ms, ink);
+            else if (stored >> 24u)
+                tone = style::plain_color(stored, letter - tag_letters, name_letters);
+            tone = style::readable(tone, backdrop, style::Rgb{245, 245, 240});
+            const float lift = effect && start >= tag_end ? float(style::effect_lift(effect, letter, ms)) * s_scale(size) : 0.0f;
+            label(name.substr(start, end - start), x + label_width(name.substr(0, start), size), y + lift, size,
+                  Color{uint8_t(tone.r), uint8_t(tone.g), uint8_t(tone.b), base.a});
+        }
+    }
+    static float s_scale(float size) { return size / 16.0f; }
 
     void count(double now) {
         const uint64_t frame = openkai2::latest_presented_frame();

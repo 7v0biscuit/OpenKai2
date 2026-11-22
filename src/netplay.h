@@ -19,7 +19,7 @@
 
 namespace openkai2::netplay {
 
-inline constexpr uint32_t protocol_version = 4;
+inline constexpr uint32_t protocol_version = 5;
 inline constexpr uint16_t default_port = 7350;
 inline constexpr unsigned max_delay = 8;
 inline constexpr uint64_t hash_interval = 120;
@@ -54,6 +54,8 @@ struct Options {
     uint16_t port = default_port;
     unsigned delay = 0;
     std::string name = "Player";
+    uint32_t name_color = 0;
+    unsigned name_effect = 0;
     std::string identity;
     std::string password;
     std::string lobby, room, room_id, version;
@@ -87,6 +89,8 @@ enum class Phase { connecting, syncing, playing, ended };
 struct Status {
     Phase phase = Phase::connecting;
     std::string opponent, message;
+    uint32_t opponent_color = 0;
+    unsigned opponent_effect = 0;
     unsigned delay = 0, ping_ms = 0;
     uint64_t rollback_frames = 0;
     bool waiting = false, desynced = false;

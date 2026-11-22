@@ -502,7 +502,7 @@ int main(int argc,char** argv) {
                     require(metrics.tmHeight<=MulDiv(22,windowDpi?windowDpi(w):96,96),"Launcher font line metrics exceed the field height");
                     require(std::wstring(face)==L"OpenKai2 Display","The Budokai-style launcher font was not loaded");
                 }
-                key_press(VK_NEXT,VK_CONTROL);wait_until([&]{return IsWindowVisible(GetDlgItem(w,246));},"Next-tab shortcut did not open Online");
+                key_press(VK_NEXT,VK_CONTROL);wait_until([&]{return IsWindowVisible(GetDlgItem(w,1042));},"Next-tab shortcut did not open Online");
                 key_press(VK_PRIOR,VK_CONTROL);wait_until([&]{return IsWindowVisible(GetDlgItem(w,112));},"Previous-tab shortcut did not return to Play");
                 key_press(VK_F1);wait_until([&]{return IsWindowVisible(GetDlgItem(w,1013));},"F1 did not open Help");
                 key_press(VK_END,VK_CONTROL);reveal_control(GetDlgItem(w,1248));click(w,1248);
@@ -731,7 +731,12 @@ int main(int argc,char** argv) {
                 SendMessageW(w,WM_VSCROLL,SB_TOP,0);
                 for(int id:{1000,1012,1042,1043,1044,1045})
                     require(IsWindowVisible(GetDlgItem(w,id)),"Online profile or browse controls are missing");
+                for(int id:{240,246,247,248,1309})
+                    require(!IsWindowVisible(GetDlgItem(w,id)),"Profile management is still on the Online page");
                 std::cout<<"[ui:stage] safe profile removal and recovery"<<std::endl;
+                click(w,1000);
+                for(int id:{240,246,247,248,1309})
+                    require(IsWindowVisible(GetDlgItem(w,id)),"Profile management is missing from the Profile page");
                 const auto beforeRemoval=read_settings(settings_path());
                 for(int answer:{IDNO,IDYES}) {
                     PostMessageW(GetDlgItem(w,248),BM_CLICK,0,0);
@@ -749,6 +754,7 @@ int main(int argc,char** argv) {
                 }
                 click(w,1224);
                 require(read_settings(settings_path()).onlineKeys.back()==beforeRemoval.onlineKeys[0],"Undo removal replaced the profile identity");
+                click(w,102);SendMessageW(w,WM_VSCROLL,SB_TOP,0);
                 SetWindowTextW(GetDlgItem(w,1042),L"Kame House");
                 require(IsWindowEnabled(GetDlgItem(w,1045)),"Online search cannot be cleared");
                 click(w,1045);
@@ -1095,7 +1101,7 @@ int main(int argc,char** argv) {
                 }
                 keyboard_choice(GetDlgItem(w,177),0);
                 SetWindowPos(w,nullptr,0,0,MulDiv(1000,dpi,96),MulDiv(768,dpi,96),SWP_NOZORDER|SWP_NOACTIVATE);
-                for(auto route : {std::pair<WORD,int>{'1',112},{'6',160},{'4',185},{'5',1110},{'3',177},{'2',246}}) {
+                for(auto route : {std::pair<WORD,int>{'1',112},{'6',160},{'4',185},{'5',1110},{'3',177},{'2',1042}}) {
                     SetForegroundWindow(w);
                     INPUT keys[4]{};
                     for(auto& key:keys)key.type=INPUT_KEYBOARD;

@@ -10,6 +10,7 @@
 #include "runtime/ee_scheduler.h"
 #include "state_archive.h"
 #include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -97,6 +98,19 @@ bool parse_argument(const std::string &argument, Arguments &arguments) {
         arguments.hidden = argument == "--netplay-invite-only";
         return true;
     }
+    if (argument.rfind("--netplay-style=", 0) == 0) {
+        const std::string value = argument.substr(16);
+        const size_t comma = value.find(',');
+        if (comma == std::string::npos || comma > 6 || value.size() - comma > 3)
+            return false;
+        const std::string color = value.substr(0, comma), effect = value.substr(comma + 1);
+        if (!std::all_of(color.begin(), color.end(), [](unsigned char c) { return std::isxdigit(c) != 0; }) ||
+            effect.empty() || !std::all_of(effect.begin(), effect.end(), [](unsigned char c) { return std::isdigit(c) != 0; }))
+            return false;
+        arguments.name_color = color.empty() ? 0u : 0x1000000u | (uint32_t(std::stoul(color, nullptr, 16)) & 0xffffffu);
+        arguments.name_effect = unsigned(std::stoul(effect));
+        return true;
+    }
     if (argument.rfind("--netplay-name=", 0) == 0) {
         std::string name = argument.substr(15);
         if (name.size() > 24)
@@ -133,6 +147,8 @@ std::unique_ptr<Session> start_game_session(PS2Runtime &runtime, const Arguments
     options.port = arguments.port;
     options.delay = arguments.delay;
     options.name = arguments.name;
+    options.name_color = arguments.name_color;
+    options.name_effect = arguments.name_effect;
     options.identity = identity;
     options.password = arguments.password;
     options.lobby = arguments.lobby;

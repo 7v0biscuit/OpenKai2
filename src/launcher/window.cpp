@@ -13,6 +13,7 @@
 #include "speedrun.h"
 #include "speedrun_images.h"
 #include "dev_identity.h"
+#include "name_style.h"
 #include "netplay.h"
 #include "room.h"
 #include "online.h"
@@ -85,10 +86,10 @@ COLORREF buttonTop = RGB(255, 186, 70), buttonBottom = RGB(250, 126, 22), button
          buttonHotBottom = RGB(255, 150, 44), buttonPressedTop = RGB(236, 120, 22), buttonPressedBottom = RGB(214, 96, 14),
          buttonShine = RGB(255, 245, 214), buttonInk = RGB(36, 16, 4);
 COLORREF colorOf(Rgb c) { return RGB(c.r, c.g, c.b); }
-struct NameColor {const wchar_t* name;COLORREF color;};
-constexpr NameColor name_colors[]={{L"Super Saiyan gold",RGB(255,204,64)},{L"Kamehameha blue",RGB(92,176,255)},{L"Namekian green",RGB(112,214,124)},
-    {L"Frieza purple",RGB(182,128,255)},{L"Kaio-ken red",RGB(242,88,88)},{L"Goku gi orange",RGB(255,146,60)},{L"Majin pink",RGB(255,126,196)},{L"Kami white",RGB(232,240,255)}};
-constexpr int name_color_custom=int(sizeof(name_colors)/sizeof(name_colors[0]))+1;
+COLORREF styleColor(name_style::Rgb c){return RGB(std::clamp(c.r,0,255),std::clamp(c.g,0,255),std::clamp(c.b,0,255));}
+name_style::Rgb styleRgb(COLORREF c){return {GetRValue(c),GetGValue(c),GetBValue(c)};}
+COLORREF nameColorAt(int index){return styleColor(name_style::name_colors[size_t(index)].base);}
+constexpr int name_color_custom=int(name_style::name_color_count)+1;
 uint32_t storedColor(COLORREF color){return 0x1000000u|(uint32_t(GetRValue(color))<<16u)|(uint32_t(GetGValue(color))<<8u)|uint32_t(GetBValue(color));}
 COLORREF shownColor(uint32_t color){return RGB((color>>16u)&255u,(color>>8u)&255u,color&255u);}
 double luminance(COLORREF color){
@@ -831,6 +832,7 @@ struct Window {
     std::set<std::string> friendsOnline;std::string friendWatchProfile;std::chrono::steady_clock::time_point friendWatchSince{};
     int styleSelection = 0;
     bool imageAnimationTicking = false;
+    UINT motionInterval = 16;
     bool cycling = false;
     unsigned long long ambientAt = 0;
     int paintedPage = -1, paintedScroll = -1;
@@ -1182,8 +1184,10 @@ struct Window {
         const double elapsed=std::clamp(std::chrono::duration<double>(now-scrollTickAt).count(),0.0,0.1);
         scrollTickAt=now;
         scrollAt+=(scrollGoal-scrollAt)*(1.0-std::exp(-elapsed/0.055));
-        if (std::abs(scrollGoal-scrollAt)<0.5) {scrollAt=scrollGoal;scrollGliding=false;glideActive=false;}
+        const bool settled=std::abs(scrollGoal-scrollAt)<0.5;
+        if (settled) {scrollAt=scrollGoal;scrollGliding=false;glideActive=false;}
         scrollPageNow(int(std::lround(scrollAt)));
+        if (settled) RedrawWindow(hwnd,nullptr,nullptr,RDW_INVALIDATE|RDW_ALLCHILDREN|RDW_UPDATENOW);
         if (pageScroll!=int(std::lround(scrollAt))) {scrollGliding=false;glideActive=false;}
         SetPropW(hwnd,L"OpenKai2.ScrollPos",reinterpret_cast<HANDLE>(intptr_t(scrollReported())));
     }
@@ -1354,10 +1358,11 @@ struct Window {
     std::array<double,6> waveItemAt{};
     ULONGLONG waveTick=0,waveFlashAt=0;
     bool waveTicking=false;
+    UINT waveInterval=16;
     bool waveStyle() const {return settings.launcherInterface==1;}
     int dockReserve() const {return waveStyle() ? waveDockReserve : shellDockReserve;}
     void startWave() {
-        if(!waveTicking && hwnd){waveTicking=true;waveTick=GetTickCount64();SetTimer(hwnd,6,16,nullptr);}
+        if(!waveTicking && hwnd){waveTicking=true;waveTick=GetTickCount64();waveInterval=16;SetTimer(hwnd,6,16,nullptr);}
     }
     void openWaveHome() {
         if(page==wavePage)return;
@@ -1376,7 +1381,7 @@ struct Window {
         if(waveFlashAt && now-waveFlashAt>=170){waveFlashAt=0;openWaveItem();if(page!=wavePage)return;}
         bool moving=std::fabs(waveCategoryAt-waveCategory)>0.002 || waveEnter<1.0 || waveFlashAt;
         for(size_t i=0;i<waveItemAt.size();++i)moving=moving || std::fabs(waveItemAt[i]-double(waveItem[i]))>0.002;
-        SetTimer(hwnd,6,moving ? 16 : 66,nullptr);
+        if(const UINT wanted=moving || (appActive && allowMotion()) ? 16u : 50u;wanted!=waveInterval){waveInterval=wanted;SetTimer(hwnd,6,wanted,nullptr);}
         if(IsIconic(hwnd) || dropdownOpen())return;
         InvalidateRect(hwnd,nullptr,FALSE);
     }
@@ -1598,7 +1603,8 @@ struct Window {
             const double cx=g.baseX+(i-waveCategoryAt)*g.spacing+slide*(1+i*0.25);
             if(cx<-g.spacing || cx>width+g.spacing)continue;
             const int size=int(p(42)+p(26)*focus);
-            const double alpha=enter*(0.38+0.62*focus)*(distance>3.2 ? std::max(0.0,4.2-distance) : 1.0);
+            const double edge=std::clamp(std::min(cx+g.spacing*0.5,double(width)-cx)/g.spacing,0.0,1.0);
+            const double alpha=enter*(0.5+0.5*focus)*edge;
             if(focus>0.05) {
                 const int glow=int(p(46)*focus);
                 buffer.frame.halo({LONG(cx-glow/4),LONG(g.rowY-glow/4),LONG(cx+glow/4),LONG(g.rowY+glow/4)},0,glow,RGB(255,214,140),int(70*focus*enter));
@@ -1754,8 +1760,8 @@ struct Window {
     }
     void openProfile() {
         const auto profile=activeProfile();
-        if(!profile){page=onlinePage;layout();SetFocus(controls[OnlineName]);(pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);return;}
         if(page!=profilePage)profileReturnPage=navigationPage();
+        if(!profile){page=profilePage;layout();focusControl(OnlineName);(pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);return;}
         const auto style=profileStyle(profile->id);
         SetWindowTextW(controls[ProfileInitials],style ? wide(style->initials).c_str() : L"");
         SetWindowTextW(controls[ProfileTagline],style ? wide(style->tagline).c_str() : L"");
@@ -1810,7 +1816,7 @@ struct Window {
             catch(const std::exception& error){std::cout<<"[launcher:profile-image] "<<error.what()<<std::endl;}
         }
         if(found->second.frames.size()>1 && allowMotion() && !imageAnimationTicking) {
-            imageAnimationTicking=true;SetTimer(hwnd,3,33,nullptr);
+            imageAnimationTicking=true;SetTimer(hwnd,3,motionInterval,nullptr);
         }
         return found->second.frames.empty() ? nullptr : &found->second;
     }
@@ -1844,7 +1850,7 @@ struct Window {
     }
     COLORREF readableName(uint32_t stored,COLORREF fallback) const {
         if(!(stored>>24u))return fallback;
-        COLORREF color=shownColor(stored);
+        COLORREF color=shownColor(name_style::refresh_name_color(stored));
         for(int step=0;step<4;++step) {
             const double a=luminance(color),b=luminance(panel),ratio=(std::max(a,b)+0.05)/(std::min(a,b)+0.05);
             if(ratio>=3.0)break;
@@ -1931,14 +1937,28 @@ struct Window {
         return heldTagValue;
     }
     bool developerProfile() const {return heldTag().has_value();}
-    static COLORREF tagColor(identity::Tag tag) {
-        switch(tag) {
-        case identity::Tag::developer:return RGB(255,140,40);
-        case identity::Tag::twitch:return RGB(170,116,255);
-        case identity::Tag::youtube:return RGB(255,72,72);
-        case identity::Tag::tob:return RGB(60,214,186);
-        }
-        return RGB(255,140,40);
+    static COLORREF tagColor(identity::Tag tag) {return styleColor(name_style::plain_tag_color(tag));}
+    std::optional<identity::Tag> verifiedTag(const std::string& id,const std::string& name) {
+        if(id.empty())return std::nullopt;
+        const auto profile=activeProfile();
+        if(profile && profile->id==id)return heldTag();
+        if(!directory || !directory->tagged(id))return std::nullopt;
+        return identity::claimed_tag(name.empty() ? knownName(id) : name);
+    }
+    std::wstring netplayStyle() {
+        const auto profile=activeProfile();if(!profile)return {};
+        const auto style=profileStyle(profile->id);
+        const uint32_t color=style ? name_style::refresh_name_color(style->nameColor) : 0u;
+        const unsigned effect=effectOf(profile->id);
+        wchar_t value[48];
+        if(color>>24u)swprintf(value,48,L" --netplay-style=%06X,%u",unsigned(color&0xffffffu),effect);
+        else swprintf(value,48,L" --netplay-style=,%u",effect);
+        return value;
+    }
+    bool movingTag(const std::string& id) const {
+        if(settings.reducedMotion)return false;
+        const auto tag=identity::claimed_tag(knownName(id));
+        return tag && name_style::tag_animates(*tag);
     }
     unsigned effectOf(const std::string& id) {
         if(id.empty())return 0;
@@ -1958,64 +1978,14 @@ struct Window {
         }
         return directory ? directory->link(id) : std::string();
     }
-    static COLORREF hueColor(double hue,double saturation) {
-        hue=std::fmod(hue,360.0);if(hue<0)hue+=360.0;
-        const double c=saturation,x=c*(1-std::fabs(std::fmod(hue/60.0,2.0)-1)),m=1-c;
-        double r=0,g=0,b=0;
-        if(hue<60){r=c;g=x;}else if(hue<120){r=x;g=c;}else if(hue<180){g=c;b=x;}else if(hue<240){g=x;b=c;}else if(hue<300){r=x;b=c;}else{r=c;b=x;}
-        return RGB(int((r+m)*255),int((g+m)*255),int((b+m)*255));
-    }
     void keepProfileMotion() {
         effectPainted=true;if(!drawingRow)pageEffectPainted=true;
-        if(!imageAnimationTicking && hwnd){imageAnimationTicking=true;SetTimer(hwnd,3,33,nullptr);}
+        if(!imageAnimationTicking && hwnd){imageAnimationTicking=true;SetTimer(hwnd,3,motionInterval,nullptr);}
     }
     static COLORREF effectColor(unsigned effect,size_t index,size_t count,double now) {
-        const double t=double(now)/1000.0,i=double(index);
-        const auto sweep=[&](double speed){const double band=std::fmod(t*speed,1.0)*(double(count)+8.0)-4.0;return int(std::exp(-(i-band)*(i-band)/3.0)*255.0);};
-        switch(effect) {
-        case 1:return hueColor(t*72.0,0.62);
-        case 2:return hueColor(t*110.0-i*24.0,0.66);
-        case 3:return mix(RGB(255,190,40),RGB(255,252,228),sweep(0.55));
-        case 4:return mix(RGB(255,112,28),RGB(255,238,176),int((std::sin(t*3.4)+1.0)*127.5));
-        case 5:return mix(RGB(140,186,255),RGB(246,250,255),sweep(0.45));
-        case 6:return mix(RGB(145,70,255),RGB(238,226,255),int((std::sin(t*3.0)+1.0)*127.5));
-        case 7:return mix(RGB(255,70,96),RGB(255,242,244),int(std::pow(std::max(0.0,std::sin(t*4.6)),6.0)*255.0));
-        case 8:return hueColor(275.0+38.0*std::sin(t*2.2-i*0.5),0.62);
-        case 9:return mix(RGB(255,44,44),RGB(255,246,246),sweep(0.55));
-        case 10:return mix(RGB(206,24,36),RGB(255,112,112),int((std::sin(t*3.6)+1.0)*127.5));
-        case 11:return mix(RGB(236,236,240),RGB(255,52,52),sweep(0.5));
-        case 12:return mix(RGB(255,86,18),RGB(255,224,96),int(std::clamp(0.5+0.5*std::sin(t*9.0+i*1.7)*std::sin(t*5.3+i*0.9),0.0,1.0)*255.0));
-        case 13:return mix(RGB(86,148,255),RGB(248,252,255),int(std::exp(-std::fmod(t+i*0.045,2.2)*14.0)*255.0));
-        case 14:return hueColor(112.0+30.0*std::sin(t*2.4-i*0.45),0.7);
-        case 15:return mix(RGB(255,196,0),RGB(255,255,214),int(std::clamp(0.5+0.5*std::sin(t*11.0+i*2.3)*std::sin(t*7.1-i*1.1),0.0,1.0)*255.0));
-        case 16:return mix(RGB(255,122,0),std::fmod(t*1.6+i*0.37,3.0)<0.18 ? RGB(255,40,40) : RGB(255,214,90),int((std::sin(t*2.6-i*0.6)+1.0)*110.0));
-        case 17:return mix(hueColor(232.0+48.0*std::sin(t*0.9-i*0.35),0.72),RGB(255,255,255),int(std::pow(std::max(0.0,std::sin(t*3.7+i*2.9)),24.0)*255.0));
-        case 18:return mix(RGB(145,70,255),RGB(255,255,255),std::fmod(std::sin(i*12.9898+std::floor(t*7.0)*78.233)*43758.5453,1.0)>0.62 ? 220 : 0);
-        case 19:return mix(RGB(145,70,255),RGB(255,92,196),sweep(0.8));
-        case 20:return std::fmod(t+i*0.11,2.6)<0.08 ? mix(RGB(0,232,255),RGB(30,20,40),150) : (int(std::floor(t*0.8))%2 ? RGB(0,232,255) : RGB(255,60,220));
-        case 21:return (int(std::floor(t*1.6-i*0.35))%2) ? RGB(255,0,0) : RGB(255,240,240);
-        case 22:return mix(RGB(150,10,20),RGB(255,255,255),sweep(0.35));
-        case 23:return hueColor(std::fmod(t*40.0-i*10.0,60.0),0.85);
-        case 24:return mix(RGB(150,20,0),RGB(255,150,20),int((std::sin(t*1.1-i*0.42)+1.0)*127.5));
-        case 25:return mix(RGB(60,90,200),RGB(255,255,255),int(std::exp(-std::fmod(t*1.3,1.9)*9.0)*255.0*(0.6+0.4*std::sin(i*1.7))));
-        case 26:return (std::sin(t*2.2-i*0.7)>0.0) ? mix(RGB(60,220,80),RGB(20,60,20),int((std::sin(t*5.0)+1.0)*40.0)) : RGB(170,60,220);
-        case 27:return mix(RGB(255,170,0),RGB(255,255,230),int((std::sin(t*6.0-i*0.6)+1.0)*127.5));
-        case 28:return hueColor(268.0+30.0*std::sin(t*5.0-i*0.7),0.68);
-        case 29:return mix(RGB(255,30,30),RGB(255,255,255),int(std::fabs(std::sin(t*4.0-i*0.45))*170.0));
-        case 30:return mix(RGB(200,110,40),RGB(255,210,140),int((std::sin(t*13.0+i*2.1)+1.0)*127.5));
-        default:return ink;
-        }
+        return styleColor(name_style::effect_color(effect,index,count,now,styleRgb(ink)));
     }
-    static double effectLift(unsigned effect,size_t index,double now) {
-        const double t=now/1000.0,i=double(index);
-        switch(effect) {
-        case 27:return std::sin(t*6.0-i*0.6)*1.5;
-        case 28:return std::sin(t*5.0-i*0.7)*2.5;
-        case 29:return -std::fabs(std::sin(t*4.0-i*0.45))*3.0;
-        case 30:return std::fmod(std::sin(i*12.9898+std::floor(t*18.0)*78.233)*43758.5453,1.0)*1.6;
-        default:return 0.0;
-        }
-    }
+    static double effectLift(unsigned effect,size_t index,double now) {return name_style::effect_lift(effect,index,now);}
     void drawName(HDC dc,const std::wstring& value,RECT r,UINT flags,const std::string& id,COLORREF color,unsigned effect=~0u) {
         if(effect==~0u)effect=effectOf(id);
         SetBkMode(dc,TRANSPARENT);
@@ -2025,8 +1995,11 @@ struct Window {
             const auto label=wide(identity::tag_label(*tag));
             if(value.size()>=label.size() && _wcsnicmp(value.c_str(),label.c_str(),label.size())==0)tagEnd=label.size();
         }
-        if(!effect && !tagEnd) {SetTextColor(dc,color);DrawTextW(dc,value.c_str(),int(value.size()),&r,flags);return;}
-        if(effect) {
+        const bool tagMoves=tagEnd && name_style::tag_animates(*tag) && !settings.reducedMotion;
+        const uint32_t storedName=id.empty() ? 0u : nameColorOf(id);
+        const bool shaded=!effect && (storedName>>24u) && readableName(storedName,ink)==color;
+        if(!effect && !tagEnd && !shaded) {SetTextColor(dc,color);DrawTextW(dc,value.c_str(),int(value.size()),&r,flags);return;}
+        if(effect || tagMoves) {
             keepProfileMotion();
             if(recordingMotion) {
                 const auto font=static_cast<HFONT>(GetCurrentObject(dc,OBJ_FONT));
@@ -2039,7 +2012,7 @@ struct Window {
                 });
             }
         }
-        const double now=effect ? profileClock() : 0.0;
+        const double now=effect || tagMoves ? profileClock() : 0.0;
         std::wstring shown=value;
         const auto extent=[&](const std::wstring& text,size_t count){SIZE size{};GetTextExtentPoint32W(dc,text.c_str(),int(count),&size);return int(size.cx);};
         const int room=r.right-r.left;
@@ -2052,11 +2025,15 @@ struct Window {
         x=std::max<int>(x,r.left);
         const UINT single=(flags&~UINT(DT_CENTER|DT_RIGHT|DT_END_ELLIPSIS|DT_WORDBREAK))|DT_LEFT|DT_NOCLIP|DT_SINGLELINE;
         const COLORREF labelTone=tag ? readableName(storedColor(tagColor(*tag)),ink) : color;
+        const size_t nameCount=shown.size()>tagEnd ? shown.size()-tagEnd : 0;
         for(size_t i=0;i<shown.size();++i) {
             const int left=x+extent(shown,i),right=x+extent(shown,i+1);
             const int lift=effect && i>=tagEnd ? int(std::lround(effectLift(effect,i,now)*double(p(100))/100.0)) : 0;
             RECT cell{left,r.top+lift,right+p(6),r.bottom+lift};
-            const COLORREF tone=i<tagEnd ? labelTone : effect ? readableName(storedColor(effectColor(effect,i,shown.size(),now)),ink) : color;
+            COLORREF tone=color;
+            if(i<tagEnd)tone=tagMoves ? readableName(storedColor(styleColor(name_style::tag_color(*tag,i,tagEnd,now))),ink) : labelTone;
+            else if(effect)tone=readableName(storedColor(effectColor(effect,i,shown.size(),now)),ink);
+            else if(shaded)tone=readableName(storedColor(styleColor(name_style::plain_color(storedName,i-tagEnd,nameCount))),ink);
             SetTextColor(dc,tone);
             DrawTextW(dc,&shown[i],1,&cell,single);
         }
@@ -2103,7 +2080,7 @@ struct Window {
         int index=0;
         if(stored>>24u) {
             index=name_color_custom;
-            for(int i=0;i+1<name_color_custom;++i)if(storedColor(name_colors[i].color)==stored)index=i+1;
+            for(int i=0;i+1<name_color_custom;++i)if(storedColor(nameColorAt(i))==name_style::refresh_name_color(stored))index=i+1;
         }
         if(index==name_color_custom)customNameColor=stored;
         labelCustomColor(index);SendMessageW(controls[ProfileNameColor],CB_SETCURSEL,index,0);nameColorSelection=index;
@@ -2115,7 +2092,7 @@ struct Window {
             const auto profile=activeProfile();const auto style=profile ? profileStyle(profile->id) : nullptr;
             return style ? style->nameColor : 0u;
         }
-        return index<name_color_custom ? storedColor(name_colors[index-1].color) : customNameColor;
+        return index<name_color_custom ? storedColor(nameColorAt(index-1)) : customNameColor;
     }
     static std::wstring seenText(int64_t seen) {
         const int64_t now=int64_t(std::time(nullptr)),ago=std::max<int64_t>(0,now-seen);
@@ -2216,7 +2193,7 @@ struct Window {
     struct ShownCard {bool shared=false;online::Card card;const speedrun::SplitImage* image=nullptr;unsigned fit=0;};
     std::vector<std::pair<std::wstring,COLORREF>> profileBadges(const ShownCard& shown,const std::string& id,const std::wstring& name) {
         std::vector<std::pair<std::wstring,COLORREF>> badges;
-        if(const auto keyTag=effectOf(id) ? identity::claimed_tag(utf8(name)) : std::nullopt)
+        if(const auto keyTag=verifiedTag(id,utf8(name)))
             badges.emplace_back(wide(identity::tag_label(*keyTag)),readableName(storedColor(tagColor(*keyTag)),ink));
         if(!shown.shared)return badges;
         const auto& card=shown.card;
@@ -2297,11 +2274,14 @@ struct Window {
         const auto shown=shownCard(viewedPlayer);
         const auto player=directory ? directory->player(viewedPlayer) : std::nullopt;
         const auto name=wide(player ? player->name : viewedName);
+        const auto cardTag=verifiedTag(viewedPlayer,utf8(name));
+        if(cardTag)paintTagTheme(dc,*cardTag,contentLeft,124,split,764);
         const int cx=(contentLeft+split)/2,cy=214,radius=62;
         const unsigned accentIndex=shown.shared && shown.card.accent<accent_count ? shown.card.accent : 0u;
         if(shown.shared && accentIndex==rgb_accent)keepProfileMotion();
         const COLORREF tone=!shown.shared ? avatarTone(viewedPlayer) : accentIndex==rgb_accent ? colorOf(cycling_accent(uint64_t(profileClock()))) : accentIndex ? colorOf(accents[accentIndex].color) : orange;
         buffer.frame.halo({p(cx),p(cy),p(cx+1),p(cy+1)},0,p(84),tone,player ? 70 : 30);
+        if(cardTag)ellipse(dc,p(cx),p(cy),p(radius+9),styleColor(name_style::tag_theme(*cardTag).edge));
         ellipse(dc,p(cx),p(cy),p(radius+6),panel);ellipse(dc,p(cx),p(cy),p(radius),tone);
         if(shown.image)paintRoundPhoto(dc,*shown.image,p(cx),p(cy),p(radius-2),shown.fit);
         else {
@@ -2325,7 +2305,7 @@ struct Window {
         text(dc,presence,contentLeft+24,y+4,columnWidth,20,fonts.caption,player ? ink : muted,DT_CENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
         std::vector<std::pair<std::wstring,COLORREF>> tags;
         if(own)tags.emplace_back(L"YOU",orange);
-        if(const auto keyTag=effectOf(viewedPlayer) ? identity::claimed_tag(viewedName) : std::nullopt)
+        if(const auto keyTag=verifiedTag(viewedPlayer,viewedName))
             tags.emplace_back(L"VERIFIED "+wide(identity::tag_label(*keyTag)),readableName(storedColor(tagColor(*keyTag)),ink));
         if(isFriend(viewedPlayer))tags.emplace_back(L"FRIEND",green);
         if(isBlocked(viewedPlayer))tags.emplace_back(L"BLOCKED",red);
@@ -2663,12 +2643,7 @@ struct Window {
         }
     }
     void avatarGlyph(HDC dc, RECT r, int kind, COLORREF color) {
-        auto old = SelectObject(dc, kind == 0 ? fonts.label : fonts.strong);
-        SetBkMode(dc, TRANSPARENT);
-        SetTextColor(dc, color);
-        const wchar_t *glyph = kind == 0 ? L"VS" : L"+";
-        DrawTextW(dc, glyph, -1, &r, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
-        SelectObject(dc, old);
+        navigationIcon(dc, kind == 0 ? OnlineTab : HomeProfile, r, mix(color, ink, 90), std::max(8, int(std::min(r.right - r.left, r.bottom - r.top)) / 2));
     }
     void tag(HDC dc, int right, int cy, const std::wstring &value, COLORREF tone, bool solid = false) {
         auto old = SelectObject(dc, fonts.label);
@@ -2717,6 +2692,29 @@ struct Window {
         const int darkness=(GetRValue(background)*299+GetGValue(background)*587+GetBValue(background)*114)/1000;
         fill(dc, {p(left) + cut(12), p(bottom), p(right) - cut(12), p(bottom) + p(1)}, mix(background, RGB(0, 0, 0), darkness>128 ? 24 : 100));
         box(dc, {p(left), p(top), p(right), p(bottom)}, panel, mix(panel, border, 150), 12);
+    }
+    void paintTagTheme(HDC dc,identity::Tag tag,int left,int top,int right,int bottom) {
+        const auto theme=name_style::tag_theme(tag);
+        Gdiplus::Graphics graphics(dc);
+        graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+        const Gdiplus::REAL x=Gdiplus::REAL(p(left)),y=Gdiplus::REAL(p(top)),w=Gdiplus::REAL(p(right)-p(left)),h=Gdiplus::REAL(p(bottom)-p(top)),r=Gdiplus::REAL(p(waveStyle() ? 14 : 12));
+        Gdiplus::GraphicsPath rounded;
+        rounded.AddArc(x,y,r*2,r*2,180,90);rounded.AddArc(x+w-r*2,y,r*2,r*2,270,90);
+        rounded.AddArc(x+w-r*2,y+h-r*2,r*2,r*2,0,90);rounded.AddArc(x,y+h-r*2,r*2,r*2,90,90);rounded.CloseFigure();
+        const auto color=[](name_style::Rgb c,int alpha){return Gdiplus::Color(BYTE(alpha),BYTE(c.r),BYTE(c.g),BYTE(c.b));};
+        Gdiplus::LinearGradientBrush wash(Gdiplus::PointF(0,y-1),Gdiplus::PointF(0,y+h+1),color(theme.top,150),color(theme.bottom,40));
+        graphics.FillPath(&wash,&rounded);
+        graphics.SetClip(&rounded);
+        const Gdiplus::REAL glowHeight=Gdiplus::REAL(p(150));
+        Gdiplus::LinearGradientBrush glow(Gdiplus::PointF(0,y-1),Gdiplus::PointF(0,y+glowHeight),color(theme.glow,46),color(theme.glow,0));
+        graphics.FillRectangle(&glow,x,y,w,glowHeight);
+        Gdiplus::LinearGradientBrush stripe(Gdiplus::PointF(x,0),Gdiplus::PointF(x+w,0),color(theme.edge,0),color(theme.edge,200));
+        stripe.SetBlendTriangularShape(0.5f);
+        graphics.FillRectangle(&stripe,x,y,w,Gdiplus::REAL(std::max(2,p(3))));
+        graphics.ResetClip();
+        Gdiplus::Pen edge(color(theme.edge,150),float(std::max(1,p(2))));
+        graphics.DrawPath(&edge,&rounded);
+        text(dc,theme.name,left+16,bottom-30,right-left-32,18,fonts.label,readableName(storedColor(styleColor(theme.label)),ink),DT_CENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
     }
     std::optional<RECT> controlRect(int id) const {
         const auto found = controls.find(id);
@@ -3158,7 +3156,7 @@ struct Window {
         SendMessageW(controls[OnlineSearch],EM_SETLIMITTEXT,128,0);
         {std::vector<std::wstring> names;for(const auto& choice:accents)names.emplace_back(choice.name);combo(ProfileAccent,names,0);}
         combo(ProfileAvailability,{L"Available",L"Away",L"Do not disturb"},0);
-        {std::vector<std::wstring> names{L"Theme default"};for(const auto& choice:name_colors)names.emplace_back(choice.name);names.emplace_back(L"Custom color\u2026");combo(ProfileNameColor,names,0);}
+        {std::vector<std::wstring> names{L"Theme default"};for(const auto& choice:name_style::name_colors)names.emplace_back(choice.name);names.emplace_back(L"Custom color\u2026");combo(ProfileNameColor,names,0);}
         {std::vector<std::wstring> names{L"No main fighter"};for(const auto* name:fighter_names)names.push_back(wide(name));combo(ProfileFighter,names,0);}
         combo(ProfileSharing,{L"Picture and card",L"Card without the picture",L"Keep on this PC"},0);
         combo(ProfileFriendAlerts,{L"Tell me",L"Don't tell me"},0);
@@ -3554,20 +3552,31 @@ struct Window {
             SetWindowTextW(controls[NavigateBack],back.c_str());
             position(NavigateBack,right-166,28,166,36);
             const int split=contentLeft+std::clamp(content/3,260,340),side=split+44,width=right-side-24;
-            position(OnlineProfile,contentLeft+24,166,std::min(340,content-460),40);
-            position(ProfileManage,right-390,166,210,40);
-            position(ProfileRecover,right-166,166,142,40);
+            {
+                const bool recover=std::filesystem::exists(profileRecoveryPath());
+                const int buttons=recover ? 4 : 3,button=96,gap=10,group=buttons*button+(buttons-1)*gap;
+                const int pick=std::clamp((content-48-group)/3,180,320);
+                position(OnlineProfile,contentLeft+24,166,pick,40);
+                const int nameLeft=contentLeft+24+pick+16,nameRight=right-24-group-gap;
+                position(OnlineName,nameLeft+10,166,std::max(80,nameRight-nameLeft-20),40);
+                int x=right-24-group;
+                for(const int id:{ProfileAdd,ProfileRename,ProfileRemove}){position(id,x,166,button,40);x+=button+gap;}
+                if(recover)position(ProfileRecover,x,166,button,40);
+            }
             if(waveStyle()) {
                 const int labelWidth=std::clamp(width*2/5,150,300),valueLeft=side+labelWidth,valueWidth=right-24-valueLeft;
                 const int ids[]={ProfileInitials,ProfileAccent,ProfileNameColor,ProfileFighter,ProfileTagline,ProfileAbout,ProfileRegion,ProfilePlaystyle,
                                  ProfileAvailability,ProfileNotifications,ProfileSharing,ProfileFriendAlerts};
-                for(int i=0;i<12;++i)position(ids[i],valueLeft,312+i*waveOptionRow+8,valueWidth,40);
+                for(int i=0;i<12;++i) {
+                    const bool field=ids[i]==ProfileInitials || ids[i]==ProfileTagline || ids[i]==ProfileAbout;
+                    position(ids[i],valueLeft+(field ? 10 : 0),312+i*waveOptionRow+8,valueWidth-(field ? 20 : 0),40);
+                }
                 position(ProfileSave,side,996,160,40);
                 position(ProfileReset,side+174,996,130,40);
                 position(ProfilePreview,side+318,996,170,40);
                 position(ProfileCopyFrom,valueLeft,1076+8,valueWidth-170,40);
                 position(ProfileCopyStyle,right-24-160,1076+8,160,40);
-                if(heldTag())position(ProfileLink,valueLeft,1132+8,valueWidth,40);
+                if(heldTag())position(ProfileLink,valueLeft+10,1132+8,valueWidth-20,40);
                 position(ProfileCopyId,contentLeft+24,480,split-contentLeft-48,36);
                 position(ProfileImageChoose,contentLeft+24,532,split-contentLeft-48,36);
                 position(ProfileImageRemove,contentLeft+24,580,split-contentLeft-48,36);
@@ -3702,17 +3711,10 @@ struct Window {
             const Grid grid(content);
             const int bottom = h - 64;
             const int profileRow = Grid::field(onlineProfileTop - 20, 0), action = 84;
-            position(OnlineProfile, grid.x(1), profileRow, grid.column - action - 8, 34);
-            position(ProfileRemove, grid.x(1) + grid.column - action, profileRow, action, 34);
-            position(OnlineName, grid.x(2)+10, profileRow+6, grid.column-2*action-36, 22);
-            position(ProfileRename, grid.x(2) + grid.column - 2*action - 8, profileRow, action, 34);
-            position(ProfileAdd, grid.x(2) + grid.column - action, profileRow, action, 34);
+            (void)action;
             SetWindowTextW(controls[HomeProfile],activeProfile() ? L"Customize profile" : L"Create profile");
-            position(HomeProfile,grid.x(1),192,grid.column,28);
-            position(ProfileCopyId,grid.x(2),192,grid.column,28);
-            if(std::filesystem::exists(profileRecoveryPath())) {
-                conceal(ProfileCopyId);position(ProfileRecover,grid.x(2),192,grid.column,28);
-            }
+            position(HomeProfile,grid.x(1),profileRow,grid.column,36);
+            position(ProfileCopyId,grid.x(2),profileRow,grid.column,36);
             if (waveStyle()) {
                 const int inner = content - 40, labelWidth = std::clamp(content * 2 / 5, 180, 420);
                 const int valueLeft = contentLeft + 24 + labelWidth, valueWidth = right - 24 - valueLeft;
@@ -3730,13 +3732,13 @@ struct Window {
                 position(RoomList, contentLeft + 20, waveOnlineRoomsTop + 100, inner, 220);
                 const int half = (inner - 12) / 2;
                 if (selectedRoomLocked()) {
-                    position(JoinPassword, contentLeft + 30, waveOnlineRoomsTop + 340, half / 2 - 16, 22);
+                    position(JoinPassword, contentLeft + 30, waveOnlineRoomsTop + 340, half / 2 - 36, 22);
                     position(JoinRoom, contentLeft + 20 + half / 2, waveOnlineRoomsTop + 334, half - half / 2, 34);
                 } else {
                     position(JoinRoom, contentLeft + 20, waveOnlineRoomsTop + 334, half, 34);
                     conceal(JoinPassword);
                 }
-                position(OnlineAddress, contentLeft + 30 + half + 12, waveOnlineRoomsTop + 340, half / 2 - 16, 22);
+                position(OnlineAddress, contentLeft + 30 + half + 12, waveOnlineRoomsTop + 340, half / 2 - 36, 22);
                 position(JoinGame, contentLeft + 20 + half + 12 + half / 2, waveOnlineRoomsTop + 334, half - half / 2, 34);
                 position(HostGame, right - 20 - 160, waveOnlineHostTop + 10, 160, 34);
                 const int rows = waveOnlineHostTop + 64;
@@ -4357,6 +4359,7 @@ struct Window {
         }
         const auto profile=activeProfile();if(!profile)return;
         const auto style=profileStyle(profile->id);
+        if(perks)paintTagTheme(dc,*heldTag(),contentLeft,246,split,1176);
         heading(dc,L"Your player card",contentLeft+24,266,split-contentLeft-48);
         avatar(dc,p((contentLeft+split)/2),p(340),p(42),wide(profile->name),profile->id,panel);
         nameText(dc,wide(profile->name),contentLeft+24,396,split-contentLeft-48,24,fonts.brand,readableName(chosenNameColor(),ink),DT_CENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX,profile->id,chosenEffect());
@@ -4569,7 +4572,7 @@ struct Window {
             catch (const std::exception& error) { std::cout << "[launcher:split-image] " << error.what() << std::endl; }
         }
         if (found->second.frames.size() > 1 && allowMotion() && !imageAnimationTicking) {
-            imageAnimationTicking = true;SetTimer(hwnd, 3, 33, nullptr);
+            imageAnimationTicking = true;SetTimer(hwnd, 3, motionInterval, nullptr);
         }
         return found->second.frames.empty() ? nullptr : &found->second;
     }
@@ -4665,6 +4668,7 @@ struct Window {
         if (!effects && (!animated || !allowMotion())) {KillTimer(hwnd,3);imageAnimationTicking=false;return;}
         if (dropdownOpen() || IsIconic(hwnd) || (!appActive && !effects)) {effectPainted=effects;pageEffectPainted=pageEffects;return;}
         const bool full=(animated && allowMotion()) || (pageEffects && motions.empty());
+        if (const UINT wanted=full ? 33u : 16u; wanted!=motionInterval){motionInterval=wanted;SetTimer(hwnd,3,wanted,nullptr);}
         if (full) (pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);
         else if (pageEffects) {
             RECT client{};GetClientRect(hwnd,&client);
@@ -4684,7 +4688,7 @@ struct Window {
                 for (size_t row = size_t(std::max<LRESULT>(0, top)); row < rows.size() && row < size_t(std::max<LRESULT>(0, top)) + 24; ++row) {
                     RECT item{};
                     if (SendMessageW(controls[list], LB_GETITEMRECT, row, reinterpret_cast<LPARAM>(&item)) != LB_ERR &&
-                        (effectOf(rows[row].first) || [&] { const auto remote = remoteCard(rows[row].first); return remote && remote->card.accent == rgb_accent; }()))
+                        (effectOf(rows[row].first) || movingTag(rows[row].first) || [&] { const auto remote = remoteCard(rows[row].first); return remote && remote->card.accent == rgb_accent; }()))
                         InvalidateRect(controls[list], &item, FALSE);
                 }
             }
@@ -5239,7 +5243,7 @@ struct Window {
         const int mid=(top+bottom)/2-12,centre=(left+right)/2;
         const RECT ring{p(centre-18),p(mid-44),p(centre+18),p(mid-8)};
         box(dc,ring,mix(panel,border,60),mix(panel,border,160),10);
-        avatarGlyph(dc,ring,icon ? 0 : 1,faint);
+        navigationIcon(dc,icon ? OnlineTab : HomeProfile,ring,muted,p(18));
         text(dc,headline,left+20,mid,right-left-40,20,fonts.strong,muted,DT_CENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
         text(dc,hint,left+20,mid+22,right-left-40,18,fonts.caption,faint,DT_CENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
     }
@@ -5322,8 +5326,8 @@ struct Window {
                  DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
         }
         fill(dc, {p(grid.x(1) - 9), p(onlineProfileTop + 20), p(grid.x(1) - 8), p(onlineProfileTop + 84)}, mix(panel, border, 160));
-        label(onlineProfileTop - 20, 0, 1, settings.onlineProfiles.size() > 1 ? L"SWITCH PROFILE" : L"PROFILE");
-        label(onlineProfileTop - 20, 0, 2, L"NEW PROFILE");
+        label(onlineProfileTop - 20, 0, 1, L"PLAYER CARD");
+        label(onlineProfileTop - 20, 0, 2, L"SHARE");
         if (waveStyle()) { paintOnlineWave(dc, content, online); return; }
 
         const bool hosting = room && roomHost;
@@ -5934,11 +5938,11 @@ struct Window {
             const size_t slot = size_t(std::max(0, index - name_color_custom - 1));
             const unsigned effect = index > name_color_custom && slot < effects.size() ? effects[slot] : 0u;
             COLORREF tone = enabled ? ink : muted;
-            if (index > 0 && index < name_color_custom) tone = readableName(storedColor(name_colors[index - 1].color), ink);
+            if (index > 0 && index < name_color_custom) tone = readableName(storedColor(nameColorAt(index - 1)), ink);
             RECT cell = r;
             cell.left += p(4);
             if (index > 0 && index < name_color_custom) {
-                ellipse(dc, r.left + p(5), (r.top + r.bottom) / 2, p(5), storedColor(name_colors[index - 1].color));
+                ellipse(dc, r.left + p(5), (r.top + r.bottom) / 2, p(5), nameColorAt(index - 1));
                 cell.left += p(14);
             }
             if (effect) {
@@ -7726,9 +7730,9 @@ struct Window {
     bool profileReady() {
         if (activeProfile())
             return true;
-        status = L"Add a profile before playing online.";
+        status = L"Add a profile on the Profile page before playing online.";
         error = true;
-        SetFocus(controls[OnlineName]);
+        openProfile();
         return false;
     }
     void addProfile() {
@@ -8715,7 +8719,7 @@ struct Window {
                                                       : L"join:" + wide(joinAddress) + L":" + std::to_wstring(roomPort)) +
                                      L" --netplay-delay=" + std::to_wstring(state.delay) + L" " +
                                      quote_argument(L"--netplay-name=" + wide(settings.onlineName)) + L" " +
-                                     quote_argument(L"--netplay-password=" + wide(state.key));
+                                     quote_argument(L"--netplay-password=" + wide(state.key)) + netplayStyle();
             onlineArguments = arguments;
             std::cout << "[launcher:online] room ready with " << state.opponent << " ping " << state.ping_ms
                       << " ms delay " << state.delay << (state.relayed ? " via relay" : " direct") << std::endl;
@@ -9026,7 +9030,7 @@ struct Window {
             publishCard();status=L"Picture framing updated.";error=false;
             (pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);return;
         }
-        if(notification==BN_CLICKED && id==ProfileManage) {page=onlinePage;layout();focusControl(OnlineName);return;}
+        if(notification==BN_CLICKED && id==ProfileManage) {openProfile();focusControl(OnlineName);return;}
         if(notification==BN_CLICKED && id==ProfileRecover) {recoverProfile();return;}
         if(notification==BN_CLICKED && id==ProfileCopyStyle) {
             const int index=selected(ProfileCopyFrom);const auto target=activeProfile();
@@ -9286,7 +9290,7 @@ struct Window {
         if (id == RefreshRooms && (notification == BN_CLICKED || notification == 1)) {
             if(!activeProfile()) {
                 status=L"Create a profile to connect to the online service.";error=false;
-                page=onlinePage;layout();SetFocus(controls[OnlineName]);return;
+                openProfile();return;
             }
             {
                 std::lock_guard lock(onlineShared->mutex);

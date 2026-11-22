@@ -352,7 +352,7 @@ std::optional<std::string> parse_perks(const std::string &id, const std::string 
 }
 
 std::string format_flair(const Profile &profile, unsigned effect) {
-    if (!effect || effect > name_effect_count || !can_use_flair(profile) || !tag_allows(*identity::claimed_tag(profile.name), effect))
+    if (effect > name_effect_count || !can_use_flair(profile) || (effect && !tag_allows(*identity::claimed_tag(profile.name), effect)))
         return {};
     const std::string name = clean(profile.name, 24), proof = identity::tag_proof(name, "flair:" + profile.id + ":" + std::to_string(effect));
     if (proof.empty())
@@ -362,12 +362,12 @@ std::string format_flair(const Profile &profile, unsigned effect) {
 
 std::optional<unsigned> parse_flair(const std::string &id, const std::string &payload) {
     const auto f = fields(payload);
-    if (!valid_id(id) || f.size() != 4 || f[0] != "1" || f[1].empty() || f[1].size() > 2 || f[1][0] == '0' ||
+    if (!valid_id(id) || f.size() != 4 || f[0] != "1" || f[1].empty() || f[1].size() > 2 || (f[1][0] == '0' && f[1] != "0") ||
         !std::all_of(f[1].begin(), f[1].end(), [](unsigned char c) { return std::isdigit(c) != 0; }) || f[2].size() > 24)
         return std::nullopt;
     const unsigned effect = unsigned(std::stoul(f[1]));
     const auto tag = identity::claimed_tag(f[2]);
-    if (effect > name_effect_count || !tag || !tag_allows(*tag, effect))
+    if (effect > name_effect_count || !tag || (effect && !tag_allows(*tag, effect)))
         return std::nullopt;
     crypto::Signature signature{};
     if (f[3].size() != signature.size() * 2 || !crypto::from_hex(f[3], signature.data(), signature.size()) ||
@@ -576,13 +576,13 @@ void Directory::set_flair(unsigned effect) {
     const auto payload = format_flair(profile_, effect);
     {
         std::lock_guard lock(mutex_);
-        const unsigned shown = payload.empty() ? 0u : effect;
+        const unsigned shown = payload.empty() ? ~0u : effect;
         if (flair_ == shown && flairSent_)
             return;
         flair_ = shown;
         flairSent_ = true;
-        if (shown)
-            flairs_[profile_.id] = shown;
+        if (!payload.empty())
+            flairs_[profile_.id] = effect;
         else
             flairs_.erase(profile_.id);
     }
@@ -612,6 +612,11 @@ std::string Directory::link(const std::string &id) const {
     std::lock_guard lock(mutex_);
     const auto found = links_.find(id);
     return found == links_.end() ? std::string() : found->second;
+}
+
+bool Directory::tagged(const std::string &id) const {
+    std::lock_guard lock(mutex_);
+    return flairs_.count(id) != 0;
 }
 
 unsigned Directory::flair(const std::string &id) const {

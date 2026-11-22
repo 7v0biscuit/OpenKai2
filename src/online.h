@@ -103,6 +103,7 @@ class Directory {
     uint64_t card_revision(const std::string &id) const;
     void set_flair(unsigned effect);
     unsigned flair(const std::string &id) const;
+    bool tagged(const std::string &id) const;
     void set_link(const std::string &link);
     std::string link(const std::string &id) const;
     std::vector<Room> rooms() const;

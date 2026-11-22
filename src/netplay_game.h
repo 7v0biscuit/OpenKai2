@@ -15,6 +15,8 @@ struct Arguments {
     uint16_t port = default_port;
     unsigned delay = 0;
     std::string name = "Player";
+    uint32_t name_color = 0;
+    unsigned name_effect = 0;
     std::string password, lobby, room, room_id, invite_token;
     bool listed = false, hidden = false;
 };

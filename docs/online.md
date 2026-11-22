@@ -4,7 +4,9 @@ Play versus against other players from the launcher's **Online** page (Ctrl+2).
 
 ## Profiles
 
-Type a name under **New profile** and press **Add**. You need a profile to play
+Profiles are managed on the **Profile** page. Type a name in **Name for a new
+profile** and press **Add**. The Online page only shows your active profile with
+**Customize profile** and **Copy profile ID**. You need a profile to play
 online, and you can keep several. Each profile has its own key, created on your
 PC, which proves to other players that you are you. Friends and invites are tied
 to the profile, not to the name.
@@ -29,7 +31,7 @@ tag is removed, and other players' games check the key's signature too.
 **[TTV]**, **[YT]** and **[ToB]** are name tags handed out by the developer as key
 files. Type a name with the tag, such as `[TTV] Joint`, and the launcher asks for
 that tag's key file once. After that any profile can carry the tag with any name.
-**Rename** beside **New profile** renames the active profile and keeps its tag:
+**Rename** on the Profile page renames the active profile and keeps its tag:
 `[TTV] Biscuit` can become `[TTV] Joint` or `[TTV] Slender` by typing only the new
 name. Friends, picture and stats stay with the profile. Without the key the tag is
 removed, and other players' games check each tag's signature. Each tag has its
@@ -52,7 +54,8 @@ the **Players** list update live. **Refresh** also rechecks room latency.
 - **Join by address:** type the host's address and press **Join address**. Add
   `:port` only if the host's room shows a port other than 7350.
 - **Keyboard:** Enter in the password box joins the selected room, Enter in the
-  address box joins that address, Enter in **New profile** adds it, **Esc**
+  address box joins that address, Enter in the Profile page's name box adds a
+  profile, **Esc**
   stops waiting in a room and **Ctrl+R** refreshes the lists.
 
 The game does not start while you wait. Both launchers first meet in the room,
@@ -175,14 +178,25 @@ motion** on they move slowly instead. A player with a verified effect also gets
 a **Verified** badge in their tag's color on their profile. Older launchers show
 effects they do not know as a plain name.
 
+Each tag has a profile theme: verified **[DEV]**, **[TTV]**, **[YT]** and
+**[ToB]** players get a tinted card with a glowing edge and the theme name on
+their player card. The **[TTV]**, **[YT]** and **[ToB]** labels shimmer in their
+tag colors. A verified tag holder is recognized by other players even without
+a name effect. In online matches the opponent's name on the in-game banner is
+drawn with their name color, tag colors and name effect.
+
 Tagged profiles can also add a **Channel link** (a Twitch, YouTube or Kick
 `https://` address). It is signed with the tag's key, and other players see an
 **Open channel** button on the player's profile. Right-click the player's name
 for **Open channel** and **Copy channel link**.
 
 Name colors come in Dragon Ball Z presets (Super Saiyan gold, Kamehameha blue,
-Namekian green, Frieza purple, Kaio-ken red, Goku gi orange, Majin pink and Kami
-white), or choose **Custom color…** to pick any color. Very
+Namekian green, Frieza purple, Kaio-ken red, Goku gi orange, Majin pink, Kami
+white, Vegeta blue, Senzu green, Android teal and Ultra Instinct silver), or
+choose **Custom color…** to pick any color. Preset colors shade softly into a
+lighter tone across the name. Colors picked in older versions switch to the
+refreshed tones automatically. Everyone sees your name color in the launcher
+and on the in-game online banner. Very
 dark or very light colors are adjusted so the name stays readable. **Theme
 default** keeps the normal text color.
 
@@ -229,7 +243,7 @@ per profile.
 
 On Play, the Friends panel shows **All friends**, **Online friends**,
 **Everyone online** or **Recent opponents**. If no profile exists,
-**Create profile** on Play opens the Online page to create one.
+**Create profile** on Play or Online opens the Profile page to create one.
 
 ## Profile pictures and browsing
 

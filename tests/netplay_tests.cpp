@@ -119,6 +119,7 @@ void two_players_stay_in_step() {
     hostOptions.port = 0;
     hostOptions.delay = 3;
     hostOptions.name = "Goku";
+    hostOptions.name_color = 0x1ff8c32u;
     hostOptions.identity = "build:disc";
     Session host(hostOptions, hostMachine.bind());
     host.start();
@@ -131,6 +132,8 @@ void two_players_stay_in_step() {
     guestOptions.port = host.listening_port();
     guestOptions.delay = 1;
     guestOptions.name = "Vegeta";
+    guestOptions.name_color = 0x1607cffu;
+    guestOptions.name_effect = 3;
     Session guest(guestOptions, guestMachine.bind());
     guest.start();
 
@@ -168,6 +171,8 @@ void two_players_stay_in_step() {
     const auto hostStatus = host.status(), guestStatus = guest.status();
     require(hostOk && guestOk, "both players finish: " + hostStatus.message + " / " + guestStatus.message);
     require(hostStatus.opponent == "Vegeta" && guestStatus.opponent == "Goku", "profile names are exchanged");
+    require(hostStatus.opponent_color == 0x1607cffu && guestStatus.opponent_color == 0x1ff8c32u, "name colors are exchanged");
+    require(hostStatus.opponent_effect == 0 && guestStatus.opponent_effect == 0, "a name effect needs a verified tag");
     require(guestStatus.delay == 3, "the host's input delay is used");
     require(guestMachine.cards.size() == 1 && guestMachine.cards[0].data == std::vector<uint8_t>{9, 9, 9},
             "memory card is shared");
@@ -315,6 +320,8 @@ void service_format() {
             "channel links need a signed tag");
     require(!on::parse_flair(owner.id, "1\t1\t[DEV] Biscuit\t" + forgedProof), "a forged name effect is refused");
     require(!on::parse_flair(owner.id, "1\t1\tBulma\t" + forgedProof), "a name effect without the [DEV] tag is refused");
+    require(!on::parse_flair(owner.id, "1\t0\t[DEV] Biscuit\t" + forgedProof) && !on::parse_flair(owner.id, "1\t00\t[DEV] Biscuit\t" + forgedProof),
+            "a forged verified tag is refused");
     require(!on::parse_flair(owner.id, "1\t9\t[DEV] Biscuit\t" + forgedProof) && !on::parse_flair("bad", "1\t1\t[DEV] Biscuit\t" + forgedProof),
             "unknown name effects and bad ids are refused");
     auto tampered = payload;
