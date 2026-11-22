@@ -1035,6 +1035,7 @@ struct Window {
         {SettingsGraphics,L"Graphics settings",L"renderer anti aliasing texture filtering upscaling fsr internal resolution image effect sharpen vibrant colors crt scanlines retro glow bloom brightness gamma"},
         {SettingsGame,L"Game settings",L"cpu difficulty music textures randomizer load times fps counter run ahead input lag latency"},
         {SettingsLauncher,L"Launcher appearance",L"theme accent colors start page discord activity"},
+        {OpenColors,L"Theme colors",L"custom colours palette background text panel accent"},
         {ArrangeTabs, L"Arrange tabs", L"dock navigation order hide"},
         {UpdatesTab, L"Updates", L"release patch notes download"},
         {OpenLogs, L"Open logs folder", L"diagnostics startup launcher"},
@@ -1138,7 +1139,7 @@ struct Window {
             settingsHeight=grid.height();
         }
         if (page == wavePage) return pageVisibleHeight();
-        return std::max(page == helpPage ? 940 : page == overlayPage ? 880 : page == onlinePage ? (waveStyle() ? 1420 : 740) : page == modsPage && waveStyle() ? 960 : page == speedrunPage && waveStyle() ? 900 : page == controlsPage ? controlsHeight :
+        return std::max(page == helpPage ? 940 : page == overlayPage ? (waveStyle() ? 1820 : 880) : page == onlinePage ? (waveStyle() ? 1420 : 740) : page == modsPage && waveStyle() ? 960 : page == speedrunPage && waveStyle() ? 900 :page == colorsPage && waveStyle() ? 680 : page == controlsPage ? controlsHeight :
                         page == settingsPage ? settingsHeight : page == profilePage ? 1200 : page == playerPage ? 820 : page == 0 ? (width<1100 ? 1040 : 740) : page == savesPage ? 780 : 680, pageVisibleHeight());
     }
     void scrollPage(int value) {
@@ -1669,7 +1670,7 @@ struct Window {
                 text(dc,items[size_t(j)].detail,textX,unscale(int(cy))+8,600,20,fonts.caption,fade(RGB(240,228,204),alpha*focus),DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
         }
         const int bottom=unscale(height);
-        const std::wstring legend=L"Enter  Select      Arrows  Move      Esc  Classic view      F1  Help";
+        const std::wstring legend=L"Enter  Select      Arrows  Move      Ctrl+K  Find      F1  Help";
         text(dc,legend,unscale(width)-48-620,bottom-44,620,20,fonts.caption,fadeAt(RGB(250,240,220),enter,width-p(300),height-p(34)),DT_RIGHT|DT_SINGLELINE|DT_NOPREFIX);
         std::wstring message=status;
         if(busy()){const auto current=progressText();if(!current.empty())message=current;}
@@ -2939,9 +2940,11 @@ struct Window {
         if (page < pageCount && page != savesPage && page != controlsPage)
             return false;
         page = page == helpPage ? helpReturnPage : page == finderPage ? finderReturnPage : page == profilePage ? profileReturnPage : page == playerPage ? playerReturnPage : navigationPage();
+        if (waveStyle() && page == 0) { page = wavePage; waveEnter = 0.0; }
         layout();
+        if (page == wavePage) startWave();
         (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
-        SetFocus(controls.at(PlayTab + navigationPage()));
+        SetFocus(waveStyle() ? hwnd : controls.at(PlayTab + navigationPage()));
         return true;
     }
     void initialize() {
@@ -3547,7 +3550,7 @@ struct Window {
             position(JoinRoom,g.details+20,g.bottom-62,g.detailsWidth()-40,36);
             position(ReleaseNotes,g.right-136,g.notesTop+25,112,28);
         } else if (page == profilePage) {
-            const auto back=L"Back to "+std::wstring(tab_names[profileReturnPage]);
+            const auto back=waveStyle() && profileReturnPage==0 ? std::wstring(L"Back to Home") : L"Back to "+std::wstring(tab_names[profileReturnPage]);
             SetWindowTextW(controls[NavigateBack],back.c_str());
             position(NavigateBack,right-166,28,166,36);
             const int split=contentLeft+std::clamp(content/3,260,340),side=split+44,width=right-side-24;
@@ -3595,6 +3598,7 @@ struct Window {
             if(heldTag())position(ProfileLink,side,1124,width,40);
             }
         } else if (page == savesPage) {
+            SetWindowTextW(controls[BackToPlay], waveStyle() ? L"Back to Home" : L"Back to Play");
             position(BackToPlay, right - 150, 28, 150, 34);
             const int panelBottom = h - 64;
             position(AutoBackup, right - 20 - 160, 142, 160, 34);
@@ -3785,6 +3789,22 @@ struct Window {
         } else if (page == overlayPage) {
             const int panelBottom = h - 64, half = (content - 52) / 2, side = contentLeft + 32 + half;
             position(CloseOverlay,right-166,28,166,36);
+            if (waveStyle()) {
+                const int labelWidth = std::clamp(content * 2 / 5, 180, 420);
+                const int valueLeft = contentLeft + 24 + labelWidth, valueWidth = right - 24 - valueLeft;
+                position(OverlayDefaults, right - 20 - 160, 142, 160, 34);
+                position(SpeedrunMode, valueLeft, 276 + 8, valueWidth, 34);
+                position(SplitStyleList, contentLeft + 20, 340, content - 40, 156);
+                position(SplitStyleAdd, contentLeft + 20, 508, 140, 32);
+                position(SplitStyleReset, contentLeft + 172, 508, 120, 32);
+                position(SplitNameField, valueLeft, 556 + 8, valueWidth - 122, 34);
+                position(SplitNameSave, right - 24 - 110, 556 + 8, 110, 34);
+                position(SplitImageChoose, valueLeft, 612 + 8, 150, 34);
+                position(SplitImageRemove, valueLeft + 162, 612 + 8, 130, 34);
+                const int ids[] = {OverlayCorner, OverlaySize, OverlayBackground, OverlaySplits, OverlayText, OverlayAhead,
+                                   OverlayBehind, OverlayGold, OverlayDecimals, OverlayMargin, OverlayShape, OverlayTitle};
+                for (int i = 0; i < 12; ++i) position(ids[i], valueLeft, 756 + i * waveOptionRow + 8, valueWidth, 34);
+            } else {
             position(OverlayDefaults, right - 20 - 150 - 10 - 160, 136, 160, 34);
             position(SpeedrunMode, contentLeft + 20, 238, half, 34);
             position(SplitStyleList, contentLeft + 20, 314, half, 156);
@@ -3808,6 +3828,7 @@ struct Window {
             position(OverlayMargin, side + column + 12, row(4), column, height);
             position(OverlayShape, side, row(5), column, height);
             position(OverlayTitle, side + column + 12, row(5), column, height);
+            }
         } else if (page == updatesPage) {
             const Grid grid(content);
             const int half = (grid.column - 10) / 2;
@@ -3830,6 +3851,15 @@ struct Window {
         } else if (page == colorsPage) {
             const int panelBottom = h - 64, listWidth = std::min(560, content - 40 - 200);
             position(CloseColors,right-166,28,166,36);
+            if (waveStyle()) {
+                position(ColorList, contentLeft + 20, 268, content - 40, 300);
+                const int gap = 10, button = (content - 40 - 5 * gap) / 6;
+                int x = contentLeft + 20;
+                for (int id : {ColorPick, ColorReset, ColorResetAll, ColorSurprise, ColorCopy, ColorPaste}) {
+                    position(id, x, 584, button, 34);
+                    x += button + gap;
+                }
+            } else {
             position(ColorList, contentLeft + 20, 228, listWidth, std::max(120, panelBottom - 20 - 228));
             const int side = contentLeft + 20 + listWidth + 20, buttonWidth = std::min(170, right - 20 - side);
             position(ColorPick, side, 228, buttonWidth, 34);
@@ -3838,8 +3868,10 @@ struct Window {
             position(ColorSurprise, side, 380, buttonWidth, 34);
             position(ColorCopy, side, 424, buttonWidth, 34);
             position(ColorPaste, side, 468, buttonWidth, 34);
+            }
         } else if (page == controlsPage) {
             const ControlsLayout grid(content);
+            SetWindowTextW(controls[BackToPlay], waveStyle() ? L"Back to Home" : L"Back to Play");
             position(BackToPlay, right - 150, 28, 150, 34);
             position(ControlsReset, right - 20 - 160, controlsTop + 10, 160, 30);
             for (unsigned i = 0; i < input::button_count; ++i) {
@@ -3851,12 +3883,21 @@ struct Window {
         } else if (page == tabsPage) {
             const int panelBottom = h - 64, listWidth = std::min(420, content - 40 - 180);
             position(CloseTabs,right-166,28,166,36);
+            if (waveStyle()) {
+                position(TabList, contentLeft + 20, 268, content - 40, int(dock_tab_count) * 40 + 4);
+                const int y = 268 + int(dock_tab_count) * 40 + 20;
+                position(TabUp, contentLeft + 20, y, 150, 34);
+                position(TabDown, contentLeft + 180, y, 150, 34);
+                position(TabToggle, contentLeft + 340, y, 150, 34);
+                position(TabDefaults, right - 20 - 150, y, 150, 34);
+            } else {
             position(TabList, contentLeft + 20, 228, listWidth, std::min(int(dock_tab_count) * 40 + 4, panelBottom - 20 - 228));
             const int side = contentLeft + 20 + listWidth + 20;
             position(TabUp, side, 228, 150, 34);
             position(TabDown, side, 272, 150, 34);
             position(TabToggle, side, 316, 150, 34);
             position(TabDefaults, side, 380, 150, 34);
+            }
         } else if (page == importPage) {
             const int listsBottom = h - 210, targetTop = listsBottom + 12;
             int x = contentLeft + 20;
@@ -4816,6 +4857,13 @@ struct Window {
     }
     void paintColors(HDC dc, int h, int content) {
         const int right = contentLeft + content, panelBottom = h - 64;
+        if (waveStyle()) {
+            const unsigned changed = unsigned(std::count_if(settings.launcherColors.begin(), settings.launcherColors.end(), [](int32_t value) { return value >= 0; }));
+            waveSection(dc, 124, 196, content, std::wstring(L"Theme ") + themes[std::min(settings.launcherTheme, theme_count - 1u)].name,
+                L"Double-click a part to recolor it. " + std::to_wstring(changed) + (changed == 1 ? L" color changed." : L" colors changed."));
+            waveSection(dc, 212, 636, content, L"Colors", L"Select a part, then choose an action below.");
+            return;
+        }
         panelBox(dc, contentLeft, 124, right, 196);
         heading(dc, std::wstring(L"Theme ") + themes[std::min(settings.launcherTheme, theme_count - 1u)].name,
                 contentLeft + 20, 136, content - 200);
@@ -4831,6 +4879,11 @@ struct Window {
     }
     void paintTabs(HDC dc, int h, int content) {
         const int right = contentLeft + content, panelBottom = h - 64;
+        if (waveStyle()) {
+            waveSection(dc, 124, 196, content, L"Tab order", L"Reorder or hide tabs. Ctrl+1 to Ctrl+6 follow this order. The wave home lists every page.");
+            waveSection(dc, 212, 268 + int(dock_tab_count) * 40 + 70, content, L"Tabs", std::wstring());
+            return;
+        }
         panelBox(dc, contentLeft, 124, right, 196);
         heading(dc, L"Navigation dock", contentLeft + 20, 136, content - 200);
         text(dc, L"Reorder or hide tabs. Alt+1 to Alt+6 follow the dock. Play and Settings stay visible. "
@@ -4840,8 +4893,27 @@ struct Window {
         caps(dc, L"TABS", contentLeft + 20, 212, 200);
     }
     void paintOverlay(HDC dc, int h, int content) {
-        const int right = contentLeft + content, panelBottom = h - 64, half = (content - 52) / 2;
-        const int side = contentLeft + 32 + half, column = (content - 52 - half - 12) / 2;
+        const bool wave = waveStyle();
+        const int right = contentLeft + content, half = (content - 52) / 2;
+        const int panelBottom = wave ? 1512 + 230 + 42 : h - 64;
+        const int side = wave ? contentLeft + 24 : contentLeft + 32 + half, column = (content - 52 - half - 12) / 2;
+        const int previewTop = wave ? 1512 : 584;
+        if (wave) {
+            waveSection(dc, 124, 196, content, L"Split appearance", L"Use your own names and images. PS2 time and verification labels stay fixed.");
+            const auto category = speedrun::Category(settings.speedrun);
+            waveSection(dc, 212, 676, content, L"Splits", settings.speedrun ? wide(speedrun::category_label(category, settings.cpuDifficulty, settings.randomizer)) : std::wstring(L"Select a category to edit its splits."));
+            optionRows(dc, 276, content, {L"Run category"});
+            optionRows(dc, 556, content, {L"Split name", L"Your image"});
+            const auto style = splitStyle(size_t(styleSelection));
+            const auto image = style ? splitImage(style->image) : nullptr;
+            const int labelWidth = std::clamp(content * 2 / 5, 180, 420);
+            text(dc, image ? std::to_wstring(image->width) + L" \u00d7 " + std::to_wstring(image->height) : style && !style->imageName.empty() ? wide(style->imageName) : std::wstring(L"PNG, JPEG or GIF. Files are copied."),
+                 contentLeft + 24 + labelWidth + 304, 626, right - 24 - (contentLeft + 24 + labelWidth + 304), 20, fonts.caption, muted, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+            waveSection(dc, 692, 756 + 12 * waveOptionRow + 12, content, L"Overlay", L"Where and how the timer appears in game.");
+            optionRows(dc, 756, content, {L"Position", L"Size", L"Background", L"Split list", L"Text color", L"Ahead color", L"Behind color",
+                                          L"Best segment color", L"Times shown to", L"Distance from edge", L"Corners", L"Title"});
+            waveSection(dc, 1456, panelBottom, content, L"Preview", L"Example values");
+        } else {
         panelBox(dc, contentLeft, 124, right, 196);
         heading(dc, L"Split appearance", contentLeft + 20, 136, content - 380);
         text(dc, L"Use your own names and images. PS2 time and verification labels stay fixed.",
@@ -4877,9 +4949,9 @@ struct Window {
         label(0,0,L"POSITION");label(0,1,L"SIZE");label(1,0,L"BACKGROUND");label(1,1,L"SPLIT LIST");
         label(2,0,L"TEXT COLOR");label(2,1,L"AHEAD COLOR");label(3,0,L"BEHIND COLOR");label(3,1,L"BEST SEGMENT COLOR");
         label(4,0,L"TIMES SHOWN TO");label(4,1,L"DISTANCE FROM EDGE");label(5,0,L"CORNERS");label(5,1,L"TITLE");
-        constexpr int previewTop = 584;
         caps(dc,L"PREVIEW · EXAMPLE VALUES",side,previewTop-20,right-side-20,muted,DT_END_ELLIPSIS);
-        const int previewWidth = right-20-side, previewHeight = panelBottom-42-previewTop;
+        }
+        const int previewWidth = wave ? right-24-side : right-20-side, previewHeight = panelBottom-42-previewTop;
         const COLORREF canvas = RGB(36,39,46);
         box(dc,{p(side),p(previewTop),p(side+previewWidth),p(previewTop+previewHeight)},canvas,canvas,4);
         const int scales[] = {85,100,125,150};
@@ -9046,6 +9118,11 @@ struct Window {
             saveControls(input::Bindings{}, L"Controls reset to the defaults.");
             return;
         }
+        if (id == PlayTab && waveStyle()) {
+            if(dropdownOpen())suspendUi();
+            openWaveHome();
+            return;
+        }
         if (id >= PlayTab && id <= ControlsTab) {
             if(dropdownOpen())suspendUi();
             if (page == id - PlayTab) {
@@ -10591,7 +10668,7 @@ int run_window(const std::filesystem::path &initialIso) {
                 continue;
             }
             if (key == VK_RETURN || key == VK_SPACE) { state.waveActivate(); continue; }
-            if (key == VK_ESCAPE || key == VK_BACK) { state.command(PlayTab, BN_CLICKED); continue; }
+            if (key == VK_ESCAPE || key == VK_BACK) continue;
         }
         if (keyDown && message.wParam == VK_ESCAPE && state.waveStyle() && state.page != wavePage && state.page < pageCount &&
             !state.dropdownOpen() && state.capturing < 0) {
