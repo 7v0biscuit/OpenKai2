@@ -159,7 +159,7 @@ int main() {
         s.profileStyles[0].imageName="My \"portrait\".gif";
         s.profileStyles[0].nameColor=0x1ffcc33u;s.profileStyles[0].fighter=29;s.profileStyles[1].sharing=2;
         s.profileStyles[1].friendAlerts=false;s.onlineFriends[0].seen=1763350000;
-        s.profileStyles[0].nameEffect=29;s.profileStyles[0].link="https://www.twitch.tv/example";s.profileStyles[1].pictureFit=2;
+        s.launcherInterface=1;s.profileStyles[0].nameEffect=29;s.profileStyles[0].link="https://www.twitch.tv/example";s.profileStyles[1].pictureFit=2;
         s.profileStyles[0].about="Main \"Kid\" Buu, loves rematches";s.profileStyles[0].region=4;s.profileStyles[0].playstyle=2;
         s.profileStyles[0].matches=77;s.profileStyles[0].since=1763337600;
         s.blockedPlayers={{std::string(64,'a'),std::string(64,'e'),"Spammer"}};
@@ -182,9 +182,11 @@ int main() {
         require(read.profileStyles[0].friendAlerts && !read.profileStyles[1].friendAlerts && read.onlineFriends.size()==1 &&
                 read.onlineFriends[0].seen==1763350000,"Friend alerts or last-seen times did not round-trip");
         require(read.profileStyles[0].nameEffect==29 && read.profileStyles[1].nameEffect==0,"Name effects did not round-trip");
+        require(read.launcherInterface==1,"The wave home setting did not round-trip");
         require(read.profileStyles[0].link=="https://www.twitch.tv/example" && read.profileStyles[1].link.empty() && read.profileStyles[1].pictureFit==2,
                 "Channel links or picture framing did not round-trip");
         auto badEffect=s;badEffect.profileStyles[0].nameEffect=31;rejects([&]{validate_settings(badEffect);});
+        auto badInterface=s;badInterface.launcherInterface=2;rejects([&]{validate_settings(badInterface);});
         require(read.profileStyles[0].about=="Main \"Kid\" Buu, loves rematches" && read.profileStyles[0].region==4 && read.profileStyles[0].playstyle==2 &&
                 read.profileStyles[0].matches==77 && read.profileStyles[0].since==1763337600 && read.profileStyles[1].about.empty(),
                 "Profile details did not round-trip");
