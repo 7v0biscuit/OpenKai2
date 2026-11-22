@@ -63,6 +63,12 @@ A message in the corner names your new character when a fight starts.
   choice is kept. In Wave home, Start on, Arrange tabs and Theme colors apply
   to the home menu and pages, and parts that only exist in Classic are hidden
   from the Theme colors list.
+
+  Each Wave item opens its own page. The top left shows where you are (for
+  example Home › Settings › Display), and **Esc** goes back. Wave pages leave
+  out buttons that repeat a Wave item, such as Customize profile on Online,
+  Customize overlay on Speedrun, Import tool on Mods and the Settings section
+  buttons, and their panels take their tint from the Wave sky.
 - **Theme:** twenty-one color palettes for the entire launcher, including its
   title bar, fields, selection focus and game panel. Illustrated backgrounds
   have been removed. Choose a theme to apply its complete palette; **Undo

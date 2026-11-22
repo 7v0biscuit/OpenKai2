@@ -33,11 +33,12 @@ struct SettingsLayout {
     static constexpr int top=224, padding=24, gap=16, header=68, row=72, fieldHeight=40, listRow=56;
     int left, width, columns, column;
     bool list;
+    int start=top;
     std::array<int,4> sections{};
     static constexpr std::array<int,4> fields{6,8,7,9};
 
-    explicit SettingsLayout(int contentWidth,int contentLeft=36,bool listMode=false) : left(contentLeft),width(contentWidth),
-        columns(listMode ? 1 : contentWidth<1040 ? 2 : 3),column((contentWidth-2*padding-(columns-1)*gap)/columns),list(listMode) {
+    explicit SettingsLayout(int contentWidth,int contentLeft=36,bool listMode=false,int startTop=top) : left(contentLeft),width(contentWidth),
+        columns(listMode ? 1 : contentWidth<1040 ? 2 : 3),column((contentWidth-2*padding-(columns-1)*gap)/columns),list(listMode),start(startTop) {
         filter(L"");
     }
     int rowHeight() const {return list ? listRow : row;}
@@ -58,7 +59,7 @@ struct SettingsLayout {
             L"graphics renderer anti aliasing texture filtering upscaling presets fsr internal resolution image effect sharpen vibrant colors crt scanlines retro glow brightness gamma",
             L"game cpu difficulty hd textures music randomizer ps2 load times counter run ahead input lag latency",
             L"launcher theme accent colors tabs start page appearance discord activity privacy animation reduced motion help hints tooltips interface style wave home ps3 menu sky namek sunset night emblem dragon ball"};
-        int next=top;
+        int next=start;
         for(size_t i=0;i<sections.size();++i) {
             const bool match=matchesTerms(words[i],query);
             sections[i]=match ? next : -1;

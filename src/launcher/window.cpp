@@ -1151,7 +1151,7 @@ struct Window {
         const int controlsHeight = width < 1180 ? 1120 : 760;
         int settingsHeight = 970;
         if (page == settingsPage && controls.count(SettingsSearch)) {
-            ui::SettingsLayout grid(width,contentLeft,waveStyle());
+            ui::SettingsLayout grid(width,contentLeft,waveStyle(),settingsTop());
             grid.filter(searchText(trimmed(textOf(SettingsSearch))));
             settingsHeight=grid.height();
         }
@@ -1363,8 +1363,7 @@ struct Window {
                               {VerifyIso,L"Verify ISO",L"Check the disc against the USA retail release.",FindAction,false}}},
             {OnlineTab,L"Network",{{OnlineTab,L"Online lobby",L"Rooms, players and friends.",OnlineTab,true},
                                    {HomeProfile,L"Profile",L"Picture, name color, effects and player card.",HomeProfile,true},
-                                   {OpenNotifications,L"Notifications",L"Friend requests and match invitations.",OpenNotifications,true},
-                                   {FindAction,L"Find a player",L"Search by name or profile ID.",FindAction,true}}},
+                                   {OpenNotifications,L"Notifications",L"Friend requests and match invitations.",OpenNotifications,true}}},
             {SpeedrunTab,L"Speedrun",{{SpeedrunTab,L"Speedrun mode",L"Categories, splits and verified timing.",SpeedrunTab,true},
                                       {OpenOverlay,L"Overlay",L"Split names, images and layout.",SpeedrunTab,true}}},
             {ModsTab,L"Mods",{{ModsTab,L"Mod manager",L"Load order and what each mod adds.",ModsTab,true},
@@ -1376,7 +1375,7 @@ struct Window {
                                       {ArrangeTabs,L"Arrange tabs",L"Order and hide home categories.",SettingsTab,true},
                                       {OpenHelp,L"Help & shortcuts",L"Controls, setup and support tools.",OpenHelp,true}}},
             {UpdatesTab,L"Updates",{{UpdatesTab,L"System update",L"Channel, checks and installs.",UpdatesTab,true},
-                                    {ReleaseNotes,L"Release notes",L"What changed in each version.",UpdatesTab,true},
+                                    {ReleaseNotes,L"Release notes",L"Open this version's notes in your browser.",UpdatesTab,false},
                                     {OpenLogs,L"Open logs folder",L"Startup and launcher logs for support.",FindAction,false}}}};
     }
     int waveCategory=0;
@@ -1387,6 +1386,30 @@ struct Window {
     bool waveTicking=false;
     UINT waveInterval=16;
     bool waveStyle() const {return settings.launcherInterface==1;}
+    static constexpr const wchar_t* pageTitles[]={L"Play",L"Online",L"Speedrun",L"Mods",L"Saves & backups",L"Settings",
+        L"Updates",L"Controls",L"Import tool",L"Speedrun overlay",L"Arrange tabs",L"Theme colors",L"Profile",L"Find an action",L"Notifications",L"Help & shortcuts",L"Player profile",L"Home",L"Achievements"};
+    static const wchar_t* pageTitle(int index) {return index>=0 && index<int(std::size(pageTitles)) ? pageTitles[index] : L"";}
+    int settingsTop() const {return waveStyle() ? 172 : ui::SettingsLayout::top;}
+    std::wstring waveTrail;
+    int waveTrailPage=-1;
+    bool waveRedundant(int id) const {
+        if(!waveStyle())return false;
+        switch(id) {
+        case BackToPlay:case CloseImporter:case CloseOverlay:case CloseTabs:return true;
+        case NavigateBack:return page!=playerPage;
+        case HomeProfile:return page==onlinePage;
+        case OpenOverlay:return page==speedrunPage;
+        case OpenImporter:return page==modsPage;
+        case ArrangeTabs:return page==settingsPage;
+        case SettingsSearch:case ClearSettingsSearch:case SettingsAll:case SettingsDisplay:case SettingsGraphics:case SettingsGame:case SettingsLauncher:return page==settingsPage;
+        default:return false;
+        }
+    }
+    void waveBack() {
+        if(page==playerPage)command(NavigateBack,BN_CLICKED);
+        else if(page==colorsPage)command(CloseColors,BN_CLICKED);
+        else openWaveHome();
+    }
     int64_t restoredBefore=0;
     bool deletedBudokai=false;
     struct RetroReply { int kind=0; retro::LoginResult login; retro::Lookup lookup; retro::SetInfo set; std::string hash; };
@@ -1582,11 +1605,13 @@ struct Window {
         const auto categories=waveCategories();
         const auto& category=categories[size_t(waveCategory)];
         const auto& item=category.items[size_t(std::clamp(waveItem[size_t(waveCategory)],0,int(category.items.size())-1))];
+        waveTrail=std::wstring(category.name)+L"  \u203a  "+item.title;
         if(item.opensPage) {
             page=0;
             if(item.action==SettingsDisplay || item.action==SettingsGraphics || item.action==SettingsGame || item.action==SettingsLauncher)command(SettingsTab,BN_CLICKED);
             command(item.action,BN_CLICKED);
         } else command(item.action,BN_CLICKED);
+        waveTrailPage=page;
         (pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);
     }
     struct WaveGeometry {double rowY,baseX,spacing,itemGap,itemTop;
@@ -3063,7 +3088,8 @@ struct Window {
             rounded.AddArc(x,y,r*2,r*2,180,90);rounded.AddArc(x+w-r*2,y,r*2,r*2,270,90);
             rounded.AddArc(x+w-r*2,y+h-r*2,r*2,r*2,0,90);rounded.AddArc(x,y+h-r*2,r*2,r*2,90,90);rounded.CloseFigure();
             const bool tinted=settings.launcherColors[2]>=0;
-            const COLORREF tone=tinted ? panel : RGB(24,20,44),lower=tinted ? mix(panel,RGB(0,0,0),40) : RGB(20,16,36);
+            const COLORREF sky=waveSkyTop();
+            const COLORREF tone=tinted ? panel : mix(sky,RGB(14,12,24),120),lower=tinted ? mix(panel,RGB(0,0,0),40) : mix(sky,RGB(4,4,10),170);
             const double rise=pageEnter(std::clamp(double(top-124)*0.25,0.0,160.0));
             const BYTE upper=BYTE(176*(0.45+0.55*rise)),bottomAlpha=BYTE(150*(0.45+0.55*rise));
             Gdiplus::LinearGradientBrush glass(Gdiplus::PointF(0,y),Gdiplus::PointF(0,y+h+1),Gdiplus::Color(upper,GetRValue(tone),GetGValue(tone),GetBValue(tone)),Gdiplus::Color(bottomAlpha,GetRValue(lower),GetGValue(lower),GetBValue(lower)));
@@ -3212,7 +3238,7 @@ struct Window {
     void place(int id, int x, int y, int w, int h, bool visible = true) {
         auto c = controls.at(id);
         const bool pageControl = !(id >= PlayTab && id <= ControlsTab) && id != FindAction && id != OpenNotifications;
-        if (page == wavePage) visible = false;
+        if (page == wavePage || waveRedundant(id)) visible = false;
         const int pageY = y, pageH = h;
         const bool wanted = visible;
         if (pageControl) {
@@ -4150,7 +4176,8 @@ struct Window {
             (void)action;
             SetWindowTextW(controls[HomeProfile],activeProfile() ? L"Customize profile" : L"Create profile");
             position(HomeProfile,grid.x(1),profileRow,grid.column,36);
-            position(ProfileCopyId,grid.x(2),profileRow,grid.column,36);
+            if (waveStyle()) position(ProfileCopyId,grid.x(1),profileRow,grid.x(2)+grid.column-grid.x(1),36);
+            else position(ProfileCopyId,grid.x(2),profileRow,grid.column,36);
             if (waveStyle()) {
                 const int inner = content - 40, labelWidth = std::clamp(content * 2 / 5, 180, 420);
                 const int valueLeft = contentLeft + 24 + labelWidth, valueWidth = right - 24 - valueLeft;
@@ -4366,7 +4393,7 @@ struct Window {
                 }
             }
         } else {
-            ui::SettingsLayout grid(content,contentLeft,waveStyle());
+            ui::SettingsLayout grid(content,contentLeft,waveStyle(),settingsTop());
             grid.filter(searchText(trimmed(textOf(SettingsSearch))));
             position(SettingsSearch,contentLeft+10,123,content-276,24);
             position(ClearSettingsSearch,right-244,116,64,38);
@@ -4531,12 +4558,13 @@ struct Window {
             }
             buffer.frame.ball(p(margin+16),p(36),p(14),{0,0,p(w),p(shellHeader)});
             text(dc,L"OpenKai2",margin+42,19,180,28,fonts.brand,ink);
-            text(dc,L"Home: Esc or click here",margin+42,44,230,18,fonts.caption,muted);
+            const std::wstring trail=L"Home  \u203a  "+(waveTrailPage==page && !waveTrail.empty() ? waveTrail : std::wstring(pageTitle(page)));
+            text(dc,trail,margin+42,44,std::max(230,w/2-margin-80),18,fonts.caption,muted,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
             SYSTEMTIME now{};GetLocalTime(&now);wchar_t clock[40]{},date[40]{};
             GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT,TIME_NOSECONDS,&now,nullptr,clock,40);
             GetDateFormatEx(LOCALE_NAME_USER_DEFAULT,0,&now,L"d/M",date,40,nullptr);
             text(dc,std::wstring(date)+L"   "+clock,w-margin-300,22,236,30,fonts.title,ink,DT_RIGHT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX);
-            text(dc,L"Esc  Home        F1  Help        Ctrl+K  Find",w/2-260,h-26,520,20,fonts.caption,muted,DT_CENTER|DT_SINGLELINE|DT_NOPREFIX);
+            text(dc,L"Esc  Back        F1  Help        Ctrl+K  Find",w/2-260,h-26,520,20,fonts.caption,muted,DT_CENTER|DT_SINGLELINE|DT_NOPREFIX);
             return;
         }
         fill(dc,{0,0,p(w),p(shellHeader)},sidebar);
@@ -4561,8 +4589,7 @@ struct Window {
         }
     }
     void paintHeader(HDC dc,int w,int content) {
-        const wchar_t* titles[]={L"Play",L"Online",L"Speedrun",L"Mods",L"Saves & backups",L"Settings",
-            L"Updates",L"Controls",L"Import tool",L"Speedrun overlay",L"Arrange tabs",L"Theme colors",L"Profile",L"Find an action",L"Notifications",L"Help & shortcuts",L"Player profile",L"Home",L"Achievements"};
+        const auto titles=pageTitles;
         const wchar_t* subtitles[]={
             L"Start the game, manage your saves, or find an online match.",
             L"Find a room, invite friends, or host a versus match.",
@@ -4684,8 +4711,10 @@ struct Window {
             ellipse(dc,p(contentLeft+44),p(cy),p(16),tone);
             navigationIcon(dc,OpenAchievements,{p(contentLeft+32),p(cy-12),p(contentLeft+56),p(cy+12)},RGB(30,20,10),p(18));
         } else {
-            ellipse(dc,p(contentLeft+44),p(cy),p(16),mix(panel,border,140));
-            ellipse(dc,p(contentLeft+44),p(cy),p(14),mix(panel,RGB(0,0,0),40));
+            if(!waveStyle()) {
+                ellipse(dc,p(contentLeft+44),p(cy),p(16),mix(panel,border,140));
+                ellipse(dc,p(contentLeft+44),p(cy),p(14),mix(panel,RGB(0,0,0),40));
+            }
             navigationIcon(dc,OpenAchievements,{p(contentLeft+32),p(cy-12),p(contentLeft+56),p(cy+12)},faint,p(18));
         }
         text(dc,title,contentLeft+76,top+8,content-300,24,fonts.strong,unlocked ? ink : mix(ink,muted,140),DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
@@ -5846,8 +5875,11 @@ struct Window {
                  DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
         }
         fill(dc, {p(grid.x(1) - 9), p(onlineProfileTop + 20), p(grid.x(1) - 8), p(onlineProfileTop + 84)}, mix(panel, border, 160));
-        label(onlineProfileTop - 20, 0, 1, L"PLAYER CARD");
-        label(onlineProfileTop - 20, 0, 2, L"SHARE");
+        if (waveStyle()) label(onlineProfileTop - 20, 0, 1, L"SHARE YOUR PROFILE ID");
+        else {
+            label(onlineProfileTop - 20, 0, 1, L"PLAYER CARD");
+            label(onlineProfileTop - 20, 0, 2, L"SHARE");
+        }
         if (waveStyle()) { paintOnlineWave(dc, content, online); return; }
 
         const bool hosting = room && roomHost;
@@ -5894,7 +5926,7 @@ struct Window {
         fill(dc, {p(contentLeft + 20), p(joinTop), p(split - 6 - 20), p(joinTop) + 1}, mix(panel, border, 160));
     }
     void paintSettings(HDC dc,int h,int content) {
-        ui::SettingsLayout grid(content,contentLeft,waveStyle());
+        ui::SettingsLayout grid(content,contentLeft,waveStyle(),settingsTop());
         grid.filter(searchText(trimmed(textOf(SettingsSearch))));
         const wchar_t* titles[]={L"Display",L"Graphics",L"Game",L"Launcher"};
         const wchar_t* notes[]={L"Window, presentation and sound. Game simulation stays at 60 FPS.",
@@ -6255,7 +6287,8 @@ struct Window {
         ellipse(memory, p(contentLeft + 4), p(footer + 9), p(3), tone);
         if (busy())
             buffer.frame.halo({p(contentLeft + 4), p(footer + 9), p(contentLeft + 5), p(footer + 10)}, 0, p(8), orange, 80);
-        text(memory, message, contentLeft + 14, footer, content - 14 - used - 16, 20,
+        const int messageWidth = waveStyle() ? std::max(120, w / 2 - 280 - contentLeft - 14) : content - 14 - used - 16;
+        text(memory, message, contentLeft + 14, footer, messageWidth, 20,
              fonts.caption, error ? red : muted, DT_LEFT | DT_END_ELLIPSIS | DT_SINGLELINE | DT_NOPREFIX);
         const int task[] = {TaskCharacters, TaskStages, TaskMovesets, TaskCapsules};
         std::vector<int> glowing;
@@ -6336,6 +6369,8 @@ struct Window {
                 if (hot && !chosen)
                     box(dc, r, mix(sidebar, ink, 10), mix(sidebar, ink, 10), 10);
                 label = chosen || hot ? ink : muted;
+            } else if (id == OpenNotifications && waveStyle()) {
+                label = ink;
             } else if (lit) {
                 const auto base = settings.launcherColors[main_button_role] >= 0 ? buttonTop : orange;
                 const auto accent = pressed ? mix(base,background,40) : hot ? mix(base,ink,20) : base;
@@ -6367,7 +6402,7 @@ struct Window {
                 DrawTextW(dc,text,-1,&textRect,DT_SINGLELINE|DT_VCENTER|DT_CENTER|DT_NOPREFIX);
                 if(id==OnlineTab && noticeCount()>0)ellipse(dc,r.right-p(12),r.top+p(9),p(3),orange);
             } else if(id==OpenNotifications) {
-                navigationIcon(dc,OpenNotifications,{r.left-p(7),r.top,r.right,r.bottom},hasNotice() ? orange : muted);
+                navigationIcon(dc,OpenNotifications,{r.left-p(7),r.top,r.right,r.bottom},hasNotice() ? orange : waveStyle() ? (hot ? ink : mix(muted,ink,120)) : muted);
                 if(hasNotice()) {
                     const int count=noticeCount();
                     const std::wstring label=count>9 ? L"9+" : std::to_wstring(count);
@@ -11283,11 +11318,11 @@ int run_window(const std::filesystem::path &initialIso) {
             if (key == VK_RETURN || key == VK_SPACE) { state.waveActivate(); continue; }
             if (key == VK_ESCAPE || key == VK_BACK) continue;
         }
-        if (keyDown && message.wParam == VK_ESCAPE && state.waveStyle() && state.page != wavePage && state.page < pageCount &&
+        if (keyDown && message.wParam == VK_ESCAPE && state.waveStyle() && state.page != wavePage &&
             !state.dropdownOpen() && state.capturing < 0) {
             wchar_t focused[16]{};
             GetClassNameW(GetFocus(), focused, 16);
-            if (_wcsicmp(focused, L"EDIT") != 0) { state.openWaveHome(); continue; }
+            if (_wcsicmp(focused, L"EDIT") != 0 || state.page != finderPage) { state.waveBack(); continue; }
         }
         const bool keyUp=message.message==WM_KEYUP || message.message==WM_SYSKEYUP;
         const bool altKey=message.wParam==VK_MENU || message.wParam==VK_LMENU || message.wParam==VK_RMENU;
