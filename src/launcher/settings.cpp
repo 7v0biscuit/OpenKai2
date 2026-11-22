@@ -62,7 +62,7 @@ void validate_settings(const Settings &s) {
         s.onlineAddress.size() > 255 || s.onlineRoom.size() > 64 || s.onlinePassword.size() > 64 ||
         s.onlineLobby.size() > 255 || s.onlineProfiles.size() > 32 || s.onlineRoomFilter > 2 || s.onlinePlayerFilter > 1 || s.homeFriendScope > 3)
         throw std::runtime_error("Invalid online settings");
-    if (s.launcherTheme >= theme_count || s.launcherAccent >= accent_count || s.startPage > 1 || s.lastPage >= tab_count || s.launcherInterface > 1 ||
+    if (s.launcherTheme >= theme_count || s.launcherAccent >= accent_count || s.startPage > 1 || s.lastPage >= tab_count || s.launcherInterface > 1 || s.waveSky > 6 ||
         !valid_tab_order(s.tabOrder, s.hiddenTabs) || !valid_custom_colors(s.launcherColors))
         throw std::runtime_error("Invalid launcher appearance settings");
     std::set<std::string> profileIds;
@@ -139,6 +139,8 @@ Settings read_settings(const std::filesystem::path &file) {
             row >> s.reducedMotion >> s.helpHints;
         else if (key == "launcher_interface")
             row >> s.launcherInterface;
+        else if (key == "launcher_wave")
+            row >> s.waveSky >> s.waveEmblem;
         else if (key == "fps")
             row >> s.fps;
         else if (key == "width")
@@ -447,7 +449,7 @@ void write_settings(const std::filesystem::path &file, const Settings &s) {
         << "\ndiscord_presence " << s.discordPresence << "\nimport_iso " << std::quoted(path_utf8(s.importIso))
         << "\nlauncher_window " << s.windowLeft << ' ' << s.windowTop << ' ' << s.windowWidth << ' '
         << s.windowHeight << ' ' << s.windowMaximized << "\nlauncher_skin " << s.launcherTheme << ' ' << s.launcherAccent << ' ' << s.startPage << ' ' << s.lastPage
-        << "\nlauncher_motion " << s.reducedMotion << ' ' << s.helpHints << "\nlauncher_interface " << s.launcherInterface
+        << "\nlauncher_motion " << s.reducedMotion << ' ' << s.helpHints << "\nlauncher_interface " << s.launcherInterface << "\nlauncher_wave " << s.waveSky << ' ' << s.waveEmblem
         << "\nlauncher_tabs";
     for (unsigned tab : s.tabOrder)
         out << ' ' << tab;

@@ -34,7 +34,7 @@ struct SettingsLayout {
     int left, width, columns, column;
     bool list;
     std::array<int,4> sections{};
-    static constexpr std::array<int,4> fields{6,8,7,7};
+    static constexpr std::array<int,4> fields{6,8,7,9};
 
     explicit SettingsLayout(int contentWidth,int contentLeft=36,bool listMode=false) : left(contentLeft),width(contentWidth),
         columns(listMode ? 1 : contentWidth<1040 ? 2 : 3),column((contentWidth-2*padding-(columns-1)*gap)/columns),list(listMode) {
@@ -57,7 +57,7 @@ struct SettingsLayout {
             L"display window mode resolution aspect ratio frame rate cap fps vsync audio volume",
             L"graphics renderer anti aliasing texture filtering upscaling presets fsr internal resolution image effect sharpen vibrant colors crt scanlines retro glow brightness gamma",
             L"game cpu difficulty hd textures music randomizer ps2 load times counter run ahead input lag latency",
-            L"launcher theme accent colors tabs start page appearance discord activity privacy animation reduced motion help hints tooltips interface style wave home ps3 menu"};
+            L"launcher theme accent colors tabs start page appearance discord activity privacy animation reduced motion help hints tooltips interface style wave home ps3 menu sky namek sunset night emblem dragon ball"};
         int next=top;
         for(size_t i=0;i<sections.size();++i) {
             const bool match=matchesTerms(words[i],query);

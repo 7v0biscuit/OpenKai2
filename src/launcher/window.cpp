@@ -96,6 +96,7 @@ double luminance(COLORREF color){
     return 0.2126*channel(GetRValue(color))+0.7152*channel(GetGValue(color))+0.0722*channel(GetBValue(color));
 }
 bool wavePalette = false;
+COLORREF waveTint = RGB(10, 12, 34);
 void apply_theme(unsigned choice, unsigned accent, const CustomColors &custom) {
     const auto t = make_theme(choice, accent, custom, GetTickCount64());
     background = colorOf(t.background); sidebar = colorOf(t.sidebar); panel = colorOf(t.panel);
@@ -111,8 +112,9 @@ void apply_theme(unsigned choice, unsigned accent, const CustomColors &custom) {
     bannerTitle = colorOf(t.bannerTitle); bannerText = colorOf(t.bannerText); titleShadow = colorOf(t.shadow);
     ballColor = colorOf(t.ball); ballStars = colorOf(t.ballStars); bannerLabel = colorOf(t.bannerLabel);
     if (wavePalette) {
-        background = RGB(18, 16, 34); sidebar = RGB(14, 12, 28); panel = RGB(30, 25, 48);
-        field = RGB(22, 19, 39); raised = RGB(50, 42, 72); hover = RGB(66, 56, 92); border = RGB(104, 92, 130);
+        const auto lift = [](COLORREF base, int amount) { return RGB(GetRValue(base) + (255 - GetRValue(base)) * amount / 255, GetGValue(base) + (255 - GetGValue(base)) * amount / 255, GetBValue(base) + (255 - GetBValue(base)) * amount / 255); };
+        background = lift(waveTint, 12); sidebar = lift(waveTint, 6); panel = lift(waveTint, 26);
+        field = lift(waveTint, 16); raised = lift(waveTint, 44); hover = lift(waveTint, 62); border = lift(waveTint, 104);
         ink = RGB(252, 248, 242); muted = RGB(204, 194, 214); faint = RGB(146, 136, 162);
         heroFrom = RGB(36, 28, 62); heroTo = RGB(120, 62, 40);
     }
@@ -318,7 +320,7 @@ enum Id {
     OpenNotifications=1210,
     ProfileFit=1220, ProfileNotifications, ProfileCopyFrom, ProfileCopyStyle, ProfileRecover, ProfileManage, LauncherMotion, LauncherHints, ProfileAvailability, ProfileNameColor, ProfileFighter, ProfileSharing, ProfileFriendAlerts,
     OpenHelp=1240,NextDockTab,PreviousDockTab,PageTop,PageBottom,SaveCurrent,UndoCurrent,ToggleLauncher,CopySetup,OpenIsoFolder,
-    ProfileAbout=1300, ProfileRegion, ProfilePlaystyle, ProfilePreview, PlayerAction, PlayerFriend, PlayerBlock, PlayerCopyId, PlayerProfile, ProfileRename, ProfileLink, PlayerChannel, LauncherInterface, OpenWaveHome
+    ProfileAbout=1300, ProfileRegion, ProfilePlaystyle, ProfilePreview, PlayerAction, PlayerFriend, PlayerBlock, PlayerCopyId, PlayerProfile, ProfileRename, ProfileLink, PlayerChannel, LauncherInterface, OpenWaveHome, WaveSky, WaveEmblem
 };
 constexpr int pageCount = 8, onlinePage = 1, speedrunPage = 2, modsPage = 3, savesPage = 4, settingsPage = 5, updatesPage = 6,
               controlsPage = 7, importPage = 8, overlayPage = 9, tabsPage = 10, colorsPage = 11,
@@ -1048,7 +1050,7 @@ struct Window {
         return std::tie(s.renderer, s.fps, s.width, s.height, s.windowMode, s.aspect, s.antialiasing,
             s.textureFilter, s.upscaler, s.internalScale, s.hdTextures, s.music, s.vsync, s.cpuDifficulty,
             s.audio, s.volume, s.fpsCounter, s.randomizer, s.ps2LoadTimes, s.runAhead, s.imageEffect, s.brightness, s.launcherTheme, s.launcherAccent,
-            s.launcherColors, s.startPage, s.discordPresence, s.reducedMotion, s.helpHints, s.launcherInterface);
+            s.launcherColors, s.startPage, s.discordPresence, s.reducedMotion, s.helpHints, s.launcherInterface, s.waveSky, s.waveEmblem);
     }
     static std::wstring searchText(std::wstring value) {
         std::transform(value.begin(), value.end(), value.begin(), [](wchar_t c) { return wchar_t(std::towlower(c)); });
@@ -1429,10 +1431,26 @@ struct Window {
     }
     std::vector<uint32_t> waveBackdrop;
     int waveBackdropWidth=0,waveBackdropHeight=0;
-    COLORREF waveBackdropTone=0;
-    COLORREF waveSkyTop() const {return RGB(10,12,34);}
-    COLORREF waveSkyMid() const {return mix(RGB(70,30,78),orange,70);}
-    COLORREF waveSkyLow() const {return mix(orange,RGB(150,52,12),96);}
+    unsigned waveBackdropTone=0;
+    unsigned waveSkyChoice() const {
+        if(settings.waveSky)return settings.waveSky;
+        SYSTEMTIME now{};GetLocalTime(&now);
+        return now.wHour>=6 && now.wHour<10 ? 6u : now.wHour>=10 && now.wHour<17 ? 4u : now.wHour>=17 && now.wHour<21 ? 1u : 5u;
+    }
+    std::array<COLORREF,3> waveSkyColors() const {
+        switch(waveSkyChoice()) {
+        case 2:return {RGB(6,22,26),RGB(38,104,78),RGB(150,196,92)};
+        case 3:return {RGB(24,4,10),RGB(116,20,32),RGB(236,92,52)};
+        case 4:return {RGB(16,40,96),RGB(70,128,206),RGB(198,224,248)};
+        case 5:return {RGB(8,6,20),RGB(58,30,108),RGB(146,90,196)};
+        case 6:return {RGB(4,10,30),RGB(20,70,150),RGB(92,178,236)};
+        default:return {RGB(10,12,34),mix(RGB(70,30,78),orange,70),mix(orange,RGB(150,52,12),96)};
+        }
+    }
+    COLORREF waveSkyTop() const {return waveSkyColors()[0];}
+    COLORREF waveSkyMid() const {return waveSkyColors()[1];}
+    COLORREF waveSkyLow() const {return waveSkyColors()[2];}
+    unsigned waveBackdropKey() const {return waveSkyChoice()*4u+(settings.waveEmblem ? 1u : 0u)+unsigned(orange)*32u;}
     void buildWaveBackdrop(HDC dc,int width,int height) {
         Gdiplus::Graphics graphics(dc);
         graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
@@ -1456,6 +1474,7 @@ struct Window {
             Gdiplus::SolidBrush light(Gdiplus::Color(BYTE(60+120*fx*(1.0-fy)),255,244,230));
             graphics.FillEllipse(&light,Gdiplus::REAL(width*fx),Gdiplus::REAL(height*fy*0.5),Gdiplus::REAL(size),Gdiplus::REAL(size));
         }
+        if(!settings.waveEmblem)return;
         const double ballR=std::min(width,height)*0.30,ballX=width*0.84,ballY=height*0.80;
         Gdiplus::GraphicsPath ball;
         ball.AddEllipse(Gdiplus::REAL(ballX-ballR),Gdiplus::REAL(ballY-ballR),Gdiplus::REAL(ballR*2),Gdiplus::REAL(ballR*2));
@@ -1487,11 +1506,11 @@ struct Window {
         const auto g=waveGeometry(width,height);
         const COLORREF deep=waveSkyTop(),warm=waveSkyMid();
         const size_t pixels=size_t(width)*size_t(height);
-        if(waveBackdropWidth!=width || waveBackdropHeight!=height || waveBackdropTone!=orange || waveBackdrop.size()!=pixels) {
+        if(waveBackdropWidth!=width || waveBackdropHeight!=height || waveBackdropTone!=waveBackdropKey() || waveBackdrop.size()!=pixels) {
             buildWaveBackdrop(dc,width,height);
             GdiFlush();
             waveBackdrop.assign(buffer.frame.pixels,buffer.frame.pixels+pixels);
-            waveBackdropWidth=width;waveBackdropHeight=height;waveBackdropTone=orange;
+            waveBackdropWidth=width;waveBackdropHeight=height;waveBackdropTone=waveBackdropKey();
         } else {
             GdiFlush();
             std::copy(waveBackdrop.begin(),waveBackdrop.end(),buffer.frame.pixels);
@@ -2872,6 +2891,7 @@ struct Window {
     void initialize() {
         settings.tabOrder = normalize_dock_order(settings.tabOrder);
         wavePalette = waveStyle();
+        waveTint = waveSkyTop();
         apply_theme(settings.launcherTheme, settings.launcherAccent, settings.launcherColors);
         if (settings.startPage && settings.lastPage < tab_count && !((settings.hiddenTabs >> settings.lastPage) & 1u))
             page = int(settings.lastPage);
@@ -3071,6 +3091,10 @@ struct Window {
         combo(LauncherMotion,{L"Smooth",L"Reduced motion"},settings.reducedMotion ? 1 : 0);
         combo(LauncherHints,{L"On",L"Off"},settings.helpHints ? 0 : 1);
         combo(LauncherInterface,{L"Classic",L"Wave home (PS3 inspired)"},int(settings.launcherInterface));
+        combo(WaveSky,{L"Time of day",L"Saiyan sunset",L"Namek",L"Kaio-ken",L"Kami's lookout",L"Frieza night",L"Ki blue"},int(settings.waveSky));
+        combo(WaveEmblem,{L"Shown",L"Hidden"},settings.waveEmblem ? 0 : 1);
+        hint(WaveSky,L"Colors of the wave home and the sky behind every page. Time of day changes through the day.");
+        hint(WaveEmblem,L"Show the four-star Dragon Ball behind the wave home and pages.");
         hint(LauncherInterface,L"Wave home opens on an animated menu bar. Press Esc on any main page to return to it.");
         SendMessageW(controls[OnlineSearch],EM_SETLIMITTEXT,128,0);
         {std::vector<std::wstring> names;for(const auto& choice:accents)names.emplace_back(choice.name);combo(ProfileAccent,names,0);}
@@ -3727,7 +3751,7 @@ struct Window {
                 {WindowMode,Resolution,Aspect,Fps,Vsync,Audio},
                 {Renderer,Antialiasing,Filtering,Upscaler,InternalScale,ImageEffect,Brightness,ClearImage},
                 {CpuDifficulty,HdTextures,Music,FpsCounter,RandomizerMode,LoadTimes,RunAhead},
-                {LauncherTheme,LauncherAccent,StartPage,DiscordActivity,LauncherMotion,LauncherHints,LauncherInterface}}};
+                {LauncherTheme,LauncherAccent,StartPage,DiscordActivity,LauncherMotion,LauncherHints,LauncherInterface,WaveSky,WaveEmblem}}};
             for(size_t group=0;group<fields.size();++group) {
                 const int top=grid.sections[group];if(top<0)continue;
                 for(size_t index=0;index<fields[group].size();++index) {
@@ -3929,10 +3953,15 @@ struct Window {
             L"Quick controls, setup guidance and tools for reporting a problem.",
             L"Their player card, status and what you can do together."};
         const RECT tile{p(contentLeft),p(28),p(contentLeft+40),p(68)};
-        box(dc,tile,mix(panel,orange,22),mix(border,orange,70),12);
         const int icon=page==helpPage ? OpenHelp : page==profilePage || page==playerPage ? HomeProfile : page==finderPage ? FindAction : page==notificationsPage ? OpenNotifications :
             PlayTab+(page==controlsPage || page==savesPage ? page : navigationPage());
-        navigationIcon(dc,icon,{tile.left-p(7),tile.top,tile.right,tile.bottom},orange);
+        if(waveStyle()) {
+            buffer.frame.halo({tile.left+p(14),tile.top+p(14),tile.right-p(14),tile.bottom-p(14)},0,p(30),RGB(255,214,150),60);
+            navigationIcon(dc,icon,tile,RGB(255,250,240),p(34));
+        } else {
+            box(dc,tile,mix(panel,orange,22),mix(border,orange,70),12);
+            navigationIcon(dc,icon,{tile.left-p(7),tile.top,tile.right,tile.bottom},orange);
+        }
         text(dc,titles[page],contentLeft+56,27,content-264,42,fonts.title,ink,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
         text(dc,subtitles[page],contentLeft+56,74,content-56,32,fonts.caption,muted,DT_LEFT|DT_WORDBREAK|DT_NOPREFIX);
         if(page<pageCount && page!=controlsPage && page!=savesPage) {
@@ -4535,6 +4564,7 @@ struct Window {
     }
     void restyle() {
         wavePalette = waveStyle();
+        waveTint = waveSkyTop();
         apply_theme(settings.launcherTheme, settings.launcherAccent, settings.launcherColors);
         ambient.clear();
         chrome();
@@ -5031,7 +5061,7 @@ struct Window {
             {L"WINDOW MODE",L"RESOLUTION",L"ASPECT RATIO",L"FRAME RATE CAP",L"VSYNC",L"GAME AUDIO"},
             {L"RENDERER",L"ANTI-ALIASING",L"TEXTURE FILTERING",L"UPSCALING",L"INTERNAL RESOLUTION",L"IMAGE EFFECT",L"BRIGHTNESS",L"IMAGE PRESETS"},
             {L"CPU DIFFICULTY",L"HD TEXTURES",L"MUSIC",L"FPS COUNTER",L"RANDOMIZER",L"PS2 LOAD TIMES",L"RUN-AHEAD"},
-            {L"THEME",L"ACCENT COLOR",L"START ON",L"DISCORD ACTIVITY",L"INTERFACE MOTION",L"HELP HINTS",L"INTERFACE STYLE"}}};
+            {L"THEME",L"ACCENT COLOR",L"START ON",L"DISCORD ACTIVITY",L"INTERFACE MOTION",L"HELP HINTS",L"INTERFACE STYLE",L"WAVE SKY",L"DRAGON BALL EMBLEM"}}};
         bool any=false;
         for(size_t group=0;group<labels.size();++group) {
             const int top=grid.sections[group];if(top<0)continue;any=true;
@@ -5513,7 +5543,15 @@ struct Window {
         const bool friends = item.hwndItem == controls[FriendList];
         const COLORREF base = friends ? panel : list ? field : panel;
         fill(dc, r, base);
-        if (chosen) {
+        if (chosen && waveStyle()) {
+            Gdiplus::Graphics graphics(dc);
+            const Gdiplus::REAL left = Gdiplus::REAL(r.left), top = Gdiplus::REAL(r.top), width = Gdiplus::REAL(r.right - r.left), height = Gdiplus::REAL(r.bottom - r.top);
+            Gdiplus::LinearGradientBrush glow(Gdiplus::PointF(left, 0), Gdiplus::PointF(left + width, 0), Gdiplus::Color(80, 255, 226, 176), Gdiplus::Color(10, 255, 226, 176));
+            graphics.FillRectangle(&glow, left, top, width, height);
+            Gdiplus::LinearGradientBrush edge(Gdiplus::PointF(left, 0), Gdiplus::PointF(left + width, 0), Gdiplus::Color(170, 255, 240, 210), Gdiplus::Color(0, 255, 240, 210));
+            graphics.FillRectangle(&edge, left, top, width, Gdiplus::REAL(std::max(1, p(1))));
+            graphics.FillRectangle(&edge, left, top + height - Gdiplus::REAL(std::max(1, p(1))), width, Gdiplus::REAL(std::max(1, p(1))));
+        } else if (chosen) {
             fill(dc, r, mix(base, orange, 26));
             fill(dc, {r.left, r.top + p(list ? 8 : 6), r.left + p(3), r.bottom - p(list ? 8 : 6)}, orange);
         }
@@ -6946,6 +6984,7 @@ struct Window {
         if (!cycling || dropdownOpen() || IsIconic(hwnd) || !appActive)
             return;
         wavePalette = waveStyle();
+        waveTint = waveSkyTop();
         apply_theme(settings.launcherTheme, settings.launcherAccent, settings.launcherColors);
         const auto now = GetTickCount64();
         if (now - ambientAt >= 500u) {
@@ -6962,7 +7001,7 @@ struct Window {
     }
     void timer() {
         SYSTEMTIME local{};GetLocalTime(&local);const unsigned minute=local.wHour*60u+local.wMinute;
-        if(minute!=displayedMinute) {displayedMinute=minute;RECT header{};GetClientRect(hwnd,&header);header.bottom=p(shellHeader);(pageDirty=true),InvalidateRect(hwnd,&header,FALSE);}
+        if(minute!=displayedMinute) {if(waveStyle() && settings.waveSky==0 && minute%60==0 && displayedMinute!=~0u)restyle();displayedMinute=minute;RECT header{};GetClientRect(hwnd,&header);header.bottom=p(shellHeader);(pageDirty=true),InvalidateRect(hwnd,&header,FALSE);}
         presence.enable(settings.discordPresence);
         const char* pages[]={"Choosing a game","Setting up online play","Setting up a speedrun","Managing mods","Managing saves","Configuring settings","Checking for updates","Changing controls"};
         const int shown=std::clamp(navigationPage(),0,int(std::size(pages))-1);
@@ -8366,7 +8405,7 @@ struct Window {
             {RandomizerMode,settings.randomizer ? 1 : 0},{SpeedrunRandomizer,settings.randomizer ? 1 : 0},
             {LoadTimes,settings.ps2LoadTimes ? 1 : 0},{RunAhead,int(std::min(settings.runAhead,2u))},{LauncherTheme,int(settings.launcherTheme)},
             {LauncherAccent,int(settings.launcherAccent)},{StartPage,int(settings.startPage)},
-            {DiscordActivity,settings.discordPresence ? 1 : 0},{LauncherMotion,settings.reducedMotion ? 1 : 0},{LauncherHints,settings.helpHints ? 0 : 1},{LauncherInterface,int(settings.launcherInterface)}};
+            {DiscordActivity,settings.discordPresence ? 1 : 0},{LauncherMotion,settings.reducedMotion ? 1 : 0},{LauncherHints,settings.helpHints ? 0 : 1},{LauncherInterface,int(settings.launcherInterface)},{WaveSky,int(settings.waveSky)},{WaveEmblem,settings.waveEmblem ? 0 : 1}};
         for (auto [id,value] : choices) SendMessageW(controls[id],CB_SETCURSEL,value,0);
     }
     bool keyboardShortcut(int id) {
@@ -9245,6 +9284,15 @@ struct Window {
             refreshTabs();
             layout();
             (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
+            return;
+        }
+        if ((id == WaveSky || id == WaveEmblem) && notification == CBN_SELCHANGE) {
+            previousSettings = settings;
+            settings.waveSky = unsigned(std::clamp(selected(WaveSky), 0, 6));
+            settings.waveEmblem = selected(WaveEmblem) != 1;
+            saveLauncherLook(id == WaveSky ? L"Wave sky changed." : settings.waveEmblem ? L"Dragon Ball emblem shown." : L"Dragon Ball emblem hidden.");
+            waveBackdrop.clear();
+            restyle();
             return;
         }
         if (id == LauncherInterface && notification == CBN_SELCHANGE) {
