@@ -460,6 +460,19 @@ struct Overlay {
                      format_time(result.game, options.decimals) + "  battles " + std::to_string(timer.wins().size()) +
                      (flags.empty() ? "  verified" : "  flagged"));
                 save(true, result.real, timer.wins());
+                if (tracker) {
+                    openkai2::achievements::Run run;
+                    run.category = options.category;
+                    run.permadeath = options.permadeath;
+                    run.cpu = options.cpu;
+                    run.verified = flags.empty();
+                    run.personal_best = personal_best;
+                    const auto unlocked = tracker->finished(run, int64_t(std::time(nullptr)));
+                    for (const auto *definition : unlocked)
+                        banners.push_back({"ACHIEVEMENT UNLOCKED", definition->title, definition->description, definition->points, false, -1});
+                    if (!unlocked.empty())
+                        openkai2::achievements::save(openkai2::achievements::progress_path(), tracker->progress());
+                }
                 if (livesplit) {
                     livesplit->send("setgametime " + format_time(result.game, options.decimals));
                     livesplit->send("split");

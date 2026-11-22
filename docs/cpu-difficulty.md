@@ -14,9 +14,9 @@ In game, **F6** cycles Game setting and Z1 to Z6 for the current session.
 | Z1 | Strongest | +10% | Normal | Slightly faster | Normal | None |
 | Z2 | Strongest | +20% | −10% | Faster | 10% | None |
 | Z3 | Strongest | +30% | −20% | Much faster | 25% | None |
-| Z4 | Strongest | +40% | −30% | Faster still | 40% | About 0.3% of its health a second |
-| Z5 | Strongest | +55% | −40% | Very fast | 60% | About 0.6% a second |
-| Z6 | Strongest | +70% | −50% | Fastest | Full | About 0.9% a second |
+| Z4 | Strongest | +40% | −30% | Faster still | 40% | About 0.12% of its health a second |
+| Z5 | Strongest | +55% | −40% | Very fast | 60% | About 0.24% a second |
+| Z6 | Strongest | +70% | −50% | Fastest | Full | About 0.36% a second |
 
 How it works:
 
@@ -34,6 +34,9 @@ How it works:
   revived, and health recovery stops once it is knocked out.
 - Starting Ki is given at the start of each fight. Health recovery only applies
   when one side is human, so two CPU opponents are never healed.
+- Health recovery starts only after the CPU has gone three seconds without
+  taking damage, stops again the moment it is hit, and never heals the CPU past
+  three quarters of its health.
 
 Z levels are off in online play, so online matches play the same for everyone.
 In speedrun mode they are allowed and each one is its own category; see

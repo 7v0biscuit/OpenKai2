@@ -5,4 +5,8 @@
 namespace openkai2::launcher {
 extern const unsigned char ui_font[];
 extern const std::size_t ui_font_size;
+extern const unsigned char inter_regular[];
+extern const std::size_t inter_regular_size;
+extern const unsigned char inter_semibold[];
+extern const std::size_t inter_semibold_size;
 }

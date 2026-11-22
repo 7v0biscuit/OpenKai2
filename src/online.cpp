@@ -206,6 +206,16 @@ std::optional<std::string> from_base64(const std::string &text) {
 }
 
 namespace {
+std::string hex_text(uint32_t value) {
+    static constexpr char hex[] = "0123456789abcdef";
+    std::string out;
+    do {
+        out.insert(out.begin(), hex[value & 15u]);
+        value >>= 4u;
+    } while (value);
+    return out;
+}
+
 std::string color_text(uint32_t color) {
     if (!(color >> 24u))
         return {};
@@ -232,8 +242,10 @@ std::string format_card(const Profile &profile, const Card &card) {
                              std::to_string(card.fighter % 64u) + '\t' + std::to_string(card.region % 64u) + '\t' +
                              std::to_string(card.playstyle % 64u) + '\t' + std::to_string(card.matches % 10000000u) + '\t' +
                              std::to_string(std::clamp<int64_t>(card.since, 0, 9999999999)) + '\t' + clean(card.about, 480) + '\t' +
-                             (picture_bytes(card.picture) ? to_base64(card.picture) : std::string());
-    return "2\t" + body + '\t' + signed_by(profile, "card\t" + body);
+                             (picture_bytes(card.picture) ? to_base64(card.picture) : std::string()) + '\t' +
+                             std::to_string((card.frame % 16u) + (card.backdrop % 16u) * 16u + (card.title % 64u) * 256u) + '\t' +
+                             hex_text(card.achievements);
+    return "3\t" + body + '\t' + signed_by(profile, "card3\t" + body);
 }
 
 std::optional<Card> parse_card(const std::string &id, const std::string &payload) {
@@ -243,17 +255,27 @@ std::optional<Card> parse_card(const std::string &id, const std::string &payload
             return base == 10 ? std::isdigit(c) != 0 : std::isxdigit(c) != 0;
         });
     };
-    if (!valid_id(id) || f.size() != 13 || f[0] != "2" || !digits(f[1], 10, 2) || (!f[2].empty() && !digits(f[2], 16, 6)) ||
+    const bool third = f.size() == 15 && f[0] == "3";
+    if (!valid_id(id) || !(third || (f.size() == 13 && f[0] == "2")) || !digits(f[1], 10, 2) ||
+        (third && (!digits(f[12], 10, 5) || !digits(f[13], 16, 8))) || (!f[2].empty() && !digits(f[2], 16, 6)) ||
         (!f[2].empty() && f[2].size() != 6) || f[3].size() > 8 || f[4].size() > 192 || !digits(f[5], 10, 2) ||
         !digits(f[6], 10, 2) || !digits(f[7], 10, 2) || !digits(f[8], 10, 7) || !digits(f[9], 10, 10) ||
         f[10].size() > 480 || f[11].size() > (card_picture_limit + 2) / 3 * 4)
         return std::nullopt;
     std::string body;
-    for (size_t i = 1; i < 12; ++i)
+    const size_t last = third ? 14 : 12;
+    for (size_t i = 1; i < last; ++i)
         body += (i > 1 ? "\t" : "") + f[i];
-    if (!signed_ok(id, "card\t" + body, f[12]))
+    if (!signed_ok(id, std::string(third ? "card3\t" : "card\t") + body, f[last]))
         return std::nullopt;
     Card card;
+    if (third) {
+        const unsigned look = unsigned(std::stoul(f[12]));
+        card.frame = look % 16u;
+        card.backdrop = (look / 16u) % 16u;
+        card.title = (look / 256u) % 64u;
+        card.achievements = uint32_t(std::stoul(f[13], nullptr, 16));
+    }
     card.accent = unsigned(std::stoul(f[1])) % 64u;
     card.name_color = f[2].empty() ? 0u : 0x1000000u | uint32_t(std::stoul(f[2], nullptr, 16));
     card.initials = clean(f[3], 8);
@@ -547,7 +569,8 @@ void Directory::set_card(const std::optional<Card> &card) {
         const auto same = [](const Card &a, const Card &b) {
             return a.accent == b.accent && a.fighter == b.fighter && a.name_color == b.name_color && a.region == b.region &&
                    a.playstyle == b.playstyle && a.matches == b.matches && a.since == b.since && a.initials == b.initials &&
-                   a.tagline == b.tagline && a.about == b.about && a.picture == b.picture;
+                   a.tagline == b.tagline && a.about == b.about && a.picture == b.picture && a.frame == b.frame &&
+                   a.backdrop == b.backdrop && a.title == b.title && a.achievements == b.achievements;
         };
         if (card_.has_value() == card.has_value() && (!card || same(*card_, *card)) && cardSent_)
             return;

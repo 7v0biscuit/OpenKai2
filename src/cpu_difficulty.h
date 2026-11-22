@@ -26,6 +26,8 @@ struct Edge {
     float dealt = 1, taken = 1, ki = 0, regen = 0, start_ki = 0;
 };
 Edge edge(unsigned level);
+inline constexpr unsigned regen_delay = 180;
+inline constexpr float regen_cap = 0.75f;
 const char *level_name(unsigned level);
 
 struct Fighter {
@@ -36,7 +38,7 @@ std::array<bool, 2> cpu_sides(uint8_t mode, uint32_t duel);
 
 class Tracker {
   public:
-    void reset() { known_ = false; reported_ = false; }
+    void reset() { known_ = false; reported_ = false; quiet_ = {}; }
     bool observe(uint64_t key) {
         if (reported_ && key_ == key) return false;
         known_ = false; reported_ = true; key_ = key; return true;
@@ -47,6 +49,7 @@ class Tracker {
     bool known_ = false, reported_ = false;
     uint64_t key_ = 0;
     std::array<float, 2> health_{};
+    std::array<unsigned, 2> quiet_{};
 };
 
 void tick(uint8_t *memory, size_t bytes, unsigned level, Tracker &tracker);

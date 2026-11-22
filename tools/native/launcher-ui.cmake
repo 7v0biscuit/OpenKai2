@@ -9,6 +9,16 @@ function(openkai2_add_launcher_ui project_root enable_tests)
         COMMAND "${CMAKE_COMMAND}" -DFONT=${ui_font} -DOUTPUT=${ui_font_source} -DFONT_SYMBOL=ui_font
             -P "${project_root}/tools/native/embed-font.cmake"
         DEPENDS "${ui_font}" "${project_root}/tools/native/embed-font.cmake" VERBATIM)
+    set(text_sources "")
+    foreach(weight Regular SemiBold)
+        string(TOLOWER "inter_${weight}" symbol)
+        set(source "${CMAKE_CURRENT_BINARY_DIR}/openkai2_launcher_${symbol}.cpp")
+        add_custom_command(OUTPUT "${source}"
+            COMMAND "${CMAKE_COMMAND}" -DFONT=${project_root}/third_party/inter/Inter-${weight}.ttf -DOUTPUT=${source} -DFONT_SYMBOL=${symbol}
+                -P "${project_root}/tools/native/embed-font.cmake"
+            DEPENDS "${project_root}/third_party/inter/Inter-${weight}.ttf" "${project_root}/tools/native/embed-font.cmake" VERBATIM)
+        list(APPEND text_sources "${source}")
+    endforeach()
     add_library(openkai2_launcher_ui STATIC
         "${project_root}/src/launcher/window.cpp"
         "${project_root}/src/launcher/update_windows.cpp"
@@ -22,6 +32,7 @@ function(openkai2_add_launcher_ui project_root enable_tests)
         "${project_root}/src/dev_identity.cpp"
         "${project_root}/src/ed25519.cpp"
         "${ui_font_source}"
+        ${text_sources}
         )
     target_include_directories(openkai2_launcher_ui PRIVATE "${project_root}/src")
     target_compile_features(openkai2_launcher_ui PUBLIC cxx_std_17)

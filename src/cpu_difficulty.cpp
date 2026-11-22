@@ -65,9 +65,9 @@ Edge edge(unsigned level) {
     case 1: return {1.10f, 1.00f, 0.03f, 0.0f, 0.0f};
     case 2: return {1.20f, 0.90f, 0.06f, 0.0f, 0.10f};
     case 3: return {1.30f, 0.80f, 0.10f, 0.0f, 0.25f};
-    case 4: return {1.40f, 0.70f, 0.14f, 0.00005f, 0.40f};
-    case 5: return {1.55f, 0.60f, 0.18f, 0.00010f, 0.60f};
-    case 6: return {1.70f, 0.50f, 0.25f, 0.00015f, 1.00f};
+    case 4: return {1.40f, 0.70f, 0.14f, 0.00002f, 0.40f};
+    case 5: return {1.55f, 0.60f, 0.18f, 0.00004f, 0.60f};
+    case 6: return {1.70f, 0.50f, 0.25f, 0.00006f, 1.00f};
     default: return {};
     }
 }
@@ -101,6 +101,10 @@ void Tracker::step(std::array<Fighter, 2> &fighters, std::array<bool, 2> cpu, co
     for (size_t side = 0; side < 2; ++side) {
         auto &f = fighters[side];
         const float before = health_[side];
+        if (!known_ || (f.health < before && before > 0))
+            quiet_[side] = 0;
+        else if (quiet_[side] < regen_delay)
+            ++quiet_[side];
         if (known_ && scaled && f.health < before && before > 0) {
             const float damage = before - f.health;
             if (cpu[side]) {
@@ -114,8 +118,9 @@ void Tracker::step(std::array<Fighter, 2> &fighters, std::array<bool, 2> cpu, co
             if (!known_)
                 f.ki = std::max(f.ki, std::min(f.max_ki, f.max_ki * edge.start_ki));
             f.ki = std::min(f.max_ki, f.ki + edge.ki);
-            if (scaled)
-                f.health = std::min(f.max_health, f.health + f.max_health * edge.regen);
+            const float cap = f.max_health * regen_cap;
+            if (scaled && edge.regen > 0 && quiet_[side] >= regen_delay && f.health < cap)
+                f.health = std::min(cap, f.health + f.max_health * edge.regen);
         }
         health_[side] = f.health;
     }

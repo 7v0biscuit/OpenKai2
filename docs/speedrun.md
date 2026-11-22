@@ -195,3 +195,6 @@ A run is **Flagged** if any of these happens during the session:
   similar).
 
 The reason is written to the log.
+
+Finished runs can unlock speedrun achievements, such as finishing with
+permadeath on or setting a personal best; see [Achievements](achievements.md).

@@ -117,7 +117,7 @@ void tournament_preserves_brackets_and_targets_cpu() {
                                 "Tournament ki modifier reached the wrong side");
                     guest.putf(guest.fighter(0), 2900);
                     tick(guest.memory.data(), guest.memory.size(), level, tracker);
-                    const float expected = arrangement == 1 ? 2900 + 100 * (1 - edge(level).taken) + 3000 * edge(level).regen
+                    const float expected = arrangement == 1 ? 2900 + 100 * (1 - edge(level).taken)
                         : arrangement == 2 ? 2900 - 100 * (edge(level).dealt - 1) : 2900;
                     require(near(guest.health(0), expected), "Tournament damage modifier reached the wrong side");
                     for (unsigned side = 0; side < 2; ++side)
@@ -194,13 +194,25 @@ void top_levels_recover_and_start_charged() {
     Tracker tracker;
     tick(guest.memory.data(), guest.memory.size(), 6, tracker);
     require(near(guest.ki(1), 700) && near(guest.ki(0), 300), "Z6 did not give only the CPU a full Ki gauge");
-    guest.putf(guest.fighter(1), 2000);
+    guest.putf(guest.fighter(1), 600);
     tick(guest.memory.data(), guest.memory.size(), 6, tracker);
     const float hit = guest.health(1);
-    require(hit > 2000 + 1000 * 0.5f - 1 && hit < 2000 + 1000 * 0.5f + 3000 * 0.0002f + 1, "Z6 damage reduction or recovery wrong");
+    require(near(hit, 600 + 2400 * 0.5f), "Z6 damage reduction wrong or recovery started on the hit");
+    for (unsigned frame = 0; frame + 1 < regen_delay; ++frame)
+        tick(guest.memory.data(), guest.memory.size(), 6, tracker);
+    require(near(guest.health(1), hit), "Z6 recovered before the CPU went three seconds without damage");
     for (int frame = 0; frame < 600; ++frame)
         tick(guest.memory.data(), guest.memory.size(), 6, tracker);
-    require(guest.health(1) > hit + 200 && guest.health(1) <= 3000, "Z6 CPU did not recover health over time");
+    require(guest.health(1) > hit + 80 && guest.health(1) < hit + 140, "Z6 CPU did not recover slowly over time");
+    for (int frame = 0; frame < 20000; ++frame)
+        tick(guest.memory.data(), guest.memory.size(), 6, tracker);
+    require(near(guest.health(1), 3000 * regen_cap), "Z6 recovery went past three quarters of the CPU's health");
+    guest.putf(guest.fighter(1), 2000);
+    tick(guest.memory.data(), guest.memory.size(), 6, tracker);
+    const float again = guest.health(1);
+    for (int frame = 0; frame < 100; ++frame)
+        tick(guest.memory.data(), guest.memory.size(), 6, tracker);
+    require(near(guest.health(1), again), "Z6 recovered right after being hit");
     guest.putf(guest.fighter(1), 0);
     tick(guest.memory.data(), guest.memory.size(), 6, tracker);
     tick(guest.memory.data(), guest.memory.size(), 6, tracker);

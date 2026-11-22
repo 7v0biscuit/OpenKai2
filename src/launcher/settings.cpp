@@ -71,7 +71,7 @@ void validate_settings(const Settings &s) {
     if (s.profileStyles.size() > 32) throw std::runtime_error("Too many profile appearances");
     for (const auto& style : s.profileStyles) {
         if (style.id.size()!=64 || !std::all_of(style.id.begin(),style.id.end(),[](unsigned char c){return std::isxdigit(c)!=0;}) ||
-            !profileIds.insert(style.id).second || style.accent>=accent_count || style.pictureFit>3 || style.availability>2 || (style.nameColor && (style.nameColor>>24)!=1u) || style.fighter>fighter_count || style.sharing>2 || style.nameEffect>30 || style.link.size()>120 || style.link.find_first_of("\r\n\" ")!=std::string::npos || style.region>region_count || style.playstyle>playstyle_count || style.about.size()>480 || style.about.find_first_of("\r\n")!=std::string::npos || style.since<0 || style.initials.size()>8 || style.tagline.size()>192 ||
+            !profileIds.insert(style.id).second || style.accent>=accent_count || style.pictureFit>3 || style.availability>2 || (style.nameColor && (style.nameColor>>24)!=1u) || style.fighter>fighter_count || style.sharing>2 || style.nameEffect>30 || style.frame>=frame_count || style.backdrop>=backdrop_count || style.title>=title_count || style.link.size()>120 || style.link.find_first_of("\r\n\" ")!=std::string::npos || style.region>region_count || style.playstyle>playstyle_count || style.about.size()>480 || style.about.find_first_of("\r\n")!=std::string::npos || style.since<0 || style.initials.size()>8 || style.tagline.size()>192 ||
             style.initials.find_first_of("\r\n")!=std::string::npos || style.tagline.find_first_of("\r\n")!=std::string::npos ||
             !speedrun::valid_image_file(style.image) || style.imageName.size()>1024 || style.imageName.find_first_of("\r\n")!=std::string::npos)
             throw std::runtime_error("Invalid profile appearance");
@@ -102,6 +102,7 @@ Settings read_settings(const std::filesystem::path &file) {
     std::map<std::string,unsigned> profileEffects;
     std::map<std::string,std::string> profileLinks;
     std::map<std::string,std::tuple<unsigned,unsigned,uint32_t,int64_t,std::string>> profileMore;
+    std::map<std::string,std::array<unsigned,3>> profileLooks;
     bool tabLayout = false, graphicsProfile = false, waveDefault = false;
     std::ifstream in(file);
     for (int attempt = 0; !in && attempt < 50 && std::filesystem::exists(file); ++attempt) {
@@ -315,6 +316,11 @@ Settings read_settings(const std::filesystem::path &file) {
             row >> std::quoted(id) >> std::get<0>(more) >> std::get<1>(more) >> std::get<2>(more) >> std::get<3>(more) >> std::quoted(std::get<4>(more));
             if(row.fail() || !profileMore.emplace(id,more).second)throw std::runtime_error("Duplicate profile details");
         }
+        else if (key == "profile_look") {
+            std::string id;std::array<unsigned,3> look{};
+            row >> std::quoted(id) >> look[0] >> look[1] >> look[2];
+            if(row.fail() || !profileLooks.emplace(id,look).second)throw std::runtime_error("Duplicate profile look");
+        }
         else if (key == "online_blocked" || key == "online_recent") {
             Settings::Friend entry;
             if (key == "online_recent")
@@ -409,6 +415,11 @@ Settings read_settings(const std::filesystem::path &file) {
         auto found=std::find_if(s.profileStyles.begin(),s.profileStyles.end(),[&](const auto& style){return style.id==id;});
         if(found==s.profileStyles.end()) {s.profileStyles.push_back({id,{},{},0,{},{}});found=std::prev(s.profileStyles.end());}
         std::tie(found->region,found->playstyle,found->matches,found->since,found->about)=more;
+    }
+    for(const auto& [id,look]:profileLooks) {
+        auto found=std::find_if(s.profileStyles.begin(),s.profileStyles.end(),[&](const auto& style){return style.id==id;});
+        if(found==s.profileStyles.end()) {s.profileStyles.push_back({id,{},{},0,{},{}});found=std::prev(s.profileStyles.end());}
+        found->frame=look[0];found->backdrop=look[1];found->title=look[2];
     }
     for(const auto& [id,link]:profileLinks) {
         auto found=std::find_if(s.profileStyles.begin(),s.profileStyles.end(),[&](const auto& style){return style.id==id;});
@@ -513,6 +524,8 @@ void write_settings(const std::filesystem::path &file, const Settings &s) {
             out << "profile_link " << std::quoted(style.id) << ' ' << std::quoted(style.link) << '\n';
         out << "profile_more " << std::quoted(style.id) << ' ' << style.region << ' ' << style.playstyle << ' ' << style.matches << ' ' << style.since << ' ' << std::quoted(style.about) << '\n';
         out << "profile_card " << std::quoted(style.id) << ' ' << style.nameColor << ' ' << style.fighter << ' ' << style.sharing << '\n';
+        if (style.frame || style.backdrop || style.title)
+            out << "profile_look " << std::quoted(style.id) << ' ' << style.frame << ' ' << style.backdrop << ' ' << style.title << '\n';
         out << "profile_options " << std::quoted(style.id) << ' ' << style.pictureFit << ' ' << style.notifications << '\n';
         if(!style.image.empty())out << "profile_image " << std::quoted(style.id) << ' ' << std::quoted(style.image) << ' ' << std::quoted(style.imageName) << '\n';
         out << "profile_style " << std::quoted(style.id) << ' ' << style.accent << ' ' << std::quoted(style.initials) << ' ' << std::quoted(style.tagline) << '\n';

@@ -88,6 +88,29 @@ int main() {
         tournament.champion = true;
         require(ids(tracker.update(tournament, 0, false, 1)).count("champion"), "Winning the World Tournament did not unlock");
 
+        require(tracker.progress().online_wins == 1, "Online wins were not counted");
+        require(tracker.progress().has("streak"), "Five wins in a row did not unlock On a Roll");
+        auto blink = fight(tracker, 100.0f, 1.0f, 0.0f, 8.0);
+        require(blink.count("lightning") && blink.count("by_a_thread"), "An eight second win on 1% health did not unlock its achievements");
+
+        achievements::Run run;
+        require(tracker.finished(run, 1).empty(), "A run with speedrun mode off unlocked something");
+        run.category = speedrun::Category::tournament_novice;
+        auto sprint = ids(tracker.finished(run, 1));
+        require(sprint.count("speed_finish") && sprint.count("speed_tournament") && !sprint.count("speed_story") && !sprint.count("speed_record"),
+                "A tournament speedrun unlocked the wrong achievements");
+        run.category = speedrun::Category::hercule_only;
+        run.permadeath = true;
+        run.cpu = 4;
+        run.verified = true;
+        run.personal_best = true;
+        auto champ = ids(tracker.finished(run, 1));
+        require(champ.count("speed_hercule") && champ.count("speed_permadeath") && champ.count("speed_z_level") && champ.count("speed_clean") &&
+                    champ.count("speed_record") && !champ.count("speed_finish"),
+                "A Hercule Only permadeath Z4 record did not unlock its achievements");
+        run.category = speedrun::Category::new_game_plus;
+        require(ids(tracker.finished(run, 1)).count("speed_story"), "A New Game+ speedrun did not unlock Saga Speedster");
+
         speedrun::GuestState idle;
         require(tracker.update(idle, 0, false, 1).empty(), "An idle frame unlocked something");
         speedrun::GuestState unknown = fighting(0.0f, 0.0f, 0.0f);
@@ -102,7 +125,7 @@ int main() {
         achievements::save(file, tracker.progress());
         const auto read = achievements::load(file);
         require(read.unlocked == tracker.progress().unlocked && read.wins == tracker.progress().wins &&
-                    read.battles == tracker.progress().battles && read.points() == tracker.progress().points(),
+                    read.battles == tracker.progress().battles && read.online_wins == tracker.progress().online_wins && read.points() == tracker.progress().points(),
                 "Achievement progress did not round-trip");
         require(read.count(*achievements::find("wins_50")) == read.wins, "Win progress toward Elite Warrior is wrong");
         std::filesystem::remove_all(root);

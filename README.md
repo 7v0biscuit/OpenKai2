@@ -37,7 +37,7 @@ files.
   friends, invites, a room browser and room passwords. Both games run in lockstep
   and check that they stay in sync. [Experimental]
 - **Save states:** F5 saves and F9 loads the whole console outside speedrun and online play.
-- **Achievements:** fourteen built-in achievements, plus RetroAchievements sign-in with
+- **Achievements:** twenty-nine built-in achievements, including speedrun achievements, plus RetroAchievements sign-in with
   softcore and hardcore modes. Unlock all pauses both. See [docs/achievements.md](docs/achievements.md).
 - **Run-ahead:** optional 1 or 2 frames of run-ahead in **Settings > Game** to cut input lag
   offline, shown at your monitor's full refresh rate. See [docs/windows.md](docs/windows.md).

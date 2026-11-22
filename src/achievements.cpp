@@ -36,6 +36,10 @@ unsigned Progress::count(const Definition &definition) const {
         return definition.goal;
     if (id.rfind("wins_", 0) == 0 || id == "first_win")
         return std::min(wins, definition.goal);
+    if (id == "battles_100")
+        return std::min(battles, definition.goal);
+    if (id == "online_10")
+        return std::min(online_wins, definition.goal);
     return 0;
 }
 
@@ -58,6 +62,8 @@ Progress load(const std::filesystem::path &file) {
             row >> progress.wins;
         } else if (key == "battles") {
             row >> progress.battles;
+        } else if (key == "online_wins") {
+            row >> progress.online_wins;
         }
     }
     return progress;
@@ -69,7 +75,7 @@ void save(const std::filesystem::path &file, const Progress &progress) {
     const auto temporary = file.string() + ".tmp";
     {
         std::ofstream out(temporary, std::ios::trunc);
-        out << "version 1\nwins " << progress.wins << "\nbattles " << progress.battles << '\n';
+        out << "version 1\nwins " << progress.wins << "\nbattles " << progress.battles << "\nonline_wins " << progress.online_wins << '\n';
         for (const auto &[id, stamp] : progress.unlocked)
             out << "unlocked " << id << ' ' << stamp << '\n';
         if (!out)
@@ -128,6 +134,13 @@ std::vector<const Definition *> Tracker::update(const speedrun::GuestState &stat
             ++session_battles_;
             if (session_battles_ >= 20)
                 unlock("marathon", stamp, out);
+            if (session_battles_ >= 50)
+                unlock("marathon_50", stamp, out);
+            if (progress_.battles >= 100)
+                unlock("battles_100", stamp, out);
+            streak_ = result > 0 ? streak_ + 1 : 0;
+            if (streak_ >= 5)
+                unlock("streak", stamp, out);
         }
         if (result > 0) {
             ++progress_.wins;
@@ -138,22 +151,56 @@ std::vector<const Definition *> Tracker::update(const speedrun::GuestState &stat
                 unlock("wins_50", stamp, out);
             if (progress_.wins >= 200)
                 unlock("wins_200", stamp, out);
+            if (progress_.wins >= 500)
+                unlock("wins_500", stamp, out);
             if (lowest_ >= player_max_ && player_max_ > 0)
                 unlock("flawless", stamp, out);
             if (player_max_ > 0 && player_ < player_max_ * 0.1f)
                 unlock("comeback", stamp, out);
             if (reason_ == speedrun::timeout_reason && opponent_ > 0)
                 unlock("time_up", stamp, out);
+            if (player_max_ > 0 && player_ < player_max_ * 0.02f)
+                unlock("by_a_thread", stamp, out);
             if (now - started_ < 20.0)
                 unlock("quick_win", stamp, out);
+            if (now - started_ < 10.0)
+                unlock("lightning", stamp, out);
             if (lost_last_)
                 unlock("rematch", stamp, out);
-            if (online)
+            if (online) {
+                ++progress_.online_wins;
                 unlock("online_win", stamp, out);
+                if (progress_.online_wins >= 10)
+                    unlock("online_10", stamp, out);
+            }
         }
         if (result != 0)
             lost_last_ = result < 0;
     }
+    return out;
+}
+
+std::vector<const Definition *> Tracker::finished(const Run &run, int64_t stamp) {
+    using speedrun::Category;
+    std::vector<const Definition *> out;
+    if (run.category == Category::off)
+        return out;
+    unlock("speed_finish", stamp, out);
+    if (speedrun::tournament(run.category))
+        unlock("speed_tournament", stamp, out);
+    if (run.category == Category::any || run.category == Category::new_game_plus || run.category == Category::new_game_plus_very_hard ||
+        run.category == Category::all_dragonballs)
+        unlock("speed_story", stamp, out);
+    if (run.category == Category::hercule_only)
+        unlock("speed_hercule", stamp, out);
+    if (run.permadeath)
+        unlock("speed_permadeath", stamp, out);
+    if (run.cpu >= 4)
+        unlock("speed_z_level", stamp, out);
+    if (run.verified)
+        unlock("speed_clean", stamp, out);
+    if (run.personal_best)
+        unlock("speed_record", stamp, out);
     return out;
 }
 

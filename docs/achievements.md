@@ -5,12 +5,19 @@ Wave home's Game menu, or search for "achievements" with Ctrl+K.
 
 ## Built-in achievements
 
-Fourteen OpenKai2 achievements are tracked in the game on your PC. You don't
-need an account for them. They include winning battles (1, 10, 50 and 200 wins),
-a flawless win, a comeback with under a tenth of your health, a time-out win,
-a win in under 20 seconds, a rematch win after a loss, starting Dragon World,
-reaching the credits, winning the World Tournament, an online win and fighting
-20 battles in one session.
+Twenty-nine OpenKai2 achievements are tracked in the game on your PC. You don't
+need an account for them.
+
+- **Battles:** 1, 10, 50, 200 and 500 wins; 100 battles fought; 5 wins in a
+  row; a flawless win; a comeback with under a tenth of your health and another
+  with under 2%; a time-out win; wins in under 20 and under 10 seconds; a
+  rematch win after a loss; 20 and 50 battles in one session.
+- **Story and online:** starting Dragon World, reaching the credits, winning the
+  World Tournament, your first online win and 10 online wins.
+- **Speedruns** (see [Speedrun mode](speedrun.md)): finishing any speedrun, a
+  World Tournament run, an Any%, New Game+ or All Dragon Balls run and a
+  Hercule Only run; finishing with permadeath on, with the CPU on Z4 or higher,
+  or verified with nothing flagged; and setting a personal best.
 
 An unlock slides in at the top of the screen with its points. Progress is kept
 in `achievements.ini` next to the launcher settings.
