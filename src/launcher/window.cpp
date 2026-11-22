@@ -122,8 +122,9 @@ void apply_theme(unsigned choice, unsigned accent, const CustomColors &custom) {
 
 constexpr int contentLeft = 36, margin = 36;
 constexpr int shellHeader = 76, shellDockReserve = 116, waveDockReserve = 56;
-constexpr int speedrunTop = 112, splitsTop = 284, speedrunRulesTop = 526;
+constexpr int speedrunTop = 112, splitsTop = 284, speedrunRulesTop = 526, classicSplitsTop = splitsTop;
 constexpr int onlineProfileTop = 112, onlineHostTop = 248, onlineHostBottom = 352, onlineListsTop = 364;
+constexpr int waveOnlinePlayersTop = 252, waveOnlineRoomsTop = 680, waveOnlineHostTop = 1092, waveOptionRow = 56;
 struct LoungeLayout {
     bool compact;
     int left=contentLeft, friendsLeft, friendsWidth, friendsBottom, centre, centreRight, details, detailsTop,
@@ -1137,7 +1138,7 @@ struct Window {
             settingsHeight=grid.height();
         }
         if (page == wavePage) return pageVisibleHeight();
-        return std::max(page == helpPage ? 940 : page == overlayPage ? 880 : page == onlinePage ? 740 : page == controlsPage ? controlsHeight :
+        return std::max(page == helpPage ? 940 : page == overlayPage ? 880 : page == onlinePage ? (waveStyle() ? 1420 : 740) : page == modsPage && waveStyle() ? 960 : page == speedrunPage && waveStyle() ? 900 : page == controlsPage ? controlsHeight :
                         page == settingsPage ? settingsHeight : page == profilePage ? 1200 : page == playerPage ? 820 : page == 0 ? (width<1100 ? 1040 : 740) : page == savesPage ? 780 : 680, pageVisibleHeight());
     }
     void scrollPage(int value) {
@@ -3553,6 +3554,22 @@ struct Window {
             position(OnlineProfile,contentLeft+24,166,std::min(340,content-460),40);
             position(ProfileManage,right-390,166,210,40);
             position(ProfileRecover,right-166,166,142,40);
+            if(waveStyle()) {
+                const int labelWidth=std::clamp(width*2/5,150,300),valueLeft=side+labelWidth,valueWidth=right-24-valueLeft;
+                const int ids[]={ProfileInitials,ProfileAccent,ProfileNameColor,ProfileFighter,ProfileTagline,ProfileAbout,ProfileRegion,ProfilePlaystyle,
+                                 ProfileAvailability,ProfileNotifications,ProfileSharing,ProfileFriendAlerts};
+                for(int i=0;i<12;++i)position(ids[i],valueLeft,312+i*waveOptionRow+8,valueWidth,40);
+                position(ProfileSave,side,996,160,40);
+                position(ProfileReset,side+174,996,130,40);
+                position(ProfilePreview,side+318,996,170,40);
+                position(ProfileCopyFrom,valueLeft,1076+8,valueWidth-170,40);
+                position(ProfileCopyStyle,right-24-160,1076+8,160,40);
+                if(heldTag())position(ProfileLink,valueLeft,1132+8,valueWidth,40);
+                position(ProfileCopyId,contentLeft+24,480,split-contentLeft-48,36);
+                position(ProfileImageChoose,contentLeft+24,532,split-contentLeft-48,36);
+                position(ProfileImageRemove,contentLeft+24,580,split-contentLeft-48,36);
+                position(ProfileFit,contentLeft+24,664,split-contentLeft-48,40);
+            } else {
             const int half=(width-16)/2,second=side+(width+16)/2;
             position(ProfileInitials,side,330,half,40);
             position(ProfileAccent,second,330,half,40);
@@ -3576,6 +3593,7 @@ struct Window {
             position(ProfileCopyFrom,side,990,width-176,40);
             position(ProfileCopyStyle,side+width-160,990,160,40);
             if(heldTag())position(ProfileLink,side,1124,width,40);
+            }
         } else if (page == savesPage) {
             position(BackToPlay, right - 150, 28, 150, 34);
             const int panelBottom = h - 64;
@@ -3604,6 +3622,25 @@ struct Window {
             position(ModFolder, right - 20 - 140 - 12 - 160, 142, 160, 36);
             position(ModExport, right - 20 - 140 - 12 - 160 - 12 - 130, 142, 130, 36);
             position(ModInstall, right - 20 - 140 - 12 - 160 - 12 - 130 - 12 - 130, 142, 130, 36);
+            if (waveStyle()) {
+                const int inner = content - 40;
+                position(ModList, contentLeft + 20, 268, inner, 260);
+                int x = contentLeft + 20;
+                for (auto [id, width] : {std::pair{ModToggle, 150}, {ModUp, 100}, {ModDown, 110}, {ModRefresh, 90}}) {
+                    position(id, x, 540, width, 36);
+                    x += width + 10;
+                }
+                const int name = std::max(120, right - 20 - 120 - 10 - (x + 6));
+                position(ModName, right - 20 - 120 - 10 - name + 10, 548, name - 20, 22);
+                position(ModCreate, right - 20 - 120, 540, 120, 36);
+                position(ModContents, contentLeft + 20, 656, inner, 200);
+                position(ModRemove, right - 20 - 150, 868, 150, 36);
+                position(ModDelete, right - 20 - 310, 868, 150, 36);
+                position(ModRename, right - 20 - 470, 868, 150, 36);
+                if (modList.empty())
+                    for (int id : {ModList, ModContents, ModRename, ModDelete, ModRemove})
+                        conceal(id);
+            } else {
             const int half = (content - 52) / 2, contentsLeft = contentLeft + 32 + half;
             position(ModList, contentLeft + 20, 252, half, std::max(80, panelBottom - 64 - 252));
             position(ModContents, contentsLeft, 252, half, std::max(60, panelBottom - 112 - 252));
@@ -3622,16 +3659,29 @@ struct Window {
             const int name = std::max(120, right - 20 - 120 - 10 - (x + 6));
             position(ModName, right - 20 - 120 - 10 - name + 10, panelBottom - 44, name - 20, 22);
             position(ModCreate, right - 20 - 120, panelBottom - 52, 120, 36);
+            }
         } else if (page == speedrunPage) {
             const Grid grid(content);
-            const bool compact = h < 700;
-            const int rulesTop = compact ? 496 : speedrunRulesTop;
+            const bool wave = waveStyle();
+            const bool compact = h < 700 && !wave;
+            const int splitsTop = wave ? 444 : classicSplitsTop;
+            const int rulesTop = wave ? splitsTop + (speedrunRulesTop - classicSplitsTop) : compact ? 496 : speedrunRulesTop;
             const int buttonHeight = compact ? 30 : 34;
+            if (wave) {
+                const int labelWidth = std::clamp(content * 2 / 5, 180, 420);
+                const int valueLeft = contentLeft + 24 + labelWidth, valueWidth = right - 24 - valueLeft, rows = speedrunTop + 64;
+                position(SpeedrunMode, valueLeft, rows + 8, valueWidth, 34);
+                position(Permadeath, valueLeft, rows + waveOptionRow + 8, valueWidth, 34);
+                position(SpeedrunRandomizer, valueLeft, rows + 2 * waveOptionRow + 8, valueWidth, 34);
+                position(SpeedrunCpu, valueLeft, rows + 3 * waveOptionRow + 8, valueWidth, 34);
+                position(OpenOverlay, right - 20 - 190, speedrunTop + 10, 190, 34);
+            } else {
             position(SpeedrunMode, grid.x(0), Grid::field(speedrunTop, 0), grid.column, 34);
             position(Permadeath, grid.x(1), Grid::field(speedrunTop, 0), grid.column, 34);
             position(SpeedrunCpu, grid.x(0), Grid::field(speedrunTop, 1), grid.column, 34);
             position(SpeedrunRandomizer, grid.x(2), Grid::field(speedrunTop, 0), grid.column, 34);
             position(OpenOverlay, right - 20 - 170, speedrunTop + 10, 170, 28);
+            }
             const int listWidth = (content - 40) * 58 / 100, side = contentLeft + 20 + listWidth + 16;
             const int sideWidth = right - 20 - side, half = (sideWidth - 10) / 2;
             position(SplitList, contentLeft + 20, splitsTop + 66, listWidth, rulesTop - 12 - 40 - splitsTop - 66);
@@ -3659,6 +3709,40 @@ struct Window {
             if(std::filesystem::exists(profileRecoveryPath())) {
                 conceal(ProfileCopyId);position(ProfileRecover,grid.x(2),192,grid.column,28);
             }
+            if (waveStyle()) {
+                const int inner = content - 40, labelWidth = std::clamp(content * 2 / 5, 180, 420);
+                const int valueLeft = contentLeft + 24 + labelWidth, valueWidth = right - 24 - valueLeft;
+                position(PlayerFilter, right - 20 - 240, waveOnlinePlayersTop + 10, 240, 32);
+                position(PlayerList, contentLeft + 20, waveOnlinePlayersTop + 56, inner, 300);
+                const int third = 160;
+                position(PlayerProfile, right - 20 - third, waveOnlinePlayersTop + 368, third, 34);
+                position(AddFriend, right - 20 - 2 * third - 10, waveOnlinePlayersTop + 368, third, 34);
+                position(InvitePlayer, right - 20 - 3 * third - 20, waveOnlinePlayersTop + 368, third, 34);
+                position(RefreshRooms, right - 20 - 110, waveOnlineRoomsTop + 10, 110, 32);
+                const int searchWidth = inner - 200 - 64;
+                position(OnlineSearch, contentLeft + 30, waveOnlineRoomsTop + 61, searchWidth - 20, 22);
+                position(ClearOnlineSearch, contentLeft + 20 + searchWidth + 4, waveOnlineRoomsTop + 56, 56, 32);
+                position(RoomFilter, right - 20 - 190, waveOnlineRoomsTop + 56, 190, 32);
+                position(RoomList, contentLeft + 20, waveOnlineRoomsTop + 100, inner, 220);
+                const int half = (inner - 12) / 2;
+                if (selectedRoomLocked()) {
+                    position(JoinPassword, contentLeft + 30, waveOnlineRoomsTop + 340, half / 2 - 16, 22);
+                    position(JoinRoom, contentLeft + 20 + half / 2, waveOnlineRoomsTop + 334, half - half / 2, 34);
+                } else {
+                    position(JoinRoom, contentLeft + 20, waveOnlineRoomsTop + 334, half, 34);
+                    conceal(JoinPassword);
+                }
+                position(OnlineAddress, contentLeft + 30 + half + 12, waveOnlineRoomsTop + 340, half / 2 - 16, 22);
+                position(JoinGame, contentLeft + 20 + half + 12 + half / 2, waveOnlineRoomsTop + 334, half - half / 2, 34);
+                position(HostGame, right - 20 - 160, waveOnlineHostTop + 10, 160, 34);
+                const int rows = waveOnlineHostTop + 64;
+                position(OnlineRoom, valueLeft + 10, rows + 15, valueWidth - 20, 22);
+                position(OnlinePassword, valueLeft + 10, rows + waveOptionRow + 15, valueWidth - 20, 22);
+                position(OnlineDelay, valueLeft, rows + 2 * waveOptionRow + 8, valueWidth, 34);
+                position(OnlineListed, valueLeft, rows + 3 * waveOptionRow + 8, valueWidth, 34);
+                if (roomRows.empty()) conceal(RoomList);
+                if (playerRows.empty()) conceal(PlayerList);
+            } else {
             const HostRow host(content);
             position(OnlineRoom,host.x(0)+10,HostRow::field+6,host.column-20,22);
             position(OnlinePassword,host.x(1)+10,HostRow::field+6,host.column-20,22);
@@ -3697,6 +3781,7 @@ struct Window {
                 conceal(RoomList);
             if (playerRows.empty())
                 conceal(PlayerList);
+            }
         } else if (page == overlayPage) {
             const int panelBottom = h - 64, half = (content - 52) / 2, side = contentLeft + 32 + half;
             position(CloseOverlay,right-166,28,166,36);
@@ -3726,12 +3811,22 @@ struct Window {
         } else if (page == updatesPage) {
             const Grid grid(content);
             const int half = (grid.column - 10) / 2;
+            position(ReleasePage, right - 20 - 130, 136, 130, 34);
+            if (waveStyle()) {
+                const int labelWidth = std::clamp(content * 2 / 5, 180, 420);
+                const int valueLeft = contentLeft + 24 + labelWidth, valueWidth = right - 24 - valueLeft, rows = 224 + 64, split = (valueWidth - 10) / 2;
+                position(UpdateChannel, valueLeft, rows + 8, valueWidth, 34);
+                position(AutomaticUpdates, valueLeft, rows + waveOptionRow + 8, valueWidth, 34);
+                position(CheckUpdates, valueLeft, rows + 2 * waveOptionRow + 8, split, 34);
+                position(InstallUpdate, valueLeft + split + 10, rows + 2 * waveOptionRow + 8, valueWidth - split - 10, 34);
+                position(OpenLogs, contentLeft + 24, 590, 170, 34);
+            } else {
             position(UpdateChannel, grid.x(0), Grid::field(236, 0), grid.column, 34);
             position(AutomaticUpdates, grid.x(1), Grid::field(236, 0), grid.column, 34);
             position(CheckUpdates, grid.x(2), Grid::field(236, 0), half, 34);
             position(InstallUpdate, grid.x(2) + half + 10, Grid::field(236, 0), grid.column - half - 10, 34);
-            position(ReleasePage, right - 20 - 130, 136, 130, 34);
             position(OpenLogs, contentLeft + 20, 470, 170, 34);
+            }
         } else if (page == colorsPage) {
             const int panelBottom = h - 64, listWidth = std::min(560, content - 40 - 200);
             position(CloseColors,right-166,28,166,36);
@@ -4213,8 +4308,8 @@ struct Window {
         panelBox(dc,contentLeft,124,right,226);
         heading(dc,L"Active profile",contentLeft+24,136,content-48);
         const bool perks=heldTag().has_value();
-        panelBox(dc,contentLeft,246,split,1176);panelBox(dc,split+20,246,right,perks ? 1176 : 1076);
-        if(perks) {
+        panelBox(dc,contentLeft,246,split,1176);panelBox(dc,split+20,246,right,perks || waveStyle() ? 1176 : 1076);
+        if(perks && !waveStyle()) {
             const auto tag=*heldTag();const int perkSide=split+44,perkWidth=right-perkSide-24;
             caps(dc,wide(identity::tag_label(tag))+L" CHANNEL LINK",perkSide,1100,perkWidth,readableName(storedColor(tagColor(tag)),ink));
             text(dc,L"Players see an Open channel button on your card",perkSide+perkWidth/3,1098,perkWidth-perkWidth/3,18,fonts.caption,faint,DT_RIGHT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
@@ -4253,6 +4348,22 @@ struct Window {
             paintBadges(dc,profileBadges(mine,profile->id,wide(profile->name)),(contentLeft+split)/2,1112);
         }
         heading(dc,L"Appearance & notifications",side,266,width);
+        if(waveStyle()) {
+            const int labelWidth=std::clamp(width*2/5,150,300);
+            std::vector<std::wstring> rows{L"Initials",L"Avatar accent",L"Name color",L"Main fighter",L"Tagline",L"About me",L"Region",L"Playstyle",
+                                           L"Availability",L"Invites & requests",L"Player card online",L"Friends coming online"};
+            const auto rowLine=[&](int y,const std::wstring& label,COLORREF tone){
+                Gdiplus::Graphics graphics(dc);
+                Gdiplus::LinearGradientBrush divider(Gdiplus::PointF(Gdiplus::REAL(p(side)),0),Gdiplus::PointF(Gdiplus::REAL(p(right-24)),0),Gdiplus::Color(70,255,236,210),Gdiplus::Color(8,255,236,210));
+                graphics.FillRectangle(&divider,Gdiplus::REAL(p(side)),Gdiplus::REAL(p(y)),Gdiplus::REAL(p(right-24-side)),Gdiplus::REAL(std::max(1,p(1))));
+                text(dc,label,side,y+14,labelWidth-12,28,fonts.body,tone,DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+            };
+            for(size_t i=0;i<rows.size();++i)rowLine(312+int(i)*waveOptionRow,rows[i],ink);
+            text(dc,L"Availability is shared online. Quiet mode and Do not disturb keep requests without desktop alerts.",side,1044,width,24,fonts.caption,muted,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+            rowLine(1076,L"Copy appearance from",ink);
+            if(const auto tag=heldTag())rowLine(1132,wide(identity::tag_label(*tag))+L" channel link",readableName(storedColor(tagColor(*tag)),ink));
+            return;
+        }
         const int half=(width-16)/2,second=side+(width+16)/2;
         caps(dc,L"INITIALS",side,306,half);
         caps(dc,L"AVATAR ACCENT",second,306,half);
@@ -4324,6 +4435,13 @@ struct Window {
         heading(dc, L"Mods folder", contentLeft + 20, 136, folderWidth);
         text(dc, mods::default_mods_directory().make_preferred().wstring(), contentLeft + 20, 160, folderWidth, 18,
              fonts.caption, muted, DT_LEFT | DT_SINGLELINE | DT_PATH_ELLIPSIS | DT_NOPREFIX);
+        if (waveStyle()) {
+            waveSection(dc, 212, 592, content, L"Load order", L"Top to bottom. Later mods win.", modList.size());
+            if (modList.empty())
+                waveEmpty(dc, contentLeft, right, 268, 528, L"No mods yet", L"Create one below, open the import tool, or drop mod folders into the mods folder.", false);
+            waveSection(dc, 608, 920, content, L"What it adds", modList.empty() ? std::wstring(L"Select a mod to see its contents.") : std::wstring(L"Choose a character or stage to remove it."));
+            return;
+        }
         panelBox(dc, contentLeft, 208, right, panelBottom);
         const int half = (content - 52) / 2, contentsLeft = contentLeft + 32 + half;
         heading(dc, L"Load order", contentLeft + 20, 220, 120);
@@ -4650,6 +4768,18 @@ struct Window {
         text(dc, message, contentLeft + 20, 184, content - 200, 18, fonts.caption, updateError ? red : muted,
              DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
         const Grid grid(content);
+        if (waveStyle()) {
+            waveSection(dc, 224, 224 + 64 + 3 * waveOptionRow + 12, content, L"Preferences",
+                settings.updateChannel ? L"Stable and prerelease: every published build, including test versions." : L"Stable: only versions marked stable.");
+            optionRows(dc, 224 + 64, content, {L"Update channel", L"Automatic updates", L"Manual check"});
+            waveSection(dc, 496, 640, content, L"How updates install", std::wstring());
+            text(dc, L"With automatic updates on, the launcher looks for a new version between game sessions. A found update downloads, "
+                     L"is checked against its published SHA-256, and installs after the game closes; your settings, saves and mods are kept.",
+                 contentLeft + 24, 538, content - 48, 46, fonts.caption, muted, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
+            text(dc, L"Reporting a problem? Attach startup.log or launcher.log from the logs folder.", contentLeft + 210, 598,
+                 content - 234, 18, fonts.caption, muted, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+            return;
+        }
         panelBox(dc, contentLeft, 224, right, 372);
         heading(dc, L"Preferences", contentLeft + 20, 236, content - 40);
         caps(dc, L"UPDATE CHANNEL", grid.x(0), Grid::label(236, 0), grid.column);
@@ -5007,6 +5137,60 @@ struct Window {
                (occupant ? L" with " + wide(occupant->name) : L"") +
                L"; press R2 (Right Shift) there to switch between them. " + into;
     }
+    void optionRows(HDC dc,int top,int content,const std::vector<std::wstring>& labels) {
+        const int labelWidth=std::clamp(content*2/5,180,420);
+        for(size_t i=0;i<labels.size();++i) {
+            const int rowTop=top+int(i)*waveOptionRow;
+            if(i>0) {
+                Gdiplus::Graphics graphics(dc);
+                Gdiplus::LinearGradientBrush divider(Gdiplus::PointF(Gdiplus::REAL(p(contentLeft+24)),0),Gdiplus::PointF(Gdiplus::REAL(p(contentLeft+content-24)),0),Gdiplus::Color(70,255,236,210),Gdiplus::Color(8,255,236,210));
+                graphics.FillRectangle(&divider,Gdiplus::REAL(p(contentLeft+24)),Gdiplus::REAL(p(rowTop)),Gdiplus::REAL(p(content-48)),Gdiplus::REAL(std::max(1,p(1))));
+            }
+            text(dc,labels[i],contentLeft+24,rowTop+14,labelWidth-16,28,fonts.body,ink,DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+        }
+    }
+    void waveSection(HDC dc,int top,int bottom,int content,const std::wstring& title,const std::wstring& note,size_t count=0) {
+        const int right=contentLeft+content;
+        panelBox(dc,contentLeft,top,right,bottom);
+        text(dc,title,contentLeft+24,top+12,300,28,fonts.brand,ink,DT_LEFT|DT_SINGLELINE|DT_NOPREFIX);
+        int noteLeft=contentLeft+24+measure(dc,title,fonts.brand)+14;
+        if(count) {
+            const auto number=std::to_wstring(count);
+            const int width=std::max(24,measure(dc,number,fonts.caption)+14);
+            box(dc,{p(noteLeft),p(top+17),p(noteLeft+width),p(top+37)},mix(panel,orange,60),mix(panel,orange,90),7);
+            text(dc,number,noteLeft,top+17,width,20,fonts.caption,ink,DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX);
+            noteLeft+=width+12;
+        }
+        if(!note.empty())text(dc,note,noteLeft,top+18,std::max(40,right-300-noteLeft),20,fonts.caption,muted,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+    }
+    void waveEmpty(HDC dc,int left,int right,int top,int bottom,const std::wstring& headline,const std::wstring& hint,bool icon) {
+        const int mid=(top+bottom)/2-12,centre=(left+right)/2;
+        const RECT ring{p(centre-18),p(mid-44),p(centre+18),p(mid-8)};
+        box(dc,ring,mix(panel,border,60),mix(panel,border,160),10);
+        avatarGlyph(dc,ring,icon ? 0 : 1,faint);
+        text(dc,headline,left+20,mid,right-left-40,20,fonts.strong,muted,DT_CENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+        text(dc,hint,left+20,mid+22,right-left-40,18,fonts.caption,faint,DT_CENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+    }
+    void paintOnlineWave(HDC dc,int content,bool online) {
+        const int right=contentLeft+content;
+        waveSection(dc,waveOnlinePlayersTop,waveOnlinePlayersTop+416,content,settings.onlinePlayerFilter ? L"Friends" : L"Players",
+            online ? L"Select a player, then invite, add or view their profile." : L"Players appear here when you are online.",playerRows.size());
+        if(playerRows.empty())
+            waveEmpty(dc,contentLeft,right,waveOnlinePlayersTop+56,waveOnlinePlayersTop+356,!online ? L"You are offline" : settings.onlinePlayerFilter ? L"No friends online" : L"No players yet",
+                !online ? L"Use Reconnect below to try the service again." : L"Try All players, or invite a friend by profile ID.",false);
+        const size_t openRooms=size_t(std::count_if(roomRows.begin(),roomRows.end(),[](const online::Room& candidate){return candidate.version==application_version;}));
+        waveSection(dc,waveOnlineRoomsTop,waveOnlineRoomsTop+392,content,L"Rooms",
+            openRooms<roomRows.size() ? std::to_wstring(roomRows.size()-openRooms)+L" need another version" : std::wstring(L"Join a room, or type a host's address."),roomRows.size());
+        if(roomRows.empty()) {
+            const bool filtered=!trimmed(textOf(OnlineSearch)).empty() || settings.onlineRoomFilter!=1;
+            waveEmpty(dc,contentLeft,right,waveOnlineRoomsTop+100,waveOnlineRoomsTop+320,online ? L"No matching rooms" : L"You are offline",
+                online ? (filtered ? L"Change the filter, or host a room below." : L"Host one below, or invite a player.") : L"Use Reconnect to try the service again.",true);
+        }
+        const bool hosting=room && roomHost;
+        waveSection(dc,waveOnlineHostTop,waveOnlineHostTop+64+4*waveOptionRow+12,content,L"Host a room",
+            hosting ? L"Your room is open. Invite a player, or wait for someone to join." : online ? L"You are player 1. Your router's port is opened for you when it allows it." : L"Go online with a profile to host a room.");
+        optionRows(dc,waveOnlineHostTop+64,content,{L"Room name",L"Password",L"Input delay",L"Who can see it"});
+    }
     void paintOnline(HDC dc, int h, int content) {
         const int right = contentLeft + content;
         const Grid grid(content);
@@ -5068,6 +5252,7 @@ struct Window {
         fill(dc, {p(grid.x(1) - 9), p(onlineProfileTop + 20), p(grid.x(1) - 8), p(onlineProfileTop + 84)}, mix(panel, border, 160));
         label(onlineProfileTop - 20, 0, 1, settings.onlineProfiles.size() > 1 ? L"SWITCH PROFILE" : L"PROFILE");
         label(onlineProfileTop - 20, 0, 2, L"NEW PROFILE");
+        if (waveStyle()) { paintOnlineWave(dc, content, online); return; }
 
         const bool hosting = room && roomHost;
         const std::wstring hostNote = hosting ? L"Your room is open. Invite a player, or wait for someone to join."
@@ -5156,9 +5341,16 @@ struct Window {
     void paintSpeedrun(HDC dc, int h, int content) {
         const int right = contentLeft + content;
         const Grid grid(content);
-        const bool compact = h < 700;
-        const int rulesTop = compact ? 496 : speedrunRulesTop;
+        const bool wave = waveStyle();
+        const bool compact = h < 700 && !wave;
+        const int splitsTop = wave ? 444 : classicSplitsTop;
+        const int rulesTop = wave ? splitsTop + (speedrunRulesTop - classicSplitsTop) : compact ? 496 : speedrunRulesTop;
         const int splitBottom = rulesTop - 12;
+        if (wave) {
+            waveSection(dc, speedrunTop, speedrunTop + 64 + 4 * waveOptionRow + 12, content, L"Run",
+                settings.speedrun ? (speedrun::tournament(speedrun::Category(settings.speedrun)) ? L"Automatic timing. F9/F10/F11 override, F8 resets." : L"Mods are off during a run. F7 hides the overlay, F8 resets.") : L"Choose a category to time runs.");
+            optionRows(dc, speedrunTop + 64, content, {L"Category", L"Permadeath", L"Randomizer", L"CPU difficulty"});
+        } else {
         panelBox(dc, contentLeft, speedrunTop, right, speedrunTop + 160);
         heading(dc, L"Run", contentLeft + 20, speedrunTop + 12, 200);
         text(dc, settings.speedrun ? (speedrun::tournament(speedrun::Category(settings.speedrun)) ? L"Automatic timing. F9/F10/F11: manual overrides. F8 resets." : L"Mods are off while a category is chosen. F7 hides the overlay; F8 resets.")
@@ -5172,6 +5364,7 @@ struct Window {
         text(dc, L"Z1 to Z6 runs are timed as their own categories, with their own splits.", grid.x(1),
              Grid::field(speedrunTop, 1) + 8, grid.column * 2 + 16, 28, fonts.caption, muted,
              DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
+        }
         panelBox(dc, contentLeft, splitsTop, right, splitBottom);
         const std::wstring splitTitle = settings.speedrun ? L"Splits · " +
             wide(speedrun::category_label(speedrun::Category(std::min(settings.speedrun, speedrun::category_count - 1)),
