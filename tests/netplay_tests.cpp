@@ -216,6 +216,32 @@ void wrong_build_is_refused() {
     require(status.phase == Phase::ended && status.message.find("different OpenKai2 build") != std::string::npos,
             "mismatched builds are refused: " + status.message);
 }
+
+void wrong_version_is_refused() {
+    FakeMachine hostMachine{true}, guestMachine{false};
+    Options hostOptions;
+    hostOptions.port = 0;
+    hostOptions.identity = "same-build";
+    hostOptions.version = "0.6.4";
+    Session host(hostOptions, hostMachine.bind());
+    host.start();
+    for (int i = 0; i < 200 && !host.listening_port(); ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    Options guestOptions;
+    guestOptions.host = false;
+    guestOptions.address = "127.0.0.1";
+    guestOptions.port = host.listening_port();
+    guestOptions.identity = "same-build";
+    guestOptions.version = "0.5.7";
+    Session guest(guestOptions, guestMachine.bind());
+    guest.start();
+    for (int i = 0; i < 500 && guest.status().phase != Phase::ended; ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    const auto status = guest.status();
+    require(status.phase == Phase::ended && status.message.find("v0.5.7") != std::string::npos &&
+                status.message.find("v0.6.4") != std::string::npos,
+            "players on different versions are refused: " + status.message);
+}
 }
 
 void name_rules() {
@@ -960,6 +986,7 @@ int main() {
         direct_link_on_one_machine();
         relay_through_service();
         wrong_build_is_refused();
+        wrong_version_is_refused();
         name_rules();
         service_format();
         service_rooms_invites_passwords();

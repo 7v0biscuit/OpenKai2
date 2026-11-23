@@ -59,7 +59,9 @@ the **Players** list update live. **Refresh** also rechecks room latency.
   stops waiting in a room and **Ctrl+R** refreshes the lists.
 
 The game does not start while you wait. Both launchers first meet in the room,
-check the version, password and connection, and measure the ping. Only then do
+check the version, password and connection, and measure the ping. Both
+players need the same OpenKai2 version; a game from a different version is
+refused with both version numbers so you know who needs to update. Only then do
 both games start together. Press **Cancel** or **Close room** to stop waiting.
 
 ## Hosting
@@ -304,8 +306,10 @@ Online matches use rollback netcode. Input delay is capped at 2 frames; when
 the other player's buttons for a frame have not arrived yet, the game repeats
 their last known buttons and keeps running. If the real buttons turn out
 different, the game returns to the last correct frame and replays up to the
-present without drawing or sound. It runs up to 8 frames ahead of the other
-player before it waits. Rollback keeps working through loading screens. In the
+present without drawing or sound. It runs up to 10 frames ahead of the other
+player before it waits. Three times a second the two games compare how far
+ahead each one is; the one that is ahead slows down by about 2 ms a frame until
+they are level, so it rarely has to stop and wait. Rollback keeps working through loading screens. In the
 few frames the game cannot be saved, such as while it uses the memory card, it
 waits for the other player's buttons instead of guessing. Set `OPENKAI2_NETPLAY_ROLLBACK=0` on both PCs to go
 back to plain lockstep. `OPENKAI2_NETPLAY_LAG_MS` adds artificial delay to

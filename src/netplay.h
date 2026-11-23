@@ -19,14 +19,14 @@
 
 namespace openkai2::netplay {
 
-inline constexpr uint32_t protocol_version = 5;
+inline constexpr uint32_t protocol_version = 6;
 inline constexpr uint16_t default_port = 7350;
 inline constexpr unsigned max_delay = 8;
 inline constexpr uint64_t hash_interval = 120;
 inline constexpr uint8_t probe_message = 12;
-inline constexpr unsigned max_prediction = 8;
+inline constexpr unsigned max_prediction = 10;
 inline constexpr unsigned rollback_delay = 2;
-inline constexpr unsigned sync_interval = 30;
+inline constexpr unsigned sync_interval = 10;
 inline constexpr unsigned max_sync_wait = 3;
 inline constexpr unsigned rollback_display_frames = 120;
 inline constexpr unsigned max_resyncs = 3;
@@ -128,6 +128,7 @@ class Session {
     bool resync_point(uint64_t tick);
     void mark_desync(uint64_t tick, uint64_t start);
     std::chrono::microseconds time_sync(uint64_t tick, uint64_t start, unsigned delay);
+    int64_t pacingDebt_ = 0;
 
     Options options_;
     Machine machine_;

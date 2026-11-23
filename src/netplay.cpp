@@ -409,9 +409,13 @@ int Session::handshake() {
         const std::string identity = in.text(), name = in.text(64), password = in.text(128), theirs = in.text(64);
         const uint32_t theirColor = in.u32();
         const unsigned theirEffect = in.need(1) ? in.data[in.at++] : 0u;
+        const std::string theirVersion = in.text(32);
         std::string problem;
         if (!in.ok || version != protocol_version)
             problem = "The other player has a different OpenKai2 version";
+        else if (!options_.version.empty() && !theirVersion.empty() && theirVersion != options_.version)
+            problem = "The other player has OpenKai2 v" + theirVersion + " and you have v" + options_.version +
+                      ". Both players need the same version";
         else if (identity != options_.identity)
             problem = "The other player has a different OpenKai2 build or game disc";
         else if (password != options_.password && (options_.invite_token.empty() || password != options_.invite_token))
@@ -464,6 +468,7 @@ int Session::handshake() {
         put_text(out, ours);
         put32(out, options_.name_color);
         out.push_back(uint8_t(options_.name_effect));
+        put_text(out, options_.version);
         if (!write_frame(hello, out) || !read_frame(type, payload, 180000)) {
             end("The host did not answer");
             return 0;
@@ -906,17 +911,26 @@ bool Session::resync_point(uint64_t tick) {
 }
 
 std::chrono::microseconds Session::time_sync(uint64_t tick, uint64_t start, unsigned delay) {
+    const auto pace = [&]() -> std::chrono::microseconds {
+        if (pacingDebt_ <= 0)
+            return {};
+        const int64_t step = std::min<int64_t>(pacingDebt_, 2500);
+        pacingDebt_ -= step;
+        return std::chrono::microseconds(step);
+    };
     if (!options_.rollback || !machine_.capture || !machine_.restore || tick <= start + delay ||
         (tick - start) % sync_interval != 0)
-        return {};
+        return pace();
     int64_t local = 0;
     unsigned frames = 0;
     {
         std::lock_guard lock(mutex_);
-        if (replaying_ || status_.phase != Phase::playing)
+        if (replaying_ || status_.phase != Phase::playing) {
+            pacingDebt_ = 0;
             return {};
+        }
         local = int64_t(tick) - int64_t(newestRemote_);
-        if (remoteAdvantageFresh_ && local - remoteAdvantage_ >= 3) {
+        if (remoteAdvantageFresh_ && pacingDebt_ <= 0 && local - remoteAdvantage_ >= 2) {
             frames = unsigned(std::min<int64_t>((local - remoteAdvantage_) / 2, max_sync_wait));
             remoteAdvantageFresh_ = false;
             ++rollbackStats_.waits;
@@ -926,7 +940,8 @@ std::chrono::microseconds Session::time_sync(uint64_t tick, uint64_t start, unsi
     std::vector<uint8_t> payload;
     put32(payload, uint32_t(int32_t(std::clamp<int64_t>(local, INT32_MIN, INT32_MAX))));
     send(advantage, std::move(payload));
-    return frames ? std::chrono::microseconds(frames * 16667u + 1000u) : std::chrono::microseconds{};
+    pacingDebt_ += int64_t(frames) * 16667;
+    return pace();
 }
 
 RollbackStats Session::rollback_stats() const {
