@@ -5309,6 +5309,41 @@ struct Window {
                 }
             for(int i=0;i<9;++i){const float lx2=P(cl+190+i*14),ly2=P(cb-46-i%3*6);Gdiplus::Pen speed(rgba(RGB(255,255,255),40+i%3*20),P(1+i%2));g.DrawLine(&speed,lx2,ly2,lx2+P(60+i*6),ly2);}
         }
+        {
+            const float bx=P(cr-120),by=P(cb-96),br=P(70);
+            Gdiplus::SolidBrush ballFill(rgba(RGB(255,160,30),34));g.FillEllipse(&ballFill,bx-br,by-br,br*2,br*2);
+            Gdiplus::Pen ballInk(rgba(RGB(14,8,6),60),P(3));g.DrawEllipse(&ballInk,bx-br,by-br,br*2,br*2);
+            Gdiplus::SolidBrush ballShine(rgba(RGB(255,255,255),28));g.FillEllipse(&ballShine,bx-br*0.6f,by-br*0.75f,br*0.7f,br*0.45f);
+            for(int i=0;i<4;++i){const float sx=bx+(i%2 ? br*0.28f : -br*0.28f),sy=by+(i/2 ? br*0.3f : -br*0.26f),sr=br*0.2f;
+                Gdiplus::PointF star[10];for(int k=0;k<10;++k){const float a=-3.14159f/2+k*3.14159f/5,rr=k%2 ? sr*0.42f : sr;star[k]={sx+std::cos(a)*rr,sy+std::sin(a)*rr};}
+                Gdiplus::SolidBrush starFill(rgba(RGB(220,40,30),46));g.FillPolygon(&starFill,star,10);}
+        }
+        {
+            const float acx=P(cl+118),acy=P(ct+ch/2-12);
+            for(int layer=0;layer<2;++layer) {
+                Gdiplus::GraphicsPath aura;
+                const int spikes=11;const float inner=P(layer ? 70 : 76),outer=P(layer ? 104 : 124);
+                std::vector<Gdiplus::PointF> points;
+                for(int i=0;i<=spikes*2;++i){const float a=-3.14159f/2+i*3.14159f/spikes,rr=i%2 ? inner : outer*(0.82f+0.18f*float((i*7)%5)/4.f);points.push_back({acx+std::cos(a)*rr*0.92f,acy+std::sin(a)*rr*(a<0 ? 1.1f : 0.8f)});}
+                aura.AddClosedCurve(points.data(),int(points.size()),0.35f);
+                Gdiplus::SolidBrush auraFill(rgba(layer ? mix(face.accent,RGB(255,255,255),120) : face.accent,layer ? 70 : 90));g.FillPath(&auraFill,&aura);
+                if(!layer){Gdiplus::Pen auraInk(rgba(RGB(14,8,6),140),P(2));g.DrawPath(&auraInk,&aura);}
+            }
+            for(int i=0;i<7;++i) {
+                const float a=3.14159f*(0.15f+0.12f*i),rr=P(96+(i%3)*16),rx=acx+std::cos(a)*rr*1.2f,ry=acy+std::sin(a)*rr*0.55f+P(20),rs=P(5+i%3*3);
+                const Gdiplus::PointF rock[]={{rx-rs,ry},{rx-rs*0.4f,ry-rs*0.9f},{rx+rs*0.7f,ry-rs*0.7f},{rx+rs,ry+rs*0.2f},{rx+rs*0.2f,ry+rs*0.8f}};
+                Gdiplus::SolidBrush rockFill(rgba(RGB(150,120,96),230));g.FillPolygon(&rockFill,rock,5);
+                const Gdiplus::PointF lit[]={{rx-rs*0.4f,ry-rs*0.9f},{rx+rs*0.7f,ry-rs*0.7f},{rx+rs*0.1f,ry-rs*0.2f}};
+                Gdiplus::SolidBrush rockLit(rgba(RGB(210,190,160),230));g.FillPolygon(&rockLit,lit,3);
+                Gdiplus::Pen rockInk(rgba(RGB(14,8,6),255),P(2));rockInk.SetLineJoin(Gdiplus::LineJoinRound);g.DrawPolygon(&rockInk,rock,5);
+            }
+            for(int i=0;i<4;++i) {
+                const float a=-2.4f+i*1.35f,r0=P(66),sx=acx+std::cos(a)*r0,sy=acy+std::sin(a)*r0,dx=std::cos(a),dy=std::sin(a),nx=-dy,ny=dx;
+                const Gdiplus::PointF zig[]={{sx,sy},{sx+dx*P(10)+nx*P(6),sy+dy*P(10)+ny*P(6)},{sx+dx*P(16)-nx*P(5),sy+dy*P(16)-ny*P(5)},{sx+dx*P(26)+nx*P(3),sy+dy*P(26)+ny*P(3)}};
+                Gdiplus::Pen sparkInk(rgba(RGB(14,8,6),200),P(4)),spark(rgba(RGB(255,255,230),240),P(2));
+                for(auto* pen:{&sparkInk,&spark}){pen->SetLineJoin(Gdiplus::LineJoinRound);pen->SetStartCap(Gdiplus::LineCapRound);pen->SetEndCap(Gdiplus::LineCapRound);g.DrawLines(pen,zig,4);}
+            }
+        }
         const int strip=34;
         Gdiplus::SolidBrush stripFill(rgba(RGB(8,6,12),200));g.FillRectangle(&stripFill,P(cl),P(cb-strip),P(cw),P(strip));
         Gdiplus::Pen stripLine(rgba(face.accent,230),P(2));g.DrawLine(&stripLine,P(cl),P(cb-strip),P(cr),P(cb-strip));
@@ -5321,6 +5356,15 @@ struct Window {
         g.FillPolygon(&slashFill,slash,4);
         Gdiplus::SolidBrush gloss(rgba(RGB(255,255,255),50));
         const Gdiplus::PointF shine[]={{P(sl+skew),P(st)},{P(sr),P(st)},{P(sr-skew*0.4f),P(st+12)},{P(sl+skew*0.6f),P(st+12)}};g.FillPolygon(&gloss,shine,4);
+        {
+            Gdiplus::GraphicsPath slashPath;slashPath.AddPolygon(slash,4);
+            Gdiplus::Region outer;g.GetClip(&outer);g.SetClip(&slashPath,Gdiplus::CombineModeIntersect);
+            for(int i=sl-40;i<sr;i+=10){Gdiplus::Pen pin(rgba(RGB(255,255,255),22),P(3));g.DrawLine(&pin,P(i),P(sb),P(i+28),P(st));}
+            Gdiplus::SolidBrush lowerBand(rgba(RGB(0,0,0),40));g.FillRectangle(&lowerBand,P(sl),P(sb-12),P(sr-sl),P(12));
+            g.SetClip(&outer);
+            const Gdiplus::PointF innerLine[]={{P(sl+skew+6),P(st+5)},{P(sr-7),P(st+5)},{P(sr-skew-3),P(sb-5)},{P(sl+3),P(sb-5)}};
+            Gdiplus::Pen innerPen(rgba(RGB(255,255,255),110),P(1));g.DrawPolygon(&innerPen,innerLine,4);
+        }
         Gdiplus::Pen slashInk(inkColor,P(3));slashInk.SetLineJoin(Gdiplus::LineJoinMiter);g.DrawPolygon(&slashInk,slash,4);
         g.ResetClip();
         Gdiplus::Pen border(inkColor,P(4));g.DrawPath(&border,&body);
@@ -5330,9 +5374,19 @@ struct Window {
         const int bl=18;
         for(const auto [bx,by,dx,dy]:{std::array<int,4>{cl+8,ct+8,1,1},{cr-8,ct+8,-1,1},{cl+8,cb-8,1,-1},{cr-8,cb-8,-1,-1}}){
             const Gdiplus::PointF corner[]={{P(bx),P(by+dy*bl)},{P(bx),P(by)},{P(bx+dx*bl),P(by)}};g.DrawLines(&bracket,corner,3);}
+        for(const auto [bx,by]:{std::pair{cl+14,ct+14},{cr-14,ct+14},{cl+14,cb-14},{cr-14,cb-14}}) {
+            const float rr=P(4);Gdiplus::SolidBrush boltInk(inkColor);g.FillEllipse(&boltInk,P(bx)-rr-P(1),P(by)-rr-P(1),(rr+P(1))*2,(rr+P(1))*2);
+            Gdiplus::SolidBrush bolt(rgba(RGB(210,214,224),255));g.FillEllipse(&bolt,P(bx)-rr,P(by)-rr,rr*2,rr*2);
+            Gdiplus::Pen slot(inkColor,P(1));g.DrawLine(&slot,P(bx)-rr*0.6f,P(by)+rr*0.6f,P(bx)+rr*0.6f,P(by)-rr*0.6f);
+        }
         avatar(dc,p(cl+118),p(ct+ch/2-12),p(54),face.name,face.id,panel,-1,false,face.frame);
         const unsigned level=profileLevel(face.matches);
         const float lx=P(cl+164),ly=P(ct+ch/2+30),lr=P(20);
+        {
+            Gdiplus::PointF burst[24];for(int i=0;i<24;++i){const float a=i*3.14159f/12,rr=i%2 ? lr*1.25f : lr*1.75f;burst[i]={lx+std::cos(a)*rr,ly+std::sin(a)*rr};}
+            Gdiplus::SolidBrush burstFill(rgba(RGB(255,90,40),255));g.FillPolygon(&burstFill,burst,24);
+            Gdiplus::Pen burstInk(inkColor,P(2));burstInk.SetLineJoin(Gdiplus::LineJoinMiter);g.DrawPolygon(&burstInk,burst,24);
+        }
         Gdiplus::SolidBrush levelInk(inkColor);g.FillEllipse(&levelInk,lx-lr-P(3),ly-lr-P(3),(lr+P(3))*2,(lr+P(3))*2);
         Gdiplus::LinearGradientBrush levelFill(Gdiplus::PointF(0,ly-lr),Gdiplus::PointF(0,ly+lr),rgba(RGB(255,236,140),255),rgba(RGB(230,150,20),255));
         g.FillEllipse(&levelFill,lx-lr,ly-lr,lr*2,lr*2);
