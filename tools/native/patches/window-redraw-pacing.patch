@@ -33,7 +33,7 @@
 +            // EndDrawing normally pumps input. Keep pumping while the producer
 +            // is busy, without submitting thousands of identical window blits.
 +            PollInputEvents();
-+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
++            presenter.wait_for_frame(completedFrame, std::chrono::milliseconds(2));
 +            continue;
 +        }
 +        if (completedFrame == lastWindowFrame && debugOverlay)
