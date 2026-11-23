@@ -226,14 +226,20 @@ the service while you are offline, so friends still see your picture. Choosing
 - **Frame**: sixteen picture frames, from Saiyan gold to Time chamber.
 - **Frame color**: keep the frame's own colors or tint it gold, silver, Super
   Saiyan Blue, Namek green and more.
-- **Card design**: sixteen backdrops, such as Starfield, Kame House sea, Lookout
-  clouds and Aurora.
-- **Title**: thirty-two titles. Most unlock with your level; some need an
-  achievement, including the speedrun titles.
+- **Card design**: sixteen comic-style backdrops from Dragon Ball Z, such as
+  Saiyan space pod, Kame House, Kami's Lookout, Planet Vegeta, Dying Namek,
+  Rocky wasteland, Cell Games arena and King Kai's planet.
+- **Title**: forty-one titles. Most unlock with your level; some need an
+  achievement, including the speedrun and skill titles. Four developer titles
+  (OpenKai2 Developer, Lead Developer, Grand Kai of Code and Bug Slayer) are
+  only for profiles with the developer key, which can also use every title and
+  feature any achievement.
 - **Featured achievement**: show one achievement you have unlocked under your
   name.
 
 On the Wave home the Profile page shows your card as players see it at the top,
+drawn as a Budokai 2 style panel with your name banner, title ribbon, level
+badge and experience bar,
 with **Card look**, **About you**, **Privacy & alerts** and the save buttons
 below. Launchers older than v0.6.2 don't show cards from v0.6.2 or later.
 

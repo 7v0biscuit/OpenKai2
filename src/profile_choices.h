@@ -20,17 +20,18 @@ inline constexpr std::array<const char *, 16> frame_names = {"Accent ring", "Sai
                                                             "Spirit Bomb", "Frieza ring", "Namekian", "Majin seal",
                                                             "Galick flare", "Destructo disc", "Solar flare", "Time chamber"};
 inline constexpr unsigned frame_count = unsigned(frame_names.size());
-inline constexpr std::array<const char *, 16> backdrop_names = {"Plain", "Starfield", "Speed lines", "Ki burst",
-                                                               "Namek sky", "Tournament stage", "Capsule grid", "Dragon Radar",
-                                                               "Kame House sea", "Time chamber void", "Red planet", "Lookout clouds",
-                                                               "Lava wasteland", "Snowy peaks", "Cell Games ring", "Aurora"};
+inline constexpr std::array<const char *, 16> backdrop_names = {"Plain", "Saiyan space pod", "Battle speed lines", "Ki burst",
+                                                               "Namek sky", "World Tournament", "Capsule Corp", "Dragon Radar",
+                                                               "Kame House", "Hyperbolic Time Chamber", "Planet Vegeta", "Kami's Lookout",
+                                                               "Dying Namek", "Rocky wasteland", "Cell Games arena", "King Kai's planet"};
 inline constexpr unsigned backdrop_count = unsigned(backdrop_names.size());
 struct TitleChoice {
     const char *name;
     unsigned level;
     int achievement;
 };
-inline constexpr std::array<TitleChoice, 37> title_choices = {{
+inline constexpr int developer_title = -2;
+inline constexpr std::array<TitleChoice, 41> title_choices = {{
     {"No title", 0, -1}, {"Earthling", 1, -1}, {"Martial Artist", 2, -1}, {"Turtle School", 3, -1},
     {"Crane School", 3, -1}, {"Z Fighter", 5, -1}, {"Saiyan Warrior", 8, -1}, {"Namekian Sage", 8, -1},
     {"Super Saiyan", 12, -1}, {"Capsule Corp Ace", 12, -1}, {"World Champion", 0, 11}, {"Saga Hero", 0, 10},
@@ -41,6 +42,8 @@ inline constexpr std::array<TitleChoice, 37> title_choices = {{
     {"Beyond the Limit", 0, 18}, {"Record Breaker", 0, 19}, {"Unstoppable Force", 0, 22}, {"Online Contender", 0, 27},
     {"Limit Breaker", 0, 30}, {"Ultra Instinct", 0, 31}, {"Against All Odds", 0, 32}, {"Perfect Form", 0, 34},
     {"Online Rampage", 0, 40},
+    {"OpenKai2 Developer", 0, developer_title}, {"Lead Developer", 0, developer_title}, {"Grand Kai of Code", 0, developer_title},
+    {"Bug Slayer", 0, developer_title},
 }};
 inline constexpr unsigned title_count = unsigned(title_choices.size());
 struct FrameColor {
