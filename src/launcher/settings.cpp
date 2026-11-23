@@ -64,7 +64,7 @@ void validate_settings(const Settings &s) {
         s.onlineAddress.size() > 255 || s.onlineRoom.size() > 64 || s.onlinePassword.size() > 64 ||
         s.onlineLobby.size() > 255 || s.onlineProfiles.size() > 32 || s.onlineRoomFilter > 2 || s.onlinePlayerFilter > 1 || s.homeFriendScope > 3)
         throw std::runtime_error("Invalid online settings");
-    if (s.launcherTheme >= theme_count || s.launcherAccent >= accent_count || s.startPage > 1 || s.lastPage >= tab_count || s.launcherInterface > 1 || s.waveSky > 10 || s.launcherClock > 3 || s.waveRibbons > 2 ||
+    if (s.launcherTheme >= theme_count || s.launcherAccent >= accent_count || s.startPage > 1 || s.lastPage >= tab_count || s.launcherInterface > 1 || s.waveSky > 11 || s.launcherClock > 3 || s.waveRibbons > 2 ||
         !valid_tab_order(s.tabOrder, s.hiddenTabs) || !valid_custom_colors(s.launcherColors))
         throw std::runtime_error("Invalid launcher appearance settings");
     std::set<std::string> profileIds;

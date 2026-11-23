@@ -70,8 +70,10 @@ A message in the corner names your new character when a fight starts.
   Customize overlay on Speedrun, Import tool on Mods and the Settings section
   buttons, and their panels take their tint from the Wave sky.
 - **Wave sky:** Time of day, Saiyan sunset, Namek, Kaio-ken, Kami's lookout,
-  Frieza night, Ki blue, Time chamber, Planet Vegeta, Kame House dusk or Majin
-  pink.
+  Frieza night, Ki blue, Time chamber, Planet Vegeta, Kame House dusk, Majin
+  pink or Starry night. Small stars twinkle slowly in the sky on every Wave
+  page, only where the background shows, and a shooting star crosses now and
+  then. With reduced motion the stars stay still.
 - **Clock:** the Windows time format, 12-hour, 24-hour, or hidden.
 - **Wave ribbons:** Lively, Calm (slower, gentler ribbons) or Off (just the
   sky).

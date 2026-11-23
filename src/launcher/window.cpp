@@ -1324,7 +1324,9 @@ struct Window {
         const auto found = std::find(shown.begin(), shown.end(), tab);
         return found == shown.end() ? -1 : int(found - shown.begin());
     }
+    double pinnedClock=-1.0;
     double profileClock() const {
+        if(pinnedClock>=0.0)return pinnedClock;
         const double now=double(motionTicks());
         return settings.reducedMotion ? now*0.3 : now;
     }
@@ -1716,6 +1718,7 @@ struct Window {
         case 8:return {RGB(20,4,6),RGB(120,24,20),RGB(230,110,60)};
         case 9:return {RGB(14,20,48),RGB(40,120,140),RGB(250,170,90)};
         case 10:return {RGB(30,6,26),RGB(150,50,120),RGB(255,170,210)};
+        case 11:return {RGB(1,12,26),RGB(3,22,42),RGB(8,36,64)};
         default:return {RGB(10,12,34),mix(RGB(70,30,78),orange,70),mix(orange,RGB(150,52,12),96)};
         }
     }
@@ -1794,6 +1797,8 @@ struct Window {
             GdiFlush();
             std::copy(waveBackdrop.begin(),waveBackdrop.end(),buffer.frame.pixels);
         }
+        GdiFlush();
+        drawSky(buffer.frame.pixels,buffer.frame.width,buffer.frame.height,0,height,[](int,int){return true;});
         {
             Gdiplus::Graphics graphics(dc);
             graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
@@ -2182,7 +2187,46 @@ struct Window {
     COLORREF nameInk(const std::string& id,COLORREF fallback) {return readableName(nameColorOf(id),fallback);}
     static constexpr const wchar_t* name_effect_names[]={L"",L"Shenron wish",L"Fusion dance",L"Super Saiyan",L"Ki blast",L"Frost demon",L"Galick Gun",L"Majin Buu",L"Death Ball",L"Kaio-ken",L"Kaio-ken x20",L"Red Ribbon",L"Namek inferno",L"Kamehameha",L"Perfect Cell",L"Super Saiyan 2",L"Dragon Balls",L"Spirit Bomb",L"Majin magic",L"Candy beam",L"Instant Transmission",L"Champion belt",L"Cell Games",L"Dragon Fist",L"Planet Vegeta",L"Big Bang Attack",L"Piccolo",L"Powering up",L"Ginyu Force",L"Dynamite Kick",L"Kid Buu rampage"};
     bool effectPainted=false,pageEffectPainted=false,drawingRow=false,recordingMotion=false;
-    struct Motion {RECT rect;std::vector<uint32_t> under;std::function<void(HDC)> draw;};
+    struct Motion {RECT rect;std::vector<uint32_t> under;std::function<void(HDC)> draw;double clock=0.0;std::vector<uint32_t> overlay;std::vector<uint8_t> mask;};
+    void applyOverlay(const Motion& motion,LONG shift) {
+        if(motion.mask.empty())return;
+        GdiFlush();
+        const size_t width=size_t(motion.rect.right-motion.rect.left);
+        for(LONG y=motion.rect.top;y<motion.rect.bottom;++y) {
+            const LONG row=y+shift;
+            if(row<0 || row>=buffer.frame.height)continue;
+            uint32_t* target=buffer.frame.pixels+size_t(row)*size_t(buffer.frame.width)+size_t(motion.rect.left);
+            const size_t base=size_t(y-motion.rect.top)*width;
+            for(size_t x=0;x<width;++x)if(motion.mask[base+x])target[x]=motion.overlay[base+x];
+        }
+    }
+    void sealMotions() {
+        if(motions.empty() || !buffer.frame.pixels)return;
+        for(auto& motion:motions) {
+            GdiFlush();
+            const size_t width=size_t(motion.rect.right-motion.rect.left),count=width*size_t(motion.rect.bottom-motion.rect.top);
+            std::vector<uint32_t> finished;finished.reserve(count);
+            for(LONG y=motion.rect.top;y<motion.rect.bottom;++y){const auto row=buffer.frame.pixels+size_t(y)*size_t(buffer.frame.width)+size_t(motion.rect.left);finished.insert(finished.end(),row,row+width);}
+            for(LONG y=motion.rect.top;y<motion.rect.bottom;++y)
+                std::copy_n(motion.under.begin()+ptrdiff_t(size_t(y-motion.rect.top)*width),width,buffer.frame.pixels+size_t(y)*size_t(buffer.frame.width)+size_t(motion.rect.left));
+            pinnedClock=motion.clock;
+            const int saved=SaveDC(buffer.dc);
+            IntersectClipRect(buffer.dc,motion.rect.left,motion.rect.top,motion.rect.right,motion.rect.bottom);
+            motion.draw(buffer.dc);
+            RestoreDC(buffer.dc,saved);
+            pinnedClock=-1.0;
+            GdiFlush();
+            motion.mask.assign(count,0);
+            bool any=false;
+            for(LONG y=motion.rect.top;y<motion.rect.bottom;++y) {
+                const auto row=buffer.frame.pixels+size_t(y)*size_t(buffer.frame.width)+size_t(motion.rect.left);
+                const size_t base=size_t(y-motion.rect.top)*width;
+                for(size_t x=0;x<width;++x)if(row[x]!=finished[base+x]){motion.mask[base+x]=1;any=true;}
+                std::copy_n(finished.begin()+ptrdiff_t(base),width,row);
+            }
+            if(any)motion.overlay=std::move(finished);else motion.mask.clear();
+        }
+    }
     std::vector<Motion> motions;
     bool motionTick=false;
     bool paintMotionsInPlace(const RECT& update,const RECT& client) {
@@ -2216,6 +2260,8 @@ struct Window {
             motion.draw(buffer.dc);
             RestoreDC(buffer.dc,saved);
         }
+        for(const auto& motion:motions)
+            if(!(motion.rect.bottom+shift<=top || motion.rect.top+shift>=bottom))applyOverlay(motion,shift);
         return true;
     }
     void recordMotion(HDC dc,RECT r,std::function<void(HDC)> draw) {
@@ -2224,7 +2270,7 @@ struct Window {
         r.right=std::min(LONG(buffer.frame.width),r.right);r.bottom=std::min(LONG(buffer.frame.height),r.bottom);
         if(r.right<=r.left || r.bottom<=r.top)return;
         GdiFlush();
-        Motion motion{r,{},std::move(draw)};
+        Motion motion{r,{},std::move(draw),profileClock(),{},{}};
         const size_t width=size_t(r.right-r.left);
         motion.under.reserve(width*size_t(r.bottom-r.top));
         for(LONG y=r.top;y<r.bottom;++y) {
@@ -2248,6 +2294,8 @@ struct Window {
             motion.draw(buffer.dc);
             RestoreDC(buffer.dc,saved);
         }
+        GdiFlush();
+        for(const auto& motion:motions)applyOverlay(motion,0);
     }
     std::optional<identity::Tag> heldTag() const {
         const auto profile=activeProfile();if(!profile)return std::nullopt;
@@ -3186,189 +3234,149 @@ struct Window {
         rounded.AddArc(x+w-r*2,y+h-r*2,r*2,r*2,0,90);rounded.AddArc(x,y+h-r*2,r*2,r*2,90,90);rounded.CloseFigure();
         g.SetClip(&rounded);
         const auto color=[](COLORREF c,int a){return Gdiplus::Color(BYTE(std::clamp(a,0,255)),GetRValue(c),GetGValue(c),GetBValue(c));};
-        const float cx=x+w/2,cy=y+float(p(100)),unit=float(std::max(1,p(1)));
-        const auto ink=[&](int a){return Gdiplus::Color(BYTE(a),14,8,6);};
-        const auto flat=[&](COLORREF c,int a,float fx,float fy,float fw,float fh){Gdiplus::SolidBrush b(color(c,a));g.FillRectangle(&b,fx,fy,fw,fh);};
-        const auto halftone=[&](COLORREF c,int a,float top,float bottom,bool grow) {
-            const float step=unit*9;
-            Gdiplus::SolidBrush dot(color(c,a));
-            for(float dy=top;dy<bottom;dy+=step)
-                for(float dx=x+(int((dy-top)/step)%2 ? step/2 : 0);dx<x+w;dx+=step) {
-                    const float t=std::clamp((dy-top)/std::max(1.f,bottom-top),0.f,1.f),size=step*0.42f*(grow ? t : 1-t);
-                    if(size>unit*0.6f)g.FillEllipse(&dot,dx-size,dy-size,size*2,size*2);
-                }
+        const float unit=float(std::max(1,p(1)));
+        const auto hash=[](uint32_t v){v^=v>>16;v*=0x7feb352du;v^=v>>15;v*=0x846ca68bu;v^=v>>16;return v;};
+        const auto unitRandom=[&](uint32_t seed){return float(hash(seed)&0xffffu)/65535.f;};
+        const auto sky=[&](COLORREF top,COLORREF bottom,int alpha){
+            Gdiplus::LinearGradientBrush b(Gdiplus::PointF(0,y-1),Gdiplus::PointF(0,y+h+1),color(top,alpha),color(bottom,alpha));g.FillRectangle(&b,x,y,w,h);
         };
-        const auto inked=[&](Gdiplus::GraphicsPath& path,COLORREF c,int a) {
-            Gdiplus::SolidBrush b(color(c,a));g.FillPath(&b,&path);
-            Gdiplus::Pen outline(ink(std::min(255,a+70)),unit*2);outline.SetLineJoin(Gdiplus::LineJoinRound);g.DrawPath(&outline,&path);
+        const auto nebula=[&](float nx,float ny,float rx,float ry,COLORREF c,int alpha){
+            Gdiplus::GraphicsPath cloud;cloud.AddEllipse(nx-rx,ny-ry,rx*2,ry*2);
+            Gdiplus::PathGradientBrush b(&cloud);b.SetCenterColor(color(c,alpha));Gdiplus::Color edge=color(c,0);int n=1;b.SetSurroundColors(&edge,&n);
+            g.FillPath(&b,&cloud);
         };
-        const auto sparkle=[&](float sx,float sy,float size,int a) {
-            const Gdiplus::PointF points[]={{sx,sy-size},{sx+size*0.22f,sy-size*0.22f},{sx+size,sy},{sx+size*0.22f,sy+size*0.22f},{sx,sy+size},{sx-size*0.22f,sy+size*0.22f},{sx-size,sy},{sx-size*0.22f,sy-size*0.22f}};
-            Gdiplus::SolidBrush b(color(RGB(255,252,235),a));g.FillPolygon(&b,points,8);
+        const auto stars=[&](uint32_t seed,int count,COLORREF tint,float bigChance){
+            for(int i=0;i<count;++i){
+                const float sx=x+unitRandom(seed+uint32_t(i)*3u)*w,sy=y+unitRandom(seed+uint32_t(i)*3u+1u)*h,roll=unitRandom(seed+uint32_t(i)*3u+2u);
+                const float size=unit*(roll>1.f-bigChance ? 2.4f : roll>0.6f ? 1.6f : 1.0f);
+                Gdiplus::SolidBrush star(color(tint,roll>0.5f ? 230 : 150));g.FillEllipse(&star,sx-size/2,sy-size/2,size,size);
+                if(roll>0.985f){Gdiplus::SolidBrush halo(color(tint,50));g.FillEllipse(&halo,sx-size*2,sy-size*2,size*4,size*4);}
+            }
         };
-        const auto cloud=[&](float px,float py,float size,int a) {
-            Gdiplus::GraphicsPath path(Gdiplus::FillModeWinding);
-            path.AddEllipse(px,py,size*1.2f,size*0.7f);path.AddEllipse(px+size*0.6f,py-size*0.35f,size*1.1f,size*0.9f);path.AddEllipse(px+size*1.3f,py,size*1.1f,size*0.7f);
-            Gdiplus::Region merged(&path);
-            Gdiplus::Pen outline(ink(a+60),unit*2.2f);g.DrawEllipse(&outline,px,py,size*1.2f,size*0.7f);g.DrawEllipse(&outline,px+size*0.6f,py-size*0.35f,size*1.1f,size*0.9f);g.DrawEllipse(&outline,px+size*1.3f,py,size*1.1f,size*0.7f);
-            Gdiplus::SolidBrush fill(color(RGB(255,255,255),a));g.FillRegion(&fill,&merged);
-            Gdiplus::SolidBrush shade(color(RGB(190,210,240),a));g.FillEllipse(&shade,px+size*0.3f,py+size*0.4f,size*1.8f,size*0.3f);
+        const auto shootingStar=[&](float sx,float sy,float length,float angle,COLORREF tint){
+            const float ex=sx+std::cos(angle)*length,ey=sy+std::sin(angle)*length;
+            Gdiplus::LinearGradientBrush tail(Gdiplus::PointF(sx,sy),Gdiplus::PointF(ex,ey),color(tint,0),color(tint,240));
+            Gdiplus::Pen pen(&tail,unit*2.4f);pen.SetStartCap(Gdiplus::LineCapRound);pen.SetEndCap(Gdiplus::LineCapRound);
+            g.DrawLine(&pen,sx,sy,ex,ey);
+            Gdiplus::SolidBrush head(color(RGB(255,255,255),240));g.FillEllipse(&head,ex-unit*1.6f,ey-unit*1.6f,unit*3.2f,unit*3.2f);
         };
+        const COLORREF ice=RGB(150,215,240);
+        const int density=std::clamp(int(w*h/(unit*unit)/2600.f),40,420);
         switch(backdrop) {
-        case 1: {
-            flat(RGB(10,8,30),70,x,y,w,h);
-            halftone(RGB(90,70,170),60,y+h*0.5f,y+h,true);
-            for(int i=0;i<22;++i)sparkle(x+std::fmod(float(i)*97.3f,w),y+std::fmod(float(i)*53.7f+float(i*i)*3.1f,h),unit*float(3+i%4*2),90+(i%3)*50);
-            const float px=x+w*0.72f,py=y+h*0.32f,pr=float(p(20));
-            for(int i=0;i<3;++i){Gdiplus::Pen trail(color(RGB(255,250,230),70-i*18),float(p(10-i*3)));g.DrawLine(&trail,px-pr*0.6f,py+pr*0.6f,px-w*0.5f+float(i*20),py+h*0.5f);}
-            Gdiplus::GraphicsPath pod;pod.AddEllipse(px-pr,py-pr,pr*2,pr*2);inked(pod,RGB(236,236,244),200);
-            Gdiplus::GraphicsPath window;window.AddEllipse(px-pr*0.55f,py-pr*0.55f,pr*0.9f,pr*0.75f);inked(window,RGB(230,60,80),210);
-            Gdiplus::Pen seam(ink(200),unit*1.6f);g.DrawArc(&seam,px-pr,py-pr*0.2f,pr*2,pr*1.0f,0.f,180.f);
+        case 1:
+            sky(RGB(4,18,36),RGB(2,12,26),235);
+            stars(11u,density,ice,0.04f);
+            shootingStar(x+w*0.16f,y+h*0.3f,w*0.16f,0.28f,ice);
             break;
-        }
         case 2:
-            for(int i=0;i<64;++i){const float a=i*3.14159f/32+0.02f*float(i%3),spread=0.012f+0.01f*float(i%4);
-                const Gdiplus::PointF wedge[]={{cx+std::cos(a-spread)*w*1.5f,cy+std::sin(a-spread)*w*1.5f},{cx+std::cos(a)*float(p(70+i%3*24)),cy+std::sin(a)*float(p(70+i%3*24))},{cx+std::cos(a+spread)*w*1.5f,cy+std::sin(a+spread)*w*1.5f}};
-                Gdiplus::SolidBrush b(i%2 ? color(tone,70) : ink(60));g.FillPolygon(&b,wedge,3);}
+            sky(RGB(12,10,40),RGB(4,4,20),235);
+            nebula(x+w*0.62f,y+h*0.45f,w*0.34f,h*0.22f,RGB(120,90,255),110);
+            nebula(x+w*0.62f,y+h*0.45f,w*0.12f,h*0.08f,RGB(230,220,255),150);
+            stars(22u,density,RGB(210,200,255),0.04f);
+            shootingStar(x+w*0.2f,y+h*0.2f,w*0.12f,0.35f,RGB(210,200,255));
             break;
         case 3:
-            for(int i=6;i>=1;--i){const float rr=float(p(48))*i;Gdiplus::SolidBrush b(color(i%2 ? tone : lighterTone(tone),26+i*6));g.FillEllipse(&b,cx-rr,cy-rr,rr*2,rr*2);
-                Gdiplus::Pen edge(ink(50),unit*1.5f);g.DrawEllipse(&edge,cx-rr,cy-rr,rr*2,rr*2);}
-            halftone(tone,70,y+h*0.55f,y+h,true);
+            sky(RGB(30,6,30),RGB(10,2,16),235);
+            nebula(x+w*0.7f,y+h*0.3f,w*0.3f,h*0.5f,RGB(255,80,170),110);
+            nebula(x+w*0.35f,y+h*0.75f,w*0.25f,h*0.35f,RGB(255,150,90),80);
+            stars(33u,density,RGB(255,210,230),0.04f);
             break;
-        case 4: {
-            flat(RGB(70,170,120),70,x,y,w,h);
-            flat(RGB(150,220,170),60,x,y+h*0.12f,w,h*0.1f);
-            for(int i=0;i<3;++i){const float s2=float(p(14+i*6)),sx=x+w*(0.2f+0.3f*i),sy=y+float(p(36+i*12));Gdiplus::SolidBrush sun(color(RGB(240,255,230),150));g.FillEllipse(&sun,sx-s2,sy-s2,s2*2,s2*2);Gdiplus::Pen e(ink(90),unit*1.5f);g.DrawEllipse(&e,sx-s2,sy-s2,s2*2,s2*2);}
-            const float ground=y+h*0.72f;
-            flat(RGB(90,150,200),70,x,ground,w,y+h-ground);
-            for(int i=0;i<5;++i){const float tx=x+w*(0.08f+0.21f*i),tr=float(p(16+i%2*6));
-                Gdiplus::Pen trunk(ink(140),unit*2.5f);g.DrawLine(&trunk,tx,ground,tx,ground-float(p(40)));
-                Gdiplus::GraphicsPath top;top.AddEllipse(tx-tr,ground-float(p(40))-tr*1.6f,tr*2,tr*1.8f);inked(top,RGB(60,140,190),110);}
+        case 4:
+            sky(RGB(2,24,22),RGB(2,10,14),235);
+            nebula(x+w*0.55f,y+h*0.55f,w*0.38f,h*0.4f,RGB(40,220,150),100);
+            nebula(x+w*0.8f,y+h*0.25f,w*0.18f,h*0.25f,RGB(120,255,220),80);
+            stars(44u,density,RGB(190,255,230),0.04f);
+            shootingStar(x+w*0.1f,y+h*0.55f,w*0.14f,-0.3f,RGB(190,255,230));
             break;
-        }
-        case 5: {
-            const float top=y+h*0.6f;
-            halftone(RGB(255,220,150),60,y,top,true);
-            Gdiplus::GraphicsPath floor;floor.AddRectangle(Gdiplus::RectF(x,top,w,h-(top-y)));inked(floor,RGB(230,220,196),70);
-            Gdiplus::Pen tile(ink(70),unit*1.5f);
-            for(int i=0;i<=10;++i)g.DrawLine(&tile,x+w*i/10,top,cx+(x+w*i/10-cx)*1.9f,y+h);
-            for(int i=1;i<6;++i){const float ly=top+(y+h-top)*i*i/36.f;g.DrawLine(&tile,x,ly,x+w,ly);}
+        case 5:
+            sky(RGB(36,16,4),RGB(12,4,2),235);
+            nebula(x+w*0.6f,y+h*0.5f,w*0.36f,h*0.45f,RGB(255,160,40),110);
+            nebula(x+w*0.6f,y+h*0.5f,w*0.1f,h*0.14f,RGB(255,240,180),170);
+            stars(55u,density,RGB(255,225,170),0.04f);
             break;
-        }
-        case 6: {
-            flat(RGB(240,244,255),40,x,y,w,h);
-            Gdiplus::Pen grid(color(tone,50),unit);
-            const float step=float(p(24));
-            for(float gx=x;gx<x+w;gx+=step)g.DrawLine(&grid,gx,y,gx,y+h);
-            for(float gy=y;gy<y+h;gy+=step)g.DrawLine(&grid,x,gy,x+w,gy);
-            for(int i=0;i<7;++i){const float px=x+std::fmod(float(i)*113.f,w-step*3)+step,py=y+std::fmod(float(i)*71.f,h-step*3)+step;
-                Gdiplus::GraphicsPath capsule;capsule.AddEllipse(px,py,step*1.8f,step*0.9f);inked(capsule,i%2 ? RGB(255,255,255) : tone,110);
-                Gdiplus::Pen seam(ink(150),unit*1.5f);g.DrawLine(&seam,px+step*0.9f,py,px+step*0.9f,py+step*0.9f);}
+        case 6:
+            sky(RGB(30,2,6),RGB(8,0,4),235);
+            nebula(x+w*0.4f,y+h*0.4f,w*0.42f,h*0.5f,RGB(220,30,40),100);
+            stars(66u,density,RGB(255,190,180),0.04f);
+            shootingStar(x+w*0.55f,y+h*0.2f,w*0.18f,0.4f,RGB(255,200,190));
             break;
-        }
-        case 7: {
-            flat(RGB(20,60,30),70,x,y,w,h);
-            Gdiplus::Pen gridPen(color(RGB(120,230,140),60),unit);
-            const float step=float(p(30));
-            for(float gx=x;gx<x+w;gx+=step)g.DrawLine(&gridPen,gx,y,gx,y+h);
-            for(float gy=y;gy<y+h;gy+=step)g.DrawLine(&gridPen,x,gy,x+w,gy);
-            Gdiplus::Pen ringPen(color(RGB(150,255,170),90),unit*1.5f);
-            for(int i=1;i<=5;++i){const float rr=float(p(44))*i;g.DrawEllipse(&ringPen,cx-rr,cy-rr,rr*2,rr*2);}
-            for(int i=0;i<7;++i){const float a=float(i)*0.9f+0.3f,rr=float(p(50+i*26)),bx=cx+std::cos(a)*rr,by=cy+std::sin(a)*rr,bs=float(p(5));
-                Gdiplus::SolidBrush blip(color(RGB(255,210,40),230));g.FillEllipse(&blip,bx-bs,by-bs,bs*2,bs*2);Gdiplus::Pen e(ink(200),unit*1.5f);g.DrawEllipse(&e,bx-bs,by-bs,bs*2,bs*2);}
+        case 7:
+            sky(RGB(6,26,44),RGB(2,12,24),235);
+            nebula(x+w*0.65f,y+h*0.4f,w*0.34f,h*0.4f,RGB(120,230,255),90);
+            stars(77u,int(density*1.4f),RGB(220,248,255),0.05f);
             break;
-        }
-        case 8: {
-            const float sea=y+h*0.6f;
-            flat(RGB(120,200,255),60,x,y,w,sea-y);
-            flat(RGB(30,120,210),80,x,sea,w,y+h-sea);
-            Gdiplus::Pen wave(color(RGB(230,248,255),110),unit*1.6f);
-            for(int i=1;i<7;++i){const float wy=sea+(y+h-sea)*i/7.f;for(float wx=x+float((i*37)%60);wx<x+w;wx+=float(p(64)))g.DrawArc(&wave,wx,wy,float(p(26)),float(p(6)),200.f,140.f);}
-            Gdiplus::GraphicsPath island;island.AddEllipse(x+w*0.6f,sea-float(p(10)),w*0.32f,float(p(22)));inked(island,RGB(250,220,140),130);
-            Gdiplus::GraphicsPath house;house.AddRectangle(Gdiplus::RectF(x+w*0.7f,sea-float(p(34)),w*0.1f,float(p(26))));inked(house,RGB(255,150,170),150);
-            const Gdiplus::PointF roof[]={{x+w*0.68f,sea-float(p(34))},{x+w*0.75f,sea-float(p(50))},{x+w*0.82f,sea-float(p(34))}};
-            Gdiplus::GraphicsPath roofPath;roofPath.AddPolygon(roof,3);inked(roofPath,RGB(220,60,50),160);
-            Gdiplus::Pen palm(ink(150),unit*2.5f);g.DrawLine(&palm,x+w*0.88f,sea,x+w*0.86f,sea-float(p(46)));
+        case 8:
+            sky(RGB(20,6,40),RGB(6,2,16),235);
+            nebula(x+w*0.3f,y+h*0.4f,w*0.3f,h*0.45f,RGB(170,80,255),110);
+            nebula(x+w*0.75f,y+h*0.6f,w*0.28f,h*0.4f,RGB(80,120,255),100);
+            stars(88u,density,RGB(225,205,255),0.04f);
+            shootingStar(x+w*0.45f,y+h*0.15f,w*0.15f,0.25f,RGB(225,205,255));
             break;
-        }
         case 9: {
-            flat(RGB(255,255,255),46,x,y,w,h);
-            halftone(RGB(200,200,215),70,y+h*0.62f,y+h,true);
-            Gdiplus::Pen horizon(ink(70),unit*1.5f);g.DrawLine(&horizon,x,y+h*0.62f,x+w,y+h*0.62f);
+            sky(RGB(6,10,26),RGB(2,4,14),235);
+            Gdiplus::Matrix tilt;tilt.RotateAt(-14.f,Gdiplus::PointF(x+w/2,y+h/2));g.SetTransform(&tilt);
+            nebula(x+w*0.5f,y+h*0.5f,w*0.7f,h*0.16f,RGB(170,170,220),90);
+            nebula(x+w*0.5f,y+h*0.5f,w*0.5f,h*0.07f,RGB(255,240,220),110);
+            g.ResetTransform();
+            stars(99u,int(density*1.6f),RGB(230,235,255),0.04f);
             break;
         }
         case 10: {
-            flat(RGB(150,24,20),70,x,y,w,h);
-            const float s2=w*0.5f,px=x+w*0.58f,py=y+float(p(26));
-            Gdiplus::GraphicsPath planet;planet.AddEllipse(px,py,s2,s2);inked(planet,RGB(255,110,60),120);
-            Gdiplus::SolidBrush dark(color(RGB(140,30,20),120));g.FillPie(&dark,px,py,s2,s2,30.f,160.f);
-            halftone(RGB(255,170,120),70,y+h*0.55f,y+h,true);
+            sky(RGB(10,14,34),RGB(4,6,16),235);
+            for(const auto [sx,sy,c]:{std::tuple{0.7f,0.35f,RGB(255,190,90)},{0.82f,0.55f,RGB(255,120,80)}}){
+                nebula(x+w*sx,y+h*sy,w*0.14f,w*0.14f,c,120);
+                Gdiplus::SolidBrush sun(color(RGB(255,250,230),240));const float sr=unit*(sx>0.75f ? 7.f : 10.f);g.FillEllipse(&sun,x+w*sx-sr,y+h*sy-sr,sr*2,sr*2);
+            }
+            stars(101u,density,ice,0.04f);
             break;
         }
-        case 11: {
-            flat(RGB(110,180,255),60,x,y,w,h);
-            for(int i=0;i<5;++i)cloud(x+std::fmod(float(i)*157.f,w)-float(p(30)),y+h*0.62f+std::fmod(float(i)*37.f,h*0.25f),float(p(40+i%3*10)),130);
-            const float lx=x+w*0.72f,ly=y+h*0.36f,lw=w*0.36f;
-            Gdiplus::GraphicsPath dish;dish.AddPie(lx-lw/2,ly-float(p(30)),lw,float(p(70)),0.f,180.f);inked(dish,RGB(236,232,220),150);
-            Gdiplus::GraphicsPath deck;deck.AddRectangle(Gdiplus::RectF(lx-lw/2,ly-float(p(2)),lw,float(p(6))));inked(deck,RGB(250,248,240),170);
-            Gdiplus::GraphicsPath palace;palace.AddEllipse(lx-float(p(18)),ly-float(p(30)),float(p(36)),float(p(30)));inked(palace,RGB(255,255,250),180);
-            for(const float dx:{-0.36f,0.36f}){Gdiplus::GraphicsPath tree;tree.AddEllipse(lx+lw*dx-float(p(8)),ly-float(p(24)),float(p(16)),float(p(22)));inked(tree,RGB(80,170,80),170);}
-            Gdiplus::Pen stem(ink(180),unit*2);g.DrawLine(&stem,lx,ly+float(p(34)),lx,ly+float(p(80)));
+        case 11:
+            sky(RGB(4,30,40),RGB(40,24,10),235);
+            nebula(x+w*0.5f,y+h*1.05f,w*0.6f,h*0.5f,RGB(255,180,80),110);
+            stars(111u,density,RGB(220,240,255),0.04f);
+            shootingStar(x+w*0.25f,y+h*0.25f,w*0.13f,0.2f,RGB(220,240,255));
             break;
-        }
         case 12: {
-            flat(RGB(150,30,20),70,x,y,w,h);
-            halftone(RGB(255,140,40),90,y+h*0.45f,y+h,true);
-            for(int i=0;i<3;++i){const float s2=float(p(10+i*4)),sx=x+w*(0.25f+0.28f*i),sy=y+float(p(30+i*10));Gdiplus::GraphicsPath sun;sun.AddEllipse(sx-s2,sy-s2,s2*2,s2*2);inked(sun,RGB(255,220,160),150);}
-            const float ground=y+h*0.74f;
-            Gdiplus::GraphicsPath land;land.AddRectangle(Gdiplus::RectF(x,ground,w,y+h-ground));inked(land,RGB(70,40,60),120);
-            Gdiplus::Pen crackInk(ink(200),unit*4.5f),crack(color(RGB(255,170,40),230),unit*2.2f);
-            for(int i=0;i<6;++i){const float sx=x+std::fmod(float(i)*173.f,w);const Gdiplus::PointF zig[]={{sx,y+h},{sx+float(p(14)),ground+(y+h-ground)*0.55f},{sx-float(p(6)),ground+(y+h-ground)*0.2f},{sx+float(p(8)),ground}};
-                g.DrawLines(&crackInk,zig,4);g.DrawLines(&crack,zig,4);}
-            for(int i=0;i<4;++i){const float tx=x+w*(0.12f+0.25f*i),tr=float(p(12));Gdiplus::Pen trunk(ink(150),unit*2.2f);g.DrawLine(&trunk,tx,ground,tx,ground-float(p(30)));
-                Gdiplus::GraphicsPath top;top.AddEllipse(tx-tr,ground-float(p(30))-tr*1.5f,tr*2,tr*1.6f);inked(top,RGB(70,120,150),130);}
+            sky(RGB(8,6,24),RGB(2,2,10),235);
+            const float bx=x+w*0.66f,by=y+h*0.45f;
+            nebula(bx,by,w*0.3f,w*0.3f,RGB(255,120,200),90);
+            nebula(bx,by,w*0.12f,w*0.12f,RGB(160,220,255),130);
+            for(int i=0;i<24;++i){const float a=i*3.14159f/12,len=w*(i%2 ? 0.1f : 0.18f);Gdiplus::Pen ray(color(RGB(255,240,250),i%2 ? 60 : 110),unit*(i%2 ? 1.f : 1.8f));g.DrawLine(&ray,bx,by,bx+std::cos(a)*len,by+std::sin(a)*len);}
+            Gdiplus::SolidBrush core(color(RGB(255,255,255),250));g.FillEllipse(&core,bx-unit*5,by-unit*5,unit*10,unit*10);
+            stars(121u,density,RGB(255,220,240),0.04f);
             break;
         }
         case 13: {
-            Gdiplus::LinearGradientBrush sky(Gdiplus::PointF(0,y),Gdiplus::PointF(0,y+h),color(RGB(120,180,240),70),color(RGB(250,220,170),50));
-            g.FillRectangle(&sky,x,y,w,h);
-            const float ground=y+h*0.8f;
-            for(int i=0;i<4;++i){const float px=x+w*(i*0.27f-0.04f),pw=w*(0.16f+0.04f*float(i%2)),top=ground-h*(0.3f+0.08f*float(i%3));
-                const Gdiplus::PointF mesa[]={{px,ground},{px+pw*0.12f,top},{px+pw*0.88f,top},{px+pw,ground}};
-                Gdiplus::GraphicsPath m;m.AddPolygon(mesa,4);inked(m,RGB(190,120,70),130);
-                const Gdiplus::PointF shade[]={{px+pw*0.55f,top},{px+pw*0.88f,top},{px+pw,ground},{px+pw*0.62f,ground}};Gdiplus::SolidBrush dark(color(RGB(130,70,40),130));g.FillPolygon(&dark,shade,4);
-                Gdiplus::Pen strata(ink(80),unit*1.2f);for(int k=1;k<4;++k){const float sy=top+(ground-top)*k/4.f;g.DrawLine(&strata,px+pw*0.1f,sy,px+pw*0.9f,sy);}}
-            Gdiplus::GraphicsPath land;land.AddRectangle(Gdiplus::RectF(x,ground,w,y+h-ground));inked(land,RGB(210,160,100),120);
-            for(int i=0;i<5;++i){const float rx=x+std::fmod(float(i)*141.f,w),rs=float(p(6+i%3*3));Gdiplus::GraphicsPath rock;rock.AddEllipse(rx,ground+float(p(6+i%2*8)),rs*2,rs);inked(rock,RGB(160,110,70),150);}
+            sky(RGB(10,10,30),RGB(2,4,14),235);
+            stars(131u,density,ice,0.04f);
+            const float px=x+w*0.72f,py=y+h*0.5f,pr=std::min(w,h)*0.24f;
+            Gdiplus::Pen backRing(color(RGB(230,200,150),150),unit*4);g.DrawArc(&backRing,px-pr*2,py-pr*0.5f,pr*4,pr,180.f,180.f);
+            Gdiplus::GraphicsPath planet;planet.AddEllipse(px-pr,py-pr,pr*2,pr*2);
+            Gdiplus::PathGradientBrush shade(&planet);shade.SetCenterPoint(Gdiplus::PointF(px-pr*0.4f,py-pr*0.4f));shade.SetCenterColor(color(RGB(250,200,130),255));
+            Gdiplus::Color rim=color(RGB(120,60,40),255);int n=1;shade.SetSurroundColors(&rim,&n);g.FillPath(&shade,&planet);
+            Gdiplus::Pen frontRing(color(RGB(250,225,180),220),unit*4);g.DrawArc(&frontRing,px-pr*2,py-pr*0.5f,pr*4,pr,0.f,180.f);
             break;
         }
-        case 14: {
-            halftone(RGB(255,200,120),60,y,y+h*0.6f,false);
-            const float top=y+h*0.6f;
-            Gdiplus::GraphicsPath ringTop;ringTop.AddRectangle(Gdiplus::RectF(x+w*0.06f,top,w*0.88f,h*0.2f));inked(ringTop,RGB(236,232,222),110);
-            Gdiplus::Pen tile(ink(80),unit*1.2f);
-            for(int i=1;i<8;++i)g.DrawLine(&tile,x+w*0.06f+w*0.88f*i/8,top,x+w*0.06f+w*0.88f*i/8,top+h*0.2f);
-            g.DrawLine(&tile,x+w*0.06f,top+h*0.1f,x+w*0.94f,top+h*0.1f);
-            for(const float px:{0.08f,0.9f}){Gdiplus::GraphicsPath pillar;pillar.AddRectangle(Gdiplus::RectF(x+w*px-float(p(4)),top-float(p(46)),float(p(8)),float(p(46))));inked(pillar,RGB(250,248,240),150);}
+        case 14:
+            sky(RGB(4,14,34),RGB(2,6,18),235);
+            stars(141u,density,ice,0.04f);
+            for(int i=0;i<6;++i)shootingStar(x+w*(0.05f+0.15f*i),y+h*(0.1f+0.12f*float(i%3)),w*(0.08f+0.03f*float(i%2)),0.45f,ice);
             break;
-        }
         case 15: {
-            Gdiplus::LinearGradientBrush sky(Gdiplus::PointF(0,y),Gdiplus::PointF(0,y+h),color(RGB(250,220,90),70),color(RGB(250,170,60),50));
-            g.FillRectangle(&sky,x,y,w,h);
-            for(int i=0;i<4;++i)cloud(x+std::fmod(float(i)*211.f,w)-float(p(20)),y+float(p(26))+std::fmod(float(i)*43.f,h*0.25f),float(p(26+i%2*8)),90);
-            const float pr=std::min(w*0.22f,h*0.62f),pcx=x+w*0.74f,pcy=y+h*0.86f;
-            Gdiplus::GraphicsPath planet;planet.AddEllipse(pcx-pr,pcy-pr*0.55f,pr*2,pr*1.1f);inked(planet,RGB(110,200,90),150);
-            Gdiplus::Pen road(color(RGB(240,220,150),190),float(p(6)));g.DrawArc(&road,pcx-pr*0.92f,pcy-pr*0.48f,pr*1.84f,pr*0.96f,200.f,140.f);
-            const float hx=pcx-float(p(16)),hy=pcy-pr*0.55f-float(p(20));
-            Gdiplus::GraphicsPath house;house.AddEllipse(hx,hy,float(p(32)),float(p(24)));inked(house,RGB(250,250,240),190);
-            Gdiplus::GraphicsPath roof;roof.AddPie(hx-float(p(2)),hy-float(p(8)),float(p(36)),float(p(22)),180.f,180.f);inked(roof,RGB(220,70,50),200);
-            Gdiplus::Pen trunk(ink(170),unit*2.2f);g.DrawLine(&trunk,pcx+pr*0.4f,pcy-pr*0.5f,pcx+pr*0.42f,pcy-pr*0.5f-float(p(34)));
-            Gdiplus::GraphicsPath tree;tree.AddEllipse(pcx+pr*0.42f-float(p(14)),pcy-pr*0.5f-float(p(56)),float(p(28)),float(p(26)));inked(tree,RGB(70,160,70),180);
+            sky(RGB(4,4,10),RGB(0,0,4),240);
+            stars(151u,density,RGB(220,220,240),0.04f);
+            const float hx=x+w*0.66f,hy=y+h*0.5f,hr=std::min(w,h)*0.14f;
+            Gdiplus::Matrix tilt;tilt.RotateAt(-12.f,Gdiplus::PointF(hx,hy));g.SetTransform(&tilt);
+            for(int i=0;i<5;++i){Gdiplus::Pen disk(color(i%2 ? RGB(255,170,60) : RGB(255,220,140),150-i*20),unit*(6-i));g.DrawEllipse(&disk,hx-hr*(2.6f+0.25f*i),hy-hr*(0.55f+0.06f*i),hr*(5.2f+0.5f*i),hr*(1.1f+0.12f*i));}
+            g.ResetTransform();
+            nebula(hx,hy,hr*1.8f,hr*1.8f,RGB(255,170,80),90);
+            Gdiplus::SolidBrush hole(color(RGB(0,0,0),255));g.FillEllipse(&hole,hx-hr,hy-hr,hr*2,hr*2);
+            Gdiplus::Pen photon(color(RGB(255,230,180),220),unit*1.5f);g.DrawEllipse(&photon,hx-hr,hy-hr,hr*2,hr*2);
             break;
         }
         default: break;
         }
+        (void)tone;
         g.ResetClip();
     }
     void avatar(HDC dc, int cx, int cy, int radius, const std::wstring &name, const std::string &key, COLORREF ring,
@@ -3962,7 +3970,7 @@ struct Window {
         {std::vector<std::wstring> names;for(const auto& color:frame_colors)names.emplace_back(wide(color.name));combo(ProfileFrameColor,names,0);}
         {std::vector<std::wstring> names{L"No featured achievement"};for(const auto& definition:achievements::definitions)names.emplace_back(wide(definition.title));combo(ProfileFeatured,names,0);}
         combo(WaveSky,{L"Time of day",L"Saiyan sunset",L"Namek",L"Kaio-ken",L"Kami's lookout",L"Frieza night",L"Ki blue",
-                       L"Time chamber",L"Planet Vegeta",L"Kame House dusk",L"Majin pink"},int(settings.waveSky));
+                       L"Time chamber",L"Planet Vegeta",L"Kame House dusk",L"Majin pink",L"Starry night"},int(settings.waveSky));
         combo(WaveEmblem,{L"Shown",L"Hidden"},settings.waveEmblem ? 0 : 1);
         combo(LauncherClock,{L"Windows format",L"12-hour",L"24-hour",L"Hidden"},int(settings.launcherClock));
         combo(WaveRibbons,{L"Lively",L"Calm",L"Off"},int(settings.waveRibbons));
@@ -5456,6 +5464,68 @@ struct Window {
             for(size_t i=0;i<face.badges.size() && i<4;++i){const int width=unscale(tagWidth(dc,face.badges[i].first));if(x-width<cl+cw/2)break;tag(dc,p(x),p(cb-strip/2),face.badges[i].first,face.badges[i].second,false);x-=width+6;}
         }
     }
+    struct SkyStar { float x,y,phase,speed,bright; bool big; };
+    std::vector<SkyStar> skyStars;
+    int skyWidth=0,skyHeight=0;
+    double shootingAt=-1.0,shootingNext=4.0;
+    float shootingX=0,shootingY=0,shootingAngle=0.35f;
+    bool skyTicking=false;
+    void ensureSky(int width,int height) {
+        if(width==skyWidth && height==skyHeight && !skyStars.empty())return;
+        skyWidth=width;skyHeight=height;skyStars.clear();
+        uint32_t seed=0x5eedu;
+        const auto next=[&]{seed=seed*1664525u+1013904223u;return float((seed>>8)&0xffffu)/65535.f;};
+        const int count=std::clamp(width*height/6500,60,700);
+        for(int i=0;i<count;++i){SkyStar star{};star.x=next();star.y=next();star.phase=next()*6.2832f;star.speed=0.6f+next()*1.6f;star.bright=0.35f+next()*0.55f;star.big=next()>0.9f;skyStars.push_back(star);}
+    }
+    template<class Visible> void drawSky(uint32_t* pixels,int width,int height,int top,int bottom,Visible visible) {
+        if(!pixels || width<=0 || height<=0)return;
+        ensureSky(width,height);
+        const bool moving=allowMotion();
+        const double now=moving ? double(motionTicks())/1000.0 : 0.0;
+        const auto plot=[&](int px,int py,uint32_t r,uint32_t g,uint32_t b,float alpha) {
+            if(px<0 || py<top || px>=width || py>=bottom || py>=height || alpha<=0.f || !visible(px,py))return;
+            uint32_t& dst=pixels[size_t(py)*size_t(width)+size_t(px)];
+            const uint32_t a=uint32_t(std::clamp(alpha,0.f,1.f)*255.f),k=255u-a;
+            const uint32_t rr=(((dst>>16)&255u)*k+r*a)/255u,gg=(((dst>>8)&255u)*k+g*a)/255u,bb=((dst&255u)*k+b*a)/255u;
+            dst=(dst&0xff000000u)|(rr<<16)|(gg<<8)|bb;
+        };
+        for(const auto& star:skyStars) {
+            const int sx=int(star.x*float(width)),sy=int(star.y*float(height));
+            const float twinkle=moving ? 0.55f+0.45f*float(std::sin(now*star.speed+star.phase)) : 0.8f;
+            const float alpha=std::min(1.f,star.bright*twinkle*1.05f);
+            plot(sx,sy,150,215,240,alpha);
+            if(star.big){plot(sx+1,sy,150,215,240,alpha*0.8f);plot(sx,sy+1,150,215,240,alpha*0.8f);plot(sx+1,sy+1,150,215,240,alpha*0.6f);}
+        }
+        if(!moving)return;
+        if(shootingAt<0 && now>=shootingNext) {
+            uint32_t seed=uint32_t(now*1000.0);
+            const auto next=[&]{seed=seed*1664525u+1013904223u;return float((seed>>8)&0xffffu)/65535.f;};
+            shootingAt=now;shootingX=0.1f+next()*0.6f;shootingY=0.05f+next()*0.35f;shootingAngle=0.25f+next()*0.25f;
+        }
+        if(shootingAt>=0) {
+            const double age=(now-shootingAt)/0.9;
+            if(age>=1.0){shootingAt=-1.0;shootingNext=now+8.0+std::fmod(now*7.31,6.0);return;}
+            const float travel=float(p(260))*float(1.0-std::pow(1.0-age,2.0)),tail=float(p(120))*float(std::sin(age*3.14159));
+            const float hx=shootingX*float(width)+std::cos(shootingAngle)*travel,hy=shootingY*float(height)+std::sin(shootingAngle)*travel;
+            const float fade=float(std::min(1.0,std::min(age*5.0,(1.0-age)*4.0)));
+            const int samples=std::max(8,int(tail));
+            for(int i=0;i<=samples;++i) {
+                const float t=float(i)/float(samples),px=hx-std::cos(shootingAngle)*tail*t,py=hy-std::sin(shootingAngle)*tail*t;
+                plot(int(px),int(py),190,235,250,(1.f-t)*0.9f*fade);
+            }
+            plot(int(hx)+1,int(hy),255,255,255,fade);plot(int(hx),int(hy)+1,255,255,255,fade*0.8f);plot(int(hx),int(hy),255,255,255,fade);
+        }
+    }
+    void animateSky() {
+        if(!waveStyle() || page==wavePage || !hwnd){KillTimer(hwnd,11);endFrames(11);skyTicking=false;return;}
+        if(IsIconic(hwnd) || dropdownOpen() || transitionAt)return;
+        const bool shooting=shootingAt>=0 || (allowMotion() && double(motionTicks())/1000.0>=shootingNext-0.05);
+        if(shooting)frames(11);else{endFrames(11);SetTimer(hwnd,11,33,nullptr);}
+        motionTick=false;
+        RECT area{};GetClientRect(hwnd,&area);area.top=p(shellHeader);area.bottom=std::max(area.top,area.bottom-p(dockReserve()));
+        InvalidateRect(hwnd,&area,FALSE);
+    }
     void paintProfileWave(HDC dc,int content) {
         const bool perks=heldTag().has_value();
         const auto g=profileWave(content,perks);
@@ -6882,6 +6952,7 @@ struct Window {
                     editFrame(memory,id);
             }
             recordingMotion=false;
+            sealMotions();
             GdiFlush();
             pageCache.assign(buffer.frame.pixels, buffer.frame.pixels + pixels);
             pageCachePage = page;
@@ -6895,6 +6966,17 @@ struct Window {
             std::memmove(buffer.frame.pixels+size_t(scroll.destination)*size_t(buffer.frame.width),
                          buffer.frame.pixels+size_t(scroll.source)*size_t(buffer.frame.width),
                          size_t(scroll.rows)*size_t(buffer.frame.width)*sizeof(uint32_t));
+        if (waveStyle() && page != wavePage && pageCache.size() == ambient.size() && !pageCache.empty()) {
+            const int bufferWidth = buffer.frame.width, canvasHeight = buffer.frame.height;
+            const int top = destinationTop, bottom = destinationTop + p(visibleHeight);
+            drawSky(buffer.frame.pixels, bufferWidth, std::min(canvasHeight, int(rect.bottom)), top, bottom, [&](int x, int y) {
+                const int canvasRow = y - destinationTop + sourceTop;
+                if (canvasRow < 0 || canvasRow >= canvasHeight) return false;
+                const size_t index = size_t(canvasRow) * size_t(bufferWidth) + size_t(x);
+                return pageCache[index] == ambient[index];
+            });
+            if (!skyTicking && hwnd) { skyTicking = true; SetTimer(hwnd, 11, 33, nullptr); }
+        }
         fill(memory, {0, p(shellHeader + visibleHeight), rect.right, rect.bottom}, background);
         paintShell(memory,h);
         const int footer = h - 26;
@@ -10989,7 +11071,7 @@ struct Window {
         }
         if ((id == WaveSky || id == WaveEmblem) && notification == CBN_SELCHANGE) {
             previousSettings = settings;
-            settings.waveSky = unsigned(std::clamp(selected(WaveSky), 0, 10));
+            settings.waveSky = unsigned(std::clamp(selected(WaveSky), 0, 11));
             settings.waveEmblem = selected(WaveEmblem) != 1;
             saveLauncherLook(id == WaveSky ? L"Wave sky changed." : settings.waveEmblem ? L"Dragon Ball emblem shown." : L"Dragon Ball emblem hidden.");
             waveBackdrop.clear();
@@ -11610,6 +11692,8 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
                 self->animateToast();
             else if (wp == 8)
                 self->animatePageEnter();
+            else if (wp == 11)
+                self->animateSky();
             else if (wp == 9)
                 self->animateTransition();
             else if (wp == 2)

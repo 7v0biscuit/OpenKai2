@@ -20,10 +20,10 @@ inline constexpr std::array<const char *, 16> frame_names = {"Accent ring", "Sai
                                                             "Spirit Bomb", "Frieza ring", "Namekian", "Majin seal",
                                                             "Galick flare", "Destructo disc", "Solar flare", "Time chamber"};
 inline constexpr unsigned frame_count = unsigned(frame_names.size());
-inline constexpr std::array<const char *, 16> backdrop_names = {"Plain", "Saiyan space pod", "Battle speed lines", "Ki burst",
-                                                               "Namek sky", "World Tournament", "Capsule Corp", "Dragon Radar",
-                                                               "Kame House", "Hyperbolic Time Chamber", "Planet Vegeta", "Kami's Lookout",
-                                                               "Dying Namek", "Rocky wasteland", "Cell Games arena", "King Kai's planet"};
+inline constexpr std::array<const char *, 16> backdrop_names = {"Plain", "Midnight sky", "Andromeda", "Rose nebula",
+                                                               "Emerald nebula", "Golden galaxy", "Crimson void", "Frozen cosmos",
+                                                               "Violet storm", "Milky Way", "Twin suns", "Cosmic dawn",
+                                                               "Supernova", "Ringed planet", "Starfall", "Black hole"};
 inline constexpr unsigned backdrop_count = unsigned(backdrop_names.size());
 struct TitleChoice {
     const char *name;

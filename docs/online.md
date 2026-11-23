@@ -226,9 +226,9 @@ the service while you are offline, so friends still see your picture. Choosing
 - **Frame**: sixteen picture frames, from Saiyan gold to Time chamber.
 - **Frame color**: keep the frame's own colors or tint it gold, silver, Super
   Saiyan Blue, Namek green and more.
-- **Card design**: sixteen comic-style backdrops from Dragon Ball Z, such as
-  Saiyan space pod, Kame House, Kami's Lookout, Planet Vegeta, Dying Namek,
-  Rocky wasteland, Cell Games arena and King Kai's planet.
+- **Card design**: sixteen space backdrops with starfields and shooting stars,
+  such as Midnight sky, Andromeda, Rose nebula, Emerald nebula, Milky Way, Twin
+  suns, Supernova, Ringed planet, Starfall and Black hole.
 - **Title**: forty-one titles. Most unlock with your level; some need an
   achievement, including the speedrun and skill titles. Four developer titles
   (OpenKai2 Developer, Lead Developer, Grand Kai of Code and Bug Slayer) are
