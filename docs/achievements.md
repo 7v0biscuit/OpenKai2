@@ -5,7 +5,7 @@ Wave home's Game menu, or search for "achievements" with Ctrl+K.
 
 ## Built-in achievements
 
-Twenty-nine OpenKai2 achievements are tracked in the game on your PC. You don't
+Forty-two OpenKai2 achievements are tracked in the game on your PC. You don't
 need an account for them.
 
 - **Battles:** 1, 10, 50, 200 and 500 wins; 100 battles fought; 5 wins in a
@@ -17,7 +17,19 @@ need an account for them.
 - **Speedruns** (see [Speedrun mode](speedrun.md)): finishing any speedrun, a
   World Tournament run, an Any%, New Game+ or All Dragon Balls run and a
   Hercule Only run; finishing with permadeath on, with the CPU on Z4 or higher,
-  or verified with nothing flagged; and setting a personal best.
+  or verified with nothing flagged; setting a personal best; and finishing a
+  speedrun without losing a battle.
+- **Skill:** beating a CPU on Z4 or higher, beating a Z6 CPU, beating a Z6 CPU
+  without losing any health or with under a tenth of your health, beating a Z4+
+  CPU in under 20 seconds, three flawless wins in a row, winning without
+  dropping below three quarters of your health, winning after falling under a
+  quarter while your opponent had over three quarters, winning in under 6
+  seconds, winning a time-out by less than 5% of your health, a flawless online
+  win and three online wins in a row.
+
+Z level achievements count the lowest level used during the fight, and only
+when you fight the CPU, so changing the level with F6 partway through doesn't
+earn them.
 
 An unlock slides in at the top of the screen with its points. Progress is kept
 in `achievements.ini` next to the launcher settings.

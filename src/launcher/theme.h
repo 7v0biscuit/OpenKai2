@@ -60,6 +60,9 @@ inline constexpr AccentChoice accents[] = {
     {L"Piccolo green", {126, 203, 151}}, {L"Kami white", {230, 235, 242}}, {L"Shenron rainbow (cycling)", {255, 64, 64}},
     {L"Super Saiyan Blue", {36, 180, 250}}, {L"Ultra Instinct silver", {190, 195, 205}}, {L"Super Saiyan Rose", {255, 70, 170}},
     {L"Hakai purple", {120, 60, 230}}, {L"Senzu lime", {170, 220, 84}},
+    {L"Galick violet", {196, 92, 255}}, {L"Solar Flare yellow", {250, 255, 30}}, {L"Destructo amber", {255, 160, 0}},
+    {L"Namek jade", {0, 120, 80}}, {L"Capsule Corp navy", {60, 100, 190}}, {L"Cell green", {118, 168, 60}},
+    {L"Buu bubblegum", {255, 110, 240}}, {L"Kamehameha cyan", {120, 240, 255}},
 };
 inline constexpr unsigned accent_count = sizeof(accents) / sizeof(accents[0]);
 inline constexpr unsigned rgb_accent = 10u;

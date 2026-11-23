@@ -339,7 +339,7 @@ enum Id {
     OpenNotifications=1210,
     ProfileFit=1220, ProfileNotifications, ProfileCopyFrom, ProfileCopyStyle, ProfileRecover, ProfileManage, LauncherMotion, LauncherHints, ProfileAvailability, ProfileNameColor, ProfileFighter, ProfileSharing, ProfileFriendAlerts,
     OpenHelp=1240,NextDockTab,PreviousDockTab,PageTop,PageBottom,SaveCurrent,UndoCurrent,ToggleLauncher,CopySetup,OpenIsoFolder,
-    ProfileAbout=1300, ProfileRegion, ProfilePlaystyle, ProfilePreview, PlayerAction, PlayerFriend, PlayerBlock, PlayerCopyId, PlayerProfile, ProfileRename, ProfileLink, PlayerChannel, LauncherInterface, OpenWaveHome, WaveSky, WaveEmblem,
+    ProfileAbout=1300, ProfileRegion, ProfilePlaystyle, ProfilePreview, PlayerAction, PlayerFriend, PlayerBlock, PlayerCopyId, PlayerProfile, ProfileRename, ProfileLink, PlayerChannel, LauncherInterface, OpenWaveHome, WaveSky, WaveEmblem, LauncherClock, WaveRibbons,
     OpenAchievements, RaUser, RaPassword, RaSignIn, RaSignOut, RaHardcore, RaCopyHash, RaOpenSet, RaRefresh, RaOpenSite,
     ProfileFrame, ProfileBackdrop, ProfileTitle, ProfileFrameColor, ProfileFeatured
 };
@@ -1396,6 +1396,19 @@ struct Window {
     static constexpr const wchar_t* pageTitles[]={L"Play",L"Online",L"Speedrun",L"Mods",L"Saves & backups",L"Settings",
         L"Updates",L"Controls",L"Import tool",L"Speedrun overlay",L"Arrange tabs",L"Theme colors",L"Profile",L"Find an action",L"Notifications",L"Help & shortcuts",L"Player profile",L"Home",L"Achievements"};
     static const wchar_t* pageTitle(int index) {return index>=0 && index<int(std::size(pageTitles)) ? pageTitles[index] : L"";}
+    std::wstring clockText(const SYSTEMTIME& now) const {
+        if(settings.launcherClock==3)return {};
+        wchar_t clock[40]{};
+        const wchar_t* format=settings.launcherClock==1 ? L"h:mm tt" : settings.launcherClock==2 ? L"HH:mm" : nullptr;
+        GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT,format ? 0 : TIME_NOSECONDS,&now,format,clock,40);
+        return clock;
+    }
+    std::wstring dateClock(const SYSTEMTIME& now) const {
+        wchar_t date[40]{};
+        GetDateFormatEx(LOCALE_NAME_USER_DEFAULT,0,&now,L"d/M",date,40,nullptr);
+        const auto time=clockText(now);
+        return time.empty() ? std::wstring(date) : std::wstring(date)+L"   "+time;
+    }
     int settingsTop() const {return waveStyle() ? 172 : ui::SettingsLayout::top;}
     std::wstring waveTrail;
     int waveTrailPage=-1;
@@ -1684,6 +1697,10 @@ struct Window {
         case 4:return {RGB(16,40,96),RGB(70,128,206),RGB(198,224,248)};
         case 5:return {RGB(8,6,20),RGB(58,30,108),RGB(146,90,196)};
         case 6:return {RGB(4,10,30),RGB(20,70,150),RGB(92,178,236)};
+        case 7:return {RGB(70,74,86),RGB(170,176,190),RGB(236,238,244)};
+        case 8:return {RGB(20,4,6),RGB(120,24,20),RGB(230,110,60)};
+        case 9:return {RGB(14,20,48),RGB(40,120,140),RGB(250,170,90)};
+        case 10:return {RGB(30,6,26),RGB(150,50,120),RGB(255,170,210)};
         default:return {RGB(10,12,34),mix(RGB(70,30,78),orange,70),mix(orange,RGB(150,52,12),96)};
         }
     }
@@ -1769,13 +1786,15 @@ struct Window {
             struct Ribbon {double y,amp,freq,speed,phase,thick;int alpha;};
             const Ribbon ribbons[]={{0.64,0.050,1.10,0.30,0.0,0.055,46},{0.68,0.040,1.50,-0.22,1.7,0.040,34},
                                     {0.61,0.032,2.05,0.38,3.1,0.026,28},{0.72,0.058,0.80,0.16,4.4,0.075,22}};
+            const double calm=settings.waveRibbons==1 ? 0.45 : 1.0;
             for(const auto& ribbon:ribbons) {
+                if(settings.waveRibbons==2)break;
                 const int steps=48;
                 std::vector<Gdiplus::PointF> top,bottom;
                 for(int i=0;i<=steps;++i) {
                     const double x=double(width)*i/steps,u=double(i)/steps;
-                    const double wave=std::sin(u*6.2832*ribbon.freq+now*ribbon.speed*2.0+ribbon.phase)*ribbon.amp+
-                                      std::sin(u*6.2832*ribbon.freq*0.5-now*ribbon.speed*1.3+ribbon.phase*0.7)*ribbon.amp*0.6;
+                    const double wave=(std::sin(u*6.2832*ribbon.freq+now*ribbon.speed*2.0*calm+ribbon.phase)*ribbon.amp+
+                                       std::sin(u*6.2832*ribbon.freq*0.5-now*ribbon.speed*1.3*calm+ribbon.phase*0.7)*ribbon.amp*0.6)*(0.6+0.4*calm);
                     const double centre=height*(ribbon.y+wave),half=height*ribbon.thick*(0.55+0.45*std::sin(u*3.1416+now*0.2+ribbon.phase));
                     top.push_back({Gdiplus::REAL(x),Gdiplus::REAL(centre-half)});
                     bottom.push_back({Gdiplus::REAL(x),Gdiplus::REAL(centre+half*0.35)});
@@ -1818,11 +1837,9 @@ struct Window {
             const COLORREF base=light>150 ? mix(under,RGB(30,14,10),150) : under;
             return mix(base,light>150 ? RGB(40,18,12) : color,int(std::clamp(light>150 ? 0.35+0.65*amount : amount,0.0,1.0)*255.0));
         };
-        SYSTEMTIME clock{};GetLocalTime(&clock);wchar_t time[40]{},date[40]{};
-        GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT,TIME_NOSECONDS,&clock,nullptr,time,40);
-        GetDateFormatEx(LOCALE_NAME_USER_DEFAULT,0,&clock,L"d/M",date,40,nullptr);
+        SYSTEMTIME clock{};GetLocalTime(&clock);
         const int rightEdge=unscale(width)-48;
-        text(dc,std::wstring(date)+L"   "+time,rightEdge-320,30,320,26,fonts.title,fade(RGB(250,246,236),enter),DT_RIGHT|DT_SINGLELINE|DT_NOPREFIX);
+        text(dc,dateClock(clock),rightEdge-320,30,320,26,fonts.title,fade(RGB(250,246,236),enter),DT_RIGHT|DT_SINGLELINE|DT_NOPREFIX);
         if(const auto profile=activeProfile()) {
             avatar(dc,p(rightEdge-14),p(78),p(14),wide(profile->name),profile->id,mix(deep,warm,60),directory && directory->connected() ? 1 : 0);
             nameText(dc,wide(profile->name),rightEdge-360,68,320,22,fonts.body,fade(RGB(240,232,214),enter),DT_RIGHT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX,profile->id);
@@ -1911,17 +1928,17 @@ struct Window {
         if(busy()){const auto current=progressText();if(!current.empty())message=current;}
         text(dc,message,48,bottom-44,unscale(width)-48-680,20,fonts.caption,error ? RGB(200,40,30) : fadeAt(RGB(250,240,220),enter,p(120),height-p(34)),DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
     }
-    static uint32_t achievementMask() {
+    static uint64_t achievementMask() {
         const auto progress=achievements::load(achievements::progress_path());
-        uint32_t mask=0;
-        for(size_t i=0;i<achievements::definition_count && i<32;++i)
+        uint64_t mask=0;
+        for(size_t i=0;i<achievements::definition_count && i<64;++i)
             if(progress.has(achievements::definitions[i].id))mask|=1u<<i;
         return mask;
     }
-    static bool featuredUnlocked(unsigned featured,uint32_t mask) {
-        return featured==0 || (featured<=achievements::definition_count && featured<=32 && ((mask>>(featured-1))&1u));
+    static bool featuredUnlocked(unsigned featured,uint64_t mask) {
+        return featured==0 || (featured<=achievements::definition_count && featured<=63 && ((mask>>(featured-1))&1u));
     }
-    static std::wstring featuredTitle(unsigned featured,uint32_t mask) {
+    static std::wstring featuredTitle(unsigned featured,uint64_t mask) {
         if(featured==0 || featured>achievements::definition_count || !featuredUnlocked(featured,mask))return {};
         return wide(achievements::definitions[featured-1].title);
     }
@@ -1929,7 +1946,7 @@ struct Window {
         if(color==0 || color>=frame_color_count)return CLR_INVALID;
         return RGB(frame_colors[color].r,frame_colors[color].g,frame_colors[color].b);
     }
-    static bool titleUnlocked(unsigned title,uint32_t matches,uint32_t mask) {
+    static bool titleUnlocked(unsigned title,uint32_t matches,uint64_t mask) {
         if(title>=title_count)return false;
         const auto& choice=title_choices[title];
         if(choice.achievement>=0)return (mask>>unsigned(choice.achievement))&1u;
@@ -1938,7 +1955,7 @@ struct Window {
     void labelTitles(uint32_t matches) {
         const auto list=controls[ProfileTitle];
         const auto chosen=SendMessageW(list,CB_GETCURSEL,0,0);
-        const uint32_t mask=achievementMask();
+        const uint64_t mask=achievementMask();
         SendMessageW(list,CB_RESETCONTENT,0,0);
         for(unsigned i=0;i<title_count;++i) {
             const auto& choice=title_choices[i];
@@ -2491,7 +2508,7 @@ struct Window {
         if(card.since>0 && now-card.since>=365*86400)badges.emplace_back(L"VETERAN",RGB(196,150,255));
         else if(card.since>0 && card.since<1767225600)badges.emplace_back(L"EARLY FIGHTER",RGB(120,210,255));
         if(!card.tagline.empty() && !card.about.empty() && card.fighter && (!card.picture.empty() || shown.image))badges.emplace_back(L"COMPLETE CARD",RGB(140,230,170));
-        const auto earned=[&](const char* idText){for(size_t i=0;i<achievements::definition_count && i<32;++i)if(std::string(achievements::definitions[i].id)==idText)return ((card.achievements>>i)&1u)!=0;return false;};
+        const auto earned=[&](const char* idText){for(size_t i=0;i<achievements::definition_count && i<64;++i)if(std::string(achievements::definitions[i].id)==idText)return ((card.achievements>>i)&1u)!=0;return false;};
         if(earned("champion"))badges.emplace_back(L"WORLD CHAMPION",RGB(255,206,72));
         if(earned("credits"))badges.emplace_back(L"SAGA HERO",RGB(255,150,80));
         if(earned("flawless"))badges.emplace_back(L"UNTOUCHABLE",RGB(150,220,255));
@@ -2502,7 +2519,11 @@ struct Window {
         if(earned("speed_permadeath"))badges.emplace_back(L"IRON WILL",RGB(200,200,220));
         if(earned("wins_500"))badges.emplace_back(L"UNSTOPPABLE",RGB(255,96,64));
         if(earned("streak"))badges.emplace_back(L"ON FIRE",RGB(255,140,40));
-        int count=0;for(uint32_t bits=card.achievements;bits;bits&=bits-1)++count;
+        if(earned("z6_flawless"))badges.emplace_back(L"ULTRA INSTINCT",RGB(214,224,255));
+        else if(earned("z6_win"))badges.emplace_back(L"LIMIT BREAKER",RGB(255,110,90));
+        if(earned("flawless_3"))badges.emplace_back(L"PERFECT FORM",RGB(160,240,255));
+        if(earned("online_streak"))badges.emplace_back(L"RAMPAGE",RGB(255,90,140));
+        int count=0;for(uint64_t bits=card.achievements;bits;bits&=bits-1)++count;
         if(count>=int(achievements::definition_count))badges.emplace_back(L"COMPLETIONIST",RGB(255,226,120));
         else if(count>=7)badges.emplace_back(L"ACHIEVER",RGB(210,180,255));
         if(!channelOf(id).empty())badges.emplace_back(L"STREAMER",RGB(190,140,255));
@@ -3754,8 +3775,13 @@ struct Window {
         {std::vector<std::wstring> names;for(const auto& title:title_choices)names.emplace_back(wide(title.name));combo(ProfileTitle,names,0);}
         {std::vector<std::wstring> names;for(const auto& color:frame_colors)names.emplace_back(wide(color.name));combo(ProfileFrameColor,names,0);}
         {std::vector<std::wstring> names{L"No featured achievement"};for(const auto& definition:achievements::definitions)names.emplace_back(wide(definition.title));combo(ProfileFeatured,names,0);}
-        combo(WaveSky,{L"Time of day",L"Saiyan sunset",L"Namek",L"Kaio-ken",L"Kami's lookout",L"Frieza night",L"Ki blue"},int(settings.waveSky));
+        combo(WaveSky,{L"Time of day",L"Saiyan sunset",L"Namek",L"Kaio-ken",L"Kami's lookout",L"Frieza night",L"Ki blue",
+                       L"Time chamber",L"Planet Vegeta",L"Kame House dusk",L"Majin pink"},int(settings.waveSky));
         combo(WaveEmblem,{L"Shown",L"Hidden"},settings.waveEmblem ? 0 : 1);
+        combo(LauncherClock,{L"Windows format",L"12-hour",L"24-hour",L"Hidden"},int(settings.launcherClock));
+        combo(WaveRibbons,{L"Lively",L"Calm",L"Off"},int(settings.waveRibbons));
+        hint(LauncherClock,L"How the clock at the top of the launcher shows the time.");
+        hint(WaveRibbons,L"How the ribbons on the wave home move. Calm slows them; Off keeps only the sky.");
         hint(WaveSky,L"Colors of the wave home and the sky behind every page. Time of day changes through the day.");
         hint(WaveEmblem,L"Show the four-star Dragon Ball behind the wave home and pages.");
         hint(LauncherInterface,L"Wave home opens on an animated menu bar. Press Esc on any main page to return to it.");
@@ -4592,7 +4618,7 @@ struct Window {
                 {WindowMode,Resolution,Aspect,Fps,Vsync,Audio},
                 {Renderer,Antialiasing,Filtering,Upscaler,InternalScale,ImageEffect,Brightness,ClearImage},
                 {CpuDifficulty,HdTextures,Music,FpsCounter,RandomizerMode,LoadTimes,RunAhead},
-                {LauncherTheme,LauncherAccent,StartPage,DiscordActivity,LauncherMotion,LauncherHints,LauncherInterface,WaveSky,WaveEmblem}}};
+                {LauncherTheme,LauncherAccent,StartPage,DiscordActivity,LauncherMotion,LauncherHints,LauncherInterface,WaveSky,WaveEmblem,LauncherClock,WaveRibbons}}};
             for(size_t group=0;group<fields.size();++group) {
                 const int top=grid.sections[group];if(top<0)continue;
                 for(size_t index=0;index<fields[group].size();++index) {
@@ -4745,10 +4771,8 @@ struct Window {
             text(dc,L"OpenKai2",margin+42,19,180,28,fonts.brand,ink);
             const std::wstring trail=L"Home  \u203a  "+((waveTrailPage==page || waveTrailPending) && !waveTrail.empty() ? waveTrail : std::wstring(pageTitle(page)));
             text(dc,trail,margin+42,44,std::max(230,w/2-margin-80),18,fonts.caption,muted,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
-            SYSTEMTIME now{};GetLocalTime(&now);wchar_t clock[40]{},date[40]{};
-            GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT,TIME_NOSECONDS,&now,nullptr,clock,40);
-            GetDateFormatEx(LOCALE_NAME_USER_DEFAULT,0,&now,L"d/M",date,40,nullptr);
-            text(dc,std::wstring(date)+L"   "+clock,w-margin-300,22,236,30,fonts.title,ink,DT_RIGHT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX);
+            SYSTEMTIME now{};GetLocalTime(&now);
+            text(dc,dateClock(now),w-margin-300,22,236,30,fonts.title,ink,DT_RIGHT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX);
             text(dc,L"Esc  Back        F1  Help        Ctrl+K  Find",w/2-260,h-26,520,20,fonts.caption,muted,DT_CENTER|DT_SINGLELINE|DT_NOPREFIX);
             return;
         }
@@ -4757,8 +4781,8 @@ struct Window {
         buffer.frame.ball(p(margin+16),p(36),p(14),{0,0,p(w),p(shellHeader)});
         text(dc,L"OpenKai2",margin+42,19,180,28,fonts.brand,ink);
         text(dc,L"Budokai 2 for Windows",margin+42,44,210,18,fonts.caption,muted);
-        SYSTEMTIME now{};GetLocalTime(&now);wchar_t clock[40]{};
-        if(GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT,TIME_NOSECONDS,&now,nullptr,clock,40))
+        SYSTEMTIME now{};GetLocalTime(&now);
+        if(const auto clock=clockText(now);!clock.empty())
             text(dc,clock,w-margin-172,27,116,26,fonts.caption,muted,DT_RIGHT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX);
         const auto tabs = visibleTabs();
         const ui::DockLayout dockLayout(w,h,int(tabs.size()));
@@ -6190,7 +6214,7 @@ struct Window {
             {L"WINDOW MODE",L"RESOLUTION",L"ASPECT RATIO",L"FRAME RATE CAP",L"VSYNC",L"GAME AUDIO"},
             {L"RENDERER",L"ANTI-ALIASING",L"TEXTURE FILTERING",L"UPSCALING",L"INTERNAL RESOLUTION",L"IMAGE EFFECT",L"BRIGHTNESS",L"IMAGE PRESETS"},
             {L"CPU DIFFICULTY",L"HD TEXTURES",L"MUSIC",L"FPS COUNTER",L"RANDOMIZER",L"PS2 LOAD TIMES",L"RUN-AHEAD"},
-            {L"THEME",L"ACCENT COLOR",L"START ON",L"DISCORD ACTIVITY",L"INTERFACE MOTION",L"HELP HINTS",L"INTERFACE STYLE",L"WAVE SKY",L"DRAGON BALL EMBLEM"}}};
+            {L"THEME",L"ACCENT COLOR",L"START ON",L"DISCORD ACTIVITY",L"INTERFACE MOTION",L"HELP HINTS",L"INTERFACE STYLE",L"WAVE SKY",L"DRAGON BALL EMBLEM",L"CLOCK",L"WAVE RIBBONS"}}};
         bool any=false;
         for(size_t group=0;group<labels.size();++group) {
             const int top=grid.sections[group];if(top<0)continue;any=true;
@@ -9667,7 +9691,8 @@ struct Window {
             {RandomizerMode,settings.randomizer ? 1 : 0},{SpeedrunRandomizer,settings.randomizer ? 1 : 0},
             {LoadTimes,settings.ps2LoadTimes ? 1 : 0},{RunAhead,int(std::min(settings.runAhead,2u))},{LauncherTheme,int(settings.launcherTheme)},
             {LauncherAccent,int(settings.launcherAccent)},{StartPage,int(settings.startPage)},
-            {DiscordActivity,settings.discordPresence ? 1 : 0},{LauncherMotion,settings.reducedMotion ? 1 : 0},{LauncherHints,settings.helpHints ? 0 : 1},{LauncherInterface,int(settings.launcherInterface)},{WaveSky,int(settings.waveSky)},{WaveEmblem,settings.waveEmblem ? 0 : 1}};
+            {DiscordActivity,settings.discordPresence ? 1 : 0},{LauncherMotion,settings.reducedMotion ? 1 : 0},{LauncherHints,settings.helpHints ? 0 : 1},{LauncherInterface,int(settings.launcherInterface)},{WaveSky,int(settings.waveSky)},{WaveEmblem,settings.waveEmblem ? 0 : 1},
+            {LauncherClock,int(settings.launcherClock)},{WaveRibbons,int(settings.waveRibbons)}};
         for (auto [id,value] : choices) SendMessageW(controls[id],CB_SETCURSEL,value,0);
     }
     bool keyboardShortcut(int id) {
@@ -10592,9 +10617,17 @@ struct Window {
             (pageDirty=true),InvalidateRect(hwnd, nullptr, FALSE);
             return;
         }
+        if ((id == LauncherClock || id == WaveRibbons) && notification == CBN_SELCHANGE) {
+            previousSettings = settings;
+            settings.launcherClock = unsigned(std::clamp(selected(LauncherClock), 0, 3));
+            settings.waveRibbons = unsigned(std::clamp(selected(WaveRibbons), 0, 2));
+            saveLauncherLook(id == LauncherClock ? L"Clock changed." : L"Wave ribbons changed.");
+            (pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);
+            return;
+        }
         if ((id == WaveSky || id == WaveEmblem) && notification == CBN_SELCHANGE) {
             previousSettings = settings;
-            settings.waveSky = unsigned(std::clamp(selected(WaveSky), 0, 6));
+            settings.waveSky = unsigned(std::clamp(selected(WaveSky), 0, 10));
             settings.waveEmblem = selected(WaveEmblem) != 1;
             saveLauncherLook(id == WaveSky ? L"Wave sky changed." : settings.waveEmblem ? L"Dragon Ball emblem shown." : L"Dragon Ball emblem hidden.");
             waveBackdrop.clear();

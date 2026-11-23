@@ -192,7 +192,10 @@ for **Open channel** and **Copy channel link**.
 
 Name colors come in Dragon Ball Z presets (Super Saiyan gold, Kamehameha blue,
 Namekian green, Frieza purple, Kaio-ken red, Goku gi orange, Majin pink, Kami
-white, Vegeta blue, Senzu green, Android teal and Ultra Instinct silver), or
+white, Vegeta blue, Senzu green, Android teal, Ultra Instinct silver, Super
+Saiyan Blue, Super Saiyan Rose, Hakai violet, Galick flare, Destructo amber,
+Cell green, Capsule navy, Lava crimson, Frost cyan, Spirit Bomb aqua, Dragon
+Radar lime and Shenron jade), or
 choose **Custom color…** to pick any color. Preset colors shade softly into a
 lighter tone across the name. Colors picked in older versions switch to the
 refreshed tones automatically. Everyone sees your name color in the launcher

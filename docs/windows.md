@@ -69,6 +69,12 @@ A message in the corner names your new character when a fight starts.
   out buttons that repeat a Wave item, such as Customize profile on Online,
   Customize overlay on Speedrun, Import tool on Mods and the Settings section
   buttons, and their panels take their tint from the Wave sky.
+- **Wave sky:** Time of day, Saiyan sunset, Namek, Kaio-ken, Kami's lookout,
+  Frieza night, Ki blue, Time chamber, Planet Vegeta, Kame House dusk or Majin
+  pink.
+- **Clock:** the Windows time format, 12-hour, 24-hour, or hidden.
+- **Wave ribbons:** Lively, Calm (slower, gentler ribbons) or Off (just the
+  sky).
 - **Theme:** twenty-one color palettes for the entire launcher, including its
   title bar, fields, selection focus and game panel. Illustrated backgrounds
   have been removed. Choose a theme to apply its complete palette; **Undo
@@ -100,7 +106,9 @@ A message in the corner names your new character when a fight starts.
 - **Accent color:** the theme's own color, or Goku orange, Super Saiyan gold,
   Kaio-ken red, Majin pink, Frieza purple, Vegeta blue, Bulma teal, Piccolo
   green, Kami white, Super Saiyan Blue, Ultra Instinct silver, Super Saiyan
-  Rose, Hakai purple or Senzu lime for buttons and highlights. **Shenron rainbow (cycling)**
+  Rose, Hakai purple, Senzu lime, Galick violet, Solar Flare yellow, Destructo
+  amber, Namek jade, Capsule Corp navy, Cell green, Buu bubblegum or
+  Kamehameha cyan for buttons and highlights. **Shenron rainbow (cycling)**
   moves slowly through every color, once round the color wheel per minute,
   redrawn at 60 FPS. Accent colors removed in v0.1.100 move to the closest one
   that remains (for example Crimson to Kaio-ken red, Amber to Super Saiyan gold,

@@ -206,7 +206,7 @@ std::optional<std::string> from_base64(const std::string &text) {
 }
 
 namespace {
-std::string hex_text(uint32_t value) {
+std::string hex_text(uint64_t value) {
     static constexpr char hex[] = "0123456789abcdef";
     std::string out;
     do {
@@ -258,7 +258,7 @@ std::optional<Card> parse_card(const std::string &id, const std::string &payload
     const bool fourth = f.size() == 16 && f[0] == "4";
     const bool third = fourth || (f.size() == 15 && f[0] == "3");
     if (!valid_id(id) || !(third || (f.size() == 13 && f[0] == "2")) || !digits(f[1], 10, 2) ||
-        (third && (!digits(f[12], 10, 5) || !digits(f[13], 16, 8))) || (fourth && !digits(f[14], 16, 4)) || (!f[2].empty() && !digits(f[2], 16, 6)) ||
+        (third && (!digits(f[12], 10, 5) || !digits(f[13], 16, fourth ? 16 : 8))) || (fourth && !digits(f[14], 16, 4)) || (!f[2].empty() && !digits(f[2], 16, 6)) ||
         (!f[2].empty() && f[2].size() != 6) || f[3].size() > 8 || f[4].size() > 192 || !digits(f[5], 10, 2) ||
         !digits(f[6], 10, 2) || !digits(f[7], 10, 2) || !digits(f[8], 10, 7) || !digits(f[9], 10, 10) ||
         f[10].size() > 480 || f[11].size() > (card_picture_limit + 2) / 3 * 4)
@@ -275,7 +275,7 @@ std::optional<Card> parse_card(const std::string &id, const std::string &payload
         card.frame = look % 16u;
         card.backdrop = (look / 16u) % 16u;
         card.title = (look / 256u) % 64u;
-        card.achievements = uint32_t(std::stoul(f[13], nullptr, 16));
+        card.achievements = uint64_t(std::stoull(f[13], nullptr, 16));
     }
     if (fourth) {
         const unsigned extra = unsigned(std::stoul(f[14], nullptr, 16));

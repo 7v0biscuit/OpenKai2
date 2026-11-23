@@ -258,6 +258,7 @@ struct Overlay {
     std::set<std::string> seen;
     unsigned runs = 0;
     bool recorded = true, personal_best = false;
+    unsigned run_losses = 0;
     double died_at = -1, game_time_sent = 0;
     double fps_window = 0;
     unsigned host_frames = 0, host_fps = 0;
@@ -285,6 +286,7 @@ struct Overlay {
         achievement_fields = fields;
         if (tracker) {
             const auto state = read_guest(runtime.memory().getRDRAM(), PS2_RAM_SIZE);
+            tracker->set_cpu(openkai2::cpu::active_level());
             const auto unlocked = tracker->update(state, now, openkai2::netplay::active() != nullptr, int64_t(std::time(nullptr)));
             if (!unlocked.empty()) {
                 for (const auto *definition : unlocked)
@@ -439,6 +441,7 @@ struct Overlay {
                 ++runs;
                 recorded = false;
                 personal_best = false;
+                run_losses = 0;
                 died_at = -1;
                 note("run " + std::to_string(runs) + " started (" + category_name(options.category) +
                      (options.cpu ? ", CPU Z" + std::to_string(options.cpu) : std::string()) +
@@ -467,6 +470,7 @@ struct Overlay {
                     run.cpu = options.cpu;
                     run.verified = flags.empty();
                     run.personal_best = personal_best;
+                    run.losses = run_losses;
                     const auto unlocked = tracker->finished(run, int64_t(std::time(nullptr)));
                     for (const auto *definition : unlocked)
                         banners.push_back({"ACHIEVEMENT UNLOCKED", definition->title, definition->description, definition->points, false, -1});
@@ -481,6 +485,7 @@ struct Overlay {
             }
             case Event::battle_lost:
             case Event::died:
+                ++run_losses;
                 note(std::string(event == Event::died ? "game over" : "fight lost (" + timer.last_loss() + ")") + " at " +
                      times(now, fields));
                 if (event == Event::died && tournament(options.category)) {

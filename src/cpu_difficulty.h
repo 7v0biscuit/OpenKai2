@@ -44,12 +44,14 @@ class Tracker {
         known_ = false; reported_ = true; key_ = key; return true;
     }
     void step(std::array<Fighter, 2> &fighters, std::array<bool, 2> cpu, const Edge &edge);
+    bool versus_cpu() const { return versus_; }
 
   private:
     bool known_ = false, reported_ = false;
     uint64_t key_ = 0;
     std::array<float, 2> health_{};
     std::array<unsigned, 2> quiet_{};
+    bool versus_ = false;
 };
 
 void tick(uint8_t *memory, size_t bytes, unsigned level, Tracker &tracker);
@@ -60,6 +62,7 @@ void prepare_installed_ai(uint8_t *memory, size_t bytes);
 
 void install(uint8_t *memory, size_t bytes, unsigned level, bool allowed = true, bool locked = false);
 bool cycle(unsigned &level);
+unsigned active_level();
 void on_frame();
 
 }

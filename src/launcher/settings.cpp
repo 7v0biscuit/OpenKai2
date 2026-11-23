@@ -64,14 +64,14 @@ void validate_settings(const Settings &s) {
         s.onlineAddress.size() > 255 || s.onlineRoom.size() > 64 || s.onlinePassword.size() > 64 ||
         s.onlineLobby.size() > 255 || s.onlineProfiles.size() > 32 || s.onlineRoomFilter > 2 || s.onlinePlayerFilter > 1 || s.homeFriendScope > 3)
         throw std::runtime_error("Invalid online settings");
-    if (s.launcherTheme >= theme_count || s.launcherAccent >= accent_count || s.startPage > 1 || s.lastPage >= tab_count || s.launcherInterface > 1 || s.waveSky > 6 ||
+    if (s.launcherTheme >= theme_count || s.launcherAccent >= accent_count || s.startPage > 1 || s.lastPage >= tab_count || s.launcherInterface > 1 || s.waveSky > 10 || s.launcherClock > 3 || s.waveRibbons > 2 ||
         !valid_tab_order(s.tabOrder, s.hiddenTabs) || !valid_custom_colors(s.launcherColors))
         throw std::runtime_error("Invalid launcher appearance settings");
     std::set<std::string> profileIds;
     if (s.profileStyles.size() > 32) throw std::runtime_error("Too many profile appearances");
     for (const auto& style : s.profileStyles) {
         if (style.id.size()!=64 || !std::all_of(style.id.begin(),style.id.end(),[](unsigned char c){return std::isxdigit(c)!=0;}) ||
-            !profileIds.insert(style.id).second || style.accent>=accent_count || style.pictureFit>3 || style.availability>2 || (style.nameColor && (style.nameColor>>24)!=1u) || style.fighter>fighter_count || style.sharing>2 || style.nameEffect>30 || style.frame>=frame_count || style.backdrop>=backdrop_count || style.title>=title_count || style.frameColor>=frame_color_count || style.featured>32 || style.link.size()>120 || style.link.find_first_of("\r\n\" ")!=std::string::npos || style.region>region_count || style.playstyle>playstyle_count || style.about.size()>480 || style.about.find_first_of("\r\n")!=std::string::npos || style.since<0 || style.initials.size()>8 || style.tagline.size()>192 ||
+            !profileIds.insert(style.id).second || style.accent>=accent_count || style.pictureFit>3 || style.availability>2 || (style.nameColor && (style.nameColor>>24)!=1u) || style.fighter>fighter_count || style.sharing>2 || style.nameEffect>30 || style.frame>=frame_count || style.backdrop>=backdrop_count || style.title>=title_count || style.frameColor>=frame_color_count || style.featured>63 || style.link.size()>120 || style.link.find_first_of("\r\n\" ")!=std::string::npos || style.region>region_count || style.playstyle>playstyle_count || style.about.size()>480 || style.about.find_first_of("\r\n")!=std::string::npos || style.since<0 || style.initials.size()>8 || style.tagline.size()>192 ||
             style.initials.find_first_of("\r\n")!=std::string::npos || style.tagline.find_first_of("\r\n")!=std::string::npos ||
             !speedrun::valid_image_file(style.image) || style.imageName.size()>1024 || style.imageName.find_first_of("\r\n")!=std::string::npos)
             throw std::runtime_error("Invalid profile appearance");
@@ -147,8 +147,11 @@ Settings read_settings(const std::filesystem::path &file) {
             row >> marker;
             waveDefault = marker == 1;
         }
-        else if (key == "launcher_wave")
+        else if (key == "launcher_wave") {
             row >> s.waveSky >> s.waveEmblem;
+            if (!row.fail() && (row >> std::ws, !row.eof()))
+                row >> s.launcherClock >> s.waveRibbons;
+        }
         else if (key == "retroachievements")
             row >> std::quoted(s.raUser) >> std::quoted(s.raToken) >> s.raHardcore;
         else if (key == "achievements_paused")
@@ -474,7 +477,7 @@ void write_settings(const std::filesystem::path &file, const Settings &s) {
         << "\ndiscord_presence " << s.discordPresence << "\nimport_iso " << std::quoted(path_utf8(s.importIso))
         << "\nlauncher_window " << s.windowLeft << ' ' << s.windowTop << ' ' << s.windowWidth << ' '
         << s.windowHeight << ' ' << s.windowMaximized << "\nlauncher_skin " << s.launcherTheme << ' ' << s.launcherAccent << ' ' << s.startPage << ' ' << s.lastPage
-        << "\nlauncher_motion " << s.reducedMotion << ' ' << s.helpHints << "\nlauncher_interface " << s.launcherInterface << "\nlauncher_wave_default 1\nlauncher_wave " << s.waveSky << ' ' << s.waveEmblem
+        << "\nlauncher_motion " << s.reducedMotion << ' ' << s.helpHints << "\nlauncher_interface " << s.launcherInterface << "\nlauncher_wave_default 1\nlauncher_wave " << s.waveSky << ' ' << s.waveEmblem << ' ' << s.launcherClock << ' ' << s.waveRibbons
         << "\nretroachievements " << std::quoted(s.raUser) << ' ' << std::quoted(s.raToken) << ' ' << s.raHardcore
         << "\nachievements_paused " << s.achievementsPaused << ' ' << s.achievementsPausedAt
         << "\nlauncher_tabs";

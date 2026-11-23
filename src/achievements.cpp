@@ -112,13 +112,27 @@ std::vector<const Definition *> Tracker::update(const speedrun::GuestState &stat
         live_ = true;
         started_ = now;
         player_max_ = state.player_max;
+        opponent_max_ = state.opponent_max;
         lowest_ = state.player_health;
+        battle_cpu_ = cpu_;
+        cpu_known_ = cpu_ > 0;
+        trailing_ = false;
+    }
+    if (live_ && state.battle && state.health_known) {
+        if (cpu_known_)
+            battle_cpu_ = std::min(battle_cpu_, cpu_);
+        else if (cpu_ > 0 && now - started_ < 2.0) {
+            battle_cpu_ = cpu_;
+            cpu_known_ = true;
+        }
     }
     if (live_ && state.battle && state.health_known) {
         player_ = state.player_health;
         opponent_ = state.opponent_health;
         reason_ = state.reason;
         lowest_ = std::min(lowest_, player_);
+        if (player_max_ > 0 && opponent_max_ > 0 && player_ > 0 && player_ < player_max_ * 0.25f && opponent_ > opponent_max_ * 0.75f)
+            trailing_ = true;
     }
     if (live_ && (state.battle_over || !state.battle)) {
         live_ = false;
@@ -167,12 +181,46 @@ std::vector<const Definition *> Tracker::update(const speedrun::GuestState &stat
                 unlock("lightning", stamp, out);
             if (lost_last_)
                 unlock("rematch", stamp, out);
+            const double taken = now - started_;
+            const bool flawless = lowest_ >= player_max_ && player_max_ > 0;
+            if (battle_cpu_ >= 4) {
+                unlock("z4_win", stamp, out);
+                if (taken < 20.0)
+                    unlock("z4_quick", stamp, out);
+            }
+            if (battle_cpu_ >= 6) {
+                unlock("z6_win", stamp, out);
+                if (flawless)
+                    unlock("z6_flawless", stamp, out);
+                if (player_max_ > 0 && player_ < player_max_ * 0.1f)
+                    unlock("z6_comeback", stamp, out);
+            }
+            flawless_streak_ = flawless ? flawless_streak_ + 1 : 0;
+            if (flawless_streak_ >= 3)
+                unlock("flawless_3", stamp, out);
+            if (player_max_ > 0 && lowest_ >= player_max_ * 0.75f)
+                unlock("iron_wall", stamp, out);
+            if (trailing_)
+                unlock("turnaround", stamp, out);
+            if (taken < 6.0)
+                unlock("blitz", stamp, out);
+            if (reason_ == speedrun::timeout_reason && opponent_ > 0 && player_max_ > 0 && player_ - opponent_ < player_max_ * 0.05f)
+                unlock("photo_finish", stamp, out);
             if (online) {
+                if (flawless)
+                    unlock("online_flawless", stamp, out);
+                if (++online_streak_ >= 3)
+                    unlock("online_streak", stamp, out);
                 ++progress_.online_wins;
                 unlock("online_win", stamp, out);
                 if (progress_.online_wins >= 10)
                     unlock("online_10", stamp, out);
             }
+        }
+        if (result < 0) {
+            flawless_streak_ = 0;
+            if (online)
+                online_streak_ = 0;
         }
         if (result != 0)
             lost_last_ = result < 0;
@@ -201,6 +249,8 @@ std::vector<const Definition *> Tracker::finished(const Run &run, int64_t stamp)
         unlock("speed_clean", stamp, out);
     if (run.personal_best)
         unlock("speed_record", stamp, out);
+    if (run.losses == 0)
+        unlock("clean_sweep", stamp, out);
     return out;
 }
 

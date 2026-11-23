@@ -98,6 +98,7 @@ std::array<bool, 2> cpu_sides(uint8_t mode, uint32_t duel) {
 
 void Tracker::step(std::array<Fighter, 2> &fighters, std::array<bool, 2> cpu, const Edge &edge) {
     const bool scaled = cpu[0] != cpu[1];
+    versus_ = scaled;
     for (size_t side = 0; side < 2; ++side) {
         auto &f = fighters[side];
         const float before = health_[side];
@@ -239,6 +240,12 @@ bool cycle(unsigned &level) {
     state.tracker.reset();
     level = state.level;
     return true;
+}
+
+unsigned active_level() {
+    auto &state = installed();
+    std::lock_guard lock(state.mutex);
+    return state.memory && state.level && state.tracker.versus_cpu() ? state.level : 0u;
 }
 
 void on_frame() {

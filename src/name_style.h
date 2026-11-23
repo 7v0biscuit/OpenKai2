@@ -203,6 +203,18 @@ inline constexpr NameColor name_colors[] = {
     {L"Senzu green", {170, 220, 72}, {226, 252, 170}},
     {L"Android teal", {58, 210, 200}, {176, 250, 238}},
     {L"Ultra Instinct silver", {176, 192, 222}, {244, 248, 255}},
+    {L"Super Saiyan Blue", {40, 184, 255}, {190, 236, 255}},
+    {L"Super Saiyan Rose", {255, 84, 168}, {255, 200, 232}},
+    {L"Hakai violet", {140, 80, 240}, {214, 190, 255}},
+    {L"Galick flare", {204, 110, 255}, {238, 206, 255}},
+    {L"Destructo amber", {255, 176, 40}, {255, 228, 160}},
+    {L"Cell green", {130, 190, 70}, {214, 244, 170}},
+    {L"Capsule navy", {80, 120, 220}, {184, 206, 255}},
+    {L"Lava crimson", {220, 50, 40}, {255, 170, 140}},
+    {L"Frost cyan", {110, 230, 255}, {214, 248, 255}},
+    {L"Spirit Bomb aqua", {100, 220, 230}, {200, 250, 255}},
+    {L"Dragon Radar lime", {190, 240, 60}, {236, 255, 180}},
+    {L"Shenron jade", {60, 200, 120}, {180, 245, 200}},
 };
 inline constexpr size_t name_color_count = sizeof(name_colors) / sizeof(name_colors[0]);
 

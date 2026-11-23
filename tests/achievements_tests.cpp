@@ -111,6 +111,37 @@ int main() {
         run.category = speedrun::Category::new_game_plus;
         require(ids(tracker.finished(run, 1)).count("speed_story"), "A New Game+ speedrun did not unlock Saga Speedster");
 
+        achievements::Tracker skill;
+        skill.set_cpu(6);
+        auto z6 = fight(skill, 100.0f, 100.0f, 0.0f, 5.0);
+        require(z6.count("z4_win") && z6.count("z6_win") && z6.count("z6_flawless") && z6.count("z4_quick") && z6.count("blitz") &&
+                    z6.count("iron_wall") && !z6.count("z6_comeback"),
+                "A five second flawless Z6 win did not unlock its skill achievements");
+        fight(skill, 100.0f, 100.0f, 0.0f, 30.0);
+        require(fight(skill, 100.0f, 100.0f, 0.0f, 30.0).count("flawless_3"), "Three flawless wins in a row did not unlock Perfect Form");
+        skill.set_cpu(0);
+        skill.update(fighting(100.0f, 100.0f), 0, false, 1);
+        skill.set_cpu(6);
+        skill.update(fighting(100.0f, 60.0f), 3, false, 1);
+        auto late = ids(skill.update(over(100.0f, 0.0f), 4, false, 1));
+        require(!late.count("z4_win") && !late.count("z6_win"), "Raising the Z level partway through a fight counted as a Z6 win");
+        skill.set_cpu(6);
+        skill.update(fighting(100.0f, 100.0f), 10, false, 1);
+        skill.update(fighting(20.0f, 90.0f), 20, false, 1);
+        auto turned = ids(skill.update(over(8.0f, 0.0f), 40, false, 1));
+        require(turned.count("turnaround") && turned.count("z6_comeback") && !turned.count("iron_wall"),
+                "Winning from a quarter of health against a healthy opponent did not unlock Turn the Tables");
+        auto photo = fight(skill, 100.0f, 52.0f, 50.0f, 99.0, false, speedrun::timeout_reason);
+        require(photo.count("photo_finish"), "A two point time-out win did not unlock Photo Finish");
+        for (int i = 0; i < 2; ++i)
+            fight(skill, 100.0f, 100.0f, 0.0f, 30.0, true);
+        auto rampage = fight(skill, 100.0f, 90.0f, 0.0f, 30.0, true);
+        require(skill.progress().has("online_flawless") && rampage.count("online_streak"),
+                "Online skill achievements did not unlock");
+        achievements::Run clean;
+        clean.category = speedrun::Category::any;
+        require(ids(skill.finished(clean, 1)).count("clean_sweep"), "A speedrun without a loss did not unlock Clean Sweep");
+
         speedrun::GuestState idle;
         require(tracker.update(idle, 0, false, 1).empty(), "An idle frame unlocked something");
         speedrun::GuestState unknown = fighting(0.0f, 0.0f, 0.0f);

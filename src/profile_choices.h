@@ -30,7 +30,7 @@ struct TitleChoice {
     unsigned level;
     int achievement;
 };
-inline constexpr std::array<TitleChoice, 32> title_choices = {{
+inline constexpr std::array<TitleChoice, 37> title_choices = {{
     {"No title", 0, -1}, {"Earthling", 1, -1}, {"Martial Artist", 2, -1}, {"Turtle School", 3, -1},
     {"Crane School", 3, -1}, {"Z Fighter", 5, -1}, {"Saiyan Warrior", 8, -1}, {"Namekian Sage", 8, -1},
     {"Super Saiyan", 12, -1}, {"Capsule Corp Ace", 12, -1}, {"World Champion", 0, 11}, {"Saga Hero", 0, 10},
@@ -39,6 +39,8 @@ inline constexpr std::array<TitleChoice, 32> title_choices = {{
     {"Super Saiyan 2", 30, -1}, {"Mystic Warrior", 35, -1}, {"Guardian of Earth", 45, -1}, {"Super Saiyan 3", 50, -1},
     {"Kami's Successor", 70, -1}, {"Grandmaster", 80, -1}, {"Speed Demon", 0, 14}, {"No Second Chances", 0, 17},
     {"Beyond the Limit", 0, 18}, {"Record Breaker", 0, 19}, {"Unstoppable Force", 0, 22}, {"Online Contender", 0, 27},
+    {"Limit Breaker", 0, 30}, {"Ultra Instinct", 0, 31}, {"Against All Odds", 0, 32}, {"Perfect Form", 0, 34},
+    {"Online Rampage", 0, 40},
 }};
 inline constexpr unsigned title_count = unsigned(title_choices.size());
 struct FrameColor {
