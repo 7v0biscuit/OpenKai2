@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "gpu_compute.h"
+#include "gpu_device.h"
 #include <algorithm>
 #include <memory>
 #include <mutex>
@@ -201,6 +202,15 @@ struct Shared {
         }
         if (best < 0)
             throw std::runtime_error("no Vulkan GPU supports compute");
+        {
+            VkPhysicalDeviceMemoryProperties heaps{};
+            vkGetPhysicalDeviceMemoryProperties(physical, &heaps);
+            uint64_t local = 0;
+            for (uint32_t i = 0; i < heaps.memoryHeapCount; ++i)
+                if (heaps.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
+                    local = std::max<uint64_t>(local, heaps.memoryHeaps[i].size);
+            openkai2::gpu::note_device_memory(local, best == 3);
+        }
         const float priority = 1.0f;
         VkDeviceQueueCreateInfo request{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
         request.queueFamilyIndex = family;

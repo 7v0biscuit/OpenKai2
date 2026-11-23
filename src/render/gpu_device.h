@@ -35,4 +35,7 @@ bool initialize_headless(std::string& error);
 bool initialize_vulkan(std::string& error);
 std::unique_ptr<Compute> make_opengl_compute(Api& gl,const std::string& description);
 void shutdown_device();
+void note_device_memory(uint64_t bytes,bool integrated);
+uint64_t device_memory_bytes();
+bool device_integrated();
 }

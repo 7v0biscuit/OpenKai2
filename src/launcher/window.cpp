@@ -340,7 +340,7 @@ enum Id {
     OpenNotifications=1210,
     ProfileFit=1220, ProfileNotifications, ProfileCopyFrom, ProfileCopyStyle, ProfileRecover, ProfileManage, LauncherMotion, LauncherHints, ProfileAvailability, ProfileNameColor, ProfileFighter, ProfileSharing, ProfileFriendAlerts,
     OpenHelp=1240,NextDockTab,PreviousDockTab,PageTop,PageBottom,SaveCurrent,UndoCurrent,ToggleLauncher,CopySetup,OpenIsoFolder,
-    ProfileAbout=1300, ProfileRegion, ProfilePlaystyle, ProfilePreview, PlayerAction, PlayerFriend, PlayerBlock, PlayerCopyId, PlayerProfile, ProfileRename, ProfileLink, PlayerChannel, LauncherInterface, OpenWaveHome, WaveSky, WaveEmblem, LauncherClock, WaveRibbons,
+    ProfileAbout=1300, ProfileRegion, ProfilePlaystyle, ProfilePreview, PlayerAction, PlayerFriend, PlayerBlock, PlayerCopyId, PlayerProfile, ProfileRename, ProfileLink, PlayerChannel, LauncherInterface, OpenWaveHome, WaveSky, WaveEmblem, LauncherClock, WaveRibbons, LowEndPreset,
     OpenAchievements, RaUser, RaPassword, RaSignIn, RaSignOut, RaHardcore, RaCopyHash, RaOpenSet, RaRefresh, RaOpenSite,
     ProfileFrame, ProfileBackdrop, ProfileTitle, ProfileFrameColor, ProfileFeatured
 };
@@ -3875,6 +3875,7 @@ struct Window {
                                                           {SplitImageChoose, L"Choose image…"},
                                                           {SplitImageRemove, L"Remove image"},
                                                           {ClearImage, L"Crisp"},
+                                                          {LowEndPreset, L"Low-end PC"},
                                                           {ChooseIso, L"Choose ISO…"},
                                                           {FindAction, L"Find an action"},
                                                           {ActionOpen, L"Open"},
@@ -4829,9 +4830,10 @@ struct Window {
                 for(size_t index=0;index<fields[group].size();++index) {
                     const auto cell=grid.field(top,int(index));
                     if(fields[group][index]==ClearImage) {
-                        const int half=(cell.width-10)/2;
-                        position(ClearImage,cell.x,cell.y,half,cell.height);
-                        position(ResetGraphics,cell.x+half+10,cell.y,cell.width-half-10,cell.height);
+                        const int third=(cell.width-20)/3;
+                        position(ClearImage,cell.x,cell.y,third,cell.height);
+                        position(LowEndPreset,cell.x+third+10,cell.y,third,cell.height);
+                        position(ResetGraphics,cell.x+2*(third+10),cell.y,cell.width-2*(third+10),cell.height);
                     } else position(fields[group][index],cell.x,cell.y,cell.width,cell.height);
                 }
             }
@@ -10761,6 +10763,20 @@ struct Window {
             for (auto [control, value] : {std::pair<int, int>{Antialiasing, 0}, {Filtering, 0}, {Upscaler, 2}})
                 SendMessageW(controls[control], CB_SETCURSEL, value, 0);
             status = L"Crisp preset applied: bicubic upscaling, game texture filtering and no FXAA.";
+            error = false;
+            refreshEnabled();
+            return;
+        }
+        if (id == LowEndPreset) {
+            auto next = settings;
+            next.internalScale = 1; next.antialiasing = 0; next.upscaler = 1; next.textureFilter = 0;
+            next.hdTextures = 0; next.imageEffect = 0; next.vsync = true;
+            write_settings(settings_path(), next);
+            previousSettings = settings;
+            settings = std::move(next);
+            for (auto [control, value] : {std::pair<int, int>{InternalScale, 0}, {Antialiasing, 0}, {Upscaler, 1}, {Filtering, 0}, {HdTextures, 0}, {ImageEffect, 0}, {Vsync, 1}})
+                SendMessageW(controls[control], CB_SETCURSEL, value, 0);
+            status = L"Low-end PC preset applied: native resolution, no anti-aliasing, bilinear scaling, no HD textures and vsync on.";
             error = false;
             refreshEnabled();
             return;

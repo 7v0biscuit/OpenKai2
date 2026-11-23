@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "gpu_device.h"
 #include "work_timings.h"
+#include <atomic>
 #include <condition_variable>
 #include <cstdlib>
 #include <deque>
@@ -13,6 +14,8 @@
 #endif
 namespace openkai2::gpu {
 namespace {
+std::atomic<uint64_t> deviceMemory{0};
+std::atomic<bool> deviceIntegrated{false};
 constexpr size_t queueDepth=16u;
 struct OpenGlHost final:Host {
     Api& api;const std::string& description;
@@ -140,4 +143,7 @@ bool initialize_headless(std::string& error){
     return initialize_device(std::move(c),error);
 #endif
 }
+void note_device_memory(uint64_t bytes,bool integrated){deviceMemory.store(bytes);deviceIntegrated.store(integrated);}
+uint64_t device_memory_bytes(){return deviceMemory.load();}
+bool device_integrated(){return deviceIntegrated.load();}
 }
