@@ -28,10 +28,6 @@ it picks at most 2x; and with 8 GB of system memory or less it picks at most 2x.
 `startup.log` notes this as
 `[display] internal_scale=auto lowered 3x to 2x for NVIDIA GeForce GTX 1050 Ti`.
 
-**Low-end PC** under **Image presets** sets Native resolution, no anti-aliasing,
-bilinear scaling, game texture filtering, no HD textures, no image effect and
-vsync on, the lightest settings for older PCs.
-
 3D scenes, menus and sprites are drawn at the higher resolution. Pictures the
 game draws and then reuses as a texture, such as full-screen copies and
 effects, keep the higher resolution too. When the

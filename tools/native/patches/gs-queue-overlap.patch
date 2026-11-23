@@ -1,0 +1,28 @@
+--- a/runtime/gs/gs_frontend.cpp
++++ b/runtime/gs/gs_frontend.cpp
+@@ -186,6 +186,7 @@
+         m_working.swap(m_pending);
+         m_workerBusy = true;
+         m_workerWake = false;
++        m_queueDrained.notify_all();
+         lock.unlock();
+         {
+         openkai2::RuntimeWorkTimer busy(openkai2::RuntimeWork::gsWorker);
+@@ -929,7 +930,7 @@
+     if (m_pending.size() >= kQueueLimit)
+     {
+         openkai2::RuntimeWorkTimer wait(openkai2::RuntimeWork::gsFence);
+-        m_queueDrained.wait(lock, [this]() { return m_pending.empty() && !m_workerBusy; });
++        m_queueDrained.wait(lock, [this]() { return m_pending.size() < kQueueLimit || m_stopWorker; });
+     }
+     const size_t at = m_pending.size();
+     m_pending.resize(at + 16u + ((sizeBytes + 15u) & ~15u));
+@@ -1114,7 +1115,7 @@
+         if (m_pending.size() >= (size_t(32) << 20u))
+         {
+             openkai2::RuntimeWorkTimer wait(openkai2::RuntimeWork::gsFence);
+-            m_queueDrained.wait(lock, [this]() { return m_pending.empty() && !m_workerBusy; });
++            m_queueDrained.wait(lock, [this]() { return m_pending.size() < (size_t(32) << 20u) || m_stopWorker; });
+         }
+         constexpr uint32_t kind = 1u;
+         const uint32_t size = 32u + sizeBytes;
