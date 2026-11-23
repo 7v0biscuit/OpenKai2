@@ -79,7 +79,7 @@ struct Settings {
         unsigned region = 0, playstyle = 0;
         uint32_t matches = 0;
         int64_t since = 0;
-        unsigned frame = 0, backdrop = 0, title = 0;
+        unsigned frame = 0, backdrop = 0, title = 0, frameColor = 0, featured = 0;
     };
     std::vector<ProfileStyle> profileStyles;
     std::string onlineRoom, onlinePassword, onlineLobby;

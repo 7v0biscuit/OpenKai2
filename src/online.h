@@ -50,7 +50,7 @@ struct Card {
     int64_t since = 0;
     std::string initials, tagline, about, picture;
     uint64_t revision = 0;
-    unsigned frame = 0, backdrop = 0, title = 0;
+    unsigned frame = 0, backdrop = 0, title = 0, frame_color = 0, featured = 0;
     uint32_t achievements = 0;
 };
 inline constexpr size_t card_picture_limit = 9000;

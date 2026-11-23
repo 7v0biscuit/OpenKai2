@@ -218,6 +218,22 @@ signed with the profile's key, so nobody else can change yours. Cards stay on
 the service while you are offline, so friends still see your picture. Choosing
 **Keep on this PC** removes the card from the service.
 
+**Card look** adds more to your card:
+
+- **Frame**: sixteen picture frames, from Saiyan gold to Time chamber.
+- **Frame color**: keep the frame's own colors or tint it gold, silver, Super
+  Saiyan Blue, Namek green and more.
+- **Card design**: sixteen backdrops, such as Starfield, Kame House sea, Lookout
+  clouds and Aurora.
+- **Title**: thirty-two titles. Most unlock with your level; some need an
+  achievement, including the speedrun titles.
+- **Featured achievement**: show one achievement you have unlocked under your
+  name.
+
+On the Wave home the Profile page shows your card as players see it at the top,
+with **Card look**, **About you**, **Privacy & alerts** and the save buttons
+below. Launchers older than v0.6.2 don't show cards from v0.6.2 or later.
+
 **Preview my card** opens your player profile exactly as other players see it.
 Online matches and the member-since date are counted automatically. **Copy
 profile ID** copies the public ID for sharing. **Use defaults** resets

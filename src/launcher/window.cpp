@@ -92,6 +92,11 @@ COLORREF styleColor(name_style::Rgb c){return RGB(std::clamp(c.r,0,255),std::cla
 name_style::Rgb styleRgb(COLORREF c){return {GetRValue(c),GetGValue(c),GetBValue(c)};}
 COLORREF nameColorAt(int index){return styleColor(name_style::name_colors[size_t(index)].base);}
 constexpr int name_color_custom=int(name_style::name_color_count)+1;
+ULONGLONG motionTicks() {
+    static const LONGLONG frequency=[]{LARGE_INTEGER f{};QueryPerformanceFrequency(&f);return f.QuadPart>0 ? f.QuadPart : 1;}();
+    LARGE_INTEGER now{};QueryPerformanceCounter(&now);
+    return ULONGLONG(now.QuadPart/frequency)*1000ull+ULONGLONG((now.QuadPart%frequency)*1000/frequency);
+}
 uint32_t storedColor(COLORREF color){return 0x1000000u|(uint32_t(GetRValue(color))<<16u)|(uint32_t(GetGValue(color))<<8u)|uint32_t(GetBValue(color));}
 COLORREF shownColor(uint32_t color){return RGB((color>>16u)&255u,(color>>8u)&255u,color&255u);}
 double luminance(COLORREF color){
@@ -101,7 +106,7 @@ double luminance(COLORREF color){
 bool wavePalette = false;
 COLORREF waveTint = RGB(10, 12, 34);
 void apply_theme(unsigned choice, unsigned accent, const CustomColors &custom) {
-    const auto t = make_theme(choice, accent, custom, GetTickCount64());
+    const auto t = make_theme(choice, accent, custom, motionTicks());
     background = colorOf(t.background); sidebar = colorOf(t.sidebar); panel = colorOf(t.panel);
     field = colorOf(t.field); raised = colorOf(t.raised); hover = colorOf(t.hover); border = colorOf(t.border);
     ink = colorOf(t.ink); muted = colorOf(t.muted); faint = colorOf(t.faint);
@@ -336,7 +341,7 @@ enum Id {
     OpenHelp=1240,NextDockTab,PreviousDockTab,PageTop,PageBottom,SaveCurrent,UndoCurrent,ToggleLauncher,CopySetup,OpenIsoFolder,
     ProfileAbout=1300, ProfileRegion, ProfilePlaystyle, ProfilePreview, PlayerAction, PlayerFriend, PlayerBlock, PlayerCopyId, PlayerProfile, ProfileRename, ProfileLink, PlayerChannel, LauncherInterface, OpenWaveHome, WaveSky, WaveEmblem,
     OpenAchievements, RaUser, RaPassword, RaSignIn, RaSignOut, RaHardcore, RaCopyHash, RaOpenSet, RaRefresh, RaOpenSite,
-    ProfileFrame, ProfileBackdrop, ProfileTitle
+    ProfileFrame, ProfileBackdrop, ProfileTitle, ProfileFrameColor, ProfileFeatured
 };
 constexpr int pageCount = 8, onlinePage = 1, speedrunPage = 2, modsPage = 3, savesPage = 4, settingsPage = 5, updatesPage = 6,
               controlsPage = 7, importPage = 8, overlayPage = 9, tabsPage = 10, colorsPage = 11,
@@ -1019,7 +1024,7 @@ struct Window {
         if (hoverHints) SendMessageW(hoverHints,TTM_POP,0,0);
         pendingCaptureAlt=0;
         if (capturing>=0) {capturing=-1;refreshControls();}
-        if (dockStarted) {dockPosition=double(dockTarget);dockStarted=0;KillTimer(hwnd,4);}
+        if (dockStarted) {dockPosition=double(dockTarget);dockStarted=0;endFrames(4);}
     }
     void restoreUi() {
         restoreQueued=false;
@@ -1157,7 +1162,7 @@ struct Window {
         }
         if (page == wavePage) return pageVisibleHeight();
         return std::max(page == achievementsPage ? achievementsHeight() : page == helpPage ? 940 : page == overlayPage ? (waveStyle() ? 1820 : 880) : page == onlinePage ? (waveStyle() ? 1420 : 740) : page == modsPage && waveStyle() ? 960 : page == speedrunPage && waveStyle() ? 900 :page == colorsPage && waveStyle() ? 680 : page == controlsPage ? controlsHeight :
-                        page == settingsPage ? settingsHeight : page == profilePage ? 1340 : page == playerPage ? 820 : page == 0 ? (width<1100 ? 1040 : 740) : page == savesPage ? 780 : 680, pageVisibleHeight());
+                        page == settingsPage ? settingsHeight : page == profilePage ? (waveStyle() ? profileWave(width,heldTag().has_value()).actionsBottom+24 : 1420) : page == playerPage ? 820 : page == 0 ? (width<1100 ? 1040 : 740) : page == savesPage ? 780 : 680, pageVisibleHeight());
     }
     void scrollPage(int value) {
         scrollGliding=false;
@@ -1206,6 +1211,8 @@ struct Window {
         if (pageScroll!=int(std::lround(scrollAt))) {scrollGliding=false;glideActive=false;}
         SetPropW(hwnd,L"OpenKai2.ScrollPos",reinterpret_cast<HANDLE>(intptr_t(scrollReported())));
     }
+    void frames(UINT id) {if(hwnd)SetTimer(hwnd,id,10,nullptr);}
+    void endFrames(UINT id) {if(hwnd)KillTimer(hwnd,id);}
     void glideLoop() {
         using Flush=HRESULT(WINAPI*)();
         const auto module=LoadLibraryW(L"dwmapi.dll");
@@ -1309,7 +1316,7 @@ struct Window {
         return found == shown.end() ? -1 : int(found - shown.begin());
     }
     double profileClock() const {
-        const double now=double(GetTickCount64());
+        const double now=double(motionTicks());
         return settings.reducedMotion ? now*0.3 : now;
     }
     bool allowMotion() const {
@@ -1321,19 +1328,19 @@ struct Window {
         const int target=tabSlot(navigationPage());
         if(target<0)return;
         if(dockTarget<0 || !allowMotion() || IsIconic(hwnd)) {
-            dockPosition=double(target);dockTarget=target;dockStarted=0;KillTimer(hwnd,4);return;
+            dockPosition=double(target);dockTarget=target;dockStarted=0;endFrames(4);return;
         }
         if(target!=dockTarget) {
-            dockFrom=dockPosition;dockTarget=target;dockStarted=GetTickCount64();SetTimer(hwnd,4,16,nullptr);
+            dockFrom=dockPosition;dockTarget=target;dockStarted=motionTicks();frames(4);
         }
     }
     void animateDock() {
         if(!dockStarted)return;
-        const double t=std::min(1.0,double(GetTickCount64()-dockStarted)/240.0);
+        const double t=std::min(1.0,double(motionTicks()-dockStarted)/240.0);
         const double eased=1.0-std::pow(1.0-t,3.0);
         dockPosition=dockFrom+(double(dockTarget)-dockFrom)*eased;
         if(t>=1.0 || !allowMotion() || IsIconic(hwnd)) {
-            dockPosition=double(dockTarget);dockStarted=0;KillTimer(hwnd,4);
+            dockPosition=double(dockTarget);dockStarted=0;endFrames(4);
         }
         if(dropdownOpen() || IsIconic(hwnd))return;
         RECT r{};GetClientRect(hwnd,&r);r.top=std::max(0L,r.bottom-p(108));r.bottom-=p(30);
@@ -1392,6 +1399,7 @@ struct Window {
     int settingsTop() const {return waveStyle() ? 172 : ui::SettingsLayout::top;}
     std::wstring waveTrail;
     int waveTrailPage=-1;
+    bool waveTrailPending=false;
     bool waveRedundant(int id) const {
         if(!waveStyle())return false;
         switch(id) {
@@ -1514,7 +1522,7 @@ struct Window {
     int transitionWidth=0,transitionHeight=0;
     double transitionProgress() const {
         if(!transitionAt)return 1.0;
-        return std::clamp(double(GetTickCount64()-transitionAt)/260.0,0.0,1.0);
+        return std::clamp(double(motionTicks()-transitionAt)/260.0,0.0,1.0);
     }
     void captureTransition(const RECT& client) {
         if(!allowMotion() || !buffer.frame.pixels || buffer.frame.width!=client.right || buffer.frame.height<client.bottom || client.bottom<=0) {transitionAt=0;return;}
@@ -1522,8 +1530,18 @@ struct Window {
         GdiFlush();
         transitionPixels.assign(buffer.frame.pixels,buffer.frame.pixels+count);
         transitionWidth=client.right;transitionHeight=client.bottom;
-        transitionAt=GetTickCount64();
-        if(hwnd)SetTimer(hwnd,9,16,nullptr);
+        transitionAt=motionTicks();
+        controlsDeferred=waveStyle() && !dropdownOpen();
+        if(controlsDeferred)for(const auto& [id,control]:controls)
+            if(pageControlId(id) && IsWindowVisible(control))ShowWindow(control,SW_HIDE);
+        if(hwnd)frames(9);
+    }
+    bool controlsDeferred=false;
+    static bool pageControlId(int id) {return !(id>=PlayTab && id<=ControlsTab) && id!=FindAction && id!=OpenNotifications;}
+    void revealControls() {
+        if(!controlsDeferred)return;
+        controlsDeferred=false;
+        if(page!=wavePage && !dropdownOpen())layout();
     }
     void blendTransition() {
         const double t=transitionProgress();
@@ -1546,24 +1564,25 @@ struct Window {
         }
     }
     void animateTransition() {
-        if(transitionProgress()>=1.0){KillTimer(hwnd,9);transitionAt=0;transitionPixels.clear();}
+        if(transitionProgress()>=0.6)revealControls();
+        if(transitionProgress()>=1.0){endFrames(9);transitionAt=0;transitionPixels.clear();}
         if(IsIconic(hwnd) || dropdownOpen())return;
         InvalidateRect(hwnd,nullptr,FALSE);
     }
     double pageEnter(double delay=0.0) const {
         if(!pageEnterAt)return 1.0;
-        const double t=std::clamp((double(GetTickCount64()-pageEnterAt)-delay)/340.0,0.0,1.0);
+        const double t=std::clamp((double(motionTicks()-pageEnterAt)-delay)/340.0,0.0,1.0);
         return 1.0-std::pow(1.0-t,3.0);
     }
     void animatePageEnter() {
-        const bool done=!pageEnterAt || GetTickCount64()-pageEnterAt>=460 || page==wavePage || !waveStyle();
-        if(done){pageEnterAt=0;KillTimer(hwnd,8);}
+        const bool done=!pageEnterAt || motionTicks()-pageEnterAt>=460 || page==wavePage || !waveStyle();
+        if(done){pageEnterAt=0;endFrames(8);}
         if(IsIconic(hwnd) || dropdownOpen())return;
         (pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);
     }
     int dockReserve() const {return waveStyle() ? waveDockReserve : shellDockReserve;}
     void startWave() {
-        if(!waveTicking && hwnd){waveTicking=true;waveTick=GetTickCount64();waveInterval=16;SetTimer(hwnd,6,16,nullptr);}
+        if(!waveTicking && hwnd){waveTicking=true;waveTick=motionTicks();waveInterval=16;SetTimer(hwnd,6,16,nullptr);}
     }
     void openWaveHome() {
         if(page==wavePage)return;
@@ -1573,8 +1592,8 @@ struct Window {
         (pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);
     }
     void animateWave() {
-        if(page!=wavePage){KillTimer(hwnd,6);waveTicking=false;return;}
-        const ULONGLONG now=GetTickCount64();
+        if(page!=wavePage){KillTimer(hwnd,6);endFrames(6);waveTicking=false;return;}
+        const ULONGLONG now=motionTicks();
         const double dt=std::clamp(double(now-waveTick)/1000.0,0.0,0.1);waveTick=now;
         const double ease=1.0-std::exp(-dt*(allowMotion() ? 14.0 : 40.0));
         waveCategoryAt+=(double(waveCategory)-waveCategoryAt)*ease;
@@ -1583,7 +1602,11 @@ struct Window {
         if(waveFlashAt && now-waveFlashAt>=170){waveFlashAt=0;openWaveItem();if(page!=wavePage)return;}
         bool moving=std::fabs(waveCategoryAt-waveCategory)>0.002 || waveEnter<1.0 || waveFlashAt;
         for(size_t i=0;i<waveItemAt.size();++i)moving=moving || std::fabs(waveItemAt[i]-double(waveItem[i]))>0.002;
-        if(const UINT wanted=moving || (appActive && allowMotion()) ? 16u : 50u;wanted!=waveInterval){waveInterval=wanted;SetTimer(hwnd,6,wanted,nullptr);}
+        if(moving && allowMotion()) {
+            if(waveInterval){waveInterval=0;KillTimer(hwnd,6);frames(6);}
+        } else if(const UINT wanted=appActive && allowMotion() ? 16u : 50u;wanted!=waveInterval){
+            endFrames(6);waveInterval=wanted;SetTimer(hwnd,6,wanted,nullptr);
+        }
         if(IsIconic(hwnd) || dropdownOpen())return;
         InvalidateRect(hwnd,nullptr,FALSE);
     }
@@ -1599,19 +1622,19 @@ struct Window {
     void waveActivate() {
         if(waveFlashAt)return;
         if(!allowMotion()){openWaveItem();return;}
-        waveFlashAt=GetTickCount64();startWave();
+        waveFlashAt=motionTicks();startWave();
     }
     void openWaveItem() {
         const auto categories=waveCategories();
         const auto& category=categories[size_t(waveCategory)];
         const auto& item=category.items[size_t(std::clamp(waveItem[size_t(waveCategory)],0,int(category.items.size())-1))];
-        waveTrail=std::wstring(category.name)+L"  \u203a  "+item.title;
+        waveTrail=std::wstring(category.name)+L"  \u203a  "+item.title;waveTrailPending=true;
         if(item.opensPage) {
             page=0;
             if(item.action==SettingsDisplay || item.action==SettingsGraphics || item.action==SettingsGame || item.action==SettingsLauncher)command(SettingsTab,BN_CLICKED);
             command(item.action,BN_CLICKED);
         } else command(item.action,BN_CLICKED);
-        waveTrailPage=page;
+        waveTrailPage=page;waveTrailPending=false;
         (pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);
     }
     struct WaveGeometry {double rowY,baseX,spacing,itemGap,itemTop;
@@ -1726,7 +1749,7 @@ struct Window {
         graphics.FillPath(&shineFill,&shine);
     }
     void paintWave(HDC dc,int width,int height) {
-        const double now=double(allowMotion() ? GetTickCount64() : 0)/1000.0;
+        const double now=double(allowMotion() ? motionTicks() : 0)/1000.0;
         const auto g=waveGeometry(width,height);
         const COLORREF deep=waveSkyTop(),warm=waveSkyMid();
         const size_t pixels=size_t(width)*size_t(height);
@@ -1818,7 +1841,7 @@ struct Window {
             const double alpha=enter*(0.5+0.5*focus)*edge;
             if(focus>0.05) {
                 const int glow=int(p(46)*focus);
-                buffer.frame.halo({LONG(cx-glow/4),LONG(g.rowY-glow/4),LONG(cx+glow/4),LONG(g.rowY+glow/4)},0,glow,RGB(255,214,140),int(70*focus*enter));
+                buffer.frame.halo({LONG(cx),LONG(g.rowY),LONG(cx+1),LONG(g.rowY+1)},0,glow+glow/4,RGB(255,214,140),int(70*focus*enter));
             }
             navigationIcon(dc,categories[size_t(i)].icon,{LONG(cx-size/2),LONG(g.rowY-size/2),LONG(cx+size/2),LONG(g.rowY+size/2)},fade(RGB(255,250,240),alpha),size);
             if(categories[size_t(i)].icon==OnlineTab && hasNotice() && alpha>0.2) {
@@ -1851,7 +1874,7 @@ struct Window {
             const int tile=int(p(40)+p(14)*focus);
             const RECT box{LONG(columnX-tile/2),LONG(cy-tile/2),LONG(columnX+tile/2),LONG(cy+tile/2)};
             if(focus>0.5 && offset>=-0.5) {
-                const double flash=waveFlashAt ? std::sin(std::min(1.0,double(GetTickCount64()-waveFlashAt)/170.0)*3.1416) : 0.0;
+                const double flash=waveFlashAt ? std::sin(std::min(1.0,double(motionTicks()-waveFlashAt)/170.0)*3.1416) : 0.0;
                 const double pulse=0.5+0.5*std::sin(now*2.4)+flash*2.2;
                 Gdiplus::Graphics graphics(dc);
                 graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
@@ -1894,6 +1917,17 @@ struct Window {
         for(size_t i=0;i<achievements::definition_count && i<32;++i)
             if(progress.has(achievements::definitions[i].id))mask|=1u<<i;
         return mask;
+    }
+    static bool featuredUnlocked(unsigned featured,uint32_t mask) {
+        return featured==0 || (featured<=achievements::definition_count && featured<=32 && ((mask>>(featured-1))&1u));
+    }
+    static std::wstring featuredTitle(unsigned featured,uint32_t mask) {
+        if(featured==0 || featured>achievements::definition_count || !featuredUnlocked(featured,mask))return {};
+        return wide(achievements::definitions[featured-1].title);
+    }
+    static COLORREF frameTint(unsigned color) {
+        if(color==0 || color>=frame_color_count)return CLR_INVALID;
+        return RGB(frame_colors[color].r,frame_colors[color].g,frame_colors[color].b);
     }
     static bool titleUnlocked(unsigned title,uint32_t matches,uint32_t mask) {
         if(title>=title_count)return false;
@@ -2018,6 +2052,8 @@ struct Window {
         SendMessageW(controls[ProfileFrame],CB_SETCURSEL,style ? style->frame : 0u,0);
         SendMessageW(controls[ProfileBackdrop],CB_SETCURSEL,style ? style->backdrop : 0u,0);
         SendMessageW(controls[ProfileTitle],CB_SETCURSEL,style ? style->title : 0u,0);
+        SendMessageW(controls[ProfileFrameColor],CB_SETCURSEL,style ? style->frameColor : 0u,0);
+        SendMessageW(controls[ProfileFeatured],CB_SETCURSEL,style ? style->featured : 0u,0);
         refreshEffectChoices(style);
         page=profilePage;layout();(pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);
     }
@@ -2043,6 +2079,9 @@ struct Window {
         {
             const unsigned title=unsigned(std::clamp(selected(ProfileTitle),0,int(title_count)-1));
             if(titleUnlocked(title,found->matches,achievementMask()))found->title=title;
+            found->frameColor=unsigned(std::clamp(selected(ProfileFrameColor),0,int(frame_color_count)-1));
+            const unsigned featured=unsigned(std::max(0,selected(ProfileFeatured)));
+            found->featured=featuredUnlocked(featured,achievementMask()) ? featured : 0u;
         }
         found->about=utf8(trimmed(textOf(ProfileAbout)));if(heldTag())found->link=utf8(trimmed(textOf(ProfileLink)));found->region=unsigned(std::max(0,selected(ProfileRegion)));found->playstyle=unsigned(std::max(0,selected(ProfilePlaystyle)));
         write_settings(settings_path(),next);settings=std::move(next);cycleTimer();openProfile();publishCard();
@@ -2177,7 +2216,7 @@ struct Window {
     }
     std::optional<identity::Tag> heldTag() const {
         const auto profile=activeProfile();if(!profile)return std::nullopt;
-        const auto now=GetTickCount64();
+        const auto now=motionTicks();
         if(heldTagChecked && heldTagId==profile->id && now-heldTagTime<3000)return heldTagValue;
         heldTagChecked=true;heldTagId=profile->id;heldTagTime=now;
         heldTagValue=online::can_use_flair(*profile) ? identity::claimed_tag(profile->name) : std::nullopt;
@@ -2458,11 +2497,33 @@ struct Window {
         if(earned("flawless"))badges.emplace_back(L"UNTOUCHABLE",RGB(150,220,255));
         if(earned("online_win"))badges.emplace_back(L"ONLINE WARRIOR",RGB(120,200,255));
         if(earned("marathon"))badges.emplace_back(L"TIME CHAMBER",RGB(230,200,140));
+        if(earned("speed_record"))badges.emplace_back(L"RECORD HOLDER",RGB(255,120,120));
+        else if(earned("speed_finish"))badges.emplace_back(L"SPEEDRUNNER",RGB(255,170,110));
+        if(earned("speed_permadeath"))badges.emplace_back(L"IRON WILL",RGB(200,200,220));
+        if(earned("wins_500"))badges.emplace_back(L"UNSTOPPABLE",RGB(255,96,64));
+        if(earned("streak"))badges.emplace_back(L"ON FIRE",RGB(255,140,40));
         int count=0;for(uint32_t bits=card.achievements;bits;bits&=bits-1)++count;
         if(count>=int(achievements::definition_count))badges.emplace_back(L"COMPLETIONIST",RGB(255,226,120));
         else if(count>=7)badges.emplace_back(L"ACHIEVER",RGB(210,180,255));
         if(!channelOf(id).empty())badges.emplace_back(L"STREAMER",RGB(190,140,255));
         return badges;
+    }
+    struct ProfileWave {
+        int left,right,half,rightLeft,pictureLeft,hero=246,heroBottom=566,look=586,lookBottom=1054,privacy=1074,privacyBottom=1290,actions=1310,actionsBottom;
+        int label(int width) const {return std::clamp(width*2/5,130,220);}
+        int rowY(int top,int index) const {return top+64+index*waveOptionRow;}
+    };
+    ProfileWave profileWave(int content,bool tagged) const {
+        ProfileWave g{};
+        g.left=contentLeft;g.right=contentLeft+content;g.half=(content-20)/2;g.rightLeft=g.left+g.half+20;g.pictureLeft=g.right-24-260;
+        g.actionsBottom=g.actions+(tagged ? 196 : 140);
+        return g;
+    }
+    void waveRow(HDC dc,int left,int right,int y,int labelWidth,const std::wstring& label,COLORREF tone) {
+        Gdiplus::Graphics graphics(dc);
+        Gdiplus::LinearGradientBrush divider(Gdiplus::PointF(Gdiplus::REAL(p(left)),0),Gdiplus::PointF(Gdiplus::REAL(p(right)),0),Gdiplus::Color(70,255,236,210),Gdiplus::Color(8,255,236,210));
+        graphics.FillRectangle(&divider,Gdiplus::REAL(p(left)),Gdiplus::REAL(p(y)),Gdiplus::REAL(p(right-left)),Gdiplus::REAL(std::max(1,p(1))));
+        text(dc,label,left,y+14,labelWidth-12,28,fonts.body,tone,DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
     }
     static unsigned profileLevel(uint32_t matches) {return std::min(99u,1u+matches/5u);}
     void paintBadges(HDC dc,const std::vector<std::pair<std::wstring,COLORREF>>& badges,int centre,int y,int width=280) {
@@ -2502,6 +2563,7 @@ struct Window {
                 out.card.fighter=style->fighter;out.card.region=style->region;out.card.playstyle=style->playstyle;out.card.about=style->about;
                 out.card.matches=style->matches;out.card.since=style->since;
                 out.card.frame=style->frame;out.card.backdrop=style->backdrop;out.card.title=style->title;out.card.achievements=achievementMask();
+                out.card.frame_color=style->frameColor;out.card.featured=style->featured;
                 if(style->sharing==0){out.image=profileImage(style->image);out.fit=style->pictureFit;}
             }
             return out;
@@ -2550,7 +2612,7 @@ struct Window {
         buffer.frame.halo({p(cx),p(cy),p(cx+1),p(cy+1)},0,p(84),tone,player ? 70 : 30);
         if(cardTag)ellipse(dc,p(cx),p(cy),p(radius+9),styleColor(name_style::tag_theme(*cardTag).edge));
         ellipse(dc,p(cx),p(cy),p(radius+6),panel);ellipse(dc,p(cx),p(cy),p(radius),tone);
-        if(shown.shared)paintFrame(dc,p(cx),p(cy),p(radius+6),shown.card.frame,tone);
+        if(shown.shared)paintFrame(dc,p(cx),p(cy),p(radius+6),shown.card.frame,tone,frameTint(shown.card.frame_color));
         if(shown.image)paintRoundPhoto(dc,*shown.image,p(cx),p(cy),p(radius-2),shown.fit);
         else {
             const auto letters=shown.shared && !shown.card.initials.empty() ? wide(shown.card.initials) : initials(name);
@@ -2563,6 +2625,7 @@ struct Window {
         int y=326;
         if(player && player->impostor){text(dc,L"NAME NOT VERIFIED",contentLeft+24,y,columnWidth,18,fonts.label,red,DT_CENTER|DT_SINGLELINE|DT_NOPREFIX);y+=22;}
         if(shown.shared && shown.card.title>0 && shown.card.title<title_count){text(dc,wide(title_choices[shown.card.title].name),contentLeft+24,y,columnWidth,18,fonts.label,gold,DT_CENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);y+=22;}
+        if(shown.shared)if(const auto featured=featuredTitle(shown.card.featured,shown.card.achievements);!featured.empty()){text(dc,L"\u2605 "+featured,contentLeft+24,y,columnWidth,18,fonts.label,RGB(255,214,120),DT_CENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);y+=22;}
         if(shown.shared && !shown.card.tagline.empty()){text(dc,L"\u201c"+wide(shown.card.tagline)+L"\u201d",contentLeft+24,y,columnWidth,22,fonts.caption,muted,DT_CENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);y+=24;}
         if(shown.shared && shown.card.fighter && shown.card.fighter<=fighter_count){text(dc,L"MAINS "+wide(fighter_names[shown.card.fighter-1u]),contentLeft+24,y,columnWidth,20,fonts.label,orange,DT_CENTER|DT_SINGLELINE|DT_NOPREFIX);y+=24;}
         std::wstring presence;
@@ -2787,6 +2850,7 @@ struct Window {
             card.accent=style->accent;card.name_color=style->nameColor;card.initials=style->initials;card.tagline=style->tagline;card.fighter=style->fighter;
             card.about=style->about;card.region=style->region;card.playstyle=style->playstyle;card.matches=style->matches;card.since=style->since;
             card.frame=style->frame;card.backdrop=style->backdrop;card.title=style->title;card.achievements=achievementMask();
+            card.frame_color=style->frameColor;card.featured=style->featured;
             if(style->sharing==0 && !style->image.empty()) {
                 const COLORREF tone=style->accent && style->accent!=rgb_accent ? colorOf(accents[style->accent].color) : orange;
                 const auto key=style->image+':'+std::to_string(style->pictureFit)+':'+std::to_string(tone);
@@ -2827,7 +2891,7 @@ struct Window {
     }
     void paintRoundPhoto(HDC dc,const speedrun::SplitImage& image,int cx,int cy,int radius,unsigned mode) {
         const int side=std::max(2,radius*2);
-        const auto& frame=image.frames[image.frame_at(allowMotion() ? GetTickCount64() : 0)].rgba;
+        const auto& frame=image.frames[image.frame_at(allowMotion() ? motionTicks() : 0)].rgba;
         const auto framing=speedrun::picture_framing(image.width,image.height,unsigned(side),mode);
         const bool fit=framing.fit;const double scale=framing.scale;
         std::vector<unsigned char> pixels(size_t(side)*side*4);
@@ -2859,11 +2923,18 @@ struct Window {
         graphics.SetInterpolationMode(Gdiplus::InterpolationModeNearestNeighbor);
         graphics.DrawImage(&bitmap,cx-radius,cy-radius,side,side);
     }
-    void paintFrame(HDC dc,int cx,int cy,int radius,unsigned frame,COLORREF tone) {
+    void paintFrame(HDC dc,int cx,int cy,int radius,unsigned frame,COLORREF tone,COLORREF tint=CLR_INVALID) {
         if(!frame || frame>=frame_count || radius<6)return;
         Gdiplus::Graphics g(dc);
         g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
-        const auto color=[](COLORREF c,int a){return Gdiplus::Color(BYTE(std::clamp(a,0,255)),GetRValue(c),GetGValue(c),GetBValue(c));};
+        const auto recolor=[tint](COLORREF c) {
+            if(tint==CLR_INVALID)return c;
+            const double light=(GetRValue(c)*0.299+GetGValue(c)*0.587+GetBValue(c)*0.114)/255.0;
+            const double base=std::min(1.0,light*1.35),white=std::max(0.0,(light-0.78)/0.22)*0.7;
+            const auto channel=[&](int value){return BYTE(std::clamp(value*base*(1.0-white)+255.0*white,0.0,255.0));};
+            return RGB(channel(GetRValue(tint)),channel(GetGValue(tint)),channel(GetBValue(tint)));
+        };
+        const auto color=[&](COLORREF c,int a){c=recolor(c);return Gdiplus::Color(BYTE(std::clamp(a,0,255)),GetRValue(c),GetGValue(c),GetBValue(c));};
         const float r=float(radius),x=float(cx),y=float(cy),w=std::max(1.5f,r*0.09f);
         const auto ring=[&](float at,COLORREF c,int a,float width){Gdiplus::Pen pen(color(c,a),width);g.DrawEllipse(&pen,x-at,y-at,at*2,at*2);};
         const auto dot=[&](float angle,float at,float size,COLORREF c,int a){Gdiplus::SolidBrush b(color(c,a));g.FillEllipse(&b,x+std::cos(angle)*at-size,y+std::sin(angle)*at-size,size*2,size*2);};
@@ -2874,7 +2945,7 @@ struct Window {
             for(int i=0;i<10;++i){const float a=-pi/2+i*pi/5;Gdiplus::Pen pen(color(RGB(255,214,90),220),w*0.8f);g.DrawLine(&pen,x+std::cos(a)*(r+w*3.2f),y+std::sin(a)*(r+w*3.2f),x+std::cos(a)*(r+w*5.2f),y+std::sin(a)*(r+w*5.2f));}
             break;
         case 2:
-            buffer.frame.halo({LONG(cx),LONG(cy),LONG(cx+1),LONG(cy+1)},0,int(r*1.55f),RGB(90,190,255),90);
+            buffer.frame.halo({LONG(cx),LONG(cy),LONG(cx+1),LONG(cy+1)},0,int(r*1.55f),recolor(RGB(90,190,255)),90);
             ring(r+w*1.2f,RGB(130,210,255),240,w*1.1f);ring(r+w*2.6f,RGB(220,245,255),140,w*0.5f);
             break;
         case 3:
@@ -2902,12 +2973,12 @@ struct Window {
             break;
         }
         case 7:
-            buffer.frame.halo({LONG(cx),LONG(cy),LONG(cx+1),LONG(cy+1)},0,int(r*1.6f),RGB(255,60,40),110);
+            buffer.frame.halo({LONG(cx),LONG(cy),LONG(cx+1),LONG(cy+1)},0,int(r*1.6f),recolor(RGB(255,60,40)),110);
             for(int i=0;i<16;++i){const float a=i*pi/8;Gdiplus::PointF tri[]={{x+std::cos(a-0.12f)*(r+w),y+std::sin(a-0.12f)*(r+w)},{x+std::cos(a)*(r+w*(i%2 ? 4.f : 5.5f)),y+std::sin(a)*(r+w*(i%2 ? 4.f : 5.5f))},{x+std::cos(a+0.12f)*(r+w),y+std::sin(a+0.12f)*(r+w)}};Gdiplus::SolidBrush flame(color(RGB(255,80,50),200));g.FillPolygon(&flame,tri,3);}
             ring(r+w,RGB(255,120,90),255,w);
             break;
         case 8:
-            buffer.frame.halo({LONG(cx),LONG(cy),LONG(cx+1),LONG(cy+1)},0,int(r*1.5f),RGB(150,210,255),100);
+            buffer.frame.halo({LONG(cx),LONG(cy),LONG(cx+1),LONG(cy+1)},0,int(r*1.5f),recolor(RGB(150,210,255)),100);
             ring(r+w*1.2f,RGB(200,235,255),240,w);
             for(int i=0;i<12;++i){const float a=i*pi/6+0.2f;dot(a,r+w*(2.6f+float(i%3)),w*(i%2 ? 0.6f : 0.9f),RGB(255,255,255),230);}
             break;
@@ -2929,6 +3000,38 @@ struct Window {
             Gdiplus::PointF m[]={{x-mw,my+mh},{x-mw,my-mh},{x,my+mh*0.2f},{x+mw,my-mh},{x+mw,my+mh}};
             Gdiplus::SolidBrush back(color(RGB(40,10,30),220));g.FillEllipse(&back,x-mw*1.6f,my-mh*1.8f,mw*3.2f,mh*3.6f);
             Gdiplus::Pen mark(color(RGB(255,90,90),255),w*0.9f);g.DrawLines(&mark,m,5);
+            break;
+        }
+        case 12: {
+            buffer.frame.halo({LONG(cx),LONG(cy),LONG(cx+1),LONG(cy+1)},0,int(r*1.5f),recolor(RGB(170,90,255)),90);
+            ring(r+w*1.1f,RGB(200,140,255),255,w*1.1f);
+            for(int i=0;i<3;++i){const float a=-pi/2+i*2*pi/3;Gdiplus::Pen bolt(color(RGB(230,200,255),230),w*0.8f);
+                Gdiplus::PointF zig[]={{x+std::cos(a)*(r+w*1.4f),y+std::sin(a)*(r+w*1.4f)},{x+std::cos(a+0.12f)*(r+w*3.2f),y+std::sin(a+0.12f)*(r+w*3.2f)},
+                                       {x+std::cos(a-0.06f)*(r+w*3.8f),y+std::sin(a-0.06f)*(r+w*3.8f)},{x+std::cos(a+0.08f)*(r+w*5.6f),y+std::sin(a+0.08f)*(r+w*5.6f)}};
+                g.DrawLines(&bolt,zig,4);}
+            break;
+        }
+        case 13: {
+            ring(r+w*1.2f,RGB(255,236,170),255,w*0.8f);
+            Gdiplus::Pen blade(color(RGB(255,220,120),240),w*1.6f);
+            g.DrawArc(&blade,x-r-w*3,y-r-w*3,(r+w*3)*2,(r+w*3)*2,200.f,140.f);
+            Gdiplus::Pen edge(color(RGB(255,255,230),200),w*0.5f);
+            g.DrawArc(&edge,x-r-w*4.2f,y-r-w*4.2f,(r+w*4.2f)*2,(r+w*4.2f)*2,210.f,120.f);
+            break;
+        }
+        case 14:
+            buffer.frame.halo({LONG(cx),LONG(cy),LONG(cx+1),LONG(cy+1)},0,int(r*1.8f),recolor(RGB(255,250,220)),120);
+            ring(r+w*1.1f,RGB(255,252,235),255,w*1.2f);
+            for(int i=0;i<24;++i){const float a=i*pi/12;Gdiplus::Pen ray(color(RGB(255,248,210),i%2 ? 120 : 200),w*(i%2 ? 0.5f : 0.8f));
+                g.DrawLine(&ray,x+std::cos(a)*(r+w*2.2f),y+std::sin(a)*(r+w*2.2f),x+std::cos(a)*(r+w*(i%2 ? 4.f : 5.8f)),y+std::sin(a)*(r+w*(i%2 ? 4.f : 5.8f)));}
+            break;
+        case 15: {
+            ring(r+w*1.1f,RGB(235,235,245),255,w);
+            ring(r+w*3.0f,RGB(170,170,190),150,w*0.5f);
+            for(int i=0;i<12;++i){const float a=-pi/2+i*pi/6;Gdiplus::Pen tick(color(RGB(240,240,250),220),w*(i%3 ? 0.5f : 1.0f));
+                g.DrawLine(&tick,x+std::cos(a)*(r+w*2.2f),y+std::sin(a)*(r+w*2.2f),x+std::cos(a)*(r+w*(i%3 ? 3.0f : 3.8f)),y+std::sin(a)*(r+w*(i%3 ? 3.0f : 3.8f)));}
+            Gdiplus::Pen hand(color(RGB(255,214,120),255),w*0.9f);
+            g.DrawLine(&hand,x,y-r-w*1.1f,x,y-r-w*4.6f);
             break;
         }
         default: break;
@@ -2989,6 +3092,75 @@ struct Window {
             for(int i=0;i<7;++i){const float a=float(i)*0.9f+0.3f,rr=float(p(50+i*28));Gdiplus::SolidBrush blip(color(RGB(255,200,60),150));g.FillEllipse(&blip,cx+std::cos(a)*rr-float(p(3)),cy+std::sin(a)*rr-float(p(3)),float(p(6)),float(p(6)));}
             break;
         }
+        case 8: {
+            const float sea=y+h*0.58f;
+            Gdiplus::LinearGradientBrush sky(Gdiplus::PointF(0,y),Gdiplus::PointF(0,sea),color(RGB(120,200,255),70),color(RGB(200,240,255),20));
+            g.FillRectangle(&sky,x,y,w,sea-y);
+            Gdiplus::LinearGradientBrush water(Gdiplus::PointF(0,sea),Gdiplus::PointF(0,y+h),color(RGB(40,140,220),80),color(RGB(20,70,140),30));
+            g.FillRectangle(&water,x,sea,w,y+h-sea);
+            Gdiplus::Pen wave(color(RGB(220,245,255),50),float(std::max(1,p(1))));
+            for(int i=1;i<7;++i){const float wy=sea+(y+h-sea)*i/7.f;for(float wx=x+float((i*37)%60);wx<x+w;wx+=float(p(70)))g.DrawArc(&wave,wx,wy,float(p(30)),float(p(6)),200.f,140.f);}
+            Gdiplus::SolidBrush island(color(RGB(255,220,150),70));g.FillEllipse(&island,x+w*0.62f,sea-float(p(8)),w*0.3f,float(p(18)));
+            Gdiplus::SolidBrush house(color(RGB(255,120,120),80));g.FillRectangle(&house,x+w*0.72f,sea-float(p(26)),w*0.08f,float(p(20)));
+            break;
+        }
+        case 9: {
+            Gdiplus::SolidBrush white(color(RGB(255,255,255),26));g.FillRectangle(&white,x,y,w,h);
+            Gdiplus::Pen horizon(color(RGB(255,255,255),60),float(std::max(1,p(1))));
+            g.DrawLine(&horizon,x,y+h*0.6f,x+w,y+h*0.6f);
+            for(int i=0;i<10;++i){const float px=x+std::fmod(float(i)*131.f,w),py=y+h*0.6f-float(p(4));Gdiplus::SolidBrush rock(color(RGB(255,255,255),40));g.FillEllipse(&rock,px,py,float(p(10+i%3*4)),float(p(5)));}
+            break;
+        }
+        case 10: {
+            Gdiplus::LinearGradientBrush sky(Gdiplus::PointF(0,y),Gdiplus::PointF(0,y+h),color(RGB(200,40,40),60),color(RGB(60,10,20),20));
+            g.FillRectangle(&sky,x,y,w,h);
+            Gdiplus::SolidBrush planet(color(RGB(255,90,60),60));const float s2=w*0.45f;g.FillEllipse(&planet,x+w*0.62f,y+float(p(30)),s2,s2);
+            for(int i=0;i<40;++i){Gdiplus::SolidBrush star(color(RGB(255,220,200),50+(i%3)*30));const float sz=float(p(1))*(1+i%2);g.FillEllipse(&star,x+std::fmod(float(i)*89.f,w),y+std::fmod(float(i)*41.f,h*0.7f),sz,sz);}
+            break;
+        }
+        case 11: {
+            Gdiplus::LinearGradientBrush sky(Gdiplus::PointF(0,y),Gdiplus::PointF(0,y+h),color(RGB(150,200,255),60),color(RGB(255,255,255),20));
+            g.FillRectangle(&sky,x,y,w,h);
+            for(int i=0;i<9;++i){const float px=x+std::fmod(float(i)*157.f,w)-float(p(30)),py=y+float(p(60))+std::fmod(float(i)*97.f,h-float(p(120)));
+                Gdiplus::SolidBrush cloud(color(RGB(255,255,255),44));for(int k=0;k<3;++k)g.FillEllipse(&cloud,px+float(p(22*k)),py-float(p(k==1 ? 10 : 0)),float(p(44)),float(p(26)));}
+            break;
+        }
+        case 12: {
+            Gdiplus::LinearGradientBrush heat(Gdiplus::PointF(0,y),Gdiplus::PointF(0,y+h),color(RGB(60,20,20),40),color(RGB(255,90,20),70));
+            g.FillRectangle(&heat,x,y,w,h);
+            Gdiplus::Pen crack(color(RGB(255,160,40),90),float(p(2)));
+            for(int i=0;i<6;++i){const float sx=x+std::fmod(float(i)*173.f,w);Gdiplus::PointF zig[]={{sx,y+h},{sx+float(p(14)),y+h*0.82f},{sx-float(p(6)),y+h*0.7f},{sx+float(p(10)),y+h*0.58f}};g.DrawLines(&crack,zig,4);}
+            break;
+        }
+        case 13: {
+            Gdiplus::LinearGradientBrush sky(Gdiplus::PointF(0,y),Gdiplus::PointF(0,y+h),color(RGB(170,200,240),60),color(RGB(240,248,255),30));
+            g.FillRectangle(&sky,x,y,w,h);
+            for(int i=0;i<4;++i){const float base=y+h*0.78f,px=x+w*(i*0.3f-0.1f),pw=w*0.45f;Gdiplus::PointF peak[]={{px,base},{px+pw/2,base-h*(0.22f+0.06f*float(i%2))},{px+pw,base}};
+                Gdiplus::SolidBrush rock(color(RGB(200,215,240),60));g.FillPolygon(&rock,peak,3);
+                Gdiplus::PointF cap[]={{px+pw*0.38f,base-h*(0.15f+0.06f*float(i%2))},{px+pw/2,base-h*(0.22f+0.06f*float(i%2))},{px+pw*0.62f,base-h*(0.15f+0.06f*float(i%2))}};
+                Gdiplus::SolidBrush snow(color(RGB(255,255,255),110));g.FillPolygon(&snow,cap,3);}
+            for(int i=0;i<50;++i){Gdiplus::SolidBrush flake(color(RGB(255,255,255),90));const float sz=float(p(2));g.FillEllipse(&flake,x+std::fmod(float(i)*71.f,w),y+std::fmod(float(i)*113.f,h),sz,sz);}
+            break;
+        }
+        case 14: {
+            const float top=y+h*0.6f;
+            Gdiplus::SolidBrush ring(color(RGB(235,230,220),46));g.FillRectangle(&ring,x+w*0.08f,top,w*0.84f,h*0.18f);
+            Gdiplus::Pen edge(color(RGB(255,250,240),70),float(std::max(1,p(1))));g.DrawRectangle(&edge,x+w*0.08f,top,w*0.84f,h*0.18f);
+            for(int i=0;i<4;++i){Gdiplus::SolidBrush pillar(color(RGB(255,250,240),60));g.FillRectangle(&pillar,x+w*(0.1f+0.26f*i),top-float(p(40)),float(p(6)),float(p(40)));}
+            Gdiplus::LinearGradientBrush sky(Gdiplus::PointF(0,y),Gdiplus::PointF(0,top),color(RGB(255,200,120),40),color(RGB(255,200,120),0));
+            g.FillRectangle(&sky,x,y,w,top-y);
+            break;
+        }
+        case 15: {
+            for(int band=0;band<3;++band) {
+                Gdiplus::PointF wave[9];
+                for(int i=0;i<9;++i)wave[i]={x+w*i/8.f,y+float(p(80+band*60))+std::sin(float(i)*0.9f+float(band))*float(p(26))};
+                const COLORREF tones[]={RGB(80,255,170),RGB(120,180,255),RGB(220,120,255)};
+                Gdiplus::Pen glow(color(tones[band],30),float(p(18)));g.DrawCurve(&glow,wave,9);
+                Gdiplus::Pen core(color(tones[band],64),float(p(2)));g.DrawCurve(&core,wave,9);
+            }
+            break;
+        }
         default: break;
         }
         g.ResetClip();
@@ -3042,7 +3214,8 @@ struct Window {
         }
         if (radius >= p(16)) {
             const unsigned frame = frameOverride >= 0 ? unsigned(frameOverride) : style ? style->frame : remote ? remote->card.frame : 0u;
-            paintFrame(dc, cx, cy, radius + std::max(1, radius / 8), frame, tone);
+            const unsigned frameColor = frameOverride >= 0 ? unsigned(std::max(0, selected(ProfileFrameColor))) : style ? style->frameColor : remote ? remote->card.frame_color : 0u;
+            paintFrame(dc, cx, cy, radius + std::max(1, radius / 8), frame, tone, frameTint(frameColor));
         }
         if (presence >= 0) {
             const int dot = std::max(p(3), radius * 3 / 10), x = cx + radius * 7 / 10, y = cy + radius * 7 / 10;
@@ -3237,8 +3410,8 @@ struct Window {
     }
     void place(int id, int x, int y, int w, int h, bool visible = true) {
         auto c = controls.at(id);
-        const bool pageControl = !(id >= PlayTab && id <= ControlsTab) && id != FindAction && id != OpenNotifications;
-        if (page == wavePage || waveRedundant(id)) visible = false;
+        const bool pageControl = pageControlId(id);
+        if (page == wavePage || waveRedundant(id) || (controlsDeferred && pageControl)) visible = false;
         const int pageY = y, pageH = h;
         const bool wanted = visible;
         if (pageControl) {
@@ -3579,6 +3752,8 @@ struct Window {
         {std::vector<std::wstring> names;for(const char* name:frame_names)names.emplace_back(wide(name));combo(ProfileFrame,names,0);}
         {std::vector<std::wstring> names;for(const char* name:backdrop_names)names.emplace_back(wide(name));combo(ProfileBackdrop,names,0);}
         {std::vector<std::wstring> names;for(const auto& title:title_choices)names.emplace_back(wide(title.name));combo(ProfileTitle,names,0);}
+        {std::vector<std::wstring> names;for(const auto& color:frame_colors)names.emplace_back(wide(color.name));combo(ProfileFrameColor,names,0);}
+        {std::vector<std::wstring> names{L"No featured achievement"};for(const auto& definition:achievements::definitions)names.emplace_back(wide(definition.title));combo(ProfileFeatured,names,0);}
         combo(WaveSky,{L"Time of day",L"Saiyan sunset",L"Namek",L"Kaio-ken",L"Kami's lookout",L"Frieza night",L"Ki blue"},int(settings.waveSky));
         combo(WaveEmblem,{L"Shown",L"Hidden"},settings.waveEmblem ? 0 : 1);
         hint(WaveSky,L"Colors of the wave home and the sky behind every page. Time of day changes through the day.");
@@ -3883,7 +4058,7 @@ struct Window {
         const bool pageChanged=laidOutPage!=page;
         if(pageChanged){
             pageScroll=0;laidOutPage=page;scrollGliding=false;glideActive=false;motions.clear();motionTick=false;pageDirty=true;
-            if(waveStyle() && page!=wavePage && allowMotion() && hwnd){pageEnterAt=GetTickCount64();SetTimer(hwnd,8,16,nullptr);}
+            if(waveStyle() && page!=wavePage && allowMotion() && hwnd){pageEnterAt=motionTicks();frames(8);}
             else pageEnterAt=0;
         }
         for (unsigned pass=0;pass<3;++pass) {
@@ -4020,23 +4195,31 @@ struct Window {
                 if(recover)position(ProfileRecover,x,166,button,40);
             }
             if(waveStyle()) {
-                const int labelWidth=std::clamp(width*2/5,150,300),valueLeft=side+labelWidth,valueWidth=right-24-valueLeft;
-                const int ids[]={ProfileInitials,ProfileAccent,ProfileNameColor,ProfileFighter,ProfileTagline,ProfileAbout,ProfileRegion,ProfilePlaystyle,
-                                 ProfileAvailability,ProfileNotifications,ProfileSharing,ProfileFriendAlerts};
-                for(int i=0;i<12;++i) {
-                    const bool field=ids[i]==ProfileInitials || ids[i]==ProfileTagline || ids[i]==ProfileAbout;
-                    position(ids[i],valueLeft+(field ? 10 : 0),312+i*waveOptionRow+8,valueWidth-(field ? 20 : 0),40);
-                }
-                position(ProfileSave,side,996,160,40);
-                position(ProfileReset,side+174,996,130,40);
-                position(ProfilePreview,side+318,996,170,40);
-                position(ProfileCopyFrom,valueLeft,1076+8,valueWidth-170,40);
-                position(ProfileCopyStyle,right-24-160,1076+8,160,40);
-                if(heldTag())position(ProfileLink,valueLeft+10,1132+8,valueWidth-20,40);
-                position(ProfileCopyId,contentLeft+24,480,split-contentLeft-48,36);
-                position(ProfileImageChoose,contentLeft+24,532,split-contentLeft-48,36);
-                position(ProfileImageRemove,contentLeft+24,580,split-contentLeft-48,36);
-                position(ProfileFit,contentLeft+24,664,split-contentLeft-48,40);
+                const auto g=profileWave(content,heldTag().has_value());
+                const auto placeRow=[&](int id,int left,int edge,int labelWidth,int y,bool field=false) {
+                    const int valueLeft=left+24+labelWidth,valueWidth=edge-24-valueLeft;
+                    position(id,valueLeft+(field ? 10 : 0),y+8,valueWidth-(field ? 20 : 0),40);
+                };
+                const int lookRight=g.left+g.half,label=g.label(g.half);
+                const int look[]={ProfileFrame,ProfileFrameColor,ProfileBackdrop,ProfileTitle,ProfileFeatured,ProfileAccent,ProfileNameColor};
+                for(int i=0;i<7;++i)placeRow(look[i],g.left,lookRight,label,g.rowY(g.look,i));
+                const int about[]={ProfileInitials,ProfileFighter,ProfileTagline,ProfileAbout,ProfileRegion,ProfilePlaystyle};
+                for(int i=0;i<6;++i)placeRow(about[i],g.rightLeft,g.right,label,g.rowY(g.look,i),about[i]==ProfileInitials || about[i]==ProfileTagline || about[i]==ProfileAbout);
+                placeRow(ProfileAvailability,g.left,lookRight,label,g.rowY(g.privacy,0));
+                placeRow(ProfileNotifications,g.left,lookRight,label,g.rowY(g.privacy,1));
+                placeRow(ProfileSharing,g.rightLeft,g.right,label,g.rowY(g.privacy,0));
+                placeRow(ProfileFriendAlerts,g.rightLeft,g.right,label,g.rowY(g.privacy,1));
+                position(ProfileSave,g.left+24,g.actions+20,170,40);
+                position(ProfileReset,g.left+24+184,g.actions+20,140,40);
+                position(ProfilePreview,g.left+24+338,g.actions+20,180,40);
+                const int wideLabel=std::clamp(content/4,180,280),copyLeft=g.left+24+wideLabel,copyWidth=g.right-24-copyLeft;
+                position(ProfileCopyFrom,copyLeft,g.actions+84,copyWidth-176,40);
+                position(ProfileCopyStyle,g.right-24-160,g.actions+84,160,40);
+                if(heldTag())position(ProfileLink,copyLeft+10,g.actions+140,copyWidth-20,40);
+                position(ProfileCopyId,g.pictureLeft,g.hero+24,260,36);
+                position(ProfileImageChoose,g.pictureLeft,g.hero+68,260,36);
+                position(ProfileImageRemove,g.pictureLeft,g.hero+112,260,36);
+                position(ProfileFit,g.pictureLeft,g.hero+182,260,40);
             } else {
             const int half=(width-16)/2,second=side+(width+16)/2;
             position(ProfileInitials,side,330,half,40);
@@ -4062,11 +4245,13 @@ struct Window {
             position(ProfileCopyStyle,side+width-160,990,160,40);
             if(heldTag())position(ProfileLink,side,1124,width,40);
             }
-            {
+            if(!waveStyle()) {
                 const int third=(content-48-32)/3;
                 position(ProfileFrame,contentLeft+24,1196+70,third,40);
                 position(ProfileBackdrop,contentLeft+24+third+16,1196+70,third,40);
                 position(ProfileTitle,contentLeft+24+2*(third+16),1196+70,third,40);
+                position(ProfileFrameColor,contentLeft+24,1196+150,third,40);
+                position(ProfileFeatured,contentLeft+24+third+16,1196+150,2*third+16,40);
             }
         } else if (page == savesPage) {
             SetWindowTextW(controls[BackToPlay], waveStyle() ? L"Back to Home" : L"Back to Play");
@@ -4558,7 +4743,7 @@ struct Window {
             }
             buffer.frame.ball(p(margin+16),p(36),p(14),{0,0,p(w),p(shellHeader)});
             text(dc,L"OpenKai2",margin+42,19,180,28,fonts.brand,ink);
-            const std::wstring trail=L"Home  \u203a  "+(waveTrailPage==page && !waveTrail.empty() ? waveTrail : std::wstring(pageTitle(page)));
+            const std::wstring trail=L"Home  \u203a  "+((waveTrailPage==page || waveTrailPending) && !waveTrail.empty() ? waveTrail : std::wstring(pageTitle(page)));
             text(dc,trail,margin+42,44,std::max(230,w/2-margin-80),18,fonts.caption,muted,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
             SYSTEMTIME now{};GetLocalTime(&now);wchar_t clock[40]{},date[40]{};
             GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT,TIME_NOSECONDS,&now,nullptr,clock,40);
@@ -4615,7 +4800,7 @@ struct Window {
             PlayTab+(page==controlsPage || page==savesPage ? page : navigationPage());
         const double enter=waveStyle() ? pageEnter() : 1.0,later=waveStyle() ? pageEnter(90.0) : 1.0;
         if(waveStyle()) {
-            buffer.frame.halo({tile.left+p(14),tile.top+p(14),tile.right-p(14),tile.bottom-p(14)},0,p(int(30+26*(1.0-enter))),RGB(255,214,150),int(60+90*(1.0-enter)));
+            buffer.frame.halo({(tile.left+tile.right)/2,(tile.top+tile.bottom)/2,(tile.left+tile.right)/2+1,(tile.top+tile.bottom)/2+1},0,p(int(36+26*(1.0-enter))),RGB(255,214,150),int(60+90*(1.0-enter)));
             navigationIcon(dc,icon,tile,mix(background,RGB(255,250,240),int(255*(0.35+0.65*enter))),p(34));
         } else {
             box(dc,tile,mix(panel,orange,22),mix(border,orange,70),12);
@@ -4881,7 +5066,73 @@ struct Window {
         caps(dc,L"LATEST PATCH NOTES",g.left+22,g.notesTop+12,content-184,orange);
         text(dc,application_highlights,g.left+22,g.notesTop+36,content-200,34,fonts.caption,muted,DT_LEFT|DT_WORDBREAK|DT_END_ELLIPSIS|DT_NOPREFIX);
     }
+    void paintProfileWave(HDC dc,int content) {
+        const bool perks=heldTag().has_value();
+        const auto g=profileWave(content,perks);
+        panelBox(dc,g.left,124,g.right,226);
+        heading(dc,L"Active profile",g.left+24,136,content-48);
+        const auto profile=activeProfile();if(!profile)return;
+        const auto style=profileStyle(profile->id);
+        panelBox(dc,g.left,g.hero,g.right,g.heroBottom);
+        if(perks)paintTagTheme(dc,*heldTag(),g.left,g.hero,g.right,g.heroBottom);
+        paintBackdrop(dc,{p(g.left),p(g.hero),p(g.right),p(g.heroBottom)},unsigned(std::max(0,selected(ProfileBackdrop))),orange);
+        const int cx=g.left+124,cy=g.hero+150;
+        buffer.frame.halo({p(cx),p(cy),p(cx+1),p(cy+1)},0,p(96),orange,40);
+        avatar(dc,p(cx),p(cy),p(64),wide(profile->name),profile->id,panel,-1,false,std::max(0,selected(ProfileFrame)));
+        caps(dc,L"AS PLAYERS SEE YOU",g.left+24,g.hero+18,200);
+        const int tx=g.left+248,tw=std::max(160,g.pictureLeft-32-tx);
+        nameText(dc,wide(profile->name),tx,g.hero+36,tw,44,fonts.title,readableName(chosenNameColor(),ink),DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX,profile->id,chosenEffect());
+        int y=g.hero+80;
+        const int chosenTitle=std::max(0,selected(ProfileTitle));
+        if(chosenTitle>0 && unsigned(chosenTitle)<title_count){text(dc,wide(title_choices[size_t(chosenTitle)].name),tx,y,tw,20,fonts.label,gold,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);y+=22;}
+        if(const auto featured=featuredTitle(unsigned(std::max(0,selected(ProfileFeatured))),achievementMask());!featured.empty()){text(dc,L"\u2605 "+featured,tx,y,tw,20,fonts.label,RGB(255,214,120),DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);y+=22;}
+        text(dc,style && !style->tagline.empty() ? L"\u201c"+wide(style->tagline)+L"\u201d" : L"Add a tagline below.",tx,y,tw,22,fonts.caption,muted,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);y+=24;
+        if(const int fighter=selected(ProfileFighter);fighter>0 && unsigned(fighter)<=fighter_count){text(dc,L"MAINS "+wide(fighter_names[size_t(fighter-1)]),tx,y,tw,20,fonts.label,orange,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);y+=22;}
+        auto mine=shownCard(profile->id);
+        if(!mine.shared && style) {
+            mine.shared=true;mine.card.matches=style->matches;mine.card.since=style->since;mine.card.tagline=style->tagline;
+            mine.card.about=style->about;mine.card.fighter=style->fighter;mine.image=profileImage(style->image);
+        }
+        const int levelWidth=std::min(tw,420);
+        paintLevel(dc,mine,tx,std::max(y+8,g.hero+186),levelWidth);
+        paintBadges(dc,profileBadges(mine,profile->id,wide(profile->name)),tx+levelWidth/2,std::max(y+8,g.hero+186)+52,levelWidth);
+        const int stats=g.heroBottom-34;
+        const std::wstring line=std::to_wstring(style ? style->matches : 0u)+L" online matches  \u00b7  "+std::to_wstring(friendCount())+L" friends  \u00b7  "+
+            std::to_wstring(recentCount())+L" recent opponents  \u00b7  "+(style && style->since>0 ? L"Member since "+dateText(style->since) : std::wstring(L"First time online"));
+        text(dc,line,g.left+24,stats,g.pictureLeft-g.left-48,20,fonts.caption,muted,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+        caps(dc,L"PICTURE FRAMING",g.pictureLeft,g.hero+162,260);
+        text(dc,style && !style->imageName.empty() ? wide(style->imageName) : L"PNG, JPEG or animated GIF",g.pictureLeft,g.hero+232,260,20,fonts.caption,ink,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+        const int sharing=selected(ProfileSharing);
+        text(dc,sharing==2 ? L"Up to 16 MB. Your picture and card stay on this PC." :
+                sharing==1 ? L"Up to 16 MB. Your picture stays on this PC; players see the rest of your card." :
+                             L"Up to 16 MB. Players see a small copy; animated pictures share their first frame.",
+             g.pictureLeft,g.hero+256,260,60,fonts.caption,muted,DT_WORDBREAK|DT_NOPREFIX);
+        const int lookRight=g.left+g.half,label=g.label(g.half);
+        panelBox(dc,g.left,g.look,lookRight,g.lookBottom);
+        heading(dc,L"Card look",g.left+24,g.look+18,g.half-48);
+        text(dc,L"Shown on your card online",g.left+24,g.look+20,g.half-48,20,fonts.caption,muted,DT_RIGHT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+        const wchar_t* lookRows[]={L"Frame",L"Frame color",L"Card design",L"Title",L"Featured achievement",L"Avatar accent",L"Name color"};
+        for(int i=0;i<7;++i)waveRow(dc,g.left+24,lookRight-24,g.rowY(g.look,i),label,lookRows[i],ink);
+        panelBox(dc,g.rightLeft,g.look,g.right,g.lookBottom);
+        heading(dc,L"About you",g.rightLeft+24,g.look+18,g.half-48);
+        const wchar_t* aboutRows[]={L"Initials",L"Main fighter",L"Tagline",L"About me",L"Region",L"Playstyle"};
+        for(int i=0;i<6;++i)waveRow(dc,g.rightLeft+24,g.right-24,g.rowY(g.look,i),label,aboutRows[i],ink);
+        text(dc,L"Initials show when you have no picture. Titles unlock with levels and achievements.",g.rightLeft+24,g.rowY(g.look,6)+14,g.half-48,40,fonts.caption,muted,DT_WORDBREAK|DT_NOPREFIX);
+        panelBox(dc,g.left,g.privacy,g.right,g.privacyBottom);
+        heading(dc,L"Privacy & alerts",g.left+24,g.privacy+18,content-48);
+        waveRow(dc,g.left+24,lookRight-24,g.rowY(g.privacy,0),label,L"Availability",ink);
+        waveRow(dc,g.left+24,lookRight-24,g.rowY(g.privacy,1),label,L"Invites & requests",ink);
+        waveRow(dc,g.rightLeft+24,g.right-24,g.rowY(g.privacy,0),label,L"Player card online",ink);
+        waveRow(dc,g.rightLeft+24,g.right-24,g.rowY(g.privacy,1),label,L"Friends coming online",ink);
+        text(dc,L"Availability is shared online. Quiet mode and Do not disturb keep requests without desktop alerts.",g.left+24,g.rowY(g.privacy,2)+10,content-48,22,fonts.caption,muted,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+        panelBox(dc,g.left,g.actions,g.right,g.actionsBottom);
+        text(dc,L"Changes show on your card after you save.",g.left+24+540,g.actions+30,content-48-540,20,fonts.caption,muted,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+        const int wideLabel=std::clamp(content/4,180,280);
+        waveRow(dc,g.left+24,g.right-24,g.actions+76,wideLabel,L"Copy appearance from",ink);
+        if(const auto tag=heldTag())waveRow(dc,g.left+24,g.right-24,g.actions+132,wideLabel,wide(identity::tag_label(*tag))+L" channel link",readableName(storedColor(tagColor(*tag)),ink));
+    }
     void paintProfile(HDC dc,int h,int content) {
+        if(waveStyle()){paintProfileWave(dc,content);return;}
         const int right=contentLeft+content,split=contentLeft+std::clamp(content/3,260,340),side=split+44,width=right-side-24;
         panelBox(dc,contentLeft,124,right,226);
         heading(dc,L"Active profile",contentLeft+24,136,content-48);
@@ -4932,12 +5183,14 @@ struct Window {
         }
         {
             const int top=1196,third=(content-48-32)/3;
-            panelBox(dc,contentLeft,top,right,1316);
+            panelBox(dc,contentLeft,top,right,1400);
             heading(dc,L"Card style",contentLeft+24,top+14,content-48);
             text(dc,L"Frame, card design and title. Players online see them on your card.",contentLeft+150,top+17,content-174,20,fonts.caption,muted,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
             caps(dc,L"FRAME",contentLeft+24,top+48,third);
             caps(dc,L"CARD DESIGN",contentLeft+24+third+16,top+48,third);
             caps(dc,L"TITLE",contentLeft+24+2*(third+16),top+48,third);
+            caps(dc,L"FRAME COLOR",contentLeft+24,top+128,third);
+            caps(dc,L"FEATURED ACHIEVEMENT",contentLeft+24+third+16,top+128,2*third+16);
         }
         heading(dc,L"Appearance & notifications",side,266,width);
         if(waveStyle()) {
@@ -5129,7 +5382,7 @@ struct Window {
     }
     void paintLocalImage(HDC dc,const speedrun::SplitImage& value,RECT bounds,COLORREF backdrop,bool cover=false) {
         const auto image=&value;
-        const auto& rgba = image->frames[image->frame_at(allowMotion() ? GetTickCount64() : 0)].rgba;
+        const auto& rgba = image->frames[image->frame_at(allowMotion() ? motionTicks() : 0)].rgba;
         std::vector<uint32_t> pixels(size_t(image->width)*image->height);
         for (size_t i = 0; i < pixels.size(); ++i) {
             const unsigned alpha = rgba[i*4+3];
@@ -6338,7 +6591,7 @@ struct Window {
             path.CloseFigure();g.DrawPath(&pen,&path);line(7,10,7,14);line(5,12,9,12);g.FillEllipse(&brush,16.f,10.f,2.f,2.f);g.FillEllipse(&brush,18.f,13.f,2.f,2.f);
         } else if(id==UpdatesTab){line(12,3,12,15);line(8,11,12,15);line(12,15,16,11);line(4,16,4,21);line(4,21,20,21);line(20,21,20,16);}
         else if(id==ModsTab){line(12,2,22,7);line(22,7,12,12);line(12,12,2,7);line(2,7,12,2);line(2,7,2,17);line(2,17,12,22);line(12,22,22,17);line(22,17,22,7);line(12,12,12,22);}
-        else {for(int i=0;i<3;++i){const float y=5.f+i*7.f,knob=i==1?16.f:8.f;line(3,y,21,y);Gdiplus::SolidBrush bg(drawingColor(panel));g.FillEllipse(&bg,knob-2,y-2,4.f,4.f);g.DrawEllipse(&pen,knob-2,y-2,4.f,4.f);}}
+        else {for(int i=0;i<3;++i){const float y=5.f+i*7.f,knob=i==1?16.f:8.f;line(3,y,21,y);g.FillEllipse(&brush,knob-2.5f,y-2.5f,5.f,5.f);}}
         });
     }
     void drawItem(const DRAWITEMSTRUCT &item) {
@@ -7916,7 +8169,7 @@ struct Window {
         wavePalette = waveStyle();
         waveTint = waveSkyTop();
         apply_theme(settings.launcherTheme, settings.launcherAccent, settings.launcherColors);
-        const auto now = GetTickCount64();
+        const auto now = motionTicks();
         if (now - ambientAt >= 500u) {
             ambientAt = now;
             ambient.clear();
@@ -8925,7 +9178,7 @@ struct Window {
     static constexpr ULONGLONG toastLife=6500;
     double toastPresence() const {
         if(!toastAt)return 0.0;
-        const double age=double(GetTickCount64()-toastAt);
+        const double age=double(motionTicks()-toastAt);
         if(age>=double(toastLife))return 0.0;
         const double in=std::min(1.0,age/280.0),out=std::min(1.0,(double(toastLife)-age)/420.0);
         return std::min(1.0-std::pow(1.0-in,3.0),out);
@@ -8937,16 +9190,16 @@ struct Window {
         return {client.right-p(margin)-width+slide,top,client.right-p(margin)+slide,top+height};
     }
     void showToast(const std::wstring& title,const std::wstring& message) {
-        toastTitle=title;toastText=message;toastAt=GetTickCount64();
+        toastTitle=title;toastText=message;toastAt=motionTicks();
         SetTimer(hwnd,7,16,nullptr);
         RECT area=toastRect();area.left-=p(60);area.bottom+=p(8);InvalidateRect(hwnd,&area,FALSE);
     }
     void animateToast() {
         RECT client{};GetClientRect(hwnd,&client);
         RECT area{client.right-p(margin)-p(440),p(shellHeader),client.right,p(page==wavePage ? 104 : shellHeader+12)+p(92)};
-        if(!toastPresence() && toastAt && GetTickCount64()-toastAt>=toastLife){toastAt=0;KillTimer(hwnd,7);}
+        if(!toastPresence() && toastAt && motionTicks()-toastAt>=toastLife){toastAt=0;KillTimer(hwnd,7);}
         else {
-            const double age=double(GetTickCount64()-toastAt);
+            const double age=double(motionTicks()-toastAt);
             SetTimer(hwnd,7,age<300 || age>double(toastLife)-450 ? 16 : 250,nullptr);
         }
         InvalidateRect(hwnd,&area,FALSE);
@@ -8973,7 +9226,7 @@ struct Window {
             Gdiplus::SolidBrush accentBar(Gdiplus::Color(BYTE(255*presence),GetRValue(orange),GetGValue(orange),GetBValue(orange)));
             graphics.SetClip(&card);
             graphics.FillRectangle(&accentBar,x,y,Gdiplus::REAL(p(4)),h);
-            const double life=std::clamp(double(GetTickCount64()-toastAt)/double(toastLife),0.0,1.0);
+            const double life=std::clamp(double(motionTicks()-toastAt)/double(toastLife),0.0,1.0);
             Gdiplus::SolidBrush timer(Gdiplus::Color(BYTE(90*presence),255,236,200));
             graphics.FillRectangle(&timer,x,y+h-Gdiplus::REAL(std::max(1,p(2))),Gdiplus::REAL(w*(1.0-life)),Gdiplus::REAL(std::max(1,p(2))));
             graphics.ResetClip();
@@ -9623,8 +9876,12 @@ struct Window {
             saveProfileImage({},{});return;
         }
         if (notification==BN_CLICKED && id==HomeProfile) {openProfile();return;}
-        if((id==ProfileFrame || id==ProfileBackdrop || id==ProfileTitle) && notification==CBN_SELCHANGE) {
-            if(id==ProfileTitle) {
+        if((id==ProfileFrame || id==ProfileBackdrop || id==ProfileTitle || id==ProfileFrameColor || id==ProfileFeatured) && notification==CBN_SELCHANGE) {
+            if(id==ProfileFeatured && !featuredUnlocked(unsigned(std::max(0,selected(ProfileFeatured))),achievementMask())) {
+                const auto profile=activeProfile();const auto style=profile ? profileStyle(profile->id) : nullptr;
+                status=L"Unlock that achievement to feature it on your card.";error=true;
+                SendMessageW(controls[ProfileFeatured],CB_SETCURSEL,style ? style->featured : 0u,0);
+            } else if(id==ProfileTitle) {
                 const auto profile=activeProfile();const auto style=profile ? profileStyle(profile->id) : nullptr;
                 const unsigned chosen=unsigned(std::max(0,selected(ProfileTitle)));
                 if(!titleUnlocked(chosen,style ? style->matches : 0u,achievementMask())) {
@@ -10212,7 +10469,7 @@ struct Window {
                 settings.launcherColors = colors;
                 message = std::wstring(L"Colors pasted: ") + themes[theme].name + L".";
             } else {
-                const uint64_t tick = GetTickCount64();
+                const uint64_t tick = motionTicks();
                 unsigned theme = unsigned(tick % theme_count);
                 if (theme == settings.launcherTheme)
                     theme = (theme + 1u) % theme_count;

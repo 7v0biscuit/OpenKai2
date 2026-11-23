@@ -159,7 +159,7 @@ int main() {
         s.profileStyles[0].imageName="My \"portrait\".gif";
         s.profileStyles[0].nameColor=0x1ffcc33u;s.profileStyles[0].fighter=29;s.profileStyles[1].sharing=2;
         s.profileStyles[1].friendAlerts=false;s.onlineFriends[0].seen=1763350000;
-        s.launcherInterface=1;s.raUser="Goku Son";s.raToken="tok\"en";s.raHardcore=true;s.achievementsPaused=true;s.profileStyles[0].nameEffect=29;s.profileStyles[0].link="https://www.twitch.tv/example";s.profileStyles[1].pictureFit=2;s.profileStyles[0].frame=11;s.profileStyles[0].backdrop=7;s.profileStyles[0].title=15;
+        s.launcherInterface=1;s.raUser="Goku Son";s.raToken="tok\"en";s.raHardcore=true;s.achievementsPaused=true;s.profileStyles[0].nameEffect=29;s.profileStyles[0].link="https://www.twitch.tv/example";s.profileStyles[1].pictureFit=2;s.profileStyles[0].frame=15;s.profileStyles[0].backdrop=14;s.profileStyles[0].title=31;s.profileStyles[0].frameColor=11;s.profileStyles[0].featured=29;
         s.profileStyles[0].about="Main \"Kid\" Buu, loves rematches";s.profileStyles[0].region=4;s.profileStyles[0].playstyle=2;
         s.profileStyles[0].matches=77;s.profileStyles[0].since=1763337600;
         s.blockedPlayers={{std::string(64,'a'),std::string(64,'e'),"Spammer"}};
@@ -183,9 +183,11 @@ int main() {
                 read.onlineFriends[0].seen==1763350000,"Friend alerts or last-seen times did not round-trip");
         require(read.profileStyles[0].nameEffect==29 && read.profileStyles[1].nameEffect==0,"Name effects did not round-trip");
         require(read.launcherInterface==1,"The wave home setting did not round-trip");
-        require(read.profileStyles[0].frame==11 && read.profileStyles[0].backdrop==7 && read.profileStyles[0].title==15 &&
-                read.profileStyles[1].frame==0 && read.profileStyles[1].title==0,"Profile frames, card designs or titles did not round-trip");
-        auto badFrame=s;badFrame.profileStyles[0].frame=12;rejects([&]{validate_settings(badFrame);});
+        require(read.profileStyles[0].frame==15 && read.profileStyles[0].backdrop==14 && read.profileStyles[0].title==31 &&
+                read.profileStyles[0].frameColor==11 && read.profileStyles[0].featured==29 &&
+                read.profileStyles[1].frame==0 && read.profileStyles[1].title==0 && read.profileStyles[1].frameColor==0,"Profile frames, card designs or titles did not round-trip");
+        auto badFrame=s;badFrame.profileStyles[0].frame=16;rejects([&]{validate_settings(badFrame);});
+        auto badFrameColor=s;badFrameColor.profileStyles[0].frameColor=12;rejects([&]{validate_settings(badFrameColor);});
         require(read.raUser=="Goku Son" && read.raToken=="tok\"en" && read.raHardcore && read.achievementsPaused,
                 "RetroAchievements sign-in or the achievement pause did not round-trip");
         auto badToken=s;badToken.raToken="a\nb";rejects([&]{validate_settings(badToken);});

@@ -284,17 +284,20 @@ void service_format() {
     card.matches = 1234;
     card.since = 1763337600;
     card.picture = std::string("\xff\xd8\xff\xe0", 4) + std::string(600, 'j');
-    card.frame = 11;
-    card.backdrop = 7;
-    card.title = 15;
-    card.achievements = 0x2c11u;
+    card.frame = 15;
+    card.backdrop = 14;
+    card.title = 31;
+    card.frame_color = 11;
+    card.featured = 29;
+    card.achievements = 0x1c002c11u;
     const auto payload = on::format_card(owner, card);
     const auto parsed = on::parse_card(owner.id, payload);
     require(parsed && parsed->accent == 5 && parsed->fighter == 27 && parsed->name_color == 0x1ff8800u &&
                 parsed->initials == "BU" && parsed->tagline == "Capsule Corp" && parsed->picture == card.picture &&
                 parsed->about == "Builds a time machine on weekends. Likes rematches." && parsed->region == 4 &&
-                parsed->playstyle == 2 && parsed->matches == 1234 && parsed->since == 1763337600 && parsed->frame == 11 &&
-                parsed->backdrop == 7 && parsed->title == 15 && parsed->achievements == 0x2c11u,
+                parsed->playstyle == 2 && parsed->matches == 1234 && parsed->since == 1763337600 && parsed->frame == 15 &&
+                parsed->backdrop == 14 && parsed->title == 31 && parsed->frame_color == 11 && parsed->featured == 29 &&
+                parsed->achievements == 0x1c002c11u && payload.rfind("4\t", 0) == 0,
             "profile cards round trip");
     require(!on::parse_card(owner.id, "1\t5\t\tBU\tx\t27\t\tsig"), "first-format cards are refused");
     require(!on::parse_card(on::make_profile(on::new_seed(), "Other").id, payload), "a card signed by someone else is refused");
