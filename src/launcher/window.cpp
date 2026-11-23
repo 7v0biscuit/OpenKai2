@@ -349,7 +349,7 @@ constexpr int pageCount = 8, onlinePage = 1, speedrunPage = 2, modsPage = 3, sav
               profilePage = 12, finderPage = 13, notificationsPage=14, helpPage=15, playerPage=16, wavePage=17, achievementsPage=18;
 constexpr UINT controlKeyMessage = WM_APP + 40, controlClearMessage = WM_APP + 41,
                pageClipMessage = WM_APP + 42, restoreUiMessage = WM_APP + 43,
-               deferredUiMessage = WM_APP + 44, glideMessage = WM_APP + 45, retroMessage = WM_APP + 46;
+               deferredUiMessage = WM_APP + 44, glideMessage = WM_APP + 45, retroMessage = WM_APP + 46, revealMessage = WM_APP + 47;
 constexpr std::array<int, 17> padChoices{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17};
 constexpr int controlsTop = 112, controlRowTop = 196;
 constexpr std::array<unsigned, 4> audioVolumes{100u, 75u, 50u, 25u};
@@ -1325,6 +1325,8 @@ struct Window {
         return found == shown.end() ? -1 : int(found - shown.begin());
     }
     double pinnedClock=-1.0;
+    ULONGLONG pinnedTicks=0;
+    ULONGLONG imageTicks() const {return pinnedTicks ? pinnedTicks : motionTicks();}
     double profileClock() const {
         if(pinnedClock>=0.0)return pinnedClock;
         const double now=double(motionTicks());
@@ -1567,12 +1569,15 @@ struct Window {
     bool controlsDeferred=false;
     static bool pageControlId(int id) {return !(id>=PlayTab && id<=ControlsTab) && id!=FindAction && id!=OpenNotifications;}
     void revealControls() {
+        revealPosted=false;
         if(!controlsDeferred)return;
         controlsDeferred=false;
         if(page!=wavePage && !dropdownOpen())layout();
     }
+    bool revealPosted=false;
     void blendTransition() {
         const double t=transitionProgress();
+        if(controlsDeferred && t>=0.6 && hwnd && !revealPosted){revealPosted=true;PostMessageW(hwnd,revealMessage,0,0);}
         if(t>=1.0 || transitionPixels.empty()){transitionAt=0;transitionPixels.clear();return;}
         const double eased=1.0-std::pow(1.0-t,3.0);
         const uint32_t alpha=uint32_t((1.0-eased)*235.0),keep=256u-alpha;
@@ -2187,7 +2192,7 @@ struct Window {
     COLORREF nameInk(const std::string& id,COLORREF fallback) {return readableName(nameColorOf(id),fallback);}
     static constexpr const wchar_t* name_effect_names[]={L"",L"Shenron wish",L"Fusion dance",L"Super Saiyan",L"Ki blast",L"Frost demon",L"Galick Gun",L"Majin Buu",L"Death Ball",L"Kaio-ken",L"Kaio-ken x20",L"Red Ribbon",L"Namek inferno",L"Kamehameha",L"Perfect Cell",L"Super Saiyan 2",L"Dragon Balls",L"Spirit Bomb",L"Majin magic",L"Candy beam",L"Instant Transmission",L"Champion belt",L"Cell Games",L"Dragon Fist",L"Planet Vegeta",L"Big Bang Attack",L"Piccolo",L"Powering up",L"Ginyu Force",L"Dynamite Kick",L"Kid Buu rampage"};
     bool effectPainted=false,pageEffectPainted=false,drawingRow=false,recordingMotion=false;
-    struct Motion {RECT rect;std::vector<uint32_t> under;std::function<void(HDC)> draw;double clock=0.0;std::vector<uint32_t> overlay;std::vector<uint8_t> mask;};
+    struct Motion {RECT rect;std::vector<uint32_t> under;std::function<void(HDC)> draw;double clock=0.0;ULONGLONG ticks=0;std::vector<uint32_t> overlay;std::vector<uint8_t> mask;};
     void applyOverlay(const Motion& motion,LONG shift) {
         if(motion.mask.empty())return;
         GdiFlush();
@@ -2209,12 +2214,12 @@ struct Window {
             for(LONG y=motion.rect.top;y<motion.rect.bottom;++y){const auto row=buffer.frame.pixels+size_t(y)*size_t(buffer.frame.width)+size_t(motion.rect.left);finished.insert(finished.end(),row,row+width);}
             for(LONG y=motion.rect.top;y<motion.rect.bottom;++y)
                 std::copy_n(motion.under.begin()+ptrdiff_t(size_t(y-motion.rect.top)*width),width,buffer.frame.pixels+size_t(y)*size_t(buffer.frame.width)+size_t(motion.rect.left));
-            pinnedClock=motion.clock;
+            pinnedClock=motion.clock;pinnedTicks=motion.ticks;
             const int saved=SaveDC(buffer.dc);
             IntersectClipRect(buffer.dc,motion.rect.left,motion.rect.top,motion.rect.right,motion.rect.bottom);
             motion.draw(buffer.dc);
             RestoreDC(buffer.dc,saved);
-            pinnedClock=-1.0;
+            pinnedClock=-1.0;pinnedTicks=0;
             GdiFlush();
             motion.mask.assign(count,0);
             bool any=false;
@@ -2270,7 +2275,7 @@ struct Window {
         r.right=std::min(LONG(buffer.frame.width),r.right);r.bottom=std::min(LONG(buffer.frame.height),r.bottom);
         if(r.right<=r.left || r.bottom<=r.top)return;
         GdiFlush();
-        Motion motion{r,{},std::move(draw),profileClock(),{},{}};
+        Motion motion{r,{},std::move(draw),profileClock(),motionTicks(),{},{}};
         const size_t width=size_t(r.right-r.left);
         motion.under.reserve(width*size_t(r.bottom-r.top));
         for(LONG y=r.top;y<r.bottom;++y) {
@@ -2980,7 +2985,7 @@ struct Window {
     }
     void paintRoundPhoto(HDC dc,const speedrun::SplitImage& image,int cx,int cy,int radius,unsigned mode) {
         const int side=std::max(2,radius*2);
-        const auto& frame=image.frames[image.frame_at(allowMotion() ? motionTicks() : 0)].rgba;
+        const auto& frame=image.frames[image.frame_at(allowMotion() ? imageTicks() : 0)].rgba;
         const auto framing=speedrun::picture_framing(image.width,image.height,unsigned(side),mode);
         const bool fit=framing.fit;const double scale=framing.scale;
         std::vector<unsigned char> pixels(size_t(side)*side*4);
@@ -3386,7 +3391,10 @@ struct Window {
         const auto remote=style || (own && own->id==key) ? nullptr : remoteCard(key);
         const unsigned accentIndex=style ? style->accent : remote && remote->card.accent<accent_count ? remote->card.accent : 0u;
         if((style || remote) && accentIndex==rgb_accent)keepProfileMotion();
-        if(recordingMotion && dc==buffer.dc && (((style || remote) && accentIndex==rgb_accent) || effectOf(key))) {
+        const auto* photo=style ? profileImage(style->image) : remote && !remote->image.frames.empty() ? &remote->image : nullptr;
+        const bool animatedPhoto=photo && photo->frames.size()>1 && allowMotion() && radius>=p(16);
+        if(animatedPhoto)keepProfileMotion();
+        if(recordingMotion && dc==buffer.dc && (((style || remote) && accentIndex==rgb_accent) || effectOf(key) || animatedPhoto)) {
             const unsigned shownFrame=frameOverride>=0 ? unsigned(frameOverride) : style ? style->frame : remote ? remote->card.frame : 0u;
             const int outer=radius>=p(16) && shownFrame ? radius*9/5+p(4) : radius+std::max(2,radius/5)+std::max(1,radius/10)+p(3);
             recordMotion(dc,{cx-outer,cy-outer,cx+outer+1,cy+outer+1},[this,cx,cy,radius,name,key,ring,presence,dim,frameOverride](HDC target) {
@@ -5923,10 +5931,10 @@ struct Window {
         const bool effects=effectPainted,pageEffects=pageEffectPainted;effectPainted=pageEffectPainted=false;
         if (!effects && (!animated || !allowMotion())) {KillTimer(hwnd,3);imageAnimationTicking=false;return;}
         if (dropdownOpen() || IsIconic(hwnd) || (!appActive && !effects)) {effectPainted=effects;pageEffectPainted=pageEffects;return;}
-        const bool full=(animated && allowMotion()) || (pageEffects && motions.empty());
+        const bool full=(animated && allowMotion() && motions.empty()) || (pageEffects && motions.empty());
         if (const UINT wanted=full ? 33u : 16u; wanted!=motionInterval){motionInterval=wanted;SetTimer(hwnd,3,wanted,nullptr);}
         if (full) (pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);
-        else if (pageEffects) {
+        else if (pageEffects || (animated && !motions.empty())) {
             RECT client{};GetClientRect(hwnd,&client);
             const int visibleHeight=std::max(1,unscale(client.bottom)-shellHeader-dockReserve());
             const LONG top=p(shellHeader),bottom=p(shellHeader+visibleHeight),shift=top-p(pageScroll);
@@ -6812,6 +6820,7 @@ struct Window {
             return;
         }
         const auto glowing = renderFrame(rect);
+        if (!transitionAt && controlsDeferred && !revealPosted && hwnd) {revealPosted=true;PostMessageW(hwnd,revealMessage,0,0);}
         if (transitionAt) {
             blendTransition();
             if (transitionAt) {
@@ -11768,6 +11777,9 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
             if (steps) self->glideTo(self->scrollReported()-steps*distance);
             return 0;
         }
+        case revealMessage:
+            self->revealControls();
+            return 0;
         case glideMessage: {
             self->glideStep();
             return 0;
