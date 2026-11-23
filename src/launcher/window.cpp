@@ -35,6 +35,7 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <mmsystem.h>
 #include <windowsx.h>
 #include <objidl.h>
 #include <gdiplus.h>
@@ -1211,8 +1212,16 @@ struct Window {
         if (pageScroll!=int(std::lround(scrollAt))) {scrollGliding=false;glideActive=false;}
         SetPropW(hwnd,L"OpenKai2.ScrollPos",reinterpret_cast<HANDLE>(intptr_t(scrollReported())));
     }
-    void frames(UINT id) {if(hwnd)SetTimer(hwnd,id,10,nullptr);}
-    void endFrames(UINT id) {if(hwnd)KillTimer(hwnd,id);}
+    unsigned fastTimers=0;
+    bool fineClock=false;
+    void updateClockPrecision() {
+        const bool want=fastTimers!=0;
+        if(want==fineClock)return;
+        fineClock=want;
+        if(want)timeBeginPeriod(1);else timeEndPeriod(1);
+    }
+    void frames(UINT id) {if(!hwnd)return;SetTimer(hwnd,id,16,nullptr);fastTimers|=1u<<id;updateClockPrecision();}
+    void endFrames(UINT id) {if(hwnd)KillTimer(hwnd,id);fastTimers&=~(1u<<id);updateClockPrecision();}
     void glideLoop() {
         using Flush=HRESULT(WINAPI*)();
         const auto module=LoadLibraryW(L"dwmapi.dll");
@@ -1622,7 +1631,9 @@ struct Window {
         if(moving && allowMotion()) {
             if(waveInterval){waveInterval=0;KillTimer(hwnd,6);frames(6);}
         } else if(const UINT wanted=appActive && allowMotion() ? 16u : 50u;wanted!=waveInterval){
-            endFrames(6);waveInterval=wanted;SetTimer(hwnd,6,wanted,nullptr);
+            waveInterval=wanted;
+            if(wanted==16u)frames(6);
+            else{endFrames(6);SetTimer(hwnd,6,wanted,nullptr);}
         }
         if(IsIconic(hwnd) || dropdownOpen())return;
         InvalidateRect(hwnd,nullptr,FALSE);
@@ -2080,6 +2091,15 @@ struct Window {
         refreshEffectChoices(style);
         page=profilePage;layout();(pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);
     }
+    void applyCardLook(Settings::ProfileStyle& style) {
+        style.frame=unsigned(std::clamp(selected(ProfileFrame),0,int(frame_count)-1));
+        style.backdrop=unsigned(std::clamp(selected(ProfileBackdrop),0,int(backdrop_count)-1));
+        style.frameColor=unsigned(std::clamp(selected(ProfileFrameColor),0,int(frame_color_count)-1));
+        const unsigned title=unsigned(std::clamp(selected(ProfileTitle),0,int(title_count)-1));
+        if(titleUnlocked(title,style.matches,achievementMask(),holdsDevKey()))style.title=title;
+        const unsigned featured=unsigned(std::max(0,selected(ProfileFeatured)));
+        style.featured=featuredUnlocked(featured,achievementMask(),holdsDevKey()) ? featured : 0u;
+    }
     std::filesystem::path profileImageDirectory() const {return settings_path().parent_path()/"profiles"/"images";}
     void saveProfileImage(const std::string& file,const std::string& name) {
         const auto profile=activeProfile();if(!profile)return;
@@ -2097,15 +2117,7 @@ struct Window {
         found->notifications=selected(ProfileNotifications)!=1;
         found->nameColor=chosenNameColor();found->fighter=unsigned(std::max(0,selected(ProfileFighter)));found->sharing=unsigned(std::max(0,selected(ProfileSharing)));
         found->friendAlerts=selected(ProfileFriendAlerts)!=1;found->nameEffect=chosenEffect();
-        found->frame=unsigned(std::clamp(selected(ProfileFrame),0,int(frame_count)-1));
-        found->backdrop=unsigned(std::clamp(selected(ProfileBackdrop),0,int(backdrop_count)-1));
-        {
-            const unsigned title=unsigned(std::clamp(selected(ProfileTitle),0,int(title_count)-1));
-            if(titleUnlocked(title,found->matches,achievementMask(),holdsDevKey()))found->title=title;
-            found->frameColor=unsigned(std::clamp(selected(ProfileFrameColor),0,int(frame_color_count)-1));
-            const unsigned featured=unsigned(std::max(0,selected(ProfileFeatured)));
-            found->featured=featuredUnlocked(featured,achievementMask(),holdsDevKey()) ? featured : 0u;
-        }
+        applyCardLook(*found);
         found->about=utf8(trimmed(textOf(ProfileAbout)));if(heldTag())found->link=utf8(trimmed(textOf(ProfileLink)));found->region=unsigned(std::max(0,selected(ProfileRegion)));found->playstyle=unsigned(std::max(0,selected(ProfilePlaystyle)));
         write_settings(settings_path(),next);settings=std::move(next);cycleTimer();openProfile();publishCard();
         status=file.empty() ? L"Profile picture removed. Your original file was kept." : found->sharing==0 ? L"Profile picture saved. Players online see it on your card." : L"Profile picture saved on this PC.";
@@ -3367,10 +3379,11 @@ struct Window {
         const unsigned accentIndex=style ? style->accent : remote && remote->card.accent<accent_count ? remote->card.accent : 0u;
         if((style || remote) && accentIndex==rgb_accent)keepProfileMotion();
         if(recordingMotion && dc==buffer.dc && (((style || remote) && accentIndex==rgb_accent) || effectOf(key))) {
-            const int outer=radius+std::max(2,radius/5)+std::max(1,radius/10)+p(3);
-            recordMotion(dc,{cx-outer,cy-outer,cx+outer+1,cy+outer+1},[this,cx,cy,radius,name,key,ring,presence,dim](HDC target) {
+            const unsigned shownFrame=frameOverride>=0 ? unsigned(frameOverride) : style ? style->frame : remote ? remote->card.frame : 0u;
+            const int outer=radius>=p(16) && shownFrame ? radius*9/5+p(4) : radius+std::max(2,radius/5)+std::max(1,radius/10)+p(3);
+            recordMotion(dc,{cx-outer,cy-outer,cx+outer+1,cy+outer+1},[this,cx,cy,radius,name,key,ring,presence,dim,frameOverride](HDC target) {
                 const bool recording=std::exchange(recordingMotion,false);
-                avatar(target,cx,cy,radius,name,key,ring,presence,dim);
+                avatar(target,cx,cy,radius,name,key,ring,presence,dim,frameOverride);
                 recordingMotion=recording;
             });
         }
@@ -5348,7 +5361,7 @@ struct Window {
         Gdiplus::SolidBrush stripFill(rgba(RGB(8,6,12),200));g.FillRectangle(&stripFill,P(cl),P(cb-strip),P(cw),P(strip));
         Gdiplus::Pen stripLine(rgba(face.accent,230),P(2));g.DrawLine(&stripLine,P(cl),P(cb-strip),P(cr),P(cb-strip));
         for(int i=0;i<cw;i+=14){Gdiplus::Pen hatch(rgba(RGB(255,255,255),14),P(4));g.DrawLine(&hatch,P(cl+i),P(cb),P(cl+i+strip),P(cb-strip));}
-        const int sl=cl+218,sr=cr-18,st=ct+16,sb=ct+66,skew=18;
+        const int sl=cl+232,sr=cr-18,st=ct+16,sb=ct+66,skew=18;
         const Gdiplus::PointF shadow[]={{P(sl+skew+6),P(st+6)},{P(sr+6),P(st+6)},{P(sr-skew+6),P(sb+6)},{P(sl+6),P(sb+6)}};
         Gdiplus::SolidBrush shadowFill(rgba(RGB(0,0,0),120));g.FillPolygon(&shadowFill,shadow,4);
         const Gdiplus::PointF slash[]={{P(sl+skew),P(st)},{P(sr),P(st)},{P(sr-skew),P(sb)},{P(sl),P(sb)}};
@@ -5379,19 +5392,8 @@ struct Window {
             Gdiplus::SolidBrush bolt(rgba(RGB(210,214,224),255));g.FillEllipse(&bolt,P(bx)-rr,P(by)-rr,rr*2,rr*2);
             Gdiplus::Pen slot(inkColor,P(1));g.DrawLine(&slot,P(bx)-rr*0.6f,P(by)+rr*0.6f,P(bx)+rr*0.6f,P(by)-rr*0.6f);
         }
-        avatar(dc,p(cl+118),p(ct+ch/2-12),p(54),face.name,face.id,panel,-1,false,face.frame);
+        avatar(dc,p(cl+116),p(ct+ch/2-12),p(52),face.name,face.id,panel,-1,false,face.frame);
         const unsigned level=profileLevel(face.matches);
-        const float lx=P(cl+164),ly=P(ct+ch/2+30),lr=P(20);
-        {
-            Gdiplus::PointF burst[24];for(int i=0;i<24;++i){const float a=i*3.14159f/12,rr=i%2 ? lr*1.25f : lr*1.75f;burst[i]={lx+std::cos(a)*rr,ly+std::sin(a)*rr};}
-            Gdiplus::SolidBrush burstFill(rgba(RGB(255,90,40),255));g.FillPolygon(&burstFill,burst,24);
-            Gdiplus::Pen burstInk(inkColor,P(2));burstInk.SetLineJoin(Gdiplus::LineJoinMiter);g.DrawPolygon(&burstInk,burst,24);
-        }
-        Gdiplus::SolidBrush levelInk(inkColor);g.FillEllipse(&levelInk,lx-lr-P(3),ly-lr-P(3),(lr+P(3))*2,(lr+P(3))*2);
-        Gdiplus::LinearGradientBrush levelFill(Gdiplus::PointF(0,ly-lr),Gdiplus::PointF(0,ly+lr),rgba(RGB(255,236,140),255),rgba(RGB(230,150,20),255));
-        g.FillEllipse(&levelFill,lx-lr,ly-lr,lr*2,lr*2);
-        text(dc,L"LV",cl+164-20,ct+ch/2+30-17,40,12,fonts.label,RGB(70,30,6),DT_CENTER|DT_SINGLELINE|DT_NOPREFIX);
-        text(dc,std::to_wstring(level),cl+164-20,ct+ch/2+30-6,40,22,fonts.strong,RGB(40,16,4),DT_CENTER|DT_SINGLELINE|DT_NOPREFIX);
         const int tx=sl+skew+10,tw=std::max(120,sr-skew-tx-10);
         const COLORREF inkTone=RGB(14,8,6);
         for(const auto [dx,dy]:{std::pair{-2,0},{2,0},{0,-2},{0,2},{2,2},{3,3}})text(dc,face.name,tx+dx,st+4+dy,tw,44,fonts.title,inkTone,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
@@ -5425,7 +5427,7 @@ struct Window {
             text(dc,mains,sl+12,y+1,width-16,18,fonts.label,luminance(face.accent)>0.35 ? RGB(20,10,6) : RGB(255,255,255),DT_LEFT|DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX);
             y+=28;
         }
-        const int barTop=std::max(y+4,cb-strip-30),barLeft=sl,barWidth=std::min(360,cr-24-barLeft),segments=10;
+        const int barTop=std::max(y+4,cb-strip-30),barLeft=sl,barWidth=std::min(320,cr-90-barLeft),segments=10;
         const double progress=level>=99 ? 1.0 : double(face.matches%5u)/5.0;
         Gdiplus::SolidBrush barInk(inkColor);g.FillRectangle(&barInk,P(barLeft-3),P(barTop-3),P(barWidth+6),P(18));
         for(int i=0;i<segments;++i){
@@ -5434,7 +5436,19 @@ struct Window {
             Gdiplus::LinearGradientBrush seg(Gdiplus::PointF(0,P(barTop)),Gdiplus::PointF(0,P(barTop+12)),rgba(lit ? RGB(255,240,120) : RGB(60,50,40),255),rgba(lit ? RGB(240,150,20) : RGB(30,24,20),255));
             g.FillRectangle(&seg,sx,P(barTop),sw,P(12));
         }
-        text(dc,level>=99 ? std::wstring(L"MAX LEVEL") : std::to_wstring(5u-face.matches%5u)+L" matches to level "+std::to_wstring(level+1),barLeft+barWidth+12,barTop-3,std::max(40,cr-barLeft-barWidth-36),18,fonts.caption,RGB(230,224,210),DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+        const int badgeX=barLeft+barWidth+30,badgeY=barTop+6;
+        const float lx=P(badgeX),ly=P(badgeY),lr=P(18);
+        {
+            Gdiplus::PointF burst[24];for(int i=0;i<24;++i){const float a=i*3.14159f/12,rr=i%2 ? lr*1.25f : lr*1.75f;burst[i]={lx+std::cos(a)*rr,ly+std::sin(a)*rr};}
+            Gdiplus::SolidBrush burstFill(rgba(RGB(255,90,40),255));g.FillPolygon(&burstFill,burst,24);
+            Gdiplus::Pen burstInk(inkColor,P(2));burstInk.SetLineJoin(Gdiplus::LineJoinMiter);g.DrawPolygon(&burstInk,burst,24);
+        }
+        Gdiplus::SolidBrush levelInk(inkColor);g.FillEllipse(&levelInk,lx-lr-P(3),ly-lr-P(3),(lr+P(3))*2,(lr+P(3))*2);
+        Gdiplus::LinearGradientBrush levelFill(Gdiplus::PointF(0,ly-lr),Gdiplus::PointF(0,ly+lr),rgba(RGB(255,236,140),255),rgba(RGB(230,150,20),255));
+        g.FillEllipse(&levelFill,lx-lr,ly-lr,lr*2,lr*2);
+        text(dc,L"LV",badgeX-20,badgeY-15,40,12,fonts.label,RGB(70,30,6),DT_CENTER|DT_SINGLELINE|DT_NOPREFIX);
+        text(dc,std::to_wstring(level),badgeX-20,badgeY-5,40,20,fonts.strong,RGB(40,16,4),DT_CENTER|DT_SINGLELINE|DT_NOPREFIX);
+        text(dc,level>=99 ? std::wstring(L"MAX LEVEL") : std::to_wstring(5u-face.matches%5u)+L" matches to level "+std::to_wstring(level+1),barLeft+barWidth+58,barTop-3,std::max(40,cr-barLeft-barWidth-82),18,fonts.caption,RGB(230,224,210),DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
         const std::wstring stats=std::to_wstring(face.matches)+L" MATCHES   \u00b7   "+std::to_wstring(face.friends)+L" FRIENDS   \u00b7   "+face.since;
         text(dc,stats,cl+20,cb-strip+8,cw/2,20,fonts.label,RGB(236,230,214),DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
         if(!face.badges.empty()) {
@@ -10343,6 +10357,7 @@ struct Window {
                         updated.link=link;
                     }
                     updated.about=utf8(trimmed(textOf(ProfileAbout)));updated.region=unsigned(std::max(0,selected(ProfileRegion)));updated.playstyle=unsigned(std::max(0,selected(ProfilePlaystyle)));
+                    applyCardLook(updated);
                     next.profileStyles.push_back(std::move(updated));
                 } else if (const auto old=profileStyle(profile->id)) {
                     Settings::ProfileStyle kept{};kept.id=profile->id;kept.matches=old->matches;kept.since=old->since;
@@ -11753,6 +11768,7 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
             DestroyWindow(hwnd);
             return 0;
         case WM_DESTROY:
+            if (self && self->fineClock) {timeEndPeriod(1);self->fineClock=false;self->fastTimers=0;}
             self->stopGlideThread();
             KillTimer(hwnd, 1);
             KillTimer(hwnd, 2);
