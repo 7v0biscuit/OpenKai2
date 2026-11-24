@@ -15,10 +15,10 @@ inline constexpr std::array<const char *, 8> region_names = {"North America East
 inline constexpr unsigned region_count = unsigned(region_names.size());
 inline constexpr std::array<const char *, 4> playstyle_names = {"Casual", "Competitive", "Learning", "Speedrunner"};
 inline constexpr unsigned playstyle_count = unsigned(playstyle_names.size());
-inline constexpr std::array<const char *, 16> frame_names = {"Accent ring", "Saiyan gold", "Kamehameha glow", "Seven Dragon Balls",
-                                                            "Scouter", "Capsule Corp", "Shenron coil", "Kaio-ken aura",
-                                                            "Spirit Bomb", "Frieza ring", "Namekian", "Majin seal",
-                                                            "Galick flare", "Destructo disc", "Solar flare", "Time chamber"};
+inline constexpr std::array<const char *, 16> frame_names = {"Accent ring", "Orbit", "Lunar silver", "Eclipse",
+                                                            "Binary stars", "Ringed planet", "Nebula halo", "Star crown",
+                                                            "Gravity wave", "Event horizon", "Aurora", "Comet",
+                                                            "Constellation", "Blue giant", "Solar corona", "Stardust"};
 inline constexpr unsigned frame_count = unsigned(frame_names.size());
 inline constexpr std::array<const char *, 16> backdrop_names = {"Plain", "Midnight sky", "Andromeda", "Rose nebula",
                                                                "Emerald nebula", "Golden galaxy", "Crimson void", "Frozen cosmos",

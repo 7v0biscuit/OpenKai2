@@ -225,7 +225,8 @@ the service while you are offline, so friends still see your picture. Choosing
 
 **Card look** adds more to your card:
 
-- **Frame**: sixteen picture frames, from Saiyan gold to Time chamber.
+- **Frame**: sixteen space-themed picture frames, from Orbit and Lunar silver
+  to Binary stars, Event horizon and Stardust.
 - **Frame color**: keep the frame's own colors or tint it gold, silver, Super
   Saiyan Blue, Namek green and more.
 - **Card design**: sixteen space backdrops with starfields and shooting stars,

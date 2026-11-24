@@ -500,7 +500,7 @@ int main(int argc,char** argv) {
                     wchar_t face[80]{};GetTextFaceW(dc,80,face);TEXTMETRICW metrics{};GetTextMetricsW(dc,&metrics);SelectObject(dc,previous);ReleaseDC(field,dc);
                     const auto windowDpi=reinterpret_cast<UINT(WINAPI*)(HWND)>(GetProcAddress(GetModuleHandleW(L"user32.dll"),"GetDpiForWindow"));
                     require(metrics.tmHeight<=MulDiv(22,windowDpi?windowDpi(w):96,96),"Launcher font line metrics exceed the field height");
-                    require(std::wstring(face)==L"OpenKai2 Display","The Budokai-style launcher font was not loaded");
+                    require(std::wstring(face)==L"Inter","The Inter launcher font was not loaded");
                 }
                 key_press(VK_NEXT,VK_CONTROL);wait_until([&]{return IsWindowVisible(GetDlgItem(w,1042));},"Next-tab shortcut did not open Online");
                 key_press(VK_PRIOR,VK_CONTROL);wait_until([&]{return IsWindowVisible(GetDlgItem(w,112));},"Previous-tab shortcut did not return to Play");
