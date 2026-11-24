@@ -51,11 +51,14 @@
 #include <cwctype>
 #include <commctrl.h>
 #include <commdlg.h>
+#include <cctype>
+#include <cstdlib>
 #include <fstream>
 #include <functional>
 #include <future>
 #include <iostream>
 #include <map>
+#include <unordered_map>
 #include <utility>
 #include <memory>
 #include <mutex>
@@ -1800,12 +1803,25 @@ struct Window {
             GdiFlush();
             waveBackdrop.assign(buffer.frame.pixels,buffer.frame.pixels+pixels);
             waveBackdropWidth=width;waveBackdropHeight=height;waveBackdropTone=waveBackdropKey();
-        } else {
+        } else if(galaxyTemplate()==2u || galaxyTemplate()==4u) {
             GdiFlush();
             std::copy(waveBackdrop.begin(),waveBackdrop.end(),buffer.frame.pixels);
         }
         GdiFlush();
-        paintGalaxy(buffer.frame.pixels,buffer.frame.width,width,height,now,true);
+        if(const unsigned kind=galaxyTemplate();kind!=2u && kind!=4u && waveBackdrop.size()==pixels) {
+            const unsigned key=waveBackdropKey();
+            if(galaxyFrameWidth!=width || galaxyFrameHeight!=height || galaxyFrameKey!=key || galaxyFrame.size()!=pixels) {
+                galaxyFrame.assign(pixels,0u);galaxyFrameWidth=width;galaxyFrameHeight=height;galaxyFrameKey=key;galaxySlice=0;
+                if(computeGalaxyLayer(width,height,now))blendGalaxy(waveBackdrop.data(),width,galaxyFrame.data(),width,width,height,0,1);
+                else std::copy(waveBackdrop.begin(),waveBackdrop.end(),galaxyFrame.begin());
+            } else {
+                computeGalaxyLayer(width,height,now,galaxySlice,4);
+                blendGalaxy(waveBackdrop.data(),width,galaxyFrame.data(),width,width,height,galaxySlice,4);
+                galaxySlice=(galaxySlice+1)%4;
+            }
+            if(buffer.frame.width==width)std::copy(galaxyFrame.begin(),galaxyFrame.end(),buffer.frame.pixels);
+            else for(int y=0;y<height;++y)std::copy(galaxyFrame.begin()+ptrdiff_t(size_t(y)*size_t(width)),galaxyFrame.begin()+ptrdiff_t(size_t(y+1)*size_t(width)),buffer.frame.pixels+size_t(y)*size_t(buffer.frame.width));
+        } else paintGalaxy(buffer.frame.pixels,buffer.frame.width,width,height,now,true);
         drawSky(buffer.frame.pixels,buffer.frame.width,buffer.frame.height,0,height,[](int,int){return true;});
         const double enter=1.0-std::pow(1.0-waveEnter,3.0);
         const auto backdropAt=[&](double x,double y){
@@ -1977,6 +1993,39 @@ struct Window {
         if (minutes < 48 * 60)
             return std::to_wstring(minutes / 60) + (minutes / 60 == 1 ? L" hour ago" : L" hours ago");
         return std::to_wstring(minutes / 1440) + L" days ago";
+    }
+    static void summarizeGameLog(DWORD code) {
+        std::ifstream log(default_cache_directory().parent_path()/"logs"/"startup.log");
+        if(!log)return;
+        const auto starts=[](const std::string& line,const char* prefix){return line.rfind(prefix,0)==0;};
+        std::vector<std::string> first,problems;
+        std::map<std::string,std::string> latest;
+        std::string worst;double worstFps=1e9;size_t samples=0,lateSamples=0;
+        for(std::string line;std::getline(log,line);) {
+            if(line.size()>400)line.resize(400);
+            for(const char* prefix:{"[build]","[host]","[display]","[display:settings]","[renderer] selected","[audio:output] enabled","[vector:engine]"})
+                if(starts(line,prefix) && std::none_of(first.begin(),first.end(),[&](const std::string& seen){return starts(seen,prefix);})){first.push_back(line);break;}
+            for(const char* prefix:{"[performance:frames]","[renderer:gpu]","[renderer:hires]","[audio:device]","[audio:output] stopped","[display] internal_scale","[startup:presentation]"})
+                if(starts(line,prefix))latest[prefix]=line;
+            if(starts(line,"[renderer:wait]")||starts(line,"[audio:core]"))latest[line.substr(0,std::min<size_t>(line.size(),line.find(' ',line.find(' ')+1)))]=line;
+            if(starts(line,"[runtime:work]")){const auto stage=line.substr(0,line.find(' ',15));latest[stage]=line;}
+            if(starts(line,"[performance:sample]")) {
+                ++samples;
+                const auto at=line.find("measured_fps=");
+                if(at!=std::string::npos){const double fps=std::atof(line.c_str()+at+13);if(fps<worstFps){worstFps=fps;worst=line;}}
+                const auto late=line.find("game_late_fields=");
+                if(late!=std::string::npos && std::atoi(line.c_str()+late+17)>0)++lateSamples;
+            }
+            std::string lower=line;std::transform(lower.begin(),lower.end(),lower.begin(),[](unsigned char c){return char(std::tolower(c));});
+            if(problems.size()<12 && (lower.find("error")!=std::string::npos || lower.find("failed")!=std::string::npos || lower.find("exception")!=std::string::npos)
+               && lower.find("error=0")==std::string::npos)problems.push_back(line);
+        }
+        std::cout<<"[game] exit_code="<<code<<" samples="<<samples<<" samples_with_late_frames="<<lateSamples<<'\n';
+        for(const auto& line:first)std::cout<<"[game] "<<line<<'\n';
+        for(const auto& [key,line]:latest)std::cout<<"[game] "<<line<<'\n';
+        if(!worst.empty())std::cout<<"[game] worst "<<worst<<'\n';
+        for(const auto& line:problems)std::cout<<"[game] problem "<<line<<'\n';
+        std::cout.flush();
     }
     bool busy() const { return task.valid(); }
     bool updating() const { return updateTask.valid(); }
@@ -5408,6 +5457,16 @@ struct Window {
         const unsigned kind=galaxyTemplate();
         if(!pixels || width<16 || height<16 || stride<width || kind==2u)return;
         if(kind==4u){paintVoyage(pixels,stride,width,height,now,advance);return;}
+        if(computeGalaxyLayer(width,height,now))blendGalaxy(pixels,stride,pixels,stride,width,height,0,1);
+    }
+    std::vector<int> galaxyColumns,galaxyWeights;
+    std::vector<uint32_t> galaxyFrame;
+    std::vector<uint8_t> galaxyNext;
+    int galaxyFrameWidth=0,galaxyFrameHeight=0,galaxySlice=0;
+    unsigned galaxyFrameKey=0;
+    bool galaxyAny=false;
+    bool computeGalaxyLayer(int width,int height,double now,int part=0,int parts=1) {
+        const unsigned kind=galaxyTemplate();
         ensureGalaxyNoise();
         const int lw=width/4+2,lh=height/4+2;
         if(galaxyWidth!=width || galaxyHeight!=height || galaxyKind!=int(kind)) {
@@ -5429,10 +5488,12 @@ struct Window {
                 }
             }
         }
-        galaxyLayer.assign(size_t(lw)*size_t(lh)*3u,0);
+        auto& layer=parts>1 ? galaxyNext : galaxyLayer;
+        if(layer.size()!=size_t(lw)*size_t(lh)*3u || parts==1)layer.assign(size_t(lw)*size_t(lh)*3u,0);
+        const int rowBegin=lh*part/parts,rowEnd=lh*(part+1)/parts;
         const float t=float(now),spin=t*0.025f,cs=std::cos(spin),sn=std::sin(spin);
         bool any=false;
-        for(int y=0;y<lh;++y)for(int x=0;x<lw;++x) {
+        for(int y=rowBegin;y<rowEnd;++y)for(int x=0;x<lw;++x) {
             const size_t index=size_t(y)*size_t(lw)+size_t(x);
             const float* g=&galaxyGeo[index*4u];
             float r=0.f,gr=0.f,b=0.f;
@@ -5465,32 +5526,46 @@ struct Window {
                     r=density*(235.f-110.f*edge)+core*90.f;gr=density*(215.f-70.f*edge)+core*70.f;b=density*255.f+core*40.f;
                 }
             }
-            uint8_t* out=&galaxyLayer[index*3u];
+            uint8_t* out=&layer[index*3u];
             out[0]=uint8_t(std::clamp(r*0.6f,0.f,255.f));out[1]=uint8_t(std::clamp(gr*0.6f,0.f,255.f));out[2]=uint8_t(std::clamp(b*0.6f,0.f,255.f));
             any=any || out[0] || out[1] || out[2];
         }
-        if(!any)return;
-        std::vector<int> columns(static_cast<size_t>(width)),weights(static_cast<size_t>(width));
-        for(int x=0;x<width;++x) {
-            const float sx=std::max(0.f,(float(x)+0.5f)/4.f-0.5f);
-            columns[size_t(x)]=std::min(int(sx),lw-2);weights[size_t(x)]=int((sx-float(columns[size_t(x)]))*256.f);
+        if(parts>1 && part==parts-1)galaxyLayer.swap(galaxyNext);
+        galaxyAny=any;
+        return any;
+    }
+    void blendGalaxy(const uint32_t* source,int sourceStride,uint32_t* target,int targetStride,int width,int height,int first,int step) {
+        const int lw=width/4+2,lh=height/4+2;
+        if(galaxyLayer.size()!=size_t(lw)*size_t(lh)*3u)return;
+        if(galaxyColumns.size()!=size_t(width)) {
+            galaxyColumns.assign(size_t(width),0);galaxyWeights.assign(size_t(width),0);
+            for(int x=0;x<width;++x) {
+                const float sx=std::max(0.f,(float(x)+0.5f)/4.f-0.5f);
+                galaxyColumns[size_t(x)]=std::min(int(sx),lw-2);galaxyWeights[size_t(x)]=int((sx-float(galaxyColumns[size_t(x)]))*256.f);
+            }
         }
-        for(int y=0;y<height;++y) {
+        for(int y=first;y<height;y+=step) {
             const float sy=std::max(0.f,(float(y)+0.5f)/4.f-0.5f);
             const int row=std::min(int(sy),lh-2),wy=int((sy-float(row))*256.f);
             const uint8_t* upper=&galaxyLayer[size_t(row)*size_t(lw)*3u];const uint8_t* lower=upper+size_t(lw)*3u;
-            uint32_t* line=pixels+size_t(y)*size_t(stride);
+            const uint32_t* in=source+size_t(y)*size_t(sourceStride);
+            uint32_t* out=target+size_t(y)*size_t(targetStride);
             for(int x=0;x<width;++x) {
-                const size_t at=size_t(columns[size_t(x)])*3u;const int wx=weights[size_t(x)];
-                uint32_t value=line[x],result=value&0xff000000u;
+                const size_t at=size_t(galaxyColumns[size_t(x)])*3u;const int wx=galaxyWeights[size_t(x)];
+                const uint32_t value=in[x];
+                int add[3];
                 for(int channel=0;channel<3;++channel) {
                     const int top=upper[at+size_t(channel)]*(256-wx)+upper[at+3u+size_t(channel)]*wx;
                     const int bottom=lower[at+size_t(channel)]*(256-wx)+lower[at+3u+size_t(channel)]*wx;
-                    const int add=(top*(256-wy)+bottom*wy)>>16;
-                    const int shift=16-channel*8,dst=int((value>>shift)&255u);
-                    result|=uint32_t(dst+add-dst*add/255)<<shift;
+                    add[channel]=(top*(256-wy)+bottom*wy)>>16;
                 }
-                line[x]=result;
+                if(!(add[0]|add[1]|add[2])){out[x]=value;continue;}
+                uint32_t result=value&0xff000000u;
+                for(int channel=0;channel<3;++channel) {
+                    const int shift=16-channel*8,dst=int((value>>shift)&255u);
+                    result|=uint32_t(dst+add[channel]-((dst*add[channel]+255)>>8))<<shift;
+                }
+                out[x]=result;
             }
         }
     }
@@ -7102,13 +7177,10 @@ struct Window {
         }
         return panel;
     }
-    void navigationIcon(HDC dc,int id,RECT r,COLORREF color,int pixels=0) {
-        const float size=float(pixels>0 ? pixels : p(20)),x=pixels>0 ? float(r.left+r.right)/2-size/2 : float(r.left+p(17)),y=float(r.top)+(float(r.bottom-r.top)-size)/2;
-        sampledVector(dc,{LONG(x-2),LONG(y-2),LONG(std::ceil(x+size))+2,LONG(std::ceil(y+size))+2},[&](Gdiplus::Graphics& g){
-        g.TranslateTransform(x,y);g.ScaleTransform(size/24.f,size/24.f);
-        Gdiplus::Pen pen(drawingColor(color),1.7f);pen.SetLineJoin(Gdiplus::LineJoinRound);
+    static void iconShape(Gdiplus::Graphics& g,int id,Gdiplus::Color color) {
+        Gdiplus::Pen pen(color,1.7f);pen.SetLineJoin(Gdiplus::LineJoinRound);
         pen.SetStartCap(Gdiplus::LineCapRound);pen.SetEndCap(Gdiplus::LineCapRound);
-        Gdiplus::SolidBrush brush(drawingColor(color));
+        Gdiplus::SolidBrush brush(color);
         auto line=[&](float a,float b,float c,float d){g.DrawLine(&pen,a,b,c,d);};
         if(id==OpenNotifications) {
             Gdiplus::GraphicsPath bell;bell.AddBezier(5.f,17.f,7.f,14.f,5.f,5.f,12.f,5.f);
@@ -7130,6 +7202,63 @@ struct Window {
         } else if(id==UpdatesTab){line(12,3,12,15);line(8,11,12,15);line(12,15,16,11);line(4,16,4,21);line(4,21,20,21);line(20,21,20,16);}
         else if(id==ModsTab){line(12,2,22,7);line(22,7,12,12);line(12,12,2,7);line(2,7,12,2);line(2,7,2,17);line(2,17,12,22);line(12,22,22,17);line(22,17,22,7);line(12,12,12,22);}
         else {for(int i=0;i<3;++i){const float y=5.f+i*7.f,knob=i==1?16.f:8.f;line(3,y,21,y);g.FillEllipse(&brush,knob-2.5f,y-2.5f,5.f,5.f);}}
+    }
+    struct IconMask { int width=0,height=0; std::vector<uint8_t> alpha; };
+    std::unordered_map<uint64_t,IconMask> iconMasks;
+    const IconMask& iconMask(int id,int size,int fx,int fy) {
+        const uint64_t key=(uint64_t(uint32_t(id))<<32)|(uint64_t(uint32_t(size))<<8)|uint64_t(fx<<2|fy);
+        if(const auto found=iconMasks.find(key);found!=iconMasks.end())return found->second;
+        if(iconMasks.size()>2400)iconMasks.clear();
+        IconMask mask;mask.width=size+5;mask.height=size+5;
+        constexpr int samples=4;
+        Gdiplus::Bitmap source(mask.width*samples,mask.height*samples,PixelFormat32bppPARGB);
+        {
+            Gdiplus::Graphics graphics(&source);smoothDrawing(graphics);
+            graphics.Clear(Gdiplus::Color(0,0,0,0));
+            graphics.ScaleTransform(float(samples),float(samples));
+            graphics.TranslateTransform(2.f+float(fx)/4.f,2.f+float(fy)/4.f);
+            graphics.ScaleTransform(float(size)/24.f,float(size)/24.f);
+            iconShape(graphics,id,Gdiplus::Color(255,255,255,255));
+        }
+        mask.alpha.assign(size_t(mask.width)*size_t(mask.height),0);
+        Gdiplus::Rect bounds(0,0,mask.width*samples,mask.height*samples);Gdiplus::BitmapData data{};
+        if(source.LockBits(&bounds,Gdiplus::ImageLockModeRead,PixelFormat32bppPARGB,&data)==Gdiplus::Ok) {
+            for(int y=0;y<mask.height;++y)for(int x=0;x<mask.width;++x) {
+                unsigned sum=0;
+                for(int sy=0;sy<samples;++sy){const auto* row=static_cast<const unsigned char*>(data.Scan0)+(y*samples+sy)*data.Stride;
+                    for(int sx=0;sx<samples;++sx)sum+=row[(x*samples+sx)*4+3];}
+                mask.alpha[size_t(y)*size_t(mask.width)+size_t(x)]=uint8_t((sum+8)/16);
+            }
+            source.UnlockBits(&data);
+        }
+        return iconMasks.emplace(key,std::move(mask)).first->second;
+    }
+    void navigationIcon(HDC dc,int id,RECT r,COLORREF color,int pixels=0) {
+        const float size=float(pixels>0 ? pixels : p(20)),x=pixels>0 ? float(r.left+r.right)/2-size/2 : float(r.left+p(17)),y=float(r.top)+(float(r.bottom-r.top)-size)/2;
+        if(dc==buffer.dc && buffer.frame.pixels && size>=4.f && size<=512.f) {
+            GdiFlush();
+            const int ox=int(std::floor(x)),oy=int(std::floor(y));
+            const int fx=std::clamp(int((x-float(ox))*4.f),0,3),fy=std::clamp(int((y-float(oy))*4.f),0,3);
+            const auto& mask=iconMask(id,int(std::lround(size)),fx,fy);
+            const int left=ox-2,top=oy-2;
+            const int red=GetRValue(color),green=GetGValue(color),blue=GetBValue(color);
+            for(int my=0;my<mask.height;++my) {
+                const int py=top+my;if(py<0 || py>=buffer.frame.height)continue;
+                uint32_t* row=buffer.frame.pixels+size_t(py)*size_t(buffer.frame.width);
+                const uint8_t* coverage=mask.alpha.data()+size_t(my)*size_t(mask.width);
+                for(int mx=0;mx<mask.width;++mx) {
+                    const int a=coverage[mx],px=left+mx;
+                    if(!a || px<0 || px>=buffer.frame.width)continue;
+                    uint32_t& dst=row[px];
+                    const auto mixChannel=[a](int base,int ink){return uint32_t(base+((ink-base)*a+127)/255);};
+                    dst=(dst&0xff000000u)|mixChannel(int(dst>>16&255u),red)<<16|mixChannel(int(dst>>8&255u),green)<<8|mixChannel(int(dst&255u),blue);
+                }
+            }
+            return;
+        }
+        sampledVector(dc,{LONG(x-2),LONG(y-2),LONG(std::ceil(x+size))+2,LONG(std::ceil(y+size))+2},[&](Gdiplus::Graphics& g){
+        g.TranslateTransform(x,y);g.ScaleTransform(size/24.f,size/24.f);
+        iconShape(g,id,drawingColor(color));
         });
     }
     void drawItem(const DRAWITEMSTRUCT &item) {
@@ -8822,6 +8951,7 @@ struct Window {
             child = nullptr;
             status = code ? L"The game closed with an error. Check startup.log for details." : L"Game closed.";
             error = code != 0;
+            summarizeGameLog(code);
             if (!closing) { ShowWindow(hwnd, SW_RESTORE); SetForegroundWindow(hwnd); }
             if (settings.autoBackups && disc) start(Job::afterExit);
             refreshEnabled();
