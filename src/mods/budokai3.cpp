@@ -3,12 +3,14 @@
 #include "mods/disc_identity.h"
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <map>
 #include <set>
 #include <sstream>
 #include <stdexcept>
+#include <unordered_map>
 
 namespace openkai2::mods {
 namespace {
@@ -962,6 +964,79 @@ double item_overlap(const std::vector<uint64_t> &a, const std::vector<uint64_t> 
     return double(common) / double(total);
 }
 
+size_t shared_items(const std::vector<uint64_t> &a, const std::vector<uint64_t> &b) {
+    size_t common = 0;
+    for (size_t i = 0, j = 0; i < a.size() && j < b.size();)
+        if (a[i] == b[j])
+            ++common, ++i, ++j;
+        else if (a[i] < b[j])
+            ++i;
+        else
+            ++j;
+    return common;
+}
+
+std::map<uint32_t, uint32_t> fill_entries(const std::map<uint32_t, ScriptEntry> &ours,
+                                          const std::map<uint32_t, ScriptEntry> &theirs,
+                                          const std::map<uint32_t, uint32_t> &anchors,
+                                          std::map<uint32_t, uint32_t> chosen) {
+    std::map<uint32_t, std::vector<uint64_t>> theirKeys;
+    std::unordered_map<uint64_t, std::vector<uint32_t>> holders;
+    for (const auto &[index, entry] : theirs) {
+        auto keys = item_keys(entry);
+        for (size_t k = 0; k < keys.size(); ++k)
+            if (!k || keys[k] != keys[k - 1])
+                holders[keys[k]].push_back(index);
+        theirKeys.emplace(index, std::move(keys));
+    }
+    const auto predict = [&](uint32_t number) {
+        const auto above = anchors.lower_bound(number);
+        if (above != anchors.begin()) {
+            const auto below = std::prev(above);
+            if (above != anchors.end())
+                return double(below->second) + (double(above->second) - double(below->second)) *
+                                                   double(number - below->first) / double(above->first - below->first);
+            return double(below->second) + double(number - below->first);
+        }
+        if (above != anchors.end())
+            return double(above->second) - double(above->first - number);
+        return double(number);
+    };
+    struct Pick {
+        double overlap, distance;
+        uint32_t index;
+    };
+    for (const auto &[index, entry] : ours) {
+        if (chosen.count(index))
+            continue;
+        const auto keys = item_keys(entry);
+        std::set<uint32_t> candidates;
+        for (size_t k = 0; k < keys.size(); ++k)
+            if (!k || keys[k] != keys[k - 1])
+                if (const auto found = holders.find(keys[k]); found != holders.end())
+                    candidates.insert(found->second.begin(), found->second.end());
+        if (candidates.empty())
+            continue;
+        const double expected = predict(index);
+        std::vector<Pick> picks;
+        for (const uint32_t candidate : candidates)
+            picks.push_back({item_overlap(keys, theirKeys.at(candidate)), std::fabs(double(candidate) - expected), candidate});
+        std::sort(picks.begin(), picks.end(), [](const Pick &a, const Pick &b) {
+            return a.overlap != b.overlap ? a.overlap > b.overlap : a.distance != b.distance ? a.distance < b.distance : a.index < b.index;
+        });
+        const auto &best = picks.front();
+        const auto &bestKeys = theirKeys.at(best.index);
+        if (best.overlap < 0.5 || shared_items(keys, bestKeys) < 4)
+            continue;
+        const auto rival = std::find_if(picks.begin() + 1, picks.end(),
+                                        [&](const Pick &pick) { return theirKeys.at(pick.index) != bestKeys; });
+        if (rival != picks.end() && rival->overlap > best.overlap - 0.1)
+            continue;
+        chosen.emplace(index, best.index);
+    }
+    return chosen;
+}
+
 std::map<uint32_t, uint32_t> align_entries(const std::map<uint32_t, ScriptEntry> &ours,
                                            const std::map<uint32_t, ScriptEntry> &theirs) {
     std::vector<uint32_t> a, b;
@@ -1011,6 +1086,13 @@ std::map<uint32_t, uint32_t> align_entries(const std::map<uint32_t, ScriptEntry>
 std::map<uint32_t, uint32_t> align_move_scripts(const std::vector<uint8_t> &budokai2, const std::vector<uint8_t> &shared,
                                                 const std::vector<uint8_t> &own, uint32_t sharedMotions) {
     return align_entries(script_entries(budokai2), merged_entries(shared, own, sharedMotions));
+}
+
+std::map<uint32_t, uint32_t> fill_move_matches(const std::vector<uint8_t> &budokai2, const std::vector<uint8_t> &shared,
+                                               const std::vector<uint8_t> &own, uint32_t sharedMotions,
+                                               const std::map<uint32_t, uint32_t> &anchors,
+                                               const std::map<uint32_t, uint32_t> &chosen) {
+    return fill_entries(script_entries(budokai2), merged_entries(shared, own, sharedMotions), anchors, chosen);
 }
 
 std::vector<uint8_t> merge_move_scripts(const std::vector<uint8_t> &shared, const std::vector<uint8_t> &own,
@@ -1090,13 +1172,27 @@ std::vector<uint8_t> script_part(const std::vector<uint8_t> &file, uint32_t vers
 
 std::optional<size_t> own_script_entry(SourceDisc &budokai3, size_t model) {
     const auto &entries = budokai3.entries(roster_archive);
-    std::optional<size_t> found;
-    for (size_t entry = model > 8 ? model - 8 : 0; entry < model && entry < entries.size(); ++entry) {
+    for (size_t entry = std::min(model, entries.size()); entry > 0 && model - entry < budokai3_group_span;) {
+        --entry;
         const auto first = amb_part(budokai3.read_entry(roster_archive, entry), 0);
+        if (first.size() >= 4 && std::memcmp(first.data(), "#AMC", 4) == 0)
+            return std::nullopt;
         if (first.size() >= 16 && std::memcmp(first.data(), "#BSK", 4) == 0 && read32(first, 12) == 4)
-            found = entry;
+            return entry;
     }
-    return found;
+    return std::nullopt;
+}
+
+std::optional<size_t> effects_entry(SourceDisc &budokai3, size_t model) {
+    const auto &entries = budokai3.entries(roster_archive);
+    for (size_t entry = model + 1; entry < entries.size() && entry - model <= budokai3_group_span; ++entry) {
+        const auto first = amb_part(budokai3.read_entry(roster_archive, entry), 0);
+        if (first.size() >= 4 && std::memcmp(first.data(), "#AMC", 4) == 0)
+            return entry;
+        if (first.size() >= 4 && std::memcmp(first.data(), "#BSK", 4) == 0)
+            return std::nullopt;
+    }
+    return std::nullopt;
 }
 
 std::map<uint32_t, uint32_t> roster_renumber(SourceDisc &budokai3, size_t model, SourceDisc &game,
@@ -1118,6 +1214,7 @@ std::map<uint32_t, uint32_t> roster_renumber(SourceDisc &budokai3, size_t model,
                 budokai2Scripts.emplace(character.internal, entry);
     std::vector<std::map<uint32_t, uint32_t>> tables;
     std::map<uint32_t, uint32_t> own;
+    std::vector<uint8_t> importedOurs, importedTheirs;
     std::set<std::string> done;
     for (const auto &character : models->characters) {
         const auto counterpart = budokai2Scripts.find(character.internal);
@@ -1134,23 +1231,22 @@ std::map<uint32_t, uint32_t> roster_renumber(SourceDisc &budokai3, size_t model,
         if (character.internal == imported) {
             own = tables.back();
             ownMatched = true;
+            importedOurs = ours;
+            importedTheirs = theirs;
         }
     }
     if (tables.empty())
         return {};
-    return combine_renumbers(tables, own);
+    const auto combined = combine_renumbers(tables, own);
+    if (!ownMatched)
+        return combined;
+    return fill_move_matches(importedOurs, sharedScript, importedTheirs, sharedMotions, own, combined);
 }
 }
 
 std::optional<Budokai3Moveset> budokai3_moveset(SourceDisc &budokai3, size_t model, SourceDisc &game,
-                                                size_t ownMotions) {
-    const auto &entries = budokai3.entries(roster_archive);
-    std::optional<size_t> scriptEntry = own_script_entry(budokai3, model), effectsEntry;
-    for (size_t entry = model > 8 ? model - 8 : 0; entry < model && entry < entries.size(); ++entry) {
-        const auto first = amb_part(budokai3.read_entry(roster_archive, entry), 0);
-        if (first.size() >= 4 && std::memcmp(first.data(), "#AMC", 4) == 0)
-            effectsEntry = entry;
-    }
+                                                size_t ownMotions, size_t ownMoves) {
+    const auto scriptEntry = own_script_entry(budokai3, model), effectsEntry = effects_entry(budokai3, model);
     if (!scriptEntry || !effectsEntry)
         return std::nullopt;
     const auto shared = budokai3.read_entry(roster_archive, budokai3_shared_moves);
@@ -1161,6 +1257,9 @@ std::optional<Budokai3Moveset> budokai3_moveset(SourceDisc &budokai3, size_t mod
     if (sharedMotions.empty() || ownMotionsPack.empty() || sharedScript.empty() || ownScript.empty())
         return std::nullopt;
     const auto extra = amb_part(game.read_entry(roster_archive, ownMotions), 1);
+    const auto commands = amb_part(game.read_entry(roster_archive, ownMoves), 1);
+    if (commands.size() < 4 || std::memcmp(commands.data(), "#BCM", 4) != 0)
+        return std::nullopt;
     std::map<uint32_t, uint32_t> renumber;
     bool ownMatched = false;
     try {
@@ -1183,7 +1282,7 @@ std::optional<Budokai3Moveset> budokai3_moveset(SourceDisc &budokai3, size_t mod
     moveset.renumbered = renumber.size();
     moveset.ownMatched = ownMatched;
     moveset.motions = amb_of({merge_motions({sharedMotions, ownMotionsPack}), extra}, {3, 3});
-    moveset.moves = amb_of({amb_part(effects, 0), amb_part(effects, 2),
+    moveset.moves = amb_of({amb_part(effects, 0), commands,
                             merge_move_scripts(sharedScript, ownScript, read32(sharedMotions, 16), renumber),
                             amb_part(effects, 3)},
                            {5, 0xFFFFFFFFu, 0xFFFFFFFFu, 8});

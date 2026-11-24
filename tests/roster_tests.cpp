@@ -294,6 +294,50 @@ void budokai3_moves_are_merged() {
             "Move numbers were not chosen by majority with the character's own alignment first");
     require(!combine_renumbers({{{5, 6}}, {{5, 7}}, {{5, 6}}, {{5, 7}}}).count(5),
             "A tied vote picked a move number");
+
+    using Moves = std::vector<std::pair<uint32_t, std::vector<uint8_t>>>;
+    const auto scripted = [](uint32_t version, const Moves &moves) {
+        uint32_t count = 0;
+        for (const auto &move : moves)
+            count = std::max(count, move.first + 1);
+        Bytes b(0x20 + count * 4, 0);
+        std::memcpy(b.data(), "#BSK", 4);
+        put32(b, 12, version);
+        put32(b, 16, count);
+        put32(b, 20, 0x20);
+        b.resize((b.size() + 15) / 16 * 16, 0);
+        for (const auto &[index, items] : moves) {
+            put32(b, 0x20 + index * 4, uint32_t(b.size()));
+            Bytes record(48, 0);
+            put32(record, 40, 1);
+            put32(record, 44, uint32_t(b.size() + 48));
+            b.insert(b.end(), record.begin(), record.end());
+            b.resize(b.size() + 8, 0);
+            put32(b, uint32_t(b.size() - 8), uint32_t(items.size()) << 16 | 5u);
+            put32(b, uint32_t(b.size() - 4), uint32_t(b.size()));
+            for (const uint8_t item : items)
+                b.insert(b.end(), 16, item);
+        }
+        put32(b, 28, uint32_t(b.size()));
+        return b;
+    };
+    const std::vector<uint8_t> punch{0x10, 0x11, 0x12, 0x13, 0x14, 0x15}, kick{0x20, 0x21, 0x22, 0x23, 0x24, 0x25},
+        beam{0x30, 0x31, 0x32, 0x33, 0x34, 0x35}, tiny{0x40, 0x41, 0x42};
+    const auto ours = scripted(3, {{10, punch}, {11, kick}, {12, beam}, {13, tiny}});
+    const auto common = scripted(4, {{0, {0x70, 0x71, 0x72, 0x73}}});
+    const auto theirs = scripted(4, {{20, kick},
+                                     {30, punch},
+                                     {40, {0x30, 0x31, 0x32, 0x33, 0x34, 0x7E}},
+                                     {41, {0x30, 0x31, 0x32, 0x33, 0x34, 0x7F}},
+                                     {5, tiny}});
+    const std::map<uint32_t, uint32_t> lined{{11, 20}};
+    const auto filled = fill_move_matches(ours, common, theirs, 0, lined, lined);
+    require(filled.size() == 2 && filled.at(10) == 30 && filled.at(11) == 20,
+            "A move the alignment skipped was not filled from its best unambiguous match");
+    require(!filled.count(12), "A move with two different equally good matches was filled");
+    require(!filled.count(13), "A move sharing fewer than four keyframes was filled");
+    const auto kept = fill_move_matches(ours, common, theirs, 0, lined, {{10, 99}});
+    require(kept.at(10) == 99, "Gap filling replaced a move number that was already chosen");
 }
 
 int main() {

@@ -116,10 +116,28 @@ What is known about converting Budokai 3 movesets:
   win), marked version 3, and their motions point at bank 1: shared motion
   `n` stays `n`, own motion `n` becomes `n` plus the shared count. The
   character's 0x6A00-byte block of settings at the end is kept.
-- Files: the character's `#AMC`, `#BCM` and `#SPX` file and its move file are
-  found next to its first costume model, and the new character's fields
-  `0x1D8` (moves) and `0x1B4` (motions) point at the converted files. The
-  wearer's second motion pack is kept.
+- Files: `DATA_CMN` keeps each Budokai 3 character's files together: its move
+  file (a version 4 `#BSK` with its motions), its costume and form models, then
+  its `#AMC`, `#BCM` and `#SPX` file. The importer takes the nearest move file
+  before the chosen model and the first `#AMC` file after it, without crossing
+  into the next character's files. Up to v0.6.7 it took the `#AMC` file before
+  the move file, which is the previous character's: Goku got Ginyu's effects
+  (entry 260 instead of 282) and Vegeta got Videl's (402 instead of 420), and
+  forms more than eight entries from the move file, such as most of Goku's and
+  Vegeta's, could not be converted. Budokai 2's own files agree on sizes:
+  Goku's `#AMC` is 0xB0E8 bytes and Ginyu's 0xC10; Budokai 3's 282 is 0x124E0
+  and 260 is 0x2DA0. All but four of Budokai 3's 175 models now convert; Kaio-shin's
+  move file has no motions, and Android 16's models follow cutscene data with no
+  move file. The new character's fields `0x1D8` (moves) and `0x1B4` (motions)
+  point at the converted files. The wearer's second motion pack is kept.
+- Commands: the `#BCM` part comes from the wearer's Budokai 2 move file, not
+  from Budokai 3. Checked in Training with Budokai 3 Goku on Budokai 2 Goku's
+  spot: with Budokai 3's `#BCM` (Goku's or, before v0.6.8, Ginyu's) no punch,
+  kick or ki blast starts at all and only guarding works. With Budokai 2
+  Goku's, punches and kicks start, hit and chain (a punch, punch, kick, kick
+  string did four hits and 168 damage), and Circle plays the ki blast stance,
+  though no ki blast leaves his hand yet. Plain Budokai 2 Goku fires and hits
+  with the same inputs.
 
 - Entry numbers: Budokai 2's code asks for a move by its entry number, and
   Budokai 3 renumbered many entries. For one character, the importer reads its
@@ -139,11 +157,27 @@ What is known about converting Budokai 3 movesets:
   gets the 231 voted numbers; the 59 more that Goku's table gave were all
   Goku's own specials. Numbers with no match keep the Budokai 3 entry of that
   number, as before.
+- Gaps: the alignment keeps both lists in order, so a move Budokai 3 moved
+  elsewhere is skipped. For a character in both games, a number the alignment
+  and the vote left empty now takes the Budokai 3 entry sharing the most
+  command items, when it shares at least half of them and at least four, and
+  no entry with different contents comes within a tenth of it. Ties go to the
+  entry nearest where the aligned neighbours put it. Across the 29 characters
+  in both games, this fills 188 more numbers below 512 without changing how
+  often the result agrees with the other characters, and confirms 30% more
+  special moves (2,029 instead of 1,563). Goku has 302 numbers matched and
+  Vegeta 317.
+- Numbers from 512 are moves by role in both games: 149 of them are in every
+  Budokai 2 character and 79 in 35 of Budokai 3's 37 move files, in two
+  matching blocks (512 to 583 and 768 to 839). Most roles keep their number in
+  Budokai 3, so an unmatched special takes the Budokai 3 move with the same
+  role. Moves from 1024 up are each character's own and have no such match.
 
-Checked in a fight with Budokai 3 Goku: he stands, walks, dashes, jumps and
-fights in his Budokai 3 animations. Moves Budokai 3 does differently from
-Budokai 2, or that Budokai 2's code numbers in a way Budokai 3 lacks, can still
-do another move.
+Checked in a fight with Budokai 3 Goku: he stands, walks, dashes, guards and
+fights in his Budokai 3 animations, and his punches and kicks hit. Ki blasts
+show the stance but fire nothing. Moves Budokai 3 does differently from Budokai
+2, or that Budokai 2's code numbers in a way Budokai 3 lacks, can still do
+another move.
 
 ### Stages and capsules
 

@@ -8734,12 +8734,15 @@ struct Window {
         const auto entry = model.files.front().second;
         const auto costumes = mods::costume_fields(*game, *wearer);
         const auto own = costumes.front().second;
-        size_t wearerMotions = 0;
-        for (const auto &[offset, file] : wearer->files)
+        size_t wearerMotions = 0, wearerMoves = 0;
+        for (const auto &[offset, file] : wearer->files) {
             if (offset == mods::motions_field)
                 wearerMotions = file;
-        if (ownMoves && !wearerMotions)
-            throw std::runtime_error(utf8(wide(wearer->name)) + " has no motions file to take the Budokai 3 moves' place");
+            if (offset == mods::moves_field)
+                wearerMoves = file;
+        }
+        if (ownMoves && (!wearerMotions || !wearerMoves))
+            throw std::runtime_error(utf8(wide(wearer->name)) + " has no moves or motions file to take the Budokai 3 moves' place");
         std::vector<mods::ImportTarget> targets;
         for (const auto &[version, letter] : versions) {
             mods::ImportTarget target;
@@ -8768,7 +8771,7 @@ struct Window {
         const auto mod = importMod(model.name);
         startModJob(Job::importMod, L"Importing…",
                     [disc = source, game = game, entry, own, versions, targets, mod, added, costumes, summary, ownMoves,
-                     wearerMotions, stem, force, character = model.id](const std::shared_ptr<Progress> &progress) mutable {
+                     wearerMotions, wearerMoves, stem, force, character = model.id](const std::shared_ptr<Progress> &progress) mutable {
                         std::vector<std::pair<uint32_t, std::string>> moveFields;
                         std::wstring voiceNote;
                         if (force) {
@@ -8788,7 +8791,7 @@ struct Window {
                         }
                         if (ownMoves) {
                             report(progress, L"Converting the Budokai 3 moves", 0, 1);
-                            const auto moveset = mods::budokai3_moveset(*disc, entry, *game, wearerMotions);
+                            const auto moveset = mods::budokai3_moveset(*disc, entry, *game, wearerMotions, wearerMoves);
                             if (!moveset)
                                 throw std::runtime_error("This Budokai 3 model has no move script next to it to convert");
                             voiceNote += L" " + std::to_wstring(moveset->renumbered) +
