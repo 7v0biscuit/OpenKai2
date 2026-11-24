@@ -449,6 +449,46 @@ DiscMount prepare_disc(const std::filesystem::path& image, const std::filesystem
     if (!executable || iso.hash(*executable)!=options.expected_executable_sha256)
         fail("ISO does not contain the supported Budokai 2 USA executable");
     if (!module || !usr) fail("Game ISO is incomplete: original MODULES/CRI_ADXI.IRX and USR files are required");
+    const auto cacheRoot=std::filesystem::absolute(cache).lexically_normal();
+    const auto stampPath=cacheRoot/"verified.stamp";
+    const auto ticks=[](std::filesystem::file_time_type time){return static_cast<long long>(time.time_since_epoch().count());};
+    const auto absoluteImage=std::filesystem::absolute(image).lexically_normal();
+    const auto& nativeImage=absoluteImage.native();
+    const std::string imageKey=sha256_text(std::string(reinterpret_cast<const char*>(nativeImage.data()),nativeImage.size()*sizeof(nativeImage[0])));
+    if (std::ifstream stamp{stampPath}) {
+        std::string magic,key,sha;unsigned long long size=0;long long time=0;size_t count=0;
+        if (stamp>>magic>>key>>size>>time>>sha>>count && magic=="openkai2-disc-stamp-1" && key==imageKey && size==original_size
+            && time==ticks(original_time) && count==iso.files().size() && sha.size()==64) {
+            std::map<std::string,std::pair<unsigned long long,std::pair<std::string,long long>>> records;
+            for (size_t i=0;i<count;++i) {
+                unsigned long long fileSize=0;long long fileTime=0;std::string digest,name;
+                if (!(stamp>>fileSize>>fileTime>>digest>>std::quoted(name)))break;
+                records[name]={fileSize,{digest,fileTime}};
+            }
+            DiscMount fast;
+            fast.image_sha256=sha;
+            fast.root=cacheRoot/sha/"game";
+            bool valid=records.size()==count && std::filesystem::is_directory(fast.root);
+            if (valid) {
+                CacheLock lock(fast.root.parent_path());
+                for (const auto& entry : iso.files()) {
+                    const auto found=records.find(entry.path.generic_string());
+                    const auto output=fast.root/entry.path;
+                    std::error_code error;
+                    const auto status=std::filesystem::symlink_status(output,error);
+                    if (found==records.end() || error || !std::filesystem::is_regular_file(status)
+                        || found->second.first!=entry.size || std::filesystem::file_size(output,error)!=entry.size || error
+                        || ticks(std::filesystem::last_write_time(output,error))!=found->second.second.second || error) {valid=false;break;}
+                    fast.files.push_back({entry.path,entry.size,found->second.second.first});
+                }
+            }
+            if (valid) {
+                if (options.progress) options.progress("Disc unchanged since it was last verified");
+                fast.executable=fast.root/executable->path;
+                return fast;
+            }
+        }
+    }
     DiscMount result;
     result.image_sha256=sha256_file(image);
     result.root=std::filesystem::absolute(cache).lexically_normal()/result.image_sha256/"game";
@@ -487,6 +527,17 @@ DiscMount prepare_disc(const std::filesystem::path& image, const std::filesystem
     if (!std::filesystem::is_regular_file(image) || std::filesystem::file_size(image)!=original_size
         || std::filesystem::last_write_time(image)!=original_time) fail("ISO changed during verification; restart with an unchanged image");
     result.executable=result.root/executable->path;
+    try {
+        std::ostringstream stamp;
+        stamp<<"openkai2-disc-stamp-1 "<<imageKey<<' '<<original_size<<' '<<ticks(original_time)<<' '<<result.image_sha256<<' '<<result.files.size()<<'\n';
+        for (const auto& file : result.files)
+            stamp<<file.size<<' '<<ticks(std::filesystem::last_write_time(result.root/file.path))<<' '<<file.sha256<<' '<<std::quoted(file.path.generic_string())<<'\n';
+        const auto temporary=cacheRoot/"verified.stamp.new";
+        {std::ofstream out(temporary,std::ios::binary|std::ios::trunc);out<<stamp.str();}
+        std::filesystem::rename(temporary,stampPath);
+    } catch (...) {
+        std::error_code ignored;std::filesystem::remove(stampPath,ignored);
+    }
     return result;
 }
 

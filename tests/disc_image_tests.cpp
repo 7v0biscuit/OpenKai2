@@ -61,6 +61,7 @@ int main() {
         check(read(mounted.executable)=="abc","Executable extracted exactly");
         check(read(mounted.root/"USR/DATA.BIN")=="abcdef","Disc data extracted exactly");
         check(openkai2::prepare_disc(iso,cache,options).files_repaired==0,"Valid cache reused after re-verification");
+        check(openkai2::prepare_disc(iso,cache,options).bytes_verified==0,"Unchanged disc skips re-hashing");
         write(mounted.root/"USR/DATA.BIN",{'b','a','d','b','a','d'});
         check(openkai2::prepare_disc(iso,cache,options).files_repaired==1,"Same-size cache corruption repaired");
         check(read(mounted.root/"USR/DATA.BIN")=="abcdef","Corruption repaired from ISO");
