@@ -1730,7 +1730,7 @@ struct Window {
     COLORREF waveSkyTop() const {return waveSkyColors()[0];}
     COLORREF waveSkyMid() const {return waveSkyColors()[1];}
     COLORREF waveSkyLow() const {return waveSkyColors()[2];}
-    unsigned waveBackdropKey() const {return (waveSkyChoice()*4u+(settings.waveEmblem ? 1u : 0u)+unsigned(orange)*32u)^(unsigned(ballColor)*2654435761u)^(unsigned(ballStars)*40503u);}
+    unsigned waveBackdropKey() const {return (waveSkyChoice()*4u+(settings.waveEmblem ? 1u : 0u)+unsigned(orange)*32u+galaxyTemplate()*977u)^(unsigned(ballColor)*2654435761u)^(unsigned(ballStars)*40503u);}
     void buildWaveBackdrop(HDC dc,int width,int height) {
         Gdiplus::Graphics graphics(dc);
         graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
@@ -1746,13 +1746,15 @@ struct Window {
         graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeDefault);
         graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
         int edges=1;
-        Gdiplus::GraphicsPath sun;
-        sun.AddEllipse(Gdiplus::REAL(width*0.30),Gdiplus::REAL(height*0.42),Gdiplus::REAL(width*0.9),Gdiplus::REAL(height*0.9));
-        Gdiplus::PathGradientBrush sunGlow(&sun);
-        sunGlow.SetCenterColor(Gdiplus::Color(90,255,196,110));
-        Gdiplus::Color sunEdge(0,255,150,60);
-        sunGlow.SetSurroundColors(&sunEdge,&edges);
-        graphics.FillPath(&sunGlow,&sun);
+        if(galaxyTemplate()==2u) {
+            Gdiplus::GraphicsPath sun;
+            sun.AddEllipse(Gdiplus::REAL(width*0.30),Gdiplus::REAL(height*0.42),Gdiplus::REAL(width*0.9),Gdiplus::REAL(height*0.9));
+            Gdiplus::PathGradientBrush sunGlow(&sun);
+            sunGlow.SetCenterColor(Gdiplus::Color(90,255,196,110));
+            Gdiplus::Color sunEdge(0,255,150,60);
+            sunGlow.SetSurroundColors(&sunEdge,&edges);
+            graphics.FillPath(&sunGlow,&sun);
+        }
         for(int star=0;star<90;++star) {
             const double a=std::sin(star*12.9898)*43758.5453,b=std::sin(star*78.233)*24634.6345;
             const double fx=a-std::floor(a),fy=b-std::floor(b);
@@ -1803,51 +1805,8 @@ struct Window {
             std::copy(waveBackdrop.begin(),waveBackdrop.end(),buffer.frame.pixels);
         }
         GdiFlush();
+        paintGalaxy(buffer.frame.pixels,buffer.frame.width,width,height,now,true);
         drawSky(buffer.frame.pixels,buffer.frame.width,buffer.frame.height,0,height,[](int,int){return true;});
-        {
-            Gdiplus::Graphics graphics(dc);
-            graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
-            graphics.SetCompositingQuality(Gdiplus::CompositingQualityHighSpeed);
-            struct Ribbon {double y,amp,freq,speed,phase,thick;int alpha;};
-            const Ribbon ribbons[]={{0.64,0.050,1.10,0.30,0.0,0.055,46},{0.68,0.040,1.50,-0.22,1.7,0.040,34},
-                                    {0.61,0.032,2.05,0.38,3.1,0.026,28},{0.72,0.058,0.80,0.16,4.4,0.075,22}};
-            const double calm=settings.waveRibbons==1 ? 0.45 : 1.0;
-            for(const auto& ribbon:ribbons) {
-                if(settings.waveRibbons==2)break;
-                const int steps=48;
-                std::vector<Gdiplus::PointF> top,bottom;
-                for(int i=0;i<=steps;++i) {
-                    const double x=double(width)*i/steps,u=double(i)/steps;
-                    const double wave=(std::sin(u*6.2832*ribbon.freq+now*ribbon.speed*2.0*calm+ribbon.phase)*ribbon.amp+
-                                       std::sin(u*6.2832*ribbon.freq*0.5-now*ribbon.speed*1.3*calm+ribbon.phase*0.7)*ribbon.amp*0.6)*(0.6+0.4*calm);
-                    const double centre=height*(ribbon.y+wave),half=height*ribbon.thick*(0.55+0.45*std::sin(u*3.1416+now*0.2+ribbon.phase));
-                    top.push_back({Gdiplus::REAL(x),Gdiplus::REAL(centre-half)});
-                    bottom.push_back({Gdiplus::REAL(x),Gdiplus::REAL(centre+half*0.35)});
-                }
-                graphics.SetSmoothingMode(Gdiplus::SmoothingModeHighSpeed);
-                Gdiplus::GraphicsPath band;
-                band.AddLines(top.data(),int(top.size()));
-                std::vector<Gdiplus::PointF> back(bottom.rbegin(),bottom.rend());
-                band.AddLines(back.data(),int(back.size()));
-                band.CloseFigure();
-                Gdiplus::LinearGradientBrush bandFill(Gdiplus::Point(0,0),Gdiplus::Point(width,0),
-                    Gdiplus::Color(BYTE(ribbon.alpha/3),255,240,210),Gdiplus::Color(BYTE(ribbon.alpha),255,222,160));
-                graphics.FillPath(&bandFill,&band);
-                graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
-                Gdiplus::Pen crest(Gdiplus::Color(BYTE(std::min(255,ribbon.alpha*4)),255,246,224),float(std::max(1,p(1)))*1.2f);
-                graphics.DrawLines(&crest,top.data(),int(top.size()));
-            }
-            for(int spark=0;spark<40;++spark) {
-                const double seed=std::sin(spark*91.37)*43758.5453,fx=seed-std::floor(seed);
-                const double seed2=std::sin(spark*12.9898)*7919.31,fy=seed2-std::floor(seed2);
-                const double rise=std::fmod(fy+now*(0.012+0.01*fx),1.0);
-                const double x=width*fx+std::sin(now*0.6+spark)*p(14),y=height*(1.0-rise);
-                const double twinkle=0.5+0.5*std::sin(now*2.2+spark*1.7);
-                const double size=p(1)+p(2)*fx;
-                Gdiplus::SolidBrush dust(Gdiplus::Color(BYTE(50+140*twinkle*(1.0-rise)),255,226,170));
-                graphics.FillEllipse(&dust,Gdiplus::REAL(x-size),Gdiplus::REAL(y-size),Gdiplus::REAL(size*2),Gdiplus::REAL(size*2));
-            }
-        }
         const double enter=1.0-std::pow(1.0-waveEnter,3.0);
         const auto backdropAt=[&](double x,double y){
             const int px=std::clamp(int(x),0,width-1),py=std::clamp(int(y),0,height-1);
@@ -3981,9 +3940,9 @@ struct Window {
                        L"Time chamber",L"Planet Vegeta",L"Kame House dusk",L"Majin pink",L"Starry night"},int(settings.waveSky));
         combo(WaveEmblem,{L"Shown",L"Hidden"},settings.waveEmblem ? 0 : 1);
         combo(LauncherClock,{L"Windows format",L"12-hour",L"24-hour",L"Hidden"},int(settings.launcherClock));
-        combo(WaveRibbons,{L"Lively",L"Calm",L"Off"},int(settings.waveRibbons));
+        combo(WaveRibbons,{L"Spiral galaxy",L"Nebula drift",L"Milky Way",L"Star voyage",L"Still sky"},galaxyIndex(settings.waveRibbons));
         hint(LauncherClock,L"How the clock at the top of the launcher shows the time.");
-        hint(WaveRibbons,L"How the ribbons on the wave home move. Calm slows them; Off keeps only the sky.");
+        hint(WaveRibbons,L"The animated space scene behind the home screen. Other pages show it still. Still sky keeps only the stars.");
         hint(WaveSky,L"Colors of the wave home and the sky behind every page. Time of day changes through the day.");
         hint(WaveEmblem,L"Show the four-star Dragon Ball behind the wave home and pages.");
         hint(LauncherInterface,L"Wave home opens on an animated menu bar. Press Esc on any main page to return to it.");
@@ -5472,6 +5431,168 @@ struct Window {
             for(size_t i=0;i<face.badges.size() && i<4;++i){const int width=unscale(tagWidth(dc,face.badges[i].first));if(x-width<cl+cw/2)break;tag(dc,p(x),p(cb-strip/2),face.badges[i].first,face.badges[i].second,false);x-=width+6;}
         }
     }
+    static constexpr std::array<unsigned,5> galaxyOrder{0u,1u,3u,4u,2u};
+    static int galaxyIndex(unsigned value) {
+        for(size_t i=0;i<galaxyOrder.size();++i)if(galaxyOrder[i]==value)return int(i);
+        return 0;
+    }
+    static unsigned galaxyValue(int index) {return galaxyOrder[size_t(std::clamp(index,0,int(galaxyOrder.size())-1))];}
+    unsigned galaxyTemplate() const {return settings.waveRibbons;}
+    struct VoyageStar { float x,y,z; };
+    std::vector<float> galaxyNoise,galaxyGeo;
+    std::vector<uint8_t> galaxyLayer;
+    std::vector<VoyageStar> voyage;
+    int galaxyWidth=0,galaxyHeight=0,galaxyKind=-1;
+    double voyageAt=-1.0;
+    uint32_t voyageSeed=0x2545f491u;
+    static float smoothStep(float a,float b,float x) {const float t=std::clamp((x-a)/(b-a),0.f,1.f);return t*t*(3.f-2.f*t);}
+    void ensureGalaxyNoise() {
+        if(!galaxyNoise.empty())return;
+        constexpr int n=256;
+        std::vector<float> base(size_t(n)*n);
+        uint32_t seed=0x9e3779b9u;
+        for(auto& value:base){seed^=seed<<13;seed^=seed>>17;seed^=seed<<5;value=float(seed&0xffffu)/65535.f;}
+        galaxyNoise.assign(size_t(n)*n,0.f);
+        float total=0.f,amplitude=0.5f;
+        for(int octave=0;octave<3;++octave) {
+            const int cell=64>>octave;
+            const auto at=[&](int x,int y){return base[size_t(y&(n-1))*n+size_t(x&(n-1))];};
+            for(int y=0;y<n;++y)for(int x=0;x<n;++x) {
+                const int x0=x/cell*cell,y0=y/cell*cell;
+                const float fx=float(x-x0)/float(cell),fy=float(y-y0)/float(cell);
+                const float sx=fx*fx*(3.f-2.f*fx),sy=fy*fy*(3.f-2.f*fy);
+                const float a=at(x0,y0),b=at(x0+cell,y0),c=at(x0,y0+cell),d=at(x0+cell,y0+cell);
+                galaxyNoise[size_t(y)*n+size_t(x)]+=amplitude*((a+(b-a)*sx)*(1.f-sy)+(c+(d-c)*sx)*sy);
+            }
+            total+=amplitude;amplitude*=0.5f;
+        }
+        for(auto& value:galaxyNoise)value/=total;
+    }
+    float galaxyNoiseAt(float u,float v) const {
+        const float x=u*64.f,y=v*64.f,fx=std::floor(x),fy=std::floor(y);
+        const int ix=int(fx)&255,iy=int(fy)&255,jx=(ix+1)&255,jy=(iy+1)&255;
+        const float tx=x-fx,ty=y-fy;
+        const float* table=galaxyNoise.data();
+        const float a=table[iy*256+ix],b=table[iy*256+jx],c=table[jy*256+ix],d=table[jy*256+jx];
+        return (a+(b-a)*tx)*(1.f-ty)+(c+(d-c)*tx)*ty;
+    }
+    void paintGalaxy(uint32_t* pixels,int stride,int width,int height,double now,bool advance) {
+        const unsigned kind=galaxyTemplate();
+        if(!pixels || width<16 || height<16 || stride<width || kind==2u)return;
+        if(kind==4u){paintVoyage(pixels,stride,width,height,now,advance);return;}
+        ensureGalaxyNoise();
+        const int lw=width/4+2,lh=height/4+2;
+        if(galaxyWidth!=width || galaxyHeight!=height || galaxyKind!=int(kind)) {
+            galaxyWidth=width;galaxyHeight=height;galaxyKind=int(kind);
+            galaxyGeo.assign(size_t(lw)*size_t(lh)*4u,0.f);
+            const float cx=float(width)*0.74f/4.f,cy=float(height)*0.36f/4.f,radius=float(height)*0.60f/4.f;
+            const float ca=std::cos(-0.30f),sa=std::sin(-0.30f);
+            const float bx=float(lw),by=-0.85f*float(lh),length=std::sqrt(bx*bx+by*by),dx=bx/length,dy=by/length;
+            for(int y=0;y<lh;++y)for(int x=0;x<lw;++x) {
+                float* g=&galaxyGeo[(size_t(y)*size_t(lw)+size_t(x))*4u];
+                if(kind==0u) {
+                    const float ux=(float(x)-cx)/radius,uy=(float(y)-cy)/radius;
+                    const float px=ux*ca-uy*sa,py=(ux*sa+uy*ca)/0.62f;
+                    const float r=std::sqrt(px*px+py*py);
+                    g[0]=r;g[1]=2.f*std::atan2(py,px)-4.5f*std::log(r+0.04f);g[2]=px;g[3]=py;
+                } else if(kind==3u) {
+                    const float ox=float(x),oy=float(y)-0.95f*float(lh);
+                    g[0]=(ox*dx+oy*dy)/length;g[1]=(ox*-dy+oy*dx)/(0.16f*float(lh));
+                }
+            }
+        }
+        galaxyLayer.assign(size_t(lw)*size_t(lh)*3u,0);
+        const float t=float(now),spin=t*0.025f,cs=std::cos(spin),sn=std::sin(spin);
+        bool any=false;
+        for(int y=0;y<lh;++y)for(int x=0;x<lw;++x) {
+            const size_t index=size_t(y)*size_t(lw)+size_t(x);
+            const float* g=&galaxyGeo[index*4u];
+            float r=0.f,gr=0.f,b=0.f;
+            if(kind==0u) {
+                const float distance=g[0];
+                if(distance<1.5f) {
+                    const float arm=0.5f+0.5f*std::cos(g[1]-2.f*spin);
+                    const float nx=g[2]*cs-g[3]*sn,ny=g[2]*sn+g[3]*cs;
+                    const float cloud=galaxyNoiseAt(nx*1.6f+7.f,ny*1.6f+3.f);
+                    const float fall=std::exp(-distance*1.5f)*std::clamp((1.5f-distance)*2.f,0.f,1.f);
+                    const float arms=arm*arm*fall*(0.3f+1.2f*cloud),core=std::exp(-distance*distance*14.f);
+                    const float pink=std::max(0.f,cloud-0.58f)*arm*fall*2.5f,halo=std::exp(-distance*distance*1.8f);
+                    r=arms*110.f+core*230.f+halo*28.f+pink*230.f;gr=arms*130.f+core*200.f+halo*24.f+pink*80.f;b=arms*235.f+core*170.f+halo*60.f+pink*160.f;
+                }
+            } else if(kind==1u) {
+                const float u=float(x)/float(lw)*2.4f,v=float(y)/float(lh)*1.5f;
+                const float n1=galaxyNoiseAt(u+t*0.012f,v+t*0.005f),n2=galaxyNoiseAt(u*1.8f-t*0.008f+5.3f,v*1.8f+t*0.004f+2.1f);
+                const float n3=galaxyNoiseAt(u*3.5f+t*0.02f+1.7f,v*3.5f-1.2f);
+                const float density=smoothStep(0.42f,0.80f,n1)*(0.55f+0.8f*n2),tint=smoothStep(0.35f,0.7f,n2);
+                const float bright=smoothStep(0.62f,0.9f,n3)*density;
+                const float soft=0.55f;
+                r=soft*(density*(210.f*(1.f-tint)+60.f*tint)+bright*90.f);gr=soft*(density*(60.f*(1.f-tint)+170.f*tint)+bright*80.f);b=soft*(density*(200.f*(1.f-tint)+230.f*tint)+bright*110.f);
+            } else {
+                const float along=g[0],across=g[1],glow=std::exp(-across*across*1.6f);
+                if(glow>0.01f) {
+                    const float cloud=galaxyNoiseAt(along*5.f+t*0.006f,across*0.9f+t*0.002f);
+                    const float lane=smoothStep(0.48f,0.72f,galaxyNoiseAt(along*3.2f+9.f,across*1.6f+4.f-t*0.003f))*std::exp(-across*across*5.f);
+                    const float density=glow*(0.45f+0.9f*cloud)*(1.f-0.75f*lane),edge=std::min(1.f,std::fabs(across)*0.8f);
+                    const float core=std::exp(-across*across*6.f)*smoothStep(0.55f,0.85f,cloud)*(1.f-lane);
+                    r=density*(235.f-110.f*edge)+core*90.f;gr=density*(215.f-70.f*edge)+core*70.f;b=density*255.f+core*40.f;
+                }
+            }
+            uint8_t* out=&galaxyLayer[index*3u];
+            out[0]=uint8_t(std::clamp(r*0.6f,0.f,255.f));out[1]=uint8_t(std::clamp(gr*0.6f,0.f,255.f));out[2]=uint8_t(std::clamp(b*0.6f,0.f,255.f));
+            any=any || out[0] || out[1] || out[2];
+        }
+        if(!any)return;
+        std::vector<int> columns(static_cast<size_t>(width)),weights(static_cast<size_t>(width));
+        for(int x=0;x<width;++x) {
+            const float sx=std::max(0.f,(float(x)+0.5f)/4.f-0.5f);
+            columns[size_t(x)]=std::min(int(sx),lw-2);weights[size_t(x)]=int((sx-float(columns[size_t(x)]))*256.f);
+        }
+        for(int y=0;y<height;++y) {
+            const float sy=std::max(0.f,(float(y)+0.5f)/4.f-0.5f);
+            const int row=std::min(int(sy),lh-2),wy=int((sy-float(row))*256.f);
+            const uint8_t* upper=&galaxyLayer[size_t(row)*size_t(lw)*3u];const uint8_t* lower=upper+size_t(lw)*3u;
+            uint32_t* line=pixels+size_t(y)*size_t(stride);
+            for(int x=0;x<width;++x) {
+                const size_t at=size_t(columns[size_t(x)])*3u;const int wx=weights[size_t(x)];
+                uint32_t value=line[x],result=value&0xff000000u;
+                for(int channel=0;channel<3;++channel) {
+                    const int top=upper[at+size_t(channel)]*(256-wx)+upper[at+3u+size_t(channel)]*wx;
+                    const int bottom=lower[at+size_t(channel)]*(256-wx)+lower[at+3u+size_t(channel)]*wx;
+                    const int add=(top*(256-wy)+bottom*wy)>>16;
+                    const int shift=16-channel*8,dst=int((value>>shift)&255u);
+                    result|=uint32_t(dst+add-dst*add/255)<<shift;
+                }
+                line[x]=result;
+            }
+        }
+    }
+    void paintVoyage(uint32_t* pixels,int stride,int width,int height,double now,bool advance) {
+        const auto next=[&]{voyageSeed^=voyageSeed<<13;voyageSeed^=voyageSeed>>17;voyageSeed^=voyageSeed<<5;return float(voyageSeed&0xffffu)/65535.f;};
+        if(voyage.empty())for(int i=0;i<360;++i)voyage.push_back({next()*2.f-1.f,next()*2.f-1.f,0.05f+next()*0.95f});
+        float dt=0.f;
+        if(advance){dt=voyageAt<0.0 ? 0.f : float(std::clamp(now-voyageAt,0.0,0.1));voyageAt=now;}
+        const float cx=float(width)*0.5f,cy=float(height)*0.45f,scale=float(std::max(width,height))*0.18f;
+        const auto plot=[&](int x,int y,float alpha) {
+            if(x<0 || y<0 || x>=width || y>=height || alpha<=0.f)return;
+            uint32_t& dst=pixels[size_t(y)*size_t(stride)+size_t(x)];
+            const auto add=[&](int shift,float color){const int v=int((dst>>shift)&255u)+int(color*alpha);dst=(dst&~(255u<<shift))|(uint32_t(std::min(255,v))<<shift);};
+            add(16,200.f);add(8,222.f);add(0,255.f);
+        };
+        for(auto& star:voyage) {
+            star.z-=dt*0.06f;
+            float px=cx+star.x/star.z*scale,py=cy+star.y/star.z*scale;
+            if(star.z<=0.04f || px<0.f || py<0.f || px>=float(width) || py>=float(height)) {
+                star={next()*2.f-1.f,next()*2.f-1.f,1.f};
+                continue;
+            }
+            const float closeness=1.f-star.z,alpha=std::min(1.f,0.15f+closeness*closeness*0.95f);
+            const float tz=std::min(1.f,star.z+0.05f),tx=cx+star.x/tz*scale,ty=cy+star.y/tz*scale;
+            const int steps=int(std::clamp(std::hypot(px-tx,py-ty),1.f,float(p(14))));
+            for(int s=1;s<=steps;++s){const float f=float(s)/float(steps+1);plot(int(px+(tx-px)*f),int(py+(ty-py)*f),alpha*(1.f-f)*0.5f);}
+            plot(int(px),int(py),alpha);
+            if(closeness>0.7f){plot(int(px)+1,int(py),alpha*0.7f);plot(int(px),int(py)+1,alpha*0.7f);plot(int(px)+1,int(py)+1,alpha*0.5f);}
+        }
+    }
     struct SkyStar { float x,y,phase,speed,bright; bool big; };
     std::vector<SkyStar> skyStars;
     int skyWidth=0,skyHeight=0;
@@ -6653,7 +6774,7 @@ struct Window {
             {L"WINDOW MODE",L"RESOLUTION",L"ASPECT RATIO",L"FRAME RATE CAP",L"VSYNC",L"GAME AUDIO"},
             {L"RENDERER",L"ANTI-ALIASING",L"TEXTURE FILTERING",L"UPSCALING",L"INTERNAL RESOLUTION",L"IMAGE EFFECT",L"BRIGHTNESS",L"IMAGE PRESETS"},
             {L"CPU DIFFICULTY",L"HD TEXTURES",L"MUSIC",L"FPS COUNTER",L"RANDOMIZER",L"PS2 LOAD TIMES",L"RUN-AHEAD"},
-            {L"THEME",L"ACCENT COLOR",L"START ON",L"DISCORD ACTIVITY",L"INTERFACE MOTION",L"HELP HINTS",L"INTERFACE STYLE",L"WAVE SKY",L"DRAGON BALL EMBLEM",L"CLOCK",L"WAVE RIBBONS"}}};
+            {L"THEME",L"ACCENT COLOR",L"START ON",L"DISCORD ACTIVITY",L"INTERFACE MOTION",L"HELP HINTS",L"INTERFACE STYLE",L"WAVE SKY",L"DRAGON BALL EMBLEM",L"CLOCK",L"WAVE BACKGROUND"}}};
         bool any=false;
         for(size_t group=0;group<labels.size();++group) {
             const int top=grid.sections[group];if(top<0)continue;any=true;
@@ -6899,6 +7020,8 @@ struct Window {
                         deeper.SetWrapMode(Gdiplus::WrapModeTileFlipXY);
                         graphics.FillRectangle(&deeper, 0, int(rect.bottom) - 1, int(rect.right), buffer.frame.height - int(rect.bottom) + 1);
                     }
+                    GdiFlush();
+                    paintGalaxy(buffer.frame.pixels, buffer.frame.width, int(rect.right), int(rect.bottom), allowMotion() ? double(motionTicks()) / 1000.0 : 0.0, false);
                 }
                 else {
                 buffer.frame.radial(rect, rect.right * 3 / 4, -p(160), p(620), ember, 12);
@@ -10144,7 +10267,7 @@ struct Window {
             {LoadTimes,settings.ps2LoadTimes ? 1 : 0},{RunAhead,int(std::min(settings.runAhead,2u))},{LauncherTheme,int(settings.launcherTheme)},
             {LauncherAccent,int(settings.launcherAccent)},{StartPage,int(settings.startPage)},
             {DiscordActivity,settings.discordPresence ? 1 : 0},{LauncherMotion,settings.reducedMotion ? 1 : 0},{LauncherHints,settings.helpHints ? 0 : 1},{LauncherInterface,int(settings.launcherInterface)},{WaveSky,int(settings.waveSky)},{WaveEmblem,settings.waveEmblem ? 0 : 1},
-            {LauncherClock,int(settings.launcherClock)},{WaveRibbons,int(settings.waveRibbons)}};
+            {LauncherClock,int(settings.launcherClock)},{WaveRibbons,galaxyIndex(settings.waveRibbons)}};
         for (auto [id,value] : choices) SendMessageW(controls[id],CB_SETCURSEL,value,0);
     }
     bool keyboardShortcut(int id) {
@@ -11073,8 +11196,8 @@ struct Window {
         if ((id == LauncherClock || id == WaveRibbons) && notification == CBN_SELCHANGE) {
             previousSettings = settings;
             settings.launcherClock = unsigned(std::clamp(selected(LauncherClock), 0, 3));
-            settings.waveRibbons = unsigned(std::clamp(selected(WaveRibbons), 0, 2));
-            saveLauncherLook(id == LauncherClock ? L"Clock changed." : L"Wave ribbons changed.");
+            settings.waveRibbons = galaxyValue(selected(WaveRibbons));
+            saveLauncherLook(id == LauncherClock ? L"Clock changed." : L"Wave background changed.");
             (pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);
             return;
         }

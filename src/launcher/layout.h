@@ -58,7 +58,7 @@ struct SettingsLayout {
             L"display window mode resolution aspect ratio frame rate cap fps vsync audio volume",
             L"graphics renderer anti aliasing texture filtering upscaling presets fsr internal resolution image effect sharpen vibrant colors crt scanlines retro glow brightness gamma",
             L"game cpu difficulty hd textures music randomizer ps2 load times counter run ahead input lag latency",
-            L"launcher theme accent colors tabs start page appearance discord activity privacy animation reduced motion help hints tooltips interface style wave home ps3 menu sky namek sunset night emblem dragon ball clock time 12 24 hour ribbons calm"};
+            L"launcher theme accent colors tabs start page appearance discord activity privacy animation reduced motion help hints tooltips interface style wave home ps3 menu sky namek sunset night emblem dragon ball clock time 12 24 hour background galaxy nebula milky way stars space"};
         int next=start;
         for(size_t i=0;i<sections.size();++i) {
             const bool match=matchesTerms(words[i],query);

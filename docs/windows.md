@@ -75,8 +75,12 @@ A message in the corner names your new character when a fight starts.
   page, only where the background shows, and a shooting star crosses now and
   then. With reduced motion the stars stay still.
 - **Clock:** the Windows time format, 12-hour, 24-hour, or hidden.
-- **Wave ribbons:** Lively, Calm (slower, gentler ribbons) or Off (just the
-  sky).
+- **Wave background:** an animated space scene behind the Wave home: Spiral
+  galaxy (a slowly turning galaxy), Nebula drift (colored clouds drifting
+  past), Milky Way (a shimmering band across the sky), Star voyage (stars
+  gliding toward you) or Still sky (just the sky and its stars). Other pages
+  show the same scene without movement so it never pulls attention from the
+  page. With reduced motion the scene stays still everywhere.
 - **Theme:** twenty-one color palettes for the entire launcher, including its
   title bar, fields, selection focus and game panel. Illustrated backgrounds
   have been removed. Choose a theme to apply its complete palette; **Undo
