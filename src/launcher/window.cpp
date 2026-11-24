@@ -5080,7 +5080,7 @@ struct Window {
             text(dc,trail,margin,46,std::max(230,w/2-margin-80),18,fonts.caption,muted,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
             SYSTEMTIME now{};GetLocalTime(&now);
             text(dc,dateClock(now),w-margin-480,16,416,44,fonts.title,ink,DT_RIGHT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX);
-            text(dc,L"Esc  Back        F1  Help        Ctrl+K  Find",w/2-260,h-26,520,20,fonts.caption,muted,DT_CENTER|DT_SINGLELINE|DT_NOPREFIX);
+            keyHints(dc,w/2+170,h-28,{{L"Esc",L"Back"},{L"F1",L"Help"},{L"Ctrl+K",L"Find"}},1.0);
             return;
         }
         fill(dc,{0,0,p(w),p(shellHeader)},sidebar);
@@ -6744,7 +6744,7 @@ struct Window {
                 Gdiplus::LinearGradientBrush divider(Gdiplus::PointF(Gdiplus::REAL(p(contentLeft+24)),0),Gdiplus::PointF(Gdiplus::REAL(p(contentLeft+content-24)),0),Gdiplus::Color(70,255,236,210),Gdiplus::Color(8,255,236,210));
                 graphics.FillRectangle(&divider,Gdiplus::REAL(p(contentLeft+24)),Gdiplus::REAL(p(rowTop)),Gdiplus::REAL(p(content-48)),Gdiplus::REAL(std::max(1,p(1))));
             }
-            text(dc,labels[i],contentLeft+24,rowTop+14,labelWidth-16,28,fonts.body,ink,DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+            text(dc,labels[i],contentLeft+24,rowTop+14,labelWidth-16,28,fonts.display,ink,DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
         }
     }
     void waveSection(HDC dc,int top,int bottom,int content,const std::wstring& title,const std::wstring& note,size_t count=0) {
@@ -11919,7 +11919,8 @@ LRESULT CALLBACK combo_procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) 
     if(cancelling) {owner->suspendUi();owner->closingDropdowns=true;}
     if(owner && (message==WM_SETFONT || message==CB_ADDSTRING || message==CB_INSERTSTRING || message==CB_DELETESTRING || message==CB_RESETCONTENT))
         owner->comboTextWidths.erase(GetDlgCtrlID(hwnd));
-    const bool picker = owner && owner->waveStyle() && (owner->page == settingsPage || owner->page == profilePage);
+    RECT pickerBounds{};GetClientRect(hwnd,&pickerBounds);
+    const bool picker = owner && owner->waveStyle() && owner->page != wavePage && pickerBounds.right >= owner->p(220);
     if (picker && message == WM_LBUTTONDOWN && IsWindowEnabled(hwnd) && !SendMessageW(hwnd, CB_GETDROPPEDSTATE, 0, 0)) {
         RECT bounds{};GetClientRect(hwnd, &bounds);
         const int x = GET_X_LPARAM(lp), zone = owner->p(44);
