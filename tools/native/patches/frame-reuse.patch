@@ -1,0 +1,118 @@
+--- a/include/runtime/gs/gs_frontend.h
++++ b/include/runtime/gs/gs_frontend.h
+@@ -151,6 +151,12 @@
+                                           uint32_t *outDisplayFbp = nullptr,
+                                           uint32_t *outSourceFbp = nullptr,
+                                           bool *outUsedPreferred = nullptr) const;
++    bool takeLatchedHostPresentationFrame(std::vector<uint8_t> &pixels,
++                                          uint32_t &outWidth,
++                                          uint32_t &outHeight,
++                                          uint32_t *outDisplayFbp = nullptr,
++                                          uint32_t *outSourceFbp = nullptr,
++                                          bool *outUsedPreferred = nullptr);
+     bool clearFramebufferContext(uint32_t contextIndex, uint32_t rgba);
+     bool clearActiveFramebuffer(uint32_t rgba);
+     uint64_t nativeImageUploadCount() const { return m_nativeImageUploadCount; }
+@@ -242,6 +248,7 @@
+     uint32_t m_preferredDisplayDestFbp = 0;
+     bool m_hasPreferredDisplaySource = false;
+     std::vector<uint8_t> m_hostPresentationFrame;
++    std::vector<uint8_t> m_hostPresentationSpare;
+     uint32_t m_hostPresentationWidth = 0;
+     uint32_t m_hostPresentationHeight = 0;
+     uint32_t m_hostPresentationStride = 0;
+--- a/include/runtime/gs/gs_types.h
++++ b/include/runtime/gs/gs_types.h
+@@ -288,6 +288,7 @@
+     GSFrameReg preferredSource{};
+     uint32_t preferredDestFbp = 0;
+     bool hasPreferredSource = false;
++    std::vector<uint8_t> *reusePixels = nullptr;
+ };
+ 
+ struct PresentationFrame
+--- a/runtime/gs/gs_frontend.cpp
++++ b/runtime/gs/gs_frontend.cpp
+@@ -811,6 +811,7 @@
+         {
+             m_backend->Flush();
+             m_backend->Sync(GSSyncReason::Presentation);
++            request.reusePixels = &m_hostPresentationSpare;
+             frame = m_backend->Present(request);
+         }
+     }
+@@ -824,7 +825,7 @@
+     const bool usedPreferred = frame.usedPreferred;
+     {
+         std::lock_guard<std::mutex> presentationLock(m_presentationMutex);
+-        m_hostPresentationFrame = std::move(frame.pixels);
++        m_hostPresentationFrame.swap(frame.pixels);
+         m_hostPresentationWidth = width;
+         m_hostPresentationHeight = height;
+         m_hostPresentationStride = stride;
+@@ -833,6 +834,11 @@
+         m_hostPresentationUsedPreferred = usedPreferred;
+         m_hasHostPresentationFrame = hasFrame;
+     }
++    {
++        std::lock_guard<std::mutex> backendLock(m_backendLifetimeMutex);
++        if (m_hostPresentationSpare.size() < frame.pixels.size())
++            m_hostPresentationSpare.swap(frame.pixels);
++    }
+ 
+     if (hasFrame)
+     {
+@@ -841,6 +847,36 @@
+     }
+ }
+ 
++bool GS::takeLatchedHostPresentationFrame(std::vector<uint8_t> &pixels,
++                                          uint32_t &outWidth,
++                                          uint32_t &outHeight,
++                                          uint32_t *outDisplayFbp,
++                                          uint32_t *outSourceFbp,
++                                          bool *outUsedPreferred)
++{
++    {
++        std::lock_guard<std::mutex> lock(m_presentationMutex);
++        const size_t bytes = static_cast<size_t>(m_hostPresentationWidth) * m_hostPresentationHeight * 4u;
++        if (m_hasHostPresentationFrame && bytes != 0u && m_hostPresentationStride == m_hostPresentationWidth &&
++            m_hostPresentationFrame.size() == bytes)
++        {
++            pixels.swap(m_hostPresentationFrame);
++            if (m_hostPresentationFrame.size() != bytes)
++                m_hostPresentationFrame.assign(pixels.begin(), pixels.end());
++            outWidth = m_hostPresentationWidth;
++            outHeight = m_hostPresentationHeight;
++            if (outDisplayFbp)
++                *outDisplayFbp = m_hostPresentationDisplayFbp;
++            if (outSourceFbp)
++                *outSourceFbp = m_hostPresentationSourceFbp;
++            if (outUsedPreferred)
++                *outUsedPreferred = m_hostPresentationUsedPreferred;
++            return true;
++        }
++    }
++    return copyLatchedHostPresentationFrame(pixels, outWidth, outHeight, outDisplayFbp, outSourceFbp, outUsedPreferred);
++}
++
+ bool GS::copyLatchedHostPresentationFrame(std::vector<uint8_t> &outPixels,
+                                           uint32_t &outWidth,
+                                           uint32_t &outHeight,
+--- a/runtime/ps2_runtime.cpp
++++ b/runtime/ps2_runtime.cpp
+@@ -404,13 +404,12 @@
+     }
+ 
+     s_lastPresentationTick = currentTick;
+-    s_scratch.clear();
+     uint32_t width = 0u;
+     uint32_t height = 0u;
+     uint32_t displayFbp = 0u;
+     uint32_t sourceFbp = 0u;
+     bool usedPreferredDisplaySource = false;
+-    if (!rt->gs().copyLatchedHostPresentationFrame(s_scratch,
++    if (!rt->gs().takeLatchedHostPresentationFrame(s_scratch,
+                                                    width,
+                                                    height,
+                                                    &displayFbp,

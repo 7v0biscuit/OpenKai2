@@ -243,6 +243,7 @@ function(openkai2_attach_generated_sources)
         "${project_root}/tools/native/patches/prepared-clut.patch"
         "${project_root}/tools/native/patches/draw-clut-sampling.patch"
         "${project_root}/tools/native/patches/gs-queue-overlap.patch"
+        "${project_root}/tools/native/patches/frame-reuse.patch"
         "${project_root}/tools/native/prepare-overlays.py")
     get_target_property(iop_sources ps2_iop SOURCES)
     set(overlay_iop_sources "")

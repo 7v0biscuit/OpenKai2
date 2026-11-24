@@ -43,6 +43,14 @@ graphics card cannot hold the chosen size at all, the game uses the largest
 size that fits and notes it in `startup.log`
 (`internal_resolution=4x does not fit this GPU; using 3x`).
 
+Each new frame at 2x to 4x is copied out of the graphics card once, straight
+into a buffer that is reused from frame to frame, and the window uploads that
+buffer without copying it again. Before v0.6.8 every frame made a fresh buffer
+(about 15 MB at 4x) and copied the picture two more times, which took about
+3.5 ms more per frame in our measurement; in heavy fight scenes at 4x the
+presentation thread needed up to 19 ms per frame and the frame rate fell to
+about 48 FPS.
+
 If you choose Native, 2x, 3x or 4x yourself, the game keeps exactly that
 resolution for the whole session, even when it runs below 60 FPS. With **Auto**
 the chosen resolution is a maximum: when the graphics card cannot keep up and

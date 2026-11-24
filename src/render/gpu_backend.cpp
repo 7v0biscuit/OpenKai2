@@ -766,6 +766,10 @@ PresentationFrame GpuRasterBackend::Present(const GSPresentationRequest& request
     thread_local std::vector<uint8_t> snapshot;thread_local GSCpuBackend presenter;
     std::future<std::function<void()>> readback;PresentationFrame frame;bool ready=false;HiresPlan plan;
     thread_local auto hiresBuffer=std::make_shared<std::vector<uint32_t>>();auto hiresWords=hiresBuffer;size_t hiresCount=0;auto resolved=std::make_shared<bool>(false);
+    thread_local size_t outputBytes=0;auto output=std::make_shared<std::vector<uint8_t>>();
+    if(request.reusePixels)output->swap(*request.reusePixels);
+    if(output->size()!=outputBytes)output->resize(outputBytes);
+    struct GiveBack{std::vector<uint8_t>* spare;std::shared_ptr<std::vector<uint8_t>> output;~GiveBack(){if(spare && output->size()>spare->size())spare->swap(*output);}} giveBack{request.reusePixels,output};
     {
         std::lock_guard lock(m->mutex);
         const Pages pages=presentationPages(request),dirty=m->gpuDirty&pages;m->cpuFrame=false;
@@ -812,15 +816,16 @@ PresentationFrame GpuRasterBackend::Present(const GSPresentationRequest& request
         }
         auto done=std::make_shared<std::promise<std::function<void()>>>();readback=done->get_future();
         std::vector<uint32_t> resolveParams;
+        if(hiresCount){outputBytes=size_t(plan.outWidth)*plan.outHeight*4u;if(output->size()!=outputBytes)output->resize(outputBytes);}
         if(hiresCount)resolveParams={plan.width*plan.scale,plan.height*plan.scale,uint32_t(plan.offset+size_t(plan.x)*plan.scale),plan.stride,plan.psm,plan.half ? 1u : 0u,
             plan.rows*plan.scale,plan.outWidth,plan.outHeight,uint32_t(plan.resolveBase),uint32_t(request.vsyncTick&1u),plan.scale};
-        m->device->post([r=m->resources,ranges=pageRanges(dirty),ram=snapshot.data(),done,hiresWords,hiresCount,offset=plan.offset,resolveParams=std::move(resolveParams),resolved](gpu::Host&){
+        m->device->post([r=m->resources,ranges=pageRanges(dirty),ram=snapshot.data(),done,hiresWords,output,hiresCount,offset=plan.offset,resolveParams=std::move(resolveParams),resolved](gpu::Host&){
             try{
-                size_t from=offset,words=hiresCount;
+                size_t from=offset,words=hiresCount;uint32_t* into=hiresWords->data();
                 if(hiresCount && r->compute->hires_resolve(resolveParams,(resolveParams[7]+7u)/8u,(resolveParams[8]+7u)/8u)){
-                    *resolved=true;from=resolveParams[9];words=size_t(resolveParams[7])*resolveParams[8];
+                    *resolved=true;from=resolveParams[9];words=size_t(resolveParams[7])*resolveParams[8];into=reinterpret_cast<uint32_t*>(output->data());
                 }
-                auto finish=r->compute->present_read(ranges,ram,from,words,hiresWords->data());
+                auto finish=r->compute->present_read(ranges,ram,from,words,into);
                 done->set_value(finish ? std::function<void()>([r,finish=std::move(finish)]{finish();}) : std::function<void()>());
             }catch(...){done->set_exception(std::current_exception());throw;}
         });
@@ -840,8 +845,7 @@ PresentationFrame GpuRasterBackend::Present(const GSPresentationRequest& request
     if(*resolved){
         PresentationFrame scaled;scaled.width=plan.outWidth;scaled.height=plan.outHeight;scaled.stride=plan.outWidth;
         scaled.displayFbp=frame.displayFbp;scaled.sourceFbp=frame.sourceFbp;scaled.usedPreferred=false;
-        scaled.pixels.resize(size_t(plan.outWidth)*plan.outHeight*4u);
-        std::memcpy(scaled.pixels.data(),hiresWords->data(),scaled.pixels.size());
+        scaled.pixels=std::move(*output);
         return scaled;
     }
     const unsigned s=plan.scale,outWidth=plan.width*s,outHeight=plan.height*s,sourceRows=plan.rows*s;

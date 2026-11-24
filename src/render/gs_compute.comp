@@ -1,16 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #version 430 core
 layout(local_size_x=8,local_size_y=8) in;
-layout(std430,binding=0) buffer Vram {uint memory[];};
-layout(std430,binding=1) readonly buffer Commands {uint commands[];};
-layout(std430,binding=2) readonly buffer Tiles {uint tiles[];};
-layout(std430,binding=3) readonly buffer References {uint references[];};
-layout(std430,binding=4) readonly buffer Palettes {uint palettes[];};
-layout(std430,binding=5) readonly buffer AddressTables {uint tables[];};
 #if defined(HIRES) || defined(SEED) || defined(RESOLVE)
-layout(std430,binding=6) buffer HiresColor {uint hiColor[];};
-layout(std430,binding=7) buffer HiresDepth {uint hiDepth[];};
-layout(std430,binding=8) readonly buffer HiresParams {uint params[];};
+layout(std430,binding=0) restrict readonly buffer Vram {uint memory[];};
+#else
+layout(std430,binding=0) restrict buffer Vram {uint memory[];};
+#endif
+layout(std430,binding=1) restrict readonly buffer Commands {uint commands[];};
+layout(std430,binding=2) restrict readonly buffer Tiles {uint tiles[];};
+layout(std430,binding=3) restrict readonly buffer References {uint references[];};
+layout(std430,binding=4) restrict readonly buffer Palettes {uint palettes[];};
+layout(std430,binding=5) restrict readonly buffer AddressTables {uint tables[];};
+#if defined(HIRES) || defined(SEED) || defined(RESOLVE)
+layout(std430,binding=6) restrict buffer HiresColor {uint hiColor[];};
+layout(std430,binding=7) restrict buffer HiresDepth {uint hiDepth[];};
+layout(std430,binding=8) restrict readonly buffer HiresParams {uint params[];};
 #endif
 uint word(uint c,uint index){return commands[c+index];}
 float number(uint c,uint index){return uintBitsToFloat(word(c,index));}
@@ -216,12 +220,14 @@ bool alphaPass(uint test,uint alpha){
     if(method==6u)return alpha>ref;return alpha!=ref;
 }
 ivec3 selectColor(uint selector,ivec3 source,ivec3 destination){return selector==0u ? source : selector==1u ? destination : ivec3(0);}
+#if !defined(HIRES) && !defined(SEED) && !defined(RESOLVE)
 void storeTarget(uint address,uint shift,uint count,uint value){
     if(count==16u){
         uint mask=65535u<<shift;atomicAnd(memory[address],~mask);atomicOr(memory[address],(value<<shift)&mask);
     }else if(count==24u)memory[address]=(memory[address]&4278190080u)|(value&16777215u);
     else memory[address]=value;
 }
+#endif
 #if defined(RESOLVE)
 uvec4 shownColor(uint value){
     if(params[4]==2u || params[4]==10u){uvec3 c=uvec3(value,value>>5u,value>>10u)&uvec3(31u);return uvec4((c<<3u)|(c>>2u),255u);}

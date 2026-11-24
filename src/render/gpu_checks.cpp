@@ -974,25 +974,33 @@ int benchmark_gs_replay(const char* path,unsigned passes,unsigned scale,unsigned
 #else
         if(!gpu::initialize_headless(error))throw std::runtime_error(error);
 #endif
-        {auto settings=graphics_settings();settings.internalScale=scale;settings.hdTextures=hdMode;if(folder)settings.textureFolder=folder;set_graphics_settings(settings);}
+        {auto settings=graphics_settings();settings.internalScale=scale;settings.height=std::max(settings.height,448u*std::max(scale,1u));settings.hdTextures=hdMode;if(folder)settings.textureFolder=folder;set_graphics_settings(settings);}
         std::vector<uint8_t> vram(gpu::VramBytes,0x35u);auto gs=std::make_unique<GS>();
         auto backendOwner=std::make_unique<GpuRasterBackend>();GSRasterBackend* backend=backendOwner.get();
         std::unique_ptr<GSRasterBackend> installed=std::move(backendOwner);
         if(std::getenv("OPENKAI2_ASYNC")){installed=std::make_unique<AsyncRasterBackend>(std::move(installed));backend=installed.get();}
         gs->init(vram.data(),uint32_t(vram.size()));gs->setRasterBackend(std::move(installed));
-        uint64_t packets=0,uploads=0;
+        uint64_t packets=0,uploads=0,presented=0,scaledFrames=0,framesHash=1469598103934665603ull;
+        std::vector<uint8_t> spare;GSPresentationRequest display{};display.reusePixels=&spare;display.pmode=1;display.dispfb1=uint64_t(8u)<<9u;display.display1=(uint64_t(511u)<<32u)|(uint64_t(447u)<<44u);
         const auto play=[&]{
             for(size_t offset=0;offset+16u<=stream.size();){
                 uint32_t size=0,kind=0;std::memcpy(&size,stream.data()+offset,4);std::memcpy(&kind,stream.data()+offset+4,4);
                 if(offset+16u+size>stream.size())break;
                 const uint8_t* payload=stream.data()+offset+16u;
                 if(kind==1u && size>=32u){uint64_t r[4];std::memcpy(r,payload,32);gs->uploadImageNative(r[0],r[1],r[2],r[3],payload+32,size-32u);++uploads;}
-                else{gs->processGIFPacket(payload,size);if((++packets&1023u)==0u)backend->Present(GSPresentationRequest{});}
+                else{
+                    gs->processGIFPacket(payload,size);
+                    if((++packets&255u)==0u){
+                        auto frame=backend->Present(display);++presented;
+                        if(frame.width>512u){++scaledFrames;for(const auto byte:frame.pixels){framesHash^=byte;framesHash*=1099511628211ull;}}
+                        if(spare.size()<frame.pixels.size())spare.swap(frame.pixels);
+                    }
+                }
                 offset+=16u+((size+15u)&~15u);
             }
         };
         play();if(hdMode){hd::library().wait_idle();play();}
-        const auto before=gpu_render_statistics();packets=uploads=0;
+        const auto before=gpu_render_statistics();packets=uploads=presented=scaledFrames=0;framesHash=1469598103934665603ull;
         const double cpuStart=threadCpuMilliseconds();
         const auto start=std::chrono::steady_clock::now();
         for(unsigned i=0;i<passes;++i)play();
@@ -1004,7 +1012,7 @@ int benchmark_gs_replay(const char* path,unsigned passes,unsigned scale,unsigned
         const auto after=gpu_render_statistics();
         std::cout<<"replay bytes="<<stream.size()<<" packets="<<packets<<" uploads="<<uploads<<" gpu_draws="<<after.gpuDraws-before.gpuDraws
                  <<" cpu_draws="<<after.cpuDraws-before.cpuDraws<<" culled="<<after.culled-before.culled<<" batches="<<after.batches-before.batches
-                 <<" ms="<<double(ns)/1e6<<" thread_cpu_ms="<<cpuEnd-cpuStart<<" ns_per_draw="<<double(ns)/double(std::max<uint64_t>(after.gpuDraws-before.gpuDraws+after.culled-before.culled,1u))<<" vram_hash="<<std::hex<<vramHash<<std::dec<<'\n';
+                 <<" ms="<<double(ns)/1e6<<" thread_cpu_ms="<<cpuEnd-cpuStart<<" ns_per_draw="<<double(ns)/double(std::max<uint64_t>(after.gpuDraws-before.gpuDraws+after.culled-before.culled,1u))<<" vram_hash="<<std::hex<<vramHash<<std::dec<<" presented="<<presented<<" scaled="<<scaledFrames<<" frames_hash="<<std::hex<<framesHash<<std::dec<<'\n';
         for(const auto& [reason,count]:gpu_fallback_counts())std::cout<<"fallback "<<reason<<"="<<count<<'\n';
         gs.reset();gpu::shutdown_device();return 0;
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';gpu::shutdown_device();return 1;}
