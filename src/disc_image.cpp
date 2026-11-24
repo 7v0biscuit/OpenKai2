@@ -478,7 +478,8 @@ DiscMount prepare_disc(const std::filesystem::path& image, const std::filesystem
                     const auto status=std::filesystem::symlink_status(output,error);
                     if (found==records.end() || error || !std::filesystem::is_regular_file(status)
                         || found->second.first!=entry.size || std::filesystem::file_size(output,error)!=entry.size || error
-                        || ticks(std::filesystem::last_write_time(output,error))!=found->second.second.second || error) {valid=false;break;}
+                        || ticks(std::filesystem::last_write_time(output,error))!=found->second.second.second || error
+                        || (entry.size<=(8u<<20u) && sha256_file(output)!=found->second.second.first)) {valid=false;break;}
                     fast.files.push_back({entry.path,entry.size,found->second.second.first});
                 }
             }
