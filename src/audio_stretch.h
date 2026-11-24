@@ -14,7 +14,7 @@ namespace openkai2 {
 class StretchedPlayback {
   public:
     static constexpr unsigned window = 1024u, hop = 512u, search = 256u;
-    static constexpr unsigned target = 6144u, prefill = target + window + search * 2u;
+    static constexpr unsigned target = 6144u, prefill = target + window + search * 2u, refill = target / 2u;
     static constexpr double slowest = 0.25, fastest = 1.1;
     static constexpr double startBelow = 0.6, reserve = 0.45;
     static constexpr unsigned averaged = 48u, settledCalls = 48u, crossfade = 384u, match = 1024u;
@@ -53,10 +53,13 @@ class StretchedPlayback {
             startupInput_ += received;
             startupOutput_ += requested;
         }
-        if (!playing_ && starved_ && available() >= prefill) {
+        if (!playing_ && starved_ && available() >= refill) {
             starved_ = false;
             playing_ = true;
             fadeIn_ = hop;
+            stretched_ = true;
+            settled_ = 0;
+            speed_ = wantedSpeed(buffered() / double(target));
             intervalInput_ = intervalOutput_ = longInput_ = longOutput_ = 0;
         }
         if (!playing_ && available() >= prefill) {

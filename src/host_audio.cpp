@@ -266,6 +266,25 @@ int test_host_audio() {
         }
         require(gaps == 0u && !touched && hitching->playback[0].underruns() == 0u,
                 "100 ms hitches changed the tempo or left gaps");
+        auto stalled = std::make_unique<Output>();
+        played = 0;
+        size_t silentAfter = 0;
+        bool stalledOnce = false;
+        for (unsigned step = 0; step < 400u; ++step) {
+            const size_t count = step >= 100u && step < 112u ? 0u : step == 112u ? 1024u * 4u : 1024u;
+            for (size_t done = 0; done < count; done += 512u) {
+                for (unsigned i = 0; i < 512u; ++i, ++played)
+                    chunk[i * 2u] = chunk[i * 2u + 1u] = tone[(played % 48000u) * 2u];
+                stalled->queues[0].push(chunk);
+            }
+            std::fill(block.begin(), block.end(), 0.0f);
+            render(*stalled, block.data(), 1024u);
+            stalledOnce = stalledOnce || stalled->playback[0].underruns() != 0u;
+            if (stalledOnce && step > 112u && step < 160u)
+                for (unsigned i = 0; i < 1024u; i += 64u)
+                    silentAfter += std::fabs(block[i * 2u]) + std::fabs(block[(i + 16u) * 2u]) + std::fabs(block[(i + 32u) * 2u]) < 1.0e-4f;
+        }
+        require(silentAfter <= 48u, "Audio stayed silent too long after a 250 ms stall");
         auto recovering = std::make_unique<Output>();
         played = 0;
         gaps = 0;
