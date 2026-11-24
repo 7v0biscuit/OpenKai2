@@ -159,7 +159,7 @@ int main() {
         s.profileStyles[0].imageName="My \"portrait\".gif";
         s.profileStyles[0].nameColor=0x1ffcc33u;s.profileStyles[0].fighter=29;s.profileStyles[1].sharing=2;
         s.profileStyles[1].friendAlerts=false;s.onlineFriends[0].seen=1763350000;
-        s.launcherInterface=1;s.waveSky=10;s.launcherClock=2;s.waveRibbons=1;s.raUser="Goku Son";s.raToken="tok\"en";s.raHardcore=true;s.achievementsPaused=true;s.profileStyles[0].nameEffect=29;s.profileStyles[0].link="https://www.twitch.tv/example";s.profileStyles[1].pictureFit=2;s.profileStyles[0].frame=15;s.profileStyles[0].backdrop=14;s.profileStyles[0].title=31;s.profileStyles[0].frameColor=11;s.profileStyles[0].featured=29;
+        s.launcherInterface=1;s.waveSky=10;s.launcherClock=2;s.waveRibbons=1;s.gameCover="cover \"one\".png";s.raUser="Goku Son";s.raToken="tok\"en";s.raHardcore=true;s.achievementsPaused=true;s.profileStyles[0].nameEffect=29;s.profileStyles[0].link="https://www.twitch.tv/example";s.profileStyles[1].pictureFit=2;s.profileStyles[0].frame=15;s.profileStyles[0].backdrop=14;s.profileStyles[0].title=31;s.profileStyles[0].frameColor=11;s.profileStyles[0].featured=29;
         s.profileStyles[0].about="Main \"Kid\" Buu, loves rematches";s.profileStyles[0].region=4;s.profileStyles[0].playstyle=2;
         s.profileStyles[0].matches=77;s.profileStyles[0].since=1763337600;
         s.blockedPlayers={{std::string(64,'a'),std::string(64,'e'),"Spammer"}};
@@ -184,6 +184,7 @@ int main() {
         require(read.profileStyles[0].nameEffect==29 && read.profileStyles[1].nameEffect==0,"Name effects did not round-trip");
         require(read.launcherInterface==1,"The wave home setting did not round-trip");
         require(read.waveSky==10 && read.launcherClock==2 && read.waveRibbons==1,"Wave sky, clock or ribbons did not round-trip");
+        require(read.gameCover=="cover \"one\".png","Game cover did not round-trip");
         auto badClock=s;badClock.launcherClock=4;rejects([&]{validate_settings(badClock);});
         require(read.profileStyles[0].frame==15 && read.profileStyles[0].backdrop==14 && read.profileStyles[0].title==31 &&
                 read.profileStyles[0].frameColor==11 && read.profileStyles[0].featured==29 &&

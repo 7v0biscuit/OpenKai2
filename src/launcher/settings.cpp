@@ -152,6 +152,8 @@ Settings read_settings(const std::filesystem::path &file) {
             if (!row.fail() && (row >> std::ws, !row.eof()))
                 row >> s.launcherClock >> s.waveRibbons;
         }
+        else if (key == "game_cover")
+            row >> std::quoted(s.gameCover);
         else if (key == "retroachievements")
             row >> std::quoted(s.raUser) >> std::quoted(s.raToken) >> s.raHardcore;
         else if (key == "achievements_paused")
@@ -478,6 +480,7 @@ void write_settings(const std::filesystem::path &file, const Settings &s) {
         << "\nlauncher_window " << s.windowLeft << ' ' << s.windowTop << ' ' << s.windowWidth << ' '
         << s.windowHeight << ' ' << s.windowMaximized << "\nlauncher_skin " << s.launcherTheme << ' ' << s.launcherAccent << ' ' << s.startPage << ' ' << s.lastPage
         << "\nlauncher_motion " << s.reducedMotion << ' ' << s.helpHints << "\nlauncher_interface " << s.launcherInterface << "\nlauncher_wave_default 1\nlauncher_wave " << s.waveSky << ' ' << s.waveEmblem << ' ' << s.launcherClock << ' ' << s.waveRibbons
+        << "\ngame_cover " << std::quoted(s.gameCover)
         << "\nretroachievements " << std::quoted(s.raUser) << ' ' << std::quoted(s.raToken) << ' ' << s.raHardcore
         << "\nachievements_paused " << s.achievementsPaused << ' ' << s.achievementsPausedAt
         << "\nlauncher_tabs";

@@ -87,7 +87,7 @@ struct Settings {
     unsigned launcherTheme = 0, launcherAccent = 0, startPage = 0, lastPage = 0, launcherInterface = 1, waveSky = 0;
     bool waveEmblem = true;
     unsigned launcherClock = 0, waveRibbons = 0;
-    std::string raUser, raToken;
+    std::string raUser, raToken, gameCover;
     bool raHardcore = false, achievementsPaused = false;
     int64_t achievementsPausedAt = 0;
     std::array<unsigned, tab_count> tabOrder = default_tab_order;

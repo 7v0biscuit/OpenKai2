@@ -35,7 +35,7 @@ struct SettingsLayout {
     bool list;
     int start=top;
     std::array<int,4> sections{};
-    static constexpr std::array<int,4> fields{6,8,7,11};
+    static constexpr std::array<int,4> fields{6,8,7,12};
 
     explicit SettingsLayout(int contentWidth,int contentLeft=36,bool listMode=false,int startTop=top) : left(contentLeft),width(contentWidth),
         columns(listMode ? 1 : contentWidth<1040 ? 2 : 3),column((contentWidth-2*padding-(columns-1)*gap)/columns),list(listMode),start(startTop) {
@@ -58,7 +58,7 @@ struct SettingsLayout {
             L"display window mode resolution aspect ratio frame rate cap fps vsync audio volume",
             L"graphics renderer anti aliasing texture filtering upscaling presets fsr internal resolution image effect sharpen vibrant colors crt scanlines retro glow brightness gamma",
             L"game cpu difficulty hd textures music randomizer ps2 load times counter run ahead input lag latency",
-            L"launcher theme accent colors tabs start page appearance discord activity privacy animation reduced motion help hints tooltips interface style wave home ps3 menu sky namek sunset night emblem dragon ball clock time 12 24 hour background galaxy nebula milky way stars space"};
+            L"launcher theme accent colors tabs start page appearance discord activity privacy animation reduced motion help hints tooltips interface style wave home ps3 menu sky namek sunset night emblem dragon ball clock time 12 24 hour background galaxy nebula milky way stars space game cover picture box art"};
         int next=start;
         for(size_t i=0;i<sections.size();++i) {
             const bool match=matchesTerms(words[i],query);
