@@ -454,7 +454,12 @@ DiscMount prepare_disc(const std::filesystem::path& image, const std::filesystem
     const auto ticks=[](std::filesystem::file_time_type time){return static_cast<long long>(time.time_since_epoch().count());};
     const auto absoluteImage=std::filesystem::absolute(image).lexically_normal();
     const auto& nativeImage=absoluteImage.native();
-    const std::string imageKey=sha256_text(std::string(reinterpret_cast<const char*>(nativeImage.data()),nativeImage.size()*sizeof(nativeImage[0])));
+    std::string identity(reinterpret_cast<const char*>(nativeImage.data()),nativeImage.size()*sizeof(nativeImage[0]));
+    for (const auto& entry : iso.files()) {
+        identity+='\n'+entry.path.generic_string()+' '+std::to_string(entry.size);
+        for (const auto& extent : entry.extents) identity+=' '+std::to_string(extent.offset)+':'+std::to_string(extent.size);
+    }
+    const std::string imageKey=sha256_text(identity);
     if (std::ifstream stamp{stampPath}) {
         std::string magic,key,sha;unsigned long long size=0;long long time=0;size_t count=0;
         if (stamp>>magic>>key>>size>>time>>sha>>count && magic=="openkai2-disc-stamp-1" && key==imageKey && size==original_size

@@ -93,6 +93,11 @@ int main() {
         place(bytes,20*sector+2*34+record("DATA.BIN;1",23,3,0x80).size(),record("DATA.BIN;1",24,3));
         bytes[24*sector]='d'; bytes[24*sector+1]='e'; bytes[24*sector+2]='f'; write(iso,bytes);
         check(read(openkai2::prepare_disc(iso,cache,options).root/"USR/DATA.BIN")=="abcdef","Multi-extent file reconstructed");
+        {
+            const auto sameTime=fs::last_write_time(iso);
+            write(iso,valid);fs::last_write_time(iso,sameTime);
+            check(openkai2::prepare_disc(iso,cache,options).root==mounted.root,"A different image with the same size and time is checked again");
+        }
         bytes=valid; place(bytes,20*sector+2*34,record("DATA.BIN;1",23,3,0x80));
         invalid(bytes,"Incomplete multi-extent file rejected");
         write(iso,valid);
