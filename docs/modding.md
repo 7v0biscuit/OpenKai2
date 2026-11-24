@@ -138,6 +138,24 @@ What is known about converting Budokai 3 movesets:
   string did four hits and 168 damage), and Circle plays the ki blast stance,
   though no ki blast leaves his hand yet. Plain Budokai 2 Goku fires and hits
   with the same inputs.
+- Button moves: each `#BCM` command is a record that starts with the move it
+  plays on the ground and in the air (N, then N+256 twice), followed by its
+  input settings. Budokai 3 keeps the same blocks in the same order but numbers
+  some moves differently: Goku's Circle ki blast is 573 in Budokai 2 and 574 in
+  Budokai 3. The importer lines up the records of each block between the
+  wearer's Budokai 2 file and the character's Budokai 3 file by their
+  settings, allowing records missing on either side, and when at least half
+  of the settings agree, Budokai 2's N plays Budokai 3's move (and N+256 its
+  air move), if the converted script has it. Goku's Circle now plays his
+  Budokai 3 ki blast entry instead of a different move.
+- Ki blasts: with Budokai 3 Goku, Circle spends ki and plays the stance, but no
+  projectile leaves his hand. Tried in Training: Budokai 2 Goku's whole script
+  with the Budokai 3 model and motions fires; Budokai 3's ki blast entry placed
+  in Budokai 2's script, with Budokai 2's hit groups and effects, fires. With
+  the converted script, using Budokai 2's `#AMC` and `#SPX`, copying Budokai
+  2's ki blast hit group into it, or filling every number it lacks with Budokai
+  2's entry each still fire nothing. The projectile needs something else from
+  Budokai 2's script together with its effects.
 
 - Entry numbers: Budokai 2's code asks for a move by its entry number, and
   Budokai 3 renumbered many entries. For one character, the importer reads its

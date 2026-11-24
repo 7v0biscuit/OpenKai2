@@ -48,6 +48,7 @@ inline constexpr size_t budokai3_shared_moves = 165u, budokai2_goku_moves = 173u
 inline constexpr uint32_t moves_field = 0x1D8u, motions_field = 0x1B4u;
 inline constexpr uint32_t budokai3_fighters = 0x428C60u, budokai3_fighter_bytes = 372u, budokai3_fighter_count = 44u;
 inline constexpr size_t budokai3_group_span = 32u;
+inline constexpr uint32_t budokai3_command_first = 512u, budokai3_command_settings = 17u;
 inline constexpr uint32_t budokai3_fighter_voice = 0x24u, budokai3_fighter_mark = 0x2Cu;
 inline constexpr uint32_t budokai3_fighter_mark_value = 0x64080000u;
 inline constexpr const char *budokai3_voice_archive = "USR/DATA_USA.AFS";
@@ -64,6 +65,7 @@ std::vector<uint8_t> merge_move_scripts(const std::vector<uint8_t> &shared, cons
                                         uint32_t sharedMotions, const std::map<uint32_t, uint32_t> &renumber = {});
 std::map<uint32_t, uint32_t> align_move_scripts(const std::vector<uint8_t> &budokai2, const std::vector<uint8_t> &shared,
                                                 const std::vector<uint8_t> &own, uint32_t sharedMotions);
+std::map<uint32_t, uint32_t> command_renumber(const std::vector<uint8_t> &budokai2, const std::vector<uint8_t> &budokai3);
 std::map<uint32_t, uint32_t> fill_move_matches(const std::vector<uint8_t> &budokai2, const std::vector<uint8_t> &shared,
                                                const std::vector<uint8_t> &own, uint32_t sharedMotions,
                                                const std::map<uint32_t, uint32_t> &anchors,

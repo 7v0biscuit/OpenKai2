@@ -338,6 +338,40 @@ void budokai3_moves_are_merged() {
     require(!filled.count(13), "A move sharing fewer than four keyframes was filled");
     const auto kept = fill_move_matches(ours, common, theirs, 0, lined, {{10, 99}});
     require(kept.at(10) == 99, "Gap filling replaced a move number that was already chosen");
+
+    using Command = std::pair<uint16_t, std::vector<uint16_t>>;
+    const auto commands = [](const std::vector<Command> &records) {
+        Bytes b(0x60, 0);
+        std::memcpy(b.data(), "#BCM", 4);
+        b[0x1E] = 1;
+        put32(b, 0x50, 0x60);
+        const auto word = [&](uint16_t value) { b.push_back(uint8_t(value)); b.push_back(uint8_t(value >> 8)); };
+        word(0);
+        word(3);
+        for (int i = 0; i < 10; ++i)
+            word(0);
+        for (const auto &[move, settings] : records) {
+            word(move);
+            word(uint16_t(move + 256));
+            word(uint16_t(move + 256));
+            for (const uint16_t value : settings)
+                word(value);
+        }
+        return b;
+    };
+    const std::vector<uint16_t> blast{0, 224, 0, 179, 512, 0, 25, 100, 256, 256, 204, 76, 256, 0x9696, 0, 0, 0};
+    auto rush = blast, spread = blast, other = blast, shifted = blast;
+    rush[6] = 30;
+    spread[1] = 160;
+    shifted[6] = 30;
+    shifted[11] = 51;
+    for (auto &value : other)
+        value = 7;
+    const auto mapped = command_renumber(commands({{573, blast}, {574, rush}, {575, spread}}),
+                                         commands({{574, blast}, {590, other}, {575, shifted}, {576, spread}}));
+    require(mapped.size() == 6 && mapped.at(573) == 574 && mapped.at(829) == 830 && mapped.at(574) == 575 &&
+                mapped.at(575) == 576 && mapped.at(831) == 832,
+            "Command moves were not paired by their settings across an inserted Budokai 3 command");
 }
 
 int main() {

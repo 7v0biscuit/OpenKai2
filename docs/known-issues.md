@@ -33,7 +33,7 @@ silences music tracks while retaining voices, sound effects and video audio.
 
 | Issue | Current status |
 | --- | --- |
-| Budokai 3 movesets | Experimental. Imported characters walk, guard, punch and kick in their Budokai 3 animations, but ki blasts fire nothing and some buttons may trigger a different move. |
+| Budokai 3 movesets | Experimental. Imported characters walk, guard, punch and kick in their Budokai 3 animations, and button moves are matched to their Budokai 3 entries, but ki blasts show the stance and fire nothing. |
 | Budokai 3 voices | Imported characters have their own fight voice, but keep their base character's select-screen, intro and win lines. |
 | Imported Budokai 3 stages | Fight effects such as dust and impacts are imported. Moving stage objects and some stage-wide effects are not yet supported. |
 

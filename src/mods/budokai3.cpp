@@ -1088,6 +1088,101 @@ std::map<uint32_t, uint32_t> align_move_scripts(const std::vector<uint8_t> &budo
     return align_entries(script_entries(budokai2), merged_entries(shared, own, sharedMotions));
 }
 
+namespace {
+struct CommandRecord {
+    uint32_t move;
+    std::vector<uint16_t> settings;
+};
+using CommandBlocks = std::map<std::pair<uint16_t, uint16_t>, std::vector<std::vector<CommandRecord>>>;
+
+uint16_t read16(const std::vector<uint8_t> &bytes, size_t at) { return uint16_t(bytes[at] | bytes[at + 1] << 8); }
+
+CommandBlocks command_blocks(const std::vector<uint8_t> &bcm) {
+    CommandBlocks blocks;
+    if (bcm.size() < 0x50 || std::memcmp(bcm.data(), "#BCM", 4) != 0)
+        return blocks;
+    const uint32_t count = read16(bcm, 0x1E);
+    if (0x50 + size_t(count) * 4 > bcm.size())
+        return blocks;
+    for (uint32_t b = 0; b < count; ++b) {
+        const size_t begin = read32(bcm, 0x50 + b * 4), end = b + 1 < count ? read32(bcm, 0x50 + (b + 1) * 4) : bcm.size();
+        if (begin + 4 > end || end > bcm.size())
+            continue;
+        std::vector<uint16_t> words;
+        for (size_t at = begin; at + 2 <= end; at += 2)
+            words.push_back(read16(bcm, at));
+        std::vector<CommandRecord> records;
+        for (size_t i = 0; i + 2 < words.size(); ++i)
+            if (words[i] >= budokai3_command_first && words[i] < budokai3_command_first + 256 &&
+                words[i + 1] == words[i] + 256 && words[i + 2] == words[i] + 256) {
+                CommandRecord record;
+                record.move = words[i];
+                for (size_t k = i + 3; k < words.size() && k < i + 3 + budokai3_command_settings; ++k)
+                    record.settings.push_back(words[k]);
+                records.push_back(std::move(record));
+            }
+        blocks[{words[0], words[1]}].push_back(std::move(records));
+    }
+    return blocks;
+}
+
+double settings_match(const std::vector<uint16_t> &a, const std::vector<uint16_t> &b) {
+    size_t same = 0;
+    for (size_t i = 0; i < a.size() && i < b.size(); ++i)
+        same += a[i] == b[i];
+    return double(same) / double(std::max({a.size(), b.size(), size_t(1)}));
+}
+}
+
+std::map<uint32_t, uint32_t> command_renumber(const std::vector<uint8_t> &budokai2, const std::vector<uint8_t> &budokai3) {
+    const auto ours = command_blocks(budokai2), theirs = command_blocks(budokai3);
+    std::map<uint32_t, uint32_t> renumber;
+    for (const auto &[head, blocks] : ours) {
+        const auto other = theirs.find(head);
+        if (other == theirs.end())
+            continue;
+        for (size_t k = 0; k < blocks.size() && k < other->second.size(); ++k) {
+            const auto &a = blocks[k], &b = other->second[k];
+            const size_t n = a.size(), m = b.size();
+            constexpr float gap = -0.15f;
+            std::vector<float> score((n + 1) * (m + 1), 0.0f);
+            std::vector<uint8_t> step((n + 1) * (m + 1), 0);
+            const auto at = [m](size_t i, size_t j) { return i * (m + 1) + j; };
+            for (size_t i = 1; i <= n; ++i)
+                score[at(i, 0)] = score[at(i - 1, 0)] + gap, step[at(i, 0)] = 1;
+            for (size_t j = 1; j <= m; ++j)
+                score[at(0, j)] = score[at(0, j - 1)] + gap, step[at(0, j)] = 2;
+            for (size_t i = 1; i <= n; ++i)
+                for (size_t j = 1; j <= m; ++j) {
+                    const double match = settings_match(a[i - 1].settings, b[j - 1].settings);
+                    const float pair = match > 0.0 ? float(match * 2.0 - 0.5) : -1.0f;
+                    const float diagonal = score[at(i - 1, j - 1)] + pair, up = score[at(i - 1, j)] + gap,
+                                left = score[at(i, j - 1)] + gap;
+                    if (diagonal >= up && diagonal >= left)
+                        score[at(i, j)] = diagonal, step[at(i, j)] = 0;
+                    else if (up >= left)
+                        score[at(i, j)] = up, step[at(i, j)] = 1;
+                    else
+                        score[at(i, j)] = left, step[at(i, j)] = 2;
+                }
+            for (size_t i = n, j = m; i > 0 || j > 0;) {
+                const uint8_t s = step[at(i, j)];
+                if (i > 0 && j > 0 && s == 0) {
+                    if (settings_match(a[i - 1].settings, b[j - 1].settings) >= 0.5) {
+                        renumber.emplace(a[i - 1].move, b[j - 1].move);
+                        renumber.emplace(a[i - 1].move + 256, b[j - 1].move + 256);
+                    }
+                    --i, --j;
+                } else if (i > 0 && (j == 0 || s == 1))
+                    --i;
+                else
+                    --j;
+            }
+        }
+    }
+    return renumber;
+}
+
 std::map<uint32_t, uint32_t> fill_move_matches(const std::vector<uint8_t> &budokai2, const std::vector<uint8_t> &shared,
                                                const std::vector<uint8_t> &own, uint32_t sharedMotions,
                                                const std::map<uint32_t, uint32_t> &anchors,
@@ -1278,6 +1373,10 @@ std::optional<Budokai3Moveset> budokai3_moveset(SourceDisc &budokai3, size_t mod
             renumber.clear();
         }
     }
+    const auto merged = merged_entries(sharedScript, ownScript, read32(sharedMotions, 16));
+    for (const auto &[budokai2, budokai3] : command_renumber(commands, amb_part(effects, 2)))
+        if (merged.count(budokai3))
+            renumber[budokai2] = budokai3;
     Budokai3Moveset moveset;
     moveset.renumbered = renumber.size();
     moveset.ownMatched = ownMatched;
