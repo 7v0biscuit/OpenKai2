@@ -346,7 +346,8 @@ enum Id {
     ProfileAbout=1300, ProfileRegion, ProfilePlaystyle, ProfilePreview, PlayerAction, PlayerFriend, PlayerBlock, PlayerCopyId, PlayerProfile, ProfileRename, ProfileLink, PlayerChannel, LauncherInterface, OpenWaveHome, WaveSky, WaveEmblem, LauncherClock, WaveRibbons,
     OpenAchievements, RaUser, RaPassword, RaSignIn, RaSignOut, RaHardcore, RaCopyHash, RaOpenSet, RaRefresh, RaOpenSite,
     ProfileFrame, ProfileBackdrop, ProfileTitle, ProfileFrameColor, ProfileFeatured, CoverChoose, CoverRemove,
-    ProfileSectionCard, ProfileSectionPicture, ProfileSectionAbout, ProfileSectionPrivacy, ProfileSectionUsers
+    ProfileSectionCard, ProfileSectionPicture, ProfileSectionAbout, ProfileSectionPrivacy, ProfileSectionUsers,
+    ClearNotifications
 };
 constexpr int pageCount = 8, onlinePage = 1, speedrunPage = 2, modsPage = 3, savesPage = 4, settingsPage = 5, updatesPage = 6,
               controlsPage = 7, importPage = 8, overlayPage = 9, tabsPage = 10, colorsPage = 11,
@@ -809,6 +810,38 @@ struct Window {
     Fonts fonts;
     unsigned dpi = 96;
     int page = 0, hotButton = 0;
+    std::map<int,double> hoverLevels;
+    ULONGLONG hoverTick = 0;
+    void startHover() {
+        if (!hwnd) return;
+        if (!allowMotion()) { hoverLevels.clear(); return; }
+        if (!(fastTimers & (1u << 13))) { hoverTick = motionTicks(); frames(13); }
+    }
+    double hoverOf(int id, bool hot) const {
+        if (!allowMotion()) return hot ? 1.0 : 0.0;
+        const auto found = hoverLevels.find(id);
+        return found == hoverLevels.end() ? 0.0 : found->second;
+    }
+    void animateHover() {
+        const ULONGLONG now = motionTicks();
+        const double dt = std::clamp(double(now - hoverTick), 0.0, 100.0);
+        hoverTick = now;
+        if (hotButton && !hoverLevels.count(hotButton)) hoverLevels[hotButton] = 0.0;
+        bool moving = false;
+        for (auto it = hoverLevels.begin(); it != hoverLevels.end();) {
+            const auto control = controls.find(it->first);
+            if (control == controls.end()) { it = hoverLevels.erase(it); continue; }
+            const double target = it->first == hotButton && IsWindowEnabled(control->second) ? 1.0 : 0.0;
+            double& level = it->second;
+            const double before = level;
+            level += (target - level) * (1.0 - std::exp(-dt / (target > level ? 55.0 : 110.0)));
+            if (std::fabs(target - level) < 0.02) level = target;
+            if (level != before) InvalidateRect(control->second, nullptr, FALSE);
+            if (level != target) moving = true;
+            if (level == 0.0 && target == 0.0) it = hoverLevels.erase(it); else ++it;
+        }
+        if (!moving) endFrames(13);
+    }
     struct FrameBuffer {
         HDC dc{};
         HBITMAP bitmap{};
@@ -849,7 +882,9 @@ struct Window {
         }
         ~FrameBuffer() { release(); }
     } buffer;
-    std::vector<uint32_t> ambient;
+    std::vector<uint32_t> ambient,ambientBase,subGalaxy;
+    int subGalaxyRows=0,subGalaxySlice=0;
+    ULONGLONG subGalaxyAt=0;
     std::map<std::string, speedrun::SplitImage> splitImages, profileImages;
     struct RemoteCard {uint64_t revision=0;online::Card card;speedrun::SplitImage image;};
     std::map<std::string,RemoteCard> remoteCards;
@@ -954,6 +989,7 @@ struct Window {
     bool trayAdded = false, wasRunning = false;
     unsigned launchState = 0;
     int pageScroll=0, laidOutPage=-1, wheelRemainder=0;
+    ULONGLONG scrollActiveAt=0;
     double dockPosition=0, dockFrom=0;
     int dockTarget=-1;
     ULONGLONG dockStarted=0;
@@ -1169,7 +1205,7 @@ struct Window {
         }
         if (page == wavePage) return pageVisibleHeight();
         return std::max(page == achievementsPage ? achievementsHeight() : page == helpPage ? 940 : page == overlayPage ? (waveStyle() ? 1820 : 880) : page == onlinePage ? (waveStyle() ? 1420 : 740) : page == modsPage && waveStyle() ? 960 : page == speedrunPage && waveStyle() ? 900 :page == colorsPage && waveStyle() ? 680 : page == controlsPage ? controlsHeight :
-                        page == settingsPage ? settingsHeight : page == profilePage ? (waveStyle() ? profileWave(width,heldTag().has_value()).actionsBottom+24 : 1420) : page == playerPage ? 820 : page == 0 ? (width<1100 ? 1040 : 740) : page == savesPage ? 780 : 680, pageVisibleHeight());
+                        page == settingsPage ? settingsHeight : page == notificationsPage ? notificationsHeight() : page == profilePage ? (waveStyle() ? profileWave(width,heldTag().has_value()).actionsBottom+24 : 1420) : page == playerPage ? 820 : page == 0 ? (width<1100 ? 1040 : 740) : page == savesPage ? 780 : 680, pageVisibleHeight());
     }
     void scrollPage(int value) {
         scrollGliding=false;
@@ -1210,7 +1246,7 @@ struct Window {
         const auto now=std::chrono::steady_clock::now();
         const double elapsed=std::clamp(std::chrono::duration<double>(now-scrollTickAt).count(),0.0,0.1);
         scrollTickAt=now;
-        scrollAt+=(scrollGoal-scrollAt)*(1.0-std::exp(-elapsed/0.055));
+        scrollAt+=(scrollGoal-scrollAt)*(1.0-std::exp(-elapsed/0.075));
         const bool settled=std::abs(scrollGoal-scrollAt)<0.5;
         if (settled) {scrollAt=scrollGoal;scrollGliding=false;glideActive=false;}
         scrollPageNow(int(std::lround(scrollAt)));
@@ -1260,9 +1296,51 @@ struct Window {
         const int next=std::clamp(value,0,pageCanvasHeight()-pageVisibleHeight());
         if(next==pageScroll)return;
         pageScroll=next;
+        scrollActiveAt=motionTicks();
+        if(hwnd)SetTimer(hwnd,12,33,nullptr);
         if(!scrollControls())layout();
         dropStaleHover();
         RedrawWindow(hwnd,nullptr,nullptr,RDW_INVALIDATE|RDW_UPDATENOW|RDW_ALLCHILDREN);
+    }
+    double scrollIndicatorActivity() const {
+        if(scrollGliding)return 1.0;
+        if(!scrollActiveAt)return 0.0;
+        const ULONGLONG since=motionTicks()-scrollActiveAt;
+        if(since<800)return 1.0;
+        return allowMotion() ? std::clamp(1.0-double(since-800)/400.0,0.0,1.0) : 0.0;
+    }
+    RECT scrollIndicatorArea() const {
+        RECT client{};GetClientRect(hwnd,&client);
+        return {client.right-p(18),p(shellHeader),client.right,p(shellHeader+pageVisibleHeight())};
+    }
+    void fadeScrollIndicator() {
+        if(scrollIndicatorActivity()<=0.0 && !scrollGliding){KillTimer(hwnd,12);scrollActiveAt=0;}
+        if(page==wavePage)return;
+        motionTick=false;
+        const RECT area=scrollIndicatorArea();
+        InvalidateRect(hwnd,&area,FALSE);
+    }
+    void paintScrollIndicator(HDC dc,int width,int visibleHeight,int pageHeight) {
+        if(pageHeight<=visibleHeight+1 || visibleHeight<80)return;
+        const double active=scrollIndicatorActivity();
+        const int trackTop=shellHeader+10,trackHeight=visibleHeight-20;
+        const int thumbHeight=std::max(40,trackHeight*visibleHeight/pageHeight);
+        const double fraction=std::clamp(double(pageScroll)/double(pageHeight-visibleHeight),0.0,1.0);
+        const int thumbTop=trackTop+int(std::lround(double(trackHeight-thumbHeight)*fraction));
+        const double thickness=3.0+2.0*active;
+        Gdiplus::Graphics graphics(dc);
+        graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+        const Gdiplus::REAL w=Gdiplus::REAL(thickness*double(dpi)/96.0),x=Gdiplus::REAL(p(width-7))-w,y=Gdiplus::REAL(p(thumbTop)),h=Gdiplus::REAL(p(thumbHeight));
+        if(active>0.01) {
+            Gdiplus::SolidBrush track(Gdiplus::Color(BYTE(28*active),255,255,255));
+            Gdiplus::GraphicsPath lane;const Gdiplus::REAL ty=Gdiplus::REAL(p(trackTop)),th=Gdiplus::REAL(p(trackHeight));
+            lane.AddArc(x,ty,w,w,180,180);lane.AddArc(x,ty+th-w,w,w,0,180);lane.CloseFigure();
+            graphics.FillPath(&track,&lane);
+        }
+        Gdiplus::GraphicsPath pill;
+        pill.AddArc(x,y,w,w,180,180);pill.AddArc(x,y+h-w,w,w,0,180);pill.CloseFigure();
+        Gdiplus::SolidBrush thumb(Gdiplus::Color(BYTE(70+150*active),226,234,255));
+        graphics.FillPath(&thumb,&pill);
     }
     void dropStaleHover() {
         POINT cursor{};
@@ -2001,7 +2079,7 @@ struct Window {
                 const int titleHeight=fontHeight(dc,fonts.heading),detailHeight=fontHeight(dc,fonts.caption),gap=2;
                 const int top=unscale(int(cy))-(titleHeight+gap+detailHeight)/2;
                 text(dc,items[size_t(j)].title,textX,top,textWidth,titleHeight+2,fonts.heading,titleTone,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
-                text(dc,items[size_t(j)].detail,textX,top+titleHeight+gap,textWidth,detailHeight+2,fonts.caption,fade(RGB(240,228,204),alpha*focus),DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+                text(dc,items[size_t(j)].action==Play ? playDetail() : std::wstring(items[size_t(j)].detail),textX,top+titleHeight+gap,textWidth,detailHeight+2,fonts.caption,fade(RGB(240,228,204),alpha*focus),DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
             } else {
                 const int lineHeight=fontHeight(dc,fonts.item);
                 text(dc,items[size_t(j)].title,textX,unscale(int(cy))-lineHeight/2,textWidth,lineHeight+2,fonts.item,titleTone,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
@@ -3841,6 +3919,16 @@ struct Window {
         if (settings.startPage && settings.lastPage < tab_count && !((settings.hiddenTabs >> settings.lastPage) & 1u))
             page = int(settings.lastPage);
         if (waveStyle() && page == 0) page = wavePage;
+        {
+            const auto categories = waveCategories();
+            if (!categories.empty()) {
+                waveCategory = std::clamp(int(settings.homeCategory), 0, int(categories.size()) - 1);
+                for (size_t i = 0; i < waveItem.size() && i < categories.size(); ++i)
+                    waveItem[i] = std::clamp(int(settings.homeItems[i]), 0, int(categories[i].items.size()) - 1);
+                waveCategoryAt = double(waveCategory);
+                for (size_t i = 0; i < waveItem.size(); ++i) waveItemAt[i] = double(waveItem[i]);
+            }
+        }
         presence.enable(settings.discordPresence);
         fonts.make(dpi);
         for (auto [id, label] :
@@ -3886,6 +3974,7 @@ struct Window {
                                                           {AddFriend, L"Add friend"},
                                                           {NoticeAccept, L"Accept"},
                                                           {NoticeDecline, L"Decline"},
+                                                          {ClearNotifications, L"Clear all"},
                                                           {CheckUpdates, L"Check now"},
                                                           {InstallUpdate, L"Install"},
                                                           {ReleasePage, L"Release notes"},
@@ -4406,6 +4495,8 @@ struct Window {
             position(NoticeAccept,contentLeft+24,454,160,40);
             position(NoticeDecline,contentLeft+200,454,140,40);
         }
+        if(page==notificationsPage && !toastHistory.empty())
+            position(ClearNotifications,right-24-132,recentTop()+18,132,36);
         if(page==helpPage) {
             SetWindowTextW(controls[NavigateBack],L"Back");position(NavigateBack,right-150,28,150,36);
             position(CopySetup,contentLeft+24,794,180,40);
@@ -5195,26 +5286,49 @@ struct Window {
     }
     void paintNotifications(HDC dc,int h,int content) {
         const int right=contentLeft+content;
-        panelBox(dc,contentLeft,112,right,h-56);
         const auto notice=noticeView();
+        panelBox(dc,contentLeft,112,right,noticePanelBottom());
         if(!notice) {
-            heading(dc,L"You're all caught up",contentLeft+24,144,content-48);
-            text(dc,L"Friend requests and invitations appear here. You can keep playing while new requests arrive.",
-                contentLeft+24,188,content-48,60,fonts.body,muted,DT_LEFT|DT_WORDBREAK|DT_NOPREFIX);
+            navigationIcon(dc,OpenNotifications,{p(contentLeft+24),p(140),p(contentLeft+64),p(180)},green,p(34));
+            heading(dc,L"You're all caught up",contentLeft+84,138,content-108);
+            text(dc,L"Friend requests and match invitations wait here. You can keep playing while new ones arrive.",
+                contentLeft+84,178,content-108,44,fonts.body,muted,DT_LEFT|DT_WORDBREAK|DT_NOPREFIX);
+        } else {
+            caps(dc,notice->invite ? L"MATCH INVITATION" : L"FRIEND REQUEST",contentLeft+24,140,content-48,orange);
+            avatar(dc,p(contentLeft+52),p(206),p(28),notice->name,notice->id,panel,directory && directory->player(notice->id) ? 1 : 0);
+            nameText(dc,notice->name,contentLeft+96,184,content-120,40,fonts.title,nameInk(notice->id,ink),DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX,notice->id);
+            if(const auto card=cardLine(notice->id);!card.empty())
+                text(dc,card,contentLeft+96,226,content-120,22,fonts.caption,muted,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+            text(dc,notice->detail,contentLeft+24,262,content-48,76,fonts.body,muted,DT_LEFT|DT_WORDBREAK|DT_NOPREFIX);
+            const auto identity=notice->verified ? L"Verified identity · "+notice->age : L"Identity not verified · "+notice->age;
+            text(dc,identity,contentLeft+24,350,content-48,24,fonts.caption,notice->verified ? green : muted);
+            if(notice->invite && !disc)
+                text(dc,L"Verify your ISO on Play before joining this match.",contentLeft+24,394,content-48,36,fonts.caption,muted,DT_WORDBREAK|DT_NOPREFIX);
+            if(notice->waiting)
+                text(dc,std::to_wstring(notice->waiting)+L" more waiting",contentLeft+24,504,content-48,24,fonts.caption,muted);
+        }
+        const int top=recentTop(),rows=std::max(1,int(toastHistory.size()));
+        panelBox(dc,contentLeft,top,right,top+80+rows*notificationRow+8);
+        heading(dc,L"Recent",contentLeft+24,top+16,content-220);
+        text(dc,toastHistory.empty() ? std::wstring(L"Alerts from this session") : std::to_wstring(toastHistory.size())+(toastHistory.size()==1 ? L" alert this session" : L" alerts this session"),
+             contentLeft+24,top+50,content-220,20,fonts.caption,muted,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+        int y=top+80;
+        if(toastHistory.empty()) {
+            text(dc,L"Nothing yet. Friends coming online, game sessions, updates and mod imports show up here.",contentLeft+24,y+8,content-48,44,fonts.body,faint,DT_LEFT|DT_WORDBREAK|DT_NOPREFIX);
             return;
         }
-        caps(dc,notice->invite ? L"MATCH INVITATION" : L"FRIEND REQUEST",contentLeft+24,140,content-48,orange);
-        avatar(dc,p(contentLeft+52),p(206),p(28),notice->name,notice->id,panel,directory && directory->player(notice->id) ? 1 : 0);
-        nameText(dc,notice->name,contentLeft+96,184,content-120,40,fonts.title,nameInk(notice->id,ink),DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX,notice->id);
-        if(const auto card=cardLine(notice->id);!card.empty())
-            text(dc,card,contentLeft+96,226,content-120,22,fonts.caption,muted,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
-        text(dc,notice->detail,contentLeft+24,262,content-48,76,fonts.body,muted,DT_LEFT|DT_WORDBREAK|DT_NOPREFIX);
-        const auto identity=notice->verified ? L"Verified identity · "+notice->age : L"Identity not verified · "+notice->age;
-        text(dc,identity,contentLeft+24,350,content-48,24,fonts.caption,notice->verified ? green : muted);
-        if(notice->invite && !disc)
-            text(dc,L"Verify your ISO on Play before joining this match.",contentLeft+24,394,content-48,36,fonts.caption,muted,DT_WORDBREAK|DT_NOPREFIX);
-        if(notice->waiting)
-            text(dc,std::to_wstring(notice->waiting)+L" more waiting",contentLeft+24,520,content-48,24,fonts.caption,muted);
+        for(const auto& record:toastHistory) {
+            const COLORREF accent=toastAccent(record.kind);
+            const int cy=y+notificationRow/2;
+            buffer.frame.halo({p(contentLeft+44),p(cy),p(contentLeft+45),p(cy+1)},0,p(24),accent,36);
+            ellipse(dc,p(contentLeft+44),p(cy),p(18),mix(panel,accent,60));
+            navigationIcon(dc,toastIcon(record.kind),{p(contentLeft+33),p(cy-11),p(contentLeft+55),p(cy+11)},accent,p(18));
+            text(dc,record.title,contentLeft+78,y+10,content-260,24,fonts.strong,ink,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+            text(dc,record.text,contentLeft+78,y+34,content-260,20,fonts.caption,muted,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+            text(dc,ageText(record.when),right-180,y+12,156,20,fonts.caption,faint,DT_RIGHT|DT_SINGLELINE|DT_NOPREFIX);
+            y+=notificationRow;
+            if(&record!=&toastHistory.back())fill(dc,{p(contentLeft+78),p(y-1),p(right-24),p(y)},mix(panel,border,60));
+        }
     }
     void achievementRowPaint(HDC dc,int top,int content,bool unlocked,const std::wstring& title,const std::wstring& detail,unsigned points,const std::wstring& state,COLORREF tone) {
         const int right=contentLeft+content,cy=top+achievementRow/2;
@@ -5760,13 +5874,55 @@ struct Window {
             plot(int(hx)+1,int(hy),255,255,255,fade);plot(int(hx),int(hy)+1,255,255,255,fade*0.8f);plot(int(hx),int(hy),255,255,255,fade);
         }
     }
+    bool subGalaxyReady() const {
+        const size_t width=size_t(buffer.frame.width);
+        return waveStyle() && page!=wavePage && allowMotion() && galaxyTemplate()!=2u && subGalaxyRows>0 &&
+               subGalaxy.size()==width*size_t(subGalaxyRows) && ambientBase.size()==subGalaxy.size() &&
+               ambient.size()==pageCache.size() && ambient.size()>=subGalaxy.size();
+    }
+    bool stepSubGalaxy() {
+        if(!subGalaxyReady())return false;
+        const ULONGLONG now=motionTicks();
+        if(subGalaxyAt && now-subGalaxyAt<30)return true;
+        subGalaxyAt=now;
+        const int width=buffer.frame.width,height=subGalaxyRows;
+        const double seconds=double(now)/1000.0;
+        if(galaxyTemplate()==4u) {
+            std::copy(ambientBase.begin(),ambientBase.end(),subGalaxy.begin());
+            paintVoyage(subGalaxy.data(),width,width,height,seconds,true);
+            return true;
+        }
+        computeGalaxyLayer(width,height,seconds,subGalaxySlice,4);
+        blendGalaxy(ambientBase.data(),width,subGalaxy.data(),width,width,height,subGalaxySlice,4);
+        subGalaxySlice=(subGalaxySlice+1)%4;
+        return true;
+    }
+    void showSubGalaxy(size_t from,size_t to) {
+        const size_t width=size_t(buffer.frame.width);
+        to=std::min({to,size_t(subGalaxyRows),size_t(buffer.frame.height)});
+        if(from>=to)return;
+        const uint32_t* cache=pageCache.data();const uint32_t* still=ambient.data();const uint32_t* moving=subGalaxy.data();
+        uint32_t* out=buffer.frame.pixels;
+        for(size_t i=from*width,end=to*width;i<end;++i) {
+            const uint32_t now=moving[i],before=still[i];
+            if(now==before)continue;
+            const uint32_t drawn=cache[i];
+            if(drawn==before){out[i]=now;continue;}
+            uint32_t result=drawn&0xff000000u;
+            for(int shift=0;shift<24;shift+=8) {
+                const int delta=int((now>>shift)&255u)-int((before>>shift)&255u);
+                result|=uint32_t(std::clamp(int((drawn>>shift)&255u)+delta*92/256,0,255))<<shift;
+            }
+            out[i]=result;
+        }
+    }
     void animateSky() {
         if(!waveStyle() || page==wavePage || !hwnd){KillTimer(hwnd,11);endFrames(11);skyTicking=false;return;}
         if(IsIconic(hwnd) || dropdownOpen() || transitionAt)return;
         const bool shooting=shootingAt>=0 || (allowMotion() && double(motionTicks())/1000.0>=shootingNext-0.05);
         if(shooting)frames(11);else{endFrames(11);SetTimer(hwnd,11,33,nullptr);}
         motionTick=false;
-        RECT area{};GetClientRect(hwnd,&area);area.top=p(shellHeader);area.bottom=std::max(area.top,area.bottom-p(dockReserve()));
+        RECT area{};GetClientRect(hwnd,&area);area.top=subGalaxyReady() ? 0 : p(shellHeader);area.bottom=std::max(area.top,area.bottom-p(dockReserve()));
         InvalidateRect(hwnd,&area,FALSE);
     }
     void paintProfileWave(HDC dc,int content) {
@@ -7057,7 +7213,7 @@ struct Window {
             return;
         }
         const RECT& update = ps.rcPaint;
-        if (toastAt) motionTick = false;
+        if (!toasts.empty()) motionTick = false;
         if (page != shownPage) {
             if (shownPage >= 0) {
                 transitionDirection = navigatingBack ? 1 : -1;
@@ -7131,6 +7287,10 @@ struct Window {
             };
             rows(0, size_t(std::max(0, destinationTop)));
             rows(size_t(std::max(0, sourceTop)), size_t(std::max(0, sourceTop + p(visibleHeight))));
+            if (stepSubGalaxy()) {
+                showSubGalaxy(0, size_t(std::max(0, destinationTop)));
+                showSubGalaxy(size_t(std::max(0, sourceTop)), size_t(std::max(0, sourceTop + p(visibleHeight))));
+            }
             for(const auto& [id,control] : controls) {
                 wchar_t kind[32]{};GetClassNameW(control,kind,32);
                 if(_wcsicmp(kind,L"EDIT")==0 && !(GetWindowLongPtrW(control,GWL_STYLE)&ES_MULTILINE))
@@ -7152,9 +7312,14 @@ struct Window {
                         graphics.FillRectangle(&deeper, 0, int(rect.bottom) - 1, int(rect.right), buffer.frame.height - int(rect.bottom) + 1);
                     }
                     GdiFlush();
+                    const int galaxyRows = std::min(int(rect.bottom), buffer.frame.height);
+                    ambientBase.assign(buffer.frame.pixels, buffer.frame.pixels + size_t(galaxyRows) * size_t(buffer.frame.width));
                     paintGalaxy(buffer.frame.pixels, buffer.frame.width, int(rect.right), int(rect.bottom), allowMotion() ? double(motionTicks()) / 1000.0 : 0.0, false);
+                    subGalaxy.assign(buffer.frame.pixels, buffer.frame.pixels + ambientBase.size());
+                    subGalaxyRows = galaxyRows; subGalaxySlice = 0; subGalaxyAt = 0;
                 }
                 else {
+                ambientBase.clear(); subGalaxy.clear(); subGalaxyRows = 0;
                 buffer.frame.radial(rect, rect.right * 3 / 4, -p(160), p(620), ember, 12);
                 buffer.frame.radial(rect, 0, rect.bottom + p(60), p(440), orange, 5);
                 }
@@ -7218,6 +7383,10 @@ struct Window {
             sealMotions();
             GdiFlush();
             pageCache.assign(buffer.frame.pixels, buffer.frame.pixels + pixels);
+            if (stepSubGalaxy()) {
+                showSubGalaxy(0, size_t(std::max(0, destinationTop)));
+                showSubGalaxy(size_t(std::max(0, sourceTop)), size_t(std::max(0, sourceTop + p(visibleHeight))));
+            }
             pageCachePage = page;
             pageCacheWidth = buffer.frame.width;
             pageCacheHeight = buffer.frame.height;
@@ -7240,6 +7409,7 @@ struct Window {
             });
             if (!skyTicking && hwnd) { skyTicking = true; SetTimer(hwnd, 11, 33, nullptr); }
         }
+        paintScrollIndicator(memory, w, visibleHeight, pageHeight);
         fill(memory, {0, p(shellHeader + visibleHeight), rect.right, rect.bottom}, background);
         paintShell(memory,h);
         const int footer = h - 26;
@@ -7399,6 +7569,8 @@ struct Window {
                                         std::array<std::wstring,5>{L"",L"display",L"graphics",L"game",L"launcher"}[size_t(id-SettingsAll)]);
             const bool pressed = (item.itemState & ODS_SELECTED) != 0;
             const bool hot = hotButton == id && enabled;
+            const double glow = enabled ? hoverOf(id, hot) : 0.0;
+            const int glowMix = int(std::lround(std::clamp(glow, 0.0, 1.0) * 255.0));
             backdrop(dc, item.hwndItem, r, surface(id, r));
             COLORREF label;
             const bool lit = (primary || taskChoice || id == ImportSelected || (page==0 && id==JoinRoom)) && enabled;
@@ -7406,18 +7578,18 @@ struct Window {
             if (waveStyle() && ((id>=SettingsAll && id<=SettingsLauncher) || sectionChip)) {
                 const bool taskChoice=sectionChip ? unsigned(id-ProfileSectionCard)==profileSection : (searchText(trimmed(textOf(SettingsSearch)))==
                                         std::array<std::wstring,5>{L"",L"display",L"graphics",L"game",L"launcher"}[size_t(id-SettingsAll)]);
-                if (taskChoice || hot) {
+                if (taskChoice || glow > 0.01) {
                     Gdiplus::Graphics g(dc);g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
                     const float w=float(r.right-r.left),h=float(r.bottom-r.top),rr=float(p(10));
                     Gdiplus::GraphicsPath bar;bar.AddArc(0.f,0.f,rr*2,rr*2,180,90);bar.AddArc(w-rr*2-1,0.f,rr*2,rr*2,270,90);bar.AddArc(w-rr*2-1,h-rr*2-1,rr*2,rr*2,0,90);bar.AddArc(0.f,h-rr*2-1,rr*2,rr*2,90,90);bar.CloseFigure();
-                    Gdiplus::LinearGradientBrush fillBar(Gdiplus::PointF(0,0),Gdiplus::PointF(w,0),Gdiplus::Color(BYTE(taskChoice ? 58 : 30),200,215,255),Gdiplus::Color(0,200,215,255));
+                    Gdiplus::LinearGradientBrush fillBar(Gdiplus::PointF(0,0),Gdiplus::PointF(w,0),Gdiplus::Color(BYTE(taskChoice ? 58 : int(30.0 * glow)),200,215,255),Gdiplus::Color(0,200,215,255));
                     g.FillPath(&fillBar,&bar);
                     if(taskChoice){Gdiplus::Pen top(Gdiplus::Color(70,255,255,255),1.f);g.DrawLine(&top,rr,0.5f,w*0.7f,0.5f);}
                 }
                 wchar_t chipText[64]{};GetWindowTextW(item.hwndItem,chipText,64);
                 RECT area=r;area.left+=p(16);
                 auto previous=SelectObject(dc,taskChoice ? fonts.mark : fonts.item);SetBkMode(dc,TRANSPARENT);
-                SetTextColor(dc,taskChoice ? RGB(255,255,255) : hot ? mix(muted,ink,170) : muted);
+                SetTextColor(dc,taskChoice ? RGB(255,255,255) : mix(muted,mix(muted,ink,170),glowMix));
                 DrawTextW(dc,chipText,-1,&area,DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX|DT_END_ELLIPSIS);
                 SelectObject(dc,previous);
                 return;
@@ -7430,15 +7602,15 @@ struct Window {
                 label = ink;
             } else if (lit) {
                 const auto base = settings.launcherColors[main_button_role] >= 0 ? buttonTop : orange;
-                const auto accent = pressed ? mix(base,background,40) : hot ? mix(base,ink,20) : base;
+                const auto accent = pressed ? mix(base,background,40) : mix(base,mix(base,ink,20),glowMix);
                 box(dc,r,accent,accent,10);
                 label = buttonInk;
             } else {
                 const bool quick = id>=HomeControls && id<=HomeArrange;
                 const bool onBanner = id == Play || id == LoadState;
                 const COLORREF idle = onBanner ? mix(heroTo, bannerTitle, 26) : panel;
-                const COLORREF color = !enabled ? idle : pressed ? field : hot ? hover : quick ? panel : raised;
-                const COLORREF outline = !enabled ? mix(idle, onBanner ? bannerTitle : border, onBanner ? 50 : 140) : hot ? mix(border, orange, 110) : border;
+                const COLORREF color = !enabled ? idle : pressed ? field : mix(quick ? panel : raised, hover, glowMix);
+                const COLORREF outline = !enabled ? mix(idle, onBanner ? bannerTitle : border, onBanner ? 50 : 140) : mix(border, mix(border, orange, 110), glowMix);
                 box(dc, r, color, outline, 10);
                 label = enabled ? ink : onBanner ? mix(bannerTitle, heroTo, 120) : faint;
                 if (id == DeleteSelected && enabled) label = red;
@@ -7470,6 +7642,10 @@ struct Window {
                     RECT digits{cx-radius,cy-radius,cx+radius+1,cy+radius+1};
                     DrawTextW(dc,label.c_str(),-1,&digits,DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX);
                     SelectObject(dc,previous);
+                } else if(unreadToasts>0 && page!=notificationsPage) {
+                    const int cx=r.right-p(9),cy=r.top+p(8),radius=p(4);
+                    ellipse(dc,cx,cy,radius+std::max(1,p(1)),surface(id,r));
+                    ellipse(dc,cx,cy,radius,sky);
                 }
             } else if (id == FindAction) {
                 navigationIcon(dc,FindAction,{r.left-p(3),r.top,r.right,r.bottom},muted);
@@ -8257,6 +8433,8 @@ struct Window {
         settings.windowWidth = std::clamp(int(r.right - r.left), 0, 32768);
         settings.windowHeight = std::clamp(int(r.bottom - r.top), 0, 32768);
         settings.windowMaximized = placement.showCmd == SW_SHOWMAXIMIZED;
+        settings.homeCategory = unsigned(std::clamp(waveCategory, 0, 5));
+        for (size_t i = 0; i < waveItem.size(); ++i) settings.homeItems[i] = unsigned(std::clamp(waveItem[i], 0, 15));
         try {
             write_settings(settings_path(), settings);
         } catch (const std::exception &e) {
@@ -8952,6 +9130,8 @@ struct Window {
             throw std::runtime_error("Cannot start the game process");
         CloseHandle(process.hThread);
         child = process.hProcess;
+        childStarted = std::chrono::steady_clock::now();
+        try { achievementProgress = achievements::load(achievements::progress_path()); } catch (const std::exception &) {}
         status = online ? L"Online game running. Save tools unlock when you close it."
                         : L"Game running. Save tools unlock when you close it.";
         ShowWindow(hwnd, SW_MINIMIZE);
@@ -9009,6 +9189,9 @@ struct Window {
                     std::cout << " message=\"" << utf8(result.message) << '"';
                 std::cout << std::endl;
                 if (background) {
+                    const bool announced = release && result.release && release->version == result.release->version;
+                    if (result.release && !announced && result.kind == Job::checkUpdate)
+                        showToast(L"Update available",L"Version "+wide(result.release->version)+L" is ready to install from System update.",ToastKind::update);
                     release = std::move(result.release);
                     staged = std::move(result.staged);
                     updateStatus = staged && child ? L"Update ready. It installs after the game closes."
@@ -9048,6 +9231,7 @@ struct Window {
                     if (result.kind == Job::saveReport)
                         ShellExecuteW(hwnd, L"open", result.image.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
                     if (result.kind == Job::importMod) {
+                        showToast(L"Import finished",result.message.empty() ? std::wstring(L"Your mod is ready in the Mod manager.") : result.message,ToastKind::mods);
                         refreshMods();
                         fillSourceList();
                         if (stageImport())
@@ -9068,6 +9252,7 @@ struct Window {
                     }
                     status = wide(e.what());
                     error = true;
+                    if (activeJob == Job::importMod) showToast(L"Import failed", status, ToastKind::mods);
                     if (activeJob == Job::deleteSaves || activeJob == Job::deleteBackups) refreshBackups();
                 }
                 std::cerr << (background ? "[launcher:update-error] " : "[launcher:error] ")
@@ -9089,6 +9274,23 @@ struct Window {
             status = code ? L"The game closed with an error. Check startup.log for details." : L"Game closed.";
             error = code != 0;
             summarizeGameLog(code);
+            const auto played=std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now()-childStarted).count();
+            if (played >= 5) {
+                settings.playSeconds += played;
+                settings.lastPlayed = int64_t(std::time(nullptr));
+                ++settings.sessions;
+                try { write_settings(settings_path(), settings); } catch (const std::exception &e) { std::cerr << "[launcher:error] " << e.what() << std::endl; }
+            }
+            try {
+                auto fresh = achievements::load(achievements::progress_path());
+                for (const auto &[id, when] : fresh.unlocked)
+                    if (!achievementProgress.has(id))
+                        if (const auto *definition = achievements::find(id))
+                            showToast(L"Trophy unlocked", wide(definition->title) + L" \u00b7 " + std::to_wstring(definition->points) + (definition->points == 1 ? L" pt" : L" pts"), ToastKind::achievement);
+                achievementProgress = std::move(fresh);
+            } catch (const std::exception &) {}
+            if (code) showToast(L"The game closed with an error",L"Details are in startup.log.",ToastKind::game);
+            else if (played >= 5) showToast(L"Session ended",L"Played "+durationText(played)+L" \u00b7 "+durationText(settings.playSeconds)+L" in total",ToastKind::game);
             if (!closing) { ShowWindow(hwnd, SW_RESTORE); SetForegroundWindow(hwnd); }
             if (settings.autoBackups && disc) start(Job::afterExit);
             refreshEnabled();
@@ -9946,6 +10148,20 @@ struct Window {
         std::string id;
         size_t waiting = 0;
     };
+    std::chrono::steady_clock::time_point childStarted{};
+    static std::wstring durationText(int64_t seconds) {
+        if (seconds < 60) return L"under a minute";
+        if (seconds < 3600) return std::to_wstring(seconds / 60) + L" min";
+        const auto minutes = (seconds % 3600) / 60;
+        return std::to_wstring(seconds / 3600) + L" h" + (minutes ? L" " + std::to_wstring(minutes) + L" min" : std::wstring());
+    }
+    std::wstring playDetail() const {
+        if (settings.lastPlayed <= 0) return L"Start the game from your USA disc.";
+        const auto since = std::max<int64_t>(0, int64_t(std::time(nullptr)) - settings.lastPlayed);
+        const std::wstring when = since < 120 ? L"just now" : since < 3600 ? std::to_wstring(since / 60) + L" min ago" :
+                                  since < 86400 ? std::to_wstring(since / 3600) + L" h ago" : since < 172800 ? L"yesterday" : std::to_wstring(since / 86400) + L" days ago";
+        return L"Last played " + when + L" \u00b7 " + durationText(settings.playSeconds) + L" played";
+    }
     static std::wstring ageText(std::chrono::steady_clock::time_point at) {
         const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - at).count();
         if (seconds < 60)
@@ -9978,76 +10194,172 @@ struct Window {
             view.detail = L"wants to be your friend";
         return view;
     }
-    std::wstring toastTitle,toastText;
-    ULONGLONG toastAt=0;
-    static constexpr ULONGLONG toastLife=6500;
-    double toastPresence() const {
-        if(!toastAt)return 0.0;
-        const double age=double(motionTicks()-toastAt);
-        if(age>=double(toastLife))return 0.0;
-        const double in=std::min(1.0,age/280.0),out=std::min(1.0,(double(toastLife)-age)/420.0);
-        return std::min(1.0-std::pow(1.0-in,3.0),out);
+    enum class ToastKind { info, online, friendship, invite, game, achievement, update, mods };
+    struct Toast { ToastKind kind=ToastKind::info; std::wstring title,text; double age=0,closeFrom=-1,y=-1; };
+    struct ToastRecord { ToastKind kind; std::wstring title,text; std::chrono::steady_clock::time_point when; };
+    std::vector<Toast> toasts;
+    std::deque<Toast> waitingToasts;
+    std::deque<ToastRecord> toastHistory;
+    ULONGLONG toastTick=0;
+    bool toastHover=false;
+    int toastHot=-1,unreadToasts=0;
+    static constexpr int notificationRow=64;
+    int noticePanelBottom() const {return hasNotice() ? 540 : 236;}
+    int recentTop() const {return noticePanelBottom()+16;}
+    int notificationsHeight() const {return recentTop()+80+std::max(1,int(toastHistory.size()))*notificationRow+40;}
+    static constexpr double toastLife=6500,toastIn=320,toastOut=380;
+    static constexpr int toastWidth=384,toastHeight=84,toastGap=10,toastLimit=3;
+    static COLORREF toastAccent(ToastKind kind) {
+        switch(kind){case ToastKind::online:return RGB(80,228,150);case ToastKind::friendship:return RGB(120,180,255);case ToastKind::invite:return RGB(255,200,90);
+            case ToastKind::game:return RGB(170,140,255);case ToastKind::achievement:return RGB(255,206,110);case ToastKind::update:return RGB(110,220,255);case ToastKind::mods:return RGB(255,150,200);default:return RGB(200,212,240);}
     }
-    RECT toastRect() const {
+    static int toastIcon(ToastKind kind) {
+        switch(kind){case ToastKind::online:return OnlineTab;case ToastKind::friendship:return HomeProfile;case ToastKind::invite:case ToastKind::game:return PlayTab;
+            case ToastKind::achievement:return OpenAchievements;case ToastKind::update:return UpdatesTab;case ToastKind::mods:return ModsTab;default:return OpenNotifications;}
+    }
+    int toastTop() const {
+        if(page!=wavePage)return shellHeader+12;
         RECT client{};GetClientRect(hwnd,&client);
-        const int width=p(360),height=p(78),top=p(page==wavePage ? 104 : shellHeader+12);
-        const int slide=int((1.0-toastPresence())*p(48));
-        return {client.right-p(margin)-width+slide,top,client.right-p(margin)+slide,top+height};
+        return unscale(int(client.bottom*0.29))+84;
     }
-    void showToast(const std::wstring& title,const std::wstring& message) {
-        toastTitle=title;toastText=message;toastAt=motionTicks();
-        SetTimer(hwnd,7,16,nullptr);
-        RECT area=toastRect();area.left-=p(60);area.bottom+=p(8);InvalidateRect(hwnd,&area,FALSE);
+    double toastPresence(const Toast& toast) const {
+        const double in=std::min(1.0,toast.age/toastIn),easedIn=1.0-std::pow(1.0-in,3.0);
+        const double out=toast.closeFrom<0 ? 1.0 : std::clamp(1.0-(toast.age-toast.closeFrom)/toastOut,0.0,1.0);
+        return easedIn*out;
+    }
+    RECT toastBox(const Toast& toast) const {
+        RECT client{};GetClientRect(hwnd,&client);
+        const double in=std::min(1.0,toast.age/toastIn),easedIn=1.0-std::pow(1.0-in,3.0);
+        const double out=toast.closeFrom<0 ? 1.0 : std::clamp(1.0-(toast.age-toast.closeFrom)/toastOut,0.0,1.0);
+        const int slide=int((1.0-easedIn)*p(64)+(1.0-out)*p(36));
+        const int top=p(int(std::lround(toast.y<0 ? double(toastTop()) : toast.y)));
+        return {client.right-p(margin)-p(toastWidth)+slide,top,client.right-p(margin)+slide,top+p(toastHeight)};
+    }
+    RECT toastArea() const {
+        RECT client{};GetClientRect(hwnd,&client);
+        return {client.right-p(margin)-p(toastWidth)-p(24),p(toastTop())-p(8),client.right,p(toastTop()+toastLimit*(toastHeight+toastGap)+toastHeight)};
+    }
+    void showToast(const std::wstring& title,const std::wstring& message,ToastKind kind=ToastKind::info) {
+        for(const auto& existing:toasts)if(existing.title==title && existing.text==message && existing.age<1500)return;
+        toastHistory.push_front({kind,title,message,std::chrono::steady_clock::now()});
+        if(toastHistory.size()>40)toastHistory.pop_back();
+        if(page==notificationsPage && !IsIconic(hwnd)) {
+            layout();(pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);
+            return;
+        }
+        ++unreadToasts;
+        Toast toast;toast.kind=kind;toast.title=title;toast.text=message;
+        if(int(toasts.size())<toastLimit){toast.y=toastTop()+double(toasts.size())*(toastHeight+toastGap);toasts.push_back(std::move(toast));}
+        else waitingToasts.push_back(std::move(toast));
+        toastTick=motionTicks();
+        if(controls.count(OpenNotifications))InvalidateRect(controls[OpenNotifications],nullptr,FALSE);
+        frames(7);
+        RECT area=toastArea();InvalidateRect(hwnd,&area,FALSE);
+    }
+    void dismissToast(size_t index) {
+        if(index<toasts.size() && toasts[index].closeFrom<0)toasts[index].closeFrom=std::max(toasts[index].age,toastIn);
+        frames(7);
+    }
+    int toastHit(POINT at,bool* closeHit=nullptr) const {
+        for(size_t i=0;i<toasts.size();++i) {
+            if(toastPresence(toasts[i])<0.3)continue;
+            const RECT box=toastBox(toasts[i]);
+            if(PtInRect(&box,at)) {
+                if(closeHit)*closeHit=at.x>=box.right-p(34) && at.y<=box.top+p(30);
+                return int(i);
+            }
+        }
+        return -1;
     }
     void animateToast() {
-        RECT client{};GetClientRect(hwnd,&client);
-        RECT area{client.right-p(margin)-p(440),p(shellHeader),client.right,p(page==wavePage ? 104 : shellHeader+12)+p(92)};
-        if(!toastPresence() && toastAt && motionTicks()-toastAt>=toastLife){toastAt=0;KillTimer(hwnd,7);}
-        else {
-            const double age=double(motionTicks()-toastAt);
-            SetTimer(hwnd,7,age<300 || age>double(toastLife)-450 ? 16 : 250,nullptr);
+        const ULONGLONG now=motionTicks();
+        if(IsIconic(hwnd)) {
+            toastTick=now;
+            if(toasts.empty() && waitingToasts.empty()){endFrames(7);return;}
+            if(fastTimers&(1u<<7)){endFrames(7);SetTimer(hwnd,7,250,nullptr);}
+            return;
         }
-        InvalidateRect(hwnd,&area,FALSE);
+        if(!(fastTimers&(1u<<7)))frames(7);
+        const double dt=std::clamp(double(now-toastTick),0.0,100.0);toastTick=now;
+        POINT cursor{};GetCursorPos(&cursor);ScreenToClient(hwnd,&cursor);
+        const int hot=toastHit(cursor);
+        toastHover=hot>=0;
+        if(hot!=toastHot){toastHot=hot;}
+        for(auto& toast:toasts) {
+            if(!toastHover || toast.closeFrom>=0 || toast.age<toastIn)toast.age+=dt;
+            if(toast.closeFrom<0 && toast.age>=toastLife)toast.closeFrom=toast.age;
+        }
+        toasts.erase(std::remove_if(toasts.begin(),toasts.end(),[](const Toast& toast){return toast.closeFrom>=0 && toast.age-toast.closeFrom>=toastOut;}),toasts.end());
+        while(int(toasts.size())<toastLimit && !waitingToasts.empty()){auto next=std::move(waitingToasts.front());waitingToasts.pop_front();next.y=toastTop()+double(toasts.size())*(toastHeight+toastGap);toasts.push_back(std::move(next));}
+        double offset=0.0;
+        for(auto& toast:toasts) {
+            const double slot=toastTop()+offset;
+            if(toast.closeFrom<0) {
+                offset+=toastHeight+toastGap;
+                toast.y+=(slot-toast.y)*(1.0-std::exp(-dt/70.0));
+            } else {
+                const double fading=std::clamp(1.0-(toast.age-toast.closeFrom)/toastOut,0.0,1.0);
+                offset+=(toastHeight+toastGap)*fading*fading;
+                if(toast.y>slot)toast.y+=(slot-toast.y)*(1.0-std::exp(-dt/70.0));
+            }
+        }
+        RECT area=toastArea();InvalidateRect(hwnd,&area,FALSE);
+        if(toasts.empty() && waitingToasts.empty())endFrames(7);
     }
     void paintToast(HDC dc) {
-        const double presence=toastPresence();
-        if(presence<=0.01)return;
-        const RECT r=toastRect();
-        {
-            Gdiplus::Graphics graphics(dc);
-            graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
-            const Gdiplus::REAL x=Gdiplus::REAL(r.left),y=Gdiplus::REAL(r.top),w=Gdiplus::REAL(r.right-r.left),h=Gdiplus::REAL(r.bottom-r.top),radius=Gdiplus::REAL(p(12));
-            Gdiplus::GraphicsPath card;
-            card.AddArc(x,y,radius*2,radius*2,180,90);card.AddArc(x+w-radius*2,y,radius*2,radius*2,270,90);
-            card.AddArc(x+w-radius*2,y+h-radius*2,radius*2,radius*2,0,90);card.AddArc(x,y+h-radius*2,radius*2,radius*2,90,90);card.CloseFigure();
-            Gdiplus::SolidBrush shadow(Gdiplus::Color(BYTE(70*presence),0,0,0));
-            Gdiplus::Matrix shift;shift.Translate(0,Gdiplus::REAL(p(4)));
-            Gdiplus::GraphicsPath dropped;dropped.AddPath(&card,FALSE);dropped.Transform(&shift);
-            graphics.FillPath(&shadow,&dropped);
-            const COLORREF tint=waveStyle() ? mix(waveSkyTop(),RGB(255,255,255),30) : raised;
-            Gdiplus::LinearGradientBrush face(Gdiplus::PointF(0,y),Gdiplus::PointF(0,y+h),Gdiplus::Color(BYTE(235*presence),GetRValue(tint),GetGValue(tint),GetBValue(tint)),
-                Gdiplus::Color(BYTE(235*presence),GetRValue(tint)*3/4,GetGValue(tint)*3/4,GetBValue(tint)*3/4));
-            graphics.FillPath(&face,&card);
-            Gdiplus::SolidBrush accentBar(Gdiplus::Color(BYTE(255*presence),GetRValue(orange),GetGValue(orange),GetBValue(orange)));
-            graphics.SetClip(&card);
-            graphics.FillRectangle(&accentBar,x,y,Gdiplus::REAL(p(4)),h);
-            const double life=std::clamp(double(motionTicks()-toastAt)/double(toastLife),0.0,1.0);
-            Gdiplus::SolidBrush timer(Gdiplus::Color(BYTE(90*presence),255,236,200));
-            graphics.FillRectangle(&timer,x,y+h-Gdiplus::REAL(std::max(1,p(2))),Gdiplus::REAL(w*(1.0-life)),Gdiplus::REAL(std::max(1,p(2))));
-            graphics.ResetClip();
-            Gdiplus::Pen edge(Gdiplus::Color(BYTE(80*presence),255,236,210),float(std::max(1,p(1))));
-            graphics.DrawPath(&edge,&card);
+        for(size_t index=0;index<toasts.size();++index) {
+            const auto& toast=toasts[index];
+            const double presence=toastPresence(toast);
+            if(presence<=0.01)continue;
+            const RECT r=toastBox(toast);
+            const COLORREF accent=toastAccent(toast.kind),face=RGB(14,20,48);
+            {
+                Gdiplus::Graphics graphics(dc);
+                graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+                const Gdiplus::REAL x=Gdiplus::REAL(r.left),y=Gdiplus::REAL(r.top),w=Gdiplus::REAL(r.right-r.left),h=Gdiplus::REAL(r.bottom-r.top),radius=Gdiplus::REAL(p(14));
+                Gdiplus::GraphicsPath card;
+                card.AddArc(x,y,radius*2,radius*2,180,90);card.AddArc(x+w-radius*2,y,radius*2,radius*2,270,90);
+                card.AddArc(x+w-radius*2,y+h-radius*2,radius*2,radius*2,0,90);card.AddArc(x,y+h-radius*2,radius*2,radius*2,90,90);card.CloseFigure();
+                for(int i=4;i>=1;--i){Gdiplus::Pen shadow(Gdiplus::Color(BYTE(18*presence*i/2),0,0,0),Gdiplus::REAL(p(i*3)));const auto state=graphics.Save();graphics.TranslateTransform(0,Gdiplus::REAL(p(5)));graphics.DrawPath(&shadow,&card);graphics.Restore(state);}
+                Gdiplus::LinearGradientBrush glass(Gdiplus::PointF(0,y),Gdiplus::PointF(0,y+h),Gdiplus::Color(BYTE(242*presence),24,32,72),Gdiplus::Color(BYTE(242*presence),10,14,38));
+                graphics.FillPath(&glass,&card);
+                graphics.SetClip(&card);
+                Gdiplus::GraphicsPath bloom;bloom.AddEllipse(x-h*0.6f,y-h*0.4f,h*1.8f,h*1.8f);
+                Gdiplus::PathGradientBrush tint(&bloom);tint.SetCenterColor(Gdiplus::Color(BYTE(70*presence),GetRValue(accent),GetGValue(accent),GetBValue(accent)));
+                Gdiplus::Color clear(0,GetRValue(accent),GetGValue(accent),GetBValue(accent));int one=1;tint.SetSurroundColors(&clear,&one);graphics.FillPath(&tint,&bloom);
+                const double life=toast.closeFrom>=0 ? 1.0 : std::clamp(toast.age/toastLife,0.0,1.0);
+                Gdiplus::SolidBrush track(Gdiplus::Color(BYTE(30*presence),255,255,255));
+                graphics.FillRectangle(&track,x,y+h-Gdiplus::REAL(p(3)),w,Gdiplus::REAL(p(3)));
+                Gdiplus::LinearGradientBrush bar(Gdiplus::PointF(x,0),Gdiplus::PointF(x+w,0),Gdiplus::Color(BYTE(230*presence),GetRValue(accent),GetGValue(accent),GetBValue(accent)),Gdiplus::Color(BYTE(120*presence),255,255,255));
+                graphics.FillRectangle(&bar,x,y+h-Gdiplus::REAL(p(3)),Gdiplus::REAL(w*(1.0-life)),Gdiplus::REAL(p(3)));
+                graphics.ResetClip();
+                Gdiplus::Pen rim(Gdiplus::Color(BYTE(70*presence),255,255,255),float(std::max(1,p(1))));graphics.DrawPath(&rim,&card);
+                const Gdiplus::REAL cx=x+Gdiplus::REAL(p(38)),cy=y+h/2-Gdiplus::REAL(p(1)),cr=Gdiplus::REAL(p(21));
+                Gdiplus::SolidBrush chip(Gdiplus::Color(BYTE(60*presence),GetRValue(accent),GetGValue(accent),GetBValue(accent)));graphics.FillEllipse(&chip,cx-cr,cy-cr,cr*2,cr*2);
+                Gdiplus::Pen chipRim(Gdiplus::Color(BYTE(150*presence),GetRValue(accent),GetGValue(accent),GetBValue(accent)),float(std::max(1,p(1))));graphics.DrawEllipse(&chipRim,cx-cr,cy-cr,cr*2,cr*2);
+                if(int(index)==toastHot && toastHover) {
+                    Gdiplus::Pen cross(Gdiplus::Color(BYTE(200*presence),220,228,250),float(p(2)));cross.SetStartCap(Gdiplus::LineCapRound);cross.SetEndCap(Gdiplus::LineCapRound);
+                    const Gdiplus::REAL qx=x+w-Gdiplus::REAL(p(20)),qy=y+Gdiplus::REAL(p(18)),qs=Gdiplus::REAL(p(5));
+                    graphics.DrawLine(&cross,qx-qs,qy-qs,qx+qs,qy+qs);graphics.DrawLine(&cross,qx+qs,qy-qs,qx-qs,qy+qs);
+                }
+            }
+            if(presence<0.35)continue;
+            const auto fadeInk=[&](COLORREF c){return mix(face,c,int(std::clamp(presence,0.0,1.0)*255.0));};
+            navigationIcon(dc,toastIcon(toast.kind),{r.left+p(24),r.top+p(toastHeight/2-15),r.left+p(52),r.top+p(toastHeight/2+13)},fadeInk(accent),p(22));
+            const int left=unscale(r.left)+72,top=unscale(r.top),width=unscale(r.right-r.left)-72-36;
+            text(dc,toast.title,left,top+15,width,26,fonts.display,fadeInk(RGB(255,255,255)),DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+            text(dc,toast.text,left,top+42,width+18,22,fonts.caption,fadeInk(RGB(196,206,234)),DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
         }
-        if(presence<0.45)return;
-        const RECT icon{r.left+p(16),r.top+p(19),r.left+p(56),r.top+p(59)};
-        navigationIcon(dc,OpenNotifications,icon,orange,p(28));
-        const int left=unscale(r.left)+66,top=unscale(r.top);
-        text(dc,toastTitle,left,top+14,unscale(r.right-r.left)-80,24,fonts.strong,ink,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
-        text(dc,toastText,left,top+40,unscale(r.right-r.left)-80,22,fonts.caption,muted,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+    }
+    static ToastKind toastKindFor(const std::wstring& title) {
+        if(title==L"Invite")return ToastKind::invite;
+        if(title==L"Friend request" || title==L"Friend added")return ToastKind::friendship;
+        if(title.find(L"online")!=std::wstring::npos)return ToastKind::online;
+        return ToastKind::info;
     }
     void notify(const std::wstring &title, const std::wstring &message) {
         const auto profile=activeProfile();const auto style=profile ? profileStyle(profile->id) : nullptr;
-        if(!style || style->availability!=2)showToast(title,message);
+        if(!style || style->availability!=2)showToast(title,message,toastKindFor(title));
         if(style && (!style->notifications || style->availability==2))return;
         NOTIFYICONDATAW data{};
         data.cbSize = sizeof data;
@@ -10116,8 +10428,12 @@ struct Window {
                     alerts.emplace_back(L"Friend request", wide(latest.friendMessage.from_name) + L" wants to be friends.");
             }
         }
-        if (!alerts.empty())
+        if (!alerts.empty()) {
+            const auto profile=activeProfile();const auto style=profile ? profileStyle(profile->id) : nullptr;
+            if(!style || style->availability!=2)
+                for(size_t i=0;i+1<alerts.size();++i)showToast(alerts[i].first,alerts[i].second,toastKindFor(alerts[i].first));
             notify(alerts.back().first, alerts.back().second);
+        }
         refreshOnlineLists();
         layout();
         InvalidateRect(controls[OnlineTab], nullptr, FALSE);
@@ -10546,7 +10862,7 @@ struct Window {
         }
         if(id==ToggleLauncher && notification==BN_CLICKED) {toggleFullscreen();return;}
         if (id == FindAction && notification == BN_CLICKED) { openActionFinder(); return; }
-        if(id==OpenNotifications && notification==BN_CLICKED) {page=notificationsPage;layout();(pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);return;}
+        if(id==OpenNotifications && notification==BN_CLICKED) {page=notificationsPage;unreadToasts=0;for(size_t i=0;i<toasts.size();++i)dismissToast(i);waitingToasts.clear();layout();(pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);return;}
         if(id==OpenAchievements && notification==BN_CLICKED) {openAchievements();return;}
         if(id==RaSignIn && notification==BN_CLICKED) {signInRetro();return;}
         if(id==RaSignOut && notification==BN_CLICKED) {
@@ -11000,6 +11316,13 @@ struct Window {
                 lastConnect = {};
             refreshOnlineLists();
             status = directory && directory->connected() ? L"Room list refreshed." : L"Connecting to the online service\u2026";
+            return;
+        }
+        if (id == ClearNotifications && notification == BN_CLICKED) {
+            toastHistory.clear();unreadToasts=0;
+            for(size_t i=0;i<toasts.size();++i)dismissToast(i);
+            waitingToasts.clear();
+            layout();(pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);
             return;
         }
         if ((id == NoticeAccept || id == NoticeDecline) && notification == BN_CLICKED) {
@@ -11853,10 +12176,12 @@ LRESULT CALLBACK button_procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp)
             TRACKMOUSEEVENT tracking{sizeof(TRACKMOUSEEVENT), TME_LEAVE, hwnd, 0};
             TrackMouseEvent(&tracking);
             InvalidateRect(hwnd, nullptr, FALSE);
+            owner->startHover();
         }
     } else if (owner && message == WM_MOUSELEAVE) {
         owner->hotButton = 0;
         InvalidateRect(hwnd, nullptr, FALSE);
+        owner->startHover();
     } else if (message == WM_SETCURSOR && IsWindowEnabled(hwnd)) {
         SetCursor(LoadCursor(nullptr, IDC_HAND));
         return TRUE;
@@ -12129,6 +12454,10 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
                 self->animateToast();
             else if (wp == 8)
                 self->animatePageEnter();
+            else if (wp == 12)
+                self->fadeScrollIndicator();
+            else if (wp == 13)
+                self->animateHover();
             else if (wp == 11)
                 self->animateSky();
             else if (wp == 9)
@@ -12178,10 +12507,14 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
             self->dropped(reinterpret_cast<HDROP>(wp));
             return 0;
         case WM_LBUTTONDOWN:
-            if (self->toastPresence() > 0.3) {
-                const RECT card = self->toastRect();
-                const POINT at{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
-                if (PtInRect(&card, at)) { self->toastAt = 0; KillTimer(hwnd, 7); self->command(OpenNotifications, BN_CLICKED); return 0; }
+            {
+                bool closeHit=false;
+                const int hit=self->toastHit({GET_X_LPARAM(lp), GET_Y_LPARAM(lp)},&closeHit);
+                if (hit >= 0) {
+                    self->dismissToast(size_t(hit));
+                    if (!closeHit) self->command(OpenNotifications, BN_CLICKED);
+                    return 0;
+                }
             }
             if (self->page == wavePage) { self->waveClick(GET_X_LPARAM(lp), GET_Y_LPARAM(lp)); return 0; }
             if (self->waveStyle() && GET_Y_LPARAM(lp) < self->p(shellHeader) && GET_X_LPARAM(lp) < self->p(260)) { self->openWaveHome(); return 0; }
@@ -12201,8 +12534,11 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
             const int steps = self->wheelRemainder/WHEEL_DELTA;
             self->wheelRemainder -= steps*WHEEL_DELTA;
             UINT lines=3;SystemParametersInfoW(SPI_GETWHEELSCROLLLINES,0,&lines,0);
-            const int distance=lines==WHEEL_PAGESCROLL ? self->pageVisibleHeight()-40 : int(std::min(lines,1000u))*18;
-            if (steps) self->glideTo(self->scrollReported()-steps*distance);
+            const int distance=lines==WHEEL_PAGESCROLL ? self->pageVisibleHeight()-40 : int(std::min(lines,1000u))*24;
+            const int limit = std::max(0, self->pageCanvasHeight()-self->pageVisibleHeight());
+            const int from = self->scrollReported();
+            if ((steps > 0 && from <= 0) || (steps < 0 && from >= limit)) { self->wheelRemainder = 0; return 0; }
+            if (steps) self->glideTo(from-steps*distance);
             return 0;
         }
         case revealMessage:

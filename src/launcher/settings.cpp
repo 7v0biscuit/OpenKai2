@@ -158,6 +158,16 @@ Settings read_settings(const std::filesystem::path &file) {
             row >> std::quoted(s.raUser) >> std::quoted(s.raToken) >> s.raHardcore;
         else if (key == "achievements_paused")
             row >> s.achievementsPaused >> s.achievementsPausedAt;
+        else if (key == "home_cursor") {
+            row >> s.homeCategory;
+            for (auto &item : s.homeItems) row >> item;
+            if (!row || s.homeCategory > 5) { s.homeCategory = 0; s.homeItems = {}; }
+            for (auto &item : s.homeItems) if (item > 15) item = 0;
+        }
+        else if (key == "play_time") {
+            row >> s.playSeconds >> s.lastPlayed >> s.sessions;
+            if (s.playSeconds < 0 || s.lastPlayed < 0 || s.sessions < 0) s.playSeconds = s.lastPlayed = s.sessions = 0;
+        }
         else if (key == "fps")
             row >> s.fps;
         else if (key == "width")
@@ -483,6 +493,8 @@ void write_settings(const std::filesystem::path &file, const Settings &s) {
         << "\ngame_cover " << std::quoted(s.gameCover)
         << "\nretroachievements " << std::quoted(s.raUser) << ' ' << std::quoted(s.raToken) << ' ' << s.raHardcore
         << "\nachievements_paused " << s.achievementsPaused << ' ' << s.achievementsPausedAt
+        << "\nplay_time " << s.playSeconds << ' ' << s.lastPlayed << ' ' << s.sessions
+        << "\nhome_cursor " << s.homeCategory << ' ' << s.homeItems[0] << ' ' << s.homeItems[1] << ' ' << s.homeItems[2] << ' ' << s.homeItems[3] << ' ' << s.homeItems[4] << ' ' << s.homeItems[5]
         << "\nlauncher_tabs";
     for (unsigned tab : s.tabOrder)
         out << ' ' << tab;

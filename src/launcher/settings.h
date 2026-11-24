@@ -90,6 +90,9 @@ struct Settings {
     std::string raUser, raToken, gameCover;
     bool raHardcore = false, achievementsPaused = false;
     int64_t achievementsPausedAt = 0;
+    int64_t playSeconds = 0, lastPlayed = 0, sessions = 0;
+    unsigned homeCategory = 0;
+    std::array<unsigned, 6> homeItems{};
     std::array<unsigned, tab_count> tabOrder = default_tab_order;
     unsigned hiddenTabs = 0;
     CustomColors launcherColors = no_custom_colors();

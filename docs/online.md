@@ -110,7 +110,15 @@ freezes the match for a moment.
 - **Notifications:** open the bell in the header to review requests. The card shows who sent the invite or friend request, how
   long ago, which room, and how many more are waiting. Repeat invites from the
   same player are merged into one. The **Online** tab shows how many are
-  waiting.
+  waiting. Below the card, **Recent** lists this session's alerts, newest
+  first, with how long ago each arrived; **Clear all** empties it. A blue dot
+  on the bell means alerts arrived since you last opened it.
+- **Pop-up alerts:** alerts also slide in at the top right of the launcher,
+  up to three at a time with the rest queued. Each shows a bar counting down
+  its time. Pointing at an alert pauses it, clicking it opens Notifications,
+  and its × closes it. While the launcher is minimized, for example during a
+  game, alerts wait and show when you return. Alerts don't pop up while
+  Notifications is open; they go straight into **Recent**.
 
 ## In the match
 

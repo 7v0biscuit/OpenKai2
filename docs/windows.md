@@ -64,6 +64,11 @@ A message in the corner names your new character when a fight starts.
   to the home menu and pages, and parts that only exist in Classic are hidden
   from the Theme colors list.
 
+  The home menu opens on the category and item you last used. The Play item
+  shows when you last played and your total play time, counted from when the
+  game starts until it closes. When a game ends, an alert shows how long you
+  played and any trophies you unlocked.
+
   Each Wave item opens its own page. The top left shows where you are (for
   example Home › Settings › Display), and **Esc** goes back. Wave pages leave
   out buttons that repeat a Wave item, such as Customize profile on Online,
@@ -79,8 +84,8 @@ A message in the corner names your new character when a fight starts.
   galaxy (a slowly turning galaxy), Nebula drift (colored clouds drifting
   past), Milky Way (a shimmering band across the sky), Star voyage (stars
   gliding toward you) or Still sky (just the sky and its stars). Other pages
-  show the same scene without movement so it never pulls attention from the
-  page. With reduced motion the scene stays still everywhere.
+  show the same scene moving behind their glass panels, faintly through the
+  glass. With reduced motion the scene stays still everywhere.
 - **Theme:** twenty-one color palettes for the entire launcher, including its
   title bar, fields, selection focus and game panel. Illustrated backgrounds
   have been removed. Choose a theme to apply its complete palette; **Undo
@@ -573,6 +578,8 @@ The header keeps the clock and Notifications; the action search bar is removed.
 
 - **Ctrl+Page Up / Page Down:** move between visible dock tabs in your chosen order.
 - **Ctrl+Home / End:** scroll to the top or bottom; text fields keep their normal caret shortcuts.
+- **Mouse wheel:** pages glide to each step. A slim bar at the right edge shows
+  where you are on a long page; it brightens while you scroll and dims after.
 - **Ctrl+S:** save the profile you are editing, or the selected overlay split name.
 - **Ctrl+Z:** undo a settings change, or undo text editing when a text field has focus.
 - **F11:** fullscreen the launcher, or return to a window. The window keeps its size and position.
