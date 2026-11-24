@@ -1162,7 +1162,7 @@ struct Window {
         const int controlsHeight = width < 1180 ? 1120 : 760;
         int settingsHeight = 970;
         if (page == settingsPage && controls.count(SettingsSearch)) {
-            ui::SettingsLayout grid(width,contentLeft,waveStyle(),settingsTop());
+            auto grid=settingsGrid(width);
             grid.filter(searchText(trimmed(textOf(SettingsSearch))));
             settingsHeight=grid.height();
         }
@@ -1428,6 +1428,10 @@ struct Window {
         return time.empty() ? std::wstring(date) : std::wstring(date)+L"   "+time;
     }
     int settingsTop() const {return waveStyle() ? 172 : ui::SettingsLayout::top;}
+    static constexpr int settingsNav=250;
+    ui::SettingsLayout settingsGrid(int content) const {
+        return waveStyle() ? ui::SettingsLayout(content-settingsNav,contentLeft+settingsNav,true,settingsTop()) : ui::SettingsLayout(content,contentLeft,false,settingsTop());
+    }
     std::wstring waveTrail;
     int waveTrailPage=-1;
     bool waveTrailPending=false;
@@ -1440,7 +1444,7 @@ struct Window {
         case OpenOverlay:return page==speedrunPage;
         case OpenImporter:return page==modsPage;
         case ArrangeTabs:return page==settingsPage;
-        case SettingsSearch:case ClearSettingsSearch:case SettingsAll:case SettingsDisplay:case SettingsGraphics:case SettingsGame:case SettingsLauncher:return page==settingsPage;
+        case SettingsSearch:case ClearSettingsSearch:return page==settingsPage;
         default:return false;
         }
     }
@@ -4871,13 +4875,15 @@ struct Window {
                 }
             }
         } else {
-            ui::SettingsLayout grid(content,contentLeft,waveStyle(),settingsTop());
+            auto grid=settingsGrid(content);
             grid.filter(searchText(trimmed(textOf(SettingsSearch))));
             position(SettingsSearch,contentLeft+10,123,content-276,24);
             position(ClearSettingsSearch,right-244,116,64,38);
             position(UndoSettings,right-164,116,164,38);
-            int filterX=contentLeft;
+            int filterX=contentLeft,filterY=settingsTop();
+            for(const int section:grid.sections)if(section>=0){filterY=section;break;}
             for(int id : {SettingsAll,SettingsDisplay,SettingsGraphics,SettingsGame,SettingsLauncher}) {
+                if(waveStyle()){position(id,contentLeft,filterY,settingsNav-24,46);filterY+=52;continue;}
                 const int width=id==SettingsAll ? 124 : 112;
                 position(id,filterX,174,width,34);filterX+=width+8;
             }
@@ -6867,7 +6873,8 @@ struct Window {
         return value;
     }
     void paintSettings(HDC dc,int h,int content) {
-        ui::SettingsLayout grid(content,contentLeft,waveStyle(),settingsTop());
+        auto grid=settingsGrid(content);
+        const int gl=grid.left,gw=grid.width;
         grid.filter(searchText(trimmed(textOf(SettingsSearch))));
         const wchar_t* titles[]={L"Display",L"Graphics",L"Game",L"Launcher"};
         const wchar_t* notes[]={L"Window, presentation and sound. Game simulation stays at 60 FPS.",
@@ -6882,9 +6889,9 @@ struct Window {
         bool any=false;
         for(size_t group=0;group<labels.size();++group) {
             const int top=grid.sections[group];if(top<0)continue;any=true;
-            panelBox(dc,contentLeft,top,contentLeft+content,grid.bottom(top,ui::SettingsLayout::fields[group]));
-            text(dc,titles[group],contentLeft+24,top+14,200,26,fonts.brand,ink);
-            text(dc,notes[group],contentLeft+24,top+46,content-48,20,fonts.caption,muted,
+            panelBox(dc,gl,top,gl+gw,grid.bottom(top,ui::SettingsLayout::fields[group]));
+            text(dc,titles[group],gl+24,top+14,200,30,fonts.brand,ink);
+            text(dc,notes[group],gl+24,top+46,gw-48,20,fonts.caption,muted,
                  DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
             for(size_t index=0;index<labels[group].size();++index) {
                 const auto cell=grid.label(top,int(index));
@@ -6892,8 +6899,8 @@ struct Window {
                     const int rowTop=top+ui::SettingsLayout::header+int(index)*ui::SettingsLayout::listRow;
                     if(index>0) {
                         Gdiplus::Graphics graphics(dc);
-                        Gdiplus::LinearGradientBrush divider(Gdiplus::PointF(Gdiplus::REAL(p(contentLeft+24)),0),Gdiplus::PointF(Gdiplus::REAL(p(contentLeft+content-24)),0),Gdiplus::Color(70,255,236,210),Gdiplus::Color(8,255,236,210));
-                        graphics.FillRectangle(&divider,Gdiplus::REAL(p(contentLeft+24)),Gdiplus::REAL(p(rowTop)),Gdiplus::REAL(p(content-48)),Gdiplus::REAL(std::max(1,p(1))));
+                        Gdiplus::LinearGradientBrush divider(Gdiplus::PointF(Gdiplus::REAL(p(gl+24)),0),Gdiplus::PointF(Gdiplus::REAL(p(gl+gw-24)),0),Gdiplus::Color(70,255,236,210),Gdiplus::Color(8,255,236,210));
+                        graphics.FillRectangle(&divider,Gdiplus::REAL(p(gl+24)),Gdiplus::REAL(p(rowTop)),Gdiplus::REAL(p(gw-48)),Gdiplus::REAL(std::max(1,p(1))));
                     }
                     text(dc,sentenceCase(labels[group][index]),cell.x,rowTop+14,cell.width,28,fonts.display,ink,DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
                 } else caps(dc,labels[group][index],cell.x,cell.y,cell.width,muted);
@@ -7375,6 +7382,23 @@ struct Window {
             backdrop(dc, item.hwndItem, r, surface(id, r));
             COLORREF label;
             const bool lit = (primary || taskChoice || id == ImportSelected || (page==0 && id==JoinRoom)) && enabled;
+            if (waveStyle() && id>=SettingsAll && id<=SettingsLauncher) {
+                if (taskChoice || hot) {
+                    Gdiplus::Graphics g(dc);g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+                    const float w=float(r.right-r.left),h=float(r.bottom-r.top),rr=float(p(10));
+                    Gdiplus::GraphicsPath bar;bar.AddArc(0.f,0.f,rr*2,rr*2,180,90);bar.AddArc(w-rr*2-1,0.f,rr*2,rr*2,270,90);bar.AddArc(w-rr*2-1,h-rr*2-1,rr*2,rr*2,0,90);bar.AddArc(0.f,h-rr*2-1,rr*2,rr*2,90,90);bar.CloseFigure();
+                    Gdiplus::LinearGradientBrush fillBar(Gdiplus::PointF(0,0),Gdiplus::PointF(w,0),Gdiplus::Color(BYTE(taskChoice ? 58 : 30),200,215,255),Gdiplus::Color(0,200,215,255));
+                    g.FillPath(&fillBar,&bar);
+                    if(taskChoice){Gdiplus::Pen top(Gdiplus::Color(70,255,255,255),1.f);g.DrawLine(&top,rr,0.5f,w*0.7f,0.5f);}
+                }
+                wchar_t chipText[64]{};GetWindowTextW(item.hwndItem,chipText,64);
+                RECT area=r;area.left+=p(16);
+                auto previous=SelectObject(dc,taskChoice ? fonts.mark : fonts.item);SetBkMode(dc,TRANSPARENT);
+                SetTextColor(dc,taskChoice ? RGB(255,255,255) : hot ? mix(muted,ink,170) : muted);
+                DrawTextW(dc,chipText,-1,&area,DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX|DT_END_ELLIPSIS);
+                SelectObject(dc,previous);
+                return;
+            }
             if (navigation) {
                 if (hot && !chosen)
                     box(dc, r, mix(sidebar, ink, 10), mix(sidebar, ink, 10), 10);
@@ -11850,6 +11874,76 @@ LRESULT CALLBACK combo_procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) 
     if(cancelling) {owner->suspendUi();owner->closingDropdowns=true;}
     if(owner && (message==WM_SETFONT || message==CB_ADDSTRING || message==CB_INSERTSTRING || message==CB_DELETESTRING || message==CB_RESETCONTENT))
         owner->comboTextWidths.erase(GetDlgCtrlID(hwnd));
+    const bool picker = owner && owner->waveStyle() && owner->page == settingsPage;
+    if (picker && message == WM_LBUTTONDOWN && IsWindowEnabled(hwnd) && !SendMessageW(hwnd, CB_GETDROPPEDSTATE, 0, 0)) {
+        RECT bounds{};GetClientRect(hwnd, &bounds);
+        const int x = GET_X_LPARAM(lp), zone = owner->p(44);
+        if (x < zone || x > bounds.right - zone) {
+            const auto count = SendMessageW(hwnd, CB_GETCOUNT, 0, 0), current = SendMessageW(hwnd, CB_GETCURSEL, 0, 0);
+            const auto next = std::clamp<LRESULT>(current + (x < zone ? -1 : 1), 0, std::max<LRESULT>(0, count - 1));
+            SetFocus(hwnd);
+            if (next != current && count > 0) {
+                SendMessageW(hwnd, CB_SETCURSEL, WPARAM(next), 0);
+                SendMessageW(GetParent(hwnd), WM_COMMAND, MAKEWPARAM(GetDlgCtrlID(hwnd), CBN_SELCHANGE), reinterpret_cast<LPARAM>(hwnd));
+            }
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return 0;
+        }
+    }
+    if (picker && message == WM_PAINT) {
+        PAINTSTRUCT ps;
+        auto screen = BeginPaint(hwnd, &ps);
+        const int saved = SaveDC(screen);
+        owner->clipControlPaint(screen, hwnd);
+        RECT rect{};
+        GetClientRect(hwnd, &rect);
+        std::optional<Canvas> canvas(std::in_place, screen, rect);
+        auto dc = canvas->dc;
+        const bool enabled = IsWindowEnabled(hwnd) != FALSE, focused = GetFocus() == hwnd;
+        const bool dropped = SendMessageW(hwnd, CB_GETDROPPEDSTATE, 0, 0) != 0;
+        const bool hot = enabled && GetPropW(hwnd, L"OpenKai2.Hot") != nullptr;
+        owner->backdrop(dc, hwnd, rect, panel);
+        if (focused || dropped || hot) {
+            Gdiplus::Graphics g(dc);g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+            const float w=float(rect.right),h=float(rect.bottom),rr=float(owner->p(8));
+            Gdiplus::GraphicsPath shape;shape.AddArc(0.f,0.f,rr*2,rr*2,180,90);shape.AddArc(w-rr*2-1,0.f,rr*2,rr*2,270,90);shape.AddArc(w-rr*2-1,h-rr*2-1,rr*2,rr*2,0,90);shape.AddArc(0.f,h-rr*2-1,rr*2,rr*2,90,90);shape.CloseFigure();
+            Gdiplus::SolidBrush wash(Gdiplus::Color(BYTE(focused || dropped ? 34 : 18),200,215,255));g.FillPath(&wash,&shape);
+            if(focused || dropped){Gdiplus::Pen edge(Gdiplus::Color(90,200,215,255),1.f);g.DrawPath(&edge,&shape);}
+        }
+        const auto index = SendMessageW(hwnd, CB_GETCURSEL, 0, 0), count = SendMessageW(hwnd, CB_GETCOUNT, 0, 0);
+        std::wstring label;
+        if (index >= 0) {
+            const auto n = SendMessageW(hwnd, CB_GETLBTEXTLEN, index, 0);
+            if (n >= 0 && n < 32768) {
+                label.resize(size_t(n) + 1);
+                SendMessageW(hwnd, CB_GETLBTEXT, index, reinterpret_cast<LPARAM>(label.data()));
+                label.resize(size_t(n));
+            }
+        }
+        auto old = SelectObject(dc, owner->fonts.body);
+        SetBkMode(dc, TRANSPARENT);
+        SetTextColor(dc, enabled ? ink : faint);
+        RECT text = rect;
+        text.left += owner->p(44);
+        text.right -= owner->p(44);
+        DrawTextW(dc, label.c_str(), int(label.size()), &text, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        SelectObject(dc, old);
+        {
+            Gdiplus::Graphics g(dc);g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+            const float cy=float(rect.bottom)/2.f,s=float(owner->p(5));
+            const auto arrow=[&](float cx,float direction,bool live){
+                const Gdiplus::PointF tip[]={{cx+direction*s,cy},{cx-direction*s,cy-s*1.1f},{cx-direction*s,cy+s*1.1f}};
+                Gdiplus::SolidBrush fillArrow(live ? (focused || hot ? Gdiplus::Color(255,214,226,255) : Gdiplus::Color(200,150,168,214)) : Gdiplus::Color(70,150,168,214));
+                g.FillPolygon(&fillArrow,tip,3);
+            };
+            arrow(float(owner->p(20)),-1.f,enabled && index>0);
+            arrow(float(rect.right-owner->p(20)),1.f,enabled && index+1<count);
+        }
+        canvas.reset();
+        RestoreDC(screen, saved);
+        EndPaint(hwnd, &ps);
+        return 0;
+    }
     if (message == WM_PAINT && owner) {
         PAINTSTRUCT ps;
         auto screen = BeginPaint(hwnd, &ps);
