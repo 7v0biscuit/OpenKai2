@@ -5250,58 +5250,30 @@ struct Window {
         g.SetClip(&body);
         if(face.tag)paintTagTheme(dc,*face.tag,cl,ct,cr,cb);
         paintBackdrop(dc,{p(cl),p(ct),p(cr),p(cb)},face.backdrop,face.accent);
-        const float ax=P(cl+118),ay=P(ct+ch/2-12);
-        for(int i=0;i<20;++i){const float a=i*3.14159f/10,spread=0.09f;
-            const Gdiplus::PointF ray[]={{ax,ay},{ax+std::cos(a-spread)*P(190),ay+std::sin(a-spread)*P(190)},{ax+std::cos(a+spread)*P(190),ay+std::sin(a+spread)*P(190)}};
-            Gdiplus::SolidBrush b(rgba(i%2 ? face.accent : RGB(255,255,255),i%2 ? 46 : 14));g.FillPolygon(&b,ray,3);}
         {
-            const float step=P(8);
-            for(float dy=P(ct);dy<P(cb);dy+=step)
-                for(float dx=P(cr)-P(240)+(int((dy-P(ct))/step)%2 ? step/2 : 0);dx<P(cr);dx+=step) {
-                    const float fx=(dx-(P(cr)-P(240)))/P(240),fy=1.f-(dy-P(ct))/P(ch),size=step*0.42f*std::clamp(fx*fy*1.6f,0.f,1.f);
-                    if(size>P(1)*0.6f){Gdiplus::SolidBrush dot(rgba(face.accent,70));g.FillEllipse(&dot,dx-size,dy-size,size*2,size*2);}
-                }
-            for(int i=0;i<9;++i){const float lx2=P(cl+190+i*14),ly2=P(cb-46-i%3*6);Gdiplus::Pen speed(rgba(RGB(255,255,255),40+i%3*20),P(1+i%2));g.DrawLine(&speed,lx2,ly2,lx2+P(60+i*6),ly2);}
-        }
-        {
-            const float bx=P(cr-120),by=P(cb-96),br=P(70);
-            Gdiplus::SolidBrush ballFill(rgba(RGB(255,160,30),34));g.FillEllipse(&ballFill,bx-br,by-br,br*2,br*2);
-            Gdiplus::Pen ballInk(rgba(RGB(14,8,6),60),P(3));g.DrawEllipse(&ballInk,bx-br,by-br,br*2,br*2);
-            Gdiplus::SolidBrush ballShine(rgba(RGB(255,255,255),28));g.FillEllipse(&ballShine,bx-br*0.6f,by-br*0.75f,br*0.7f,br*0.45f);
-            for(int i=0;i<4;++i){const float sx=bx+(i%2 ? br*0.28f : -br*0.28f),sy=by+(i/2 ? br*0.3f : -br*0.26f),sr=br*0.2f;
-                Gdiplus::PointF star[10];for(int k=0;k<10;++k){const float a=-3.14159f/2+k*3.14159f/5,rr=k%2 ? sr*0.42f : sr;star[k]={sx+std::cos(a)*rr,sy+std::sin(a)*rr};}
-                Gdiplus::SolidBrush starFill(rgba(RGB(220,40,30),46));g.FillPolygon(&starFill,star,10);}
-        }
-        {
+            uint32_t seed=0x51f15eedu;
+            const auto next=[&]{seed^=seed<<13;seed^=seed>>17;seed^=seed<<5;return float(seed&0xffffu)/65535.f;};
+            for(int i=0;i<70;++i){const float sx=P(cl)+next()*P(cw),sy=P(ct)+next()*P(ch),size=P(1)*(0.5f+next()*1.1f);
+                Gdiplus::SolidBrush dot(rgba(RGB(220,230,255),int(60+next()*150)));g.FillEllipse(&dot,sx-size,sy-size,size*2,size*2);}
+            const float gx=P(cr-160),gy=P(ct+ch/2);
+            for(int i=6;i>=1;--i){const float rx=P(150)*float(i)/6.f,ry=P(46)*float(i)/6.f;
+                const auto state=g.Save();g.TranslateTransform(gx,gy);g.RotateTransform(-24.f);
+                Gdiplus::SolidBrush band(rgba(mix(face.accent,RGB(210,200,255),150),6+(6-i)*3));g.FillEllipse(&band,-rx,-ry,rx*2,ry*2);g.Restore(state);}
+            {const auto state=g.Save();g.TranslateTransform(gx,gy);g.RotateTransform(-24.f);
+                Gdiplus::GraphicsPath core;core.AddEllipse(-P(40),-P(14),P(80),P(28));
+                Gdiplus::PathGradientBrush glow(&core);glow.SetCenterColor(rgba(RGB(255,240,220),90));Gdiplus::Color edge=rgba(face.accent,0);int one=1;glow.SetSurroundColors(&edge,&one);
+                g.FillPath(&glow,&core);g.Restore(state);}
             const float acx=P(cl+118),acy=P(ct+ch/2-12);
-            for(int layer=0;layer<2;++layer) {
-                Gdiplus::GraphicsPath aura;
-                const int spikes=11;const float inner=P(layer ? 70 : 76),outer=P(layer ? 104 : 124);
-                std::vector<Gdiplus::PointF> points;
-                for(int i=0;i<=spikes*2;++i){const float a=-3.14159f/2+i*3.14159f/spikes,rr=i%2 ? inner : outer*(0.82f+0.18f*float((i*7)%5)/4.f);points.push_back({acx+std::cos(a)*rr*0.92f,acy+std::sin(a)*rr*(a<0 ? 1.1f : 0.8f)});}
-                aura.AddClosedCurve(points.data(),int(points.size()),0.35f);
-                Gdiplus::SolidBrush auraFill(rgba(layer ? mix(face.accent,RGB(255,255,255),120) : face.accent,layer ? 70 : 90));g.FillPath(&auraFill,&aura);
-                if(!layer){Gdiplus::Pen auraInk(rgba(RGB(14,8,6),140),P(2));g.DrawPath(&auraInk,&aura);}
-            }
-            for(int i=0;i<7;++i) {
-                const float a=3.14159f*(0.15f+0.12f*i),rr=P(96+(i%3)*16),rx=acx+std::cos(a)*rr*1.2f,ry=acy+std::sin(a)*rr*0.55f+P(20),rs=P(5+i%3*3);
-                const Gdiplus::PointF rock[]={{rx-rs,ry},{rx-rs*0.4f,ry-rs*0.9f},{rx+rs*0.7f,ry-rs*0.7f},{rx+rs,ry+rs*0.2f},{rx+rs*0.2f,ry+rs*0.8f}};
-                Gdiplus::SolidBrush rockFill(rgba(RGB(150,120,96),230));g.FillPolygon(&rockFill,rock,5);
-                const Gdiplus::PointF lit[]={{rx-rs*0.4f,ry-rs*0.9f},{rx+rs*0.7f,ry-rs*0.7f},{rx+rs*0.1f,ry-rs*0.2f}};
-                Gdiplus::SolidBrush rockLit(rgba(RGB(210,190,160),230));g.FillPolygon(&rockLit,lit,3);
-                Gdiplus::Pen rockInk(rgba(RGB(14,8,6),255),P(2));rockInk.SetLineJoin(Gdiplus::LineJoinRound);g.DrawPolygon(&rockInk,rock,5);
-            }
-            for(int i=0;i<4;++i) {
-                const float a=-2.4f+i*1.35f,r0=P(66),sx=acx+std::cos(a)*r0,sy=acy+std::sin(a)*r0,dx=std::cos(a),dy=std::sin(a),nx=-dy,ny=dx;
-                const Gdiplus::PointF zig[]={{sx,sy},{sx+dx*P(10)+nx*P(6),sy+dy*P(10)+ny*P(6)},{sx+dx*P(16)-nx*P(5),sy+dy*P(16)-ny*P(5)},{sx+dx*P(26)+nx*P(3),sy+dy*P(26)+ny*P(3)}};
-                Gdiplus::Pen sparkInk(rgba(RGB(14,8,6),200),P(4)),spark(rgba(RGB(255,255,230),240),P(2));
-                for(auto* pen:{&sparkInk,&spark}){pen->SetLineJoin(Gdiplus::LineJoinRound);pen->SetStartCap(Gdiplus::LineCapRound);pen->SetEndCap(Gdiplus::LineCapRound);g.DrawLines(pen,zig,4);}
-            }
+            Gdiplus::GraphicsPath nebula;nebula.AddEllipse(acx-P(150),acy-P(120),P(300),P(240));
+            Gdiplus::PathGradientBrush cloud(&nebula);cloud.SetCenterColor(rgba(face.accent,80));Gdiplus::Color clear=rgba(face.accent,0);int one=1;cloud.SetSurroundColors(&clear,&one);
+            g.FillPath(&cloud,&nebula);
+            Gdiplus::GraphicsPath inner;inner.AddEllipse(acx-P(90),acy-P(80),P(180),P(160));
+            Gdiplus::PathGradientBrush core(&inner);core.SetCenterColor(rgba(mix(face.accent,RGB(255,255,255),140),70));Gdiplus::Color none=rgba(RGB(255,255,255),0);core.SetSurroundColors(&none,&one);
+            g.FillPath(&core,&inner);
         }
         const int strip=34;
         Gdiplus::SolidBrush stripFill(rgba(RGB(8,6,12),200));g.FillRectangle(&stripFill,P(cl),P(cb-strip),P(cw),P(strip));
-        Gdiplus::Pen stripLine(rgba(face.accent,230),P(2));g.DrawLine(&stripLine,P(cl),P(cb-strip),P(cr),P(cb-strip));
-        for(int i=0;i<cw;i+=14){Gdiplus::Pen hatch(rgba(RGB(255,255,255),14),P(4));g.DrawLine(&hatch,P(cl+i),P(cb),P(cl+i+strip),P(cb-strip));}
+        Gdiplus::Pen stripLine(rgba(face.accent,170),P(1));g.DrawLine(&stripLine,P(cl),P(cb-strip),P(cr),P(cb-strip));
         const int sl=cl+232,sr=cr-18,st=ct+16,sb=ct+66,skew=18;
         const Gdiplus::PointF shadow[]={{P(sl+skew+6),P(st+6)},{P(sr+6),P(st+6)},{P(sr-skew+6),P(sb+6)},{P(sl+6),P(sb+6)}};
         Gdiplus::SolidBrush shadowFill(rgba(RGB(0,0,0),120));g.FillPolygon(&shadowFill,shadow,4);
@@ -5313,31 +5285,25 @@ struct Window {
         {
             Gdiplus::GraphicsPath slashPath;slashPath.AddPolygon(slash,4);
             Gdiplus::Region outer;g.GetClip(&outer);g.SetClip(&slashPath,Gdiplus::CombineModeIntersect);
-            for(int i=sl-40;i<sr;i+=10){Gdiplus::Pen pin(rgba(RGB(255,255,255),22),P(3));g.DrawLine(&pin,P(i),P(sb),P(i+28),P(st));}
             Gdiplus::SolidBrush lowerBand(rgba(RGB(0,0,0),40));g.FillRectangle(&lowerBand,P(sl),P(sb-12),P(sr-sl),P(12));
             g.SetClip(&outer);
             const Gdiplus::PointF innerLine[]={{P(sl+skew+6),P(st+5)},{P(sr-7),P(st+5)},{P(sr-skew-3),P(sb-5)},{P(sl+3),P(sb-5)}};
             Gdiplus::Pen innerPen(rgba(RGB(255,255,255),110),P(1));g.DrawPolygon(&innerPen,innerLine,4);
         }
-        Gdiplus::Pen slashInk(inkColor,P(3));slashInk.SetLineJoin(Gdiplus::LineJoinMiter);g.DrawPolygon(&slashInk,slash,4);
+        Gdiplus::Pen slashInk(rgba(RGB(255,255,255),70),P(1));slashInk.SetLineJoin(Gdiplus::LineJoinMiter);g.DrawPolygon(&slashInk,slash,4);
         g.ResetClip();
-        Gdiplus::Pen border(inkColor,P(4));g.DrawPath(&border,&body);
+        Gdiplus::Pen border(rgba(RGB(4,4,10),230),P(2));g.DrawPath(&border,&body);
         Gdiplus::GraphicsPath inner;rounded(inner,P(cl+4),P(ct+4),P(cw-8),P(ch-8),P(9));
         Gdiplus::Pen bevel(rgba(face.accent,150),P(1));g.DrawPath(&bevel,&inner);
         Gdiplus::Pen bracket(rgba(face.accent,255),P(3));bracket.SetStartCap(Gdiplus::LineCapSquare);bracket.SetEndCap(Gdiplus::LineCapSquare);
         const int bl=18;
         for(const auto [bx,by,dx,dy]:{std::array<int,4>{cl+8,ct+8,1,1},{cr-8,ct+8,-1,1},{cl+8,cb-8,1,-1},{cr-8,cb-8,-1,-1}}){
             const Gdiplus::PointF corner[]={{P(bx),P(by+dy*bl)},{P(bx),P(by)},{P(bx+dx*bl),P(by)}};g.DrawLines(&bracket,corner,3);}
-        for(const auto [bx,by]:{std::pair{cl+14,ct+14},{cr-14,ct+14},{cl+14,cb-14},{cr-14,cb-14}}) {
-            const float rr=P(4);Gdiplus::SolidBrush boltInk(inkColor);g.FillEllipse(&boltInk,P(bx)-rr-P(1),P(by)-rr-P(1),(rr+P(1))*2,(rr+P(1))*2);
-            Gdiplus::SolidBrush bolt(rgba(RGB(210,214,224),255));g.FillEllipse(&bolt,P(bx)-rr,P(by)-rr,rr*2,rr*2);
-            Gdiplus::Pen slot(inkColor,P(1));g.DrawLine(&slot,P(bx)-rr*0.6f,P(by)+rr*0.6f,P(bx)+rr*0.6f,P(by)-rr*0.6f);
-        }
         avatar(dc,p(cl+116),p(ct+ch/2-12),p(52),face.name,face.id,panel,-1,false,face.frame);
         const unsigned level=profileLevel(face.matches);
         const int tx=sl+skew+10,tw=std::max(120,sr-skew-tx-10);
         const COLORREF inkTone=RGB(14,8,6);
-        for(const auto [dx,dy]:{std::pair{-2,0},{2,0},{0,-2},{0,2},{2,2},{3,3}})text(dc,face.name,tx+dx,st+4+dy,tw,44,fonts.title,inkTone,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+        text(dc,face.name,tx+1,st+6,tw,44,fonts.title,inkTone,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
         nameText(dc,face.name,tx,st+4,tw,44,fonts.title,face.nameColor,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX,face.id,face.effect);
         int y=sb+10;
         if(!face.title.empty()) {
@@ -5379,11 +5345,7 @@ struct Window {
         }
         const int badgeX=barLeft+barWidth+30,badgeY=barTop+6;
         const float lx=P(badgeX),ly=P(badgeY),lr=P(18);
-        {
-            Gdiplus::PointF burst[24];for(int i=0;i<24;++i){const float a=i*3.14159f/12,rr=i%2 ? lr*1.25f : lr*1.75f;burst[i]={lx+std::cos(a)*rr,ly+std::sin(a)*rr};}
-            Gdiplus::SolidBrush burstFill(rgba(RGB(255,90,40),255));g.FillPolygon(&burstFill,burst,24);
-            Gdiplus::Pen burstInk(inkColor,P(2));burstInk.SetLineJoin(Gdiplus::LineJoinMiter);g.DrawPolygon(&burstInk,burst,24);
-        }
+        for(int i=4;i>=1;--i){Gdiplus::SolidBrush halo(rgba(RGB(255,214,120),14*(5-i)));const float hr=lr+P(3*i);g.FillEllipse(&halo,lx-hr,ly-hr,hr*2,hr*2);}
         Gdiplus::SolidBrush levelInk(inkColor);g.FillEllipse(&levelInk,lx-lr-P(3),ly-lr-P(3),(lr+P(3))*2,(lr+P(3))*2);
         Gdiplus::LinearGradientBrush levelFill(Gdiplus::PointF(0,ly-lr),Gdiplus::PointF(0,ly+lr),rgba(RGB(255,236,140),255),rgba(RGB(230,150,20),255));
         g.FillEllipse(&levelFill,lx-lr,ly-lr,lr*2,lr*2);
