@@ -345,7 +345,8 @@ enum Id {
     OpenHelp=1240,NextDockTab,PreviousDockTab,PageTop,PageBottom,SaveCurrent,UndoCurrent,ToggleLauncher,CopySetup,OpenIsoFolder,
     ProfileAbout=1300, ProfileRegion, ProfilePlaystyle, ProfilePreview, PlayerAction, PlayerFriend, PlayerBlock, PlayerCopyId, PlayerProfile, ProfileRename, ProfileLink, PlayerChannel, LauncherInterface, OpenWaveHome, WaveSky, WaveEmblem, LauncherClock, WaveRibbons,
     OpenAchievements, RaUser, RaPassword, RaSignIn, RaSignOut, RaHardcore, RaCopyHash, RaOpenSet, RaRefresh, RaOpenSite,
-    ProfileFrame, ProfileBackdrop, ProfileTitle, ProfileFrameColor, ProfileFeatured, CoverChoose, CoverRemove
+    ProfileFrame, ProfileBackdrop, ProfileTitle, ProfileFrameColor, ProfileFeatured, CoverChoose, CoverRemove,
+    ProfileSectionCard, ProfileSectionPicture, ProfileSectionAbout, ProfileSectionPrivacy, ProfileSectionUsers
 };
 constexpr int pageCount = 8, onlinePage = 1, speedrunPage = 2, modsPage = 3, savesPage = 4, settingsPage = 5, updatesPage = 6,
               controlsPage = 7, importPage = 8, overlayPage = 9, tabsPage = 10, colorsPage = 11,
@@ -2699,22 +2700,27 @@ struct Window {
         if(!channelOf(id).empty())badges.emplace_back(L"STREAMER",RGB(190,140,255));
         return badges;
     }
+    unsigned profileSection=0;
     struct ProfileWave {
-        int left,right,half,rightLeft,pictureLeft,hero=246,heroBottom=566,look=586,lookBottom=1054,privacy=1074,privacyBottom=1290,actions=1310,actionsBottom;
-        int label(int width) const {return std::clamp(width*2/5,130,220);}
-        int rowY(int top,int index) const {return top+64+index*waveOptionRow;}
+        int left,right,nav,area,cardTop=124,cardBottom=368,editTop=384,editBottom=0,actionsBottom=0;
+        int label(int width) const {return std::clamp(width*2/5,150,260);}
+        int rowY(int top,int index) const {return top+76+index*waveOptionRow;}
     };
+    static int profileSectionRows(unsigned section,bool tagged) {
+        switch(section){case 0:return 7;case 1:return 3;case 2:return tagged ? 6 : 5;case 3:return 4;default:return 4;}
+    }
     ProfileWave profileWave(int content,bool tagged) const {
         ProfileWave g{};
-        g.left=contentLeft;g.right=contentLeft+content;g.half=(content-20)/2;g.rightLeft=g.left+g.half+20;g.pictureLeft=g.right-24-260;
-        g.actionsBottom=g.actions+(tagged ? 196 : 140);
+        g.left=contentLeft;g.right=contentLeft+content;g.nav=contentLeft+250;g.area=g.nav+20;
+        g.editBottom=g.editTop+76+profileSectionRows(profileSection,tagged)*waveOptionRow+(profileSection<4 ? 76 : 20);
+        g.actionsBottom=std::max(g.editBottom,700);
         return g;
     }
     void waveRow(HDC dc,int left,int right,int y,int labelWidth,const std::wstring& label,COLORREF tone) {
         Gdiplus::Graphics graphics(dc);
         Gdiplus::LinearGradientBrush divider(Gdiplus::PointF(Gdiplus::REAL(p(left)),0),Gdiplus::PointF(Gdiplus::REAL(p(right)),0),Gdiplus::Color(70,255,236,210),Gdiplus::Color(8,255,236,210));
         graphics.FillRectangle(&divider,Gdiplus::REAL(p(left)),Gdiplus::REAL(p(y)),Gdiplus::REAL(p(right-left)),Gdiplus::REAL(std::max(1,p(1))));
-        text(dc,label,left,y+14,labelWidth-12,28,fonts.body,tone,DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+        text(dc,label,left,y+14,labelWidth-12,28,fonts.display,tone,DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
     }
     static unsigned profileLevel(uint32_t matches) {return std::min(99u,1u+matches/5u);}
     void paintBadges(HDC dc,const std::vector<std::pair<std::wstring,COLORREF>>& badges,int centre,int y,int width=280) {
@@ -3941,6 +3947,11 @@ struct Window {
                                                           {ClearImage, L"Crisp"},
                                                           {CoverChoose, L"Choose cover…"},
                                                           {CoverRemove, L"Remove"},
+                                                          {ProfileSectionCard, L"Player card"},
+                                                          {ProfileSectionPicture, L"Picture"},
+                                                          {ProfileSectionAbout, L"About me"},
+                                                          {ProfileSectionPrivacy, L"Privacy"},
+                                                          {ProfileSectionUsers, L"Users"},
                                                           {ChooseIso, L"Choose ISO…"},
                                                           {FindAction, L"Find an action"},
                                                           {ActionOpen, L"Open"},
@@ -4480,7 +4491,7 @@ struct Window {
             SetWindowTextW(controls[NavigateBack],back.c_str());
             position(NavigateBack,right-166,28,166,36);
             const int split=contentLeft+std::clamp(content/3,260,340),side=split+44,width=right-side-24;
-            {
+            if(!waveStyle()) {
                 const bool recover=std::filesystem::exists(profileRecoveryPath());
                 const int buttons=recover ? 4 : 3,button=96,gap=10,group=buttons*button+(buttons-1)*gap;
                 const int pick=std::clamp((content-48-group)/3,180,320);
@@ -4492,31 +4503,51 @@ struct Window {
                 if(recover)position(ProfileRecover,x,166,button,40);
             }
             if(waveStyle()) {
-                const auto g=profileWave(content,heldTag().has_value());
-                const auto placeRow=[&](int id,int left,int edge,int labelWidth,int y,bool field=false) {
-                    const int valueLeft=left+24+labelWidth,valueWidth=edge-24-valueLeft;
-                    position(id,valueLeft+(field ? 10 : 0),y+8,valueWidth-(field ? 20 : 0),40);
-                };
-                const int lookRight=g.left+g.half,label=g.label(g.half);
-                const int look[]={ProfileFrame,ProfileFrameColor,ProfileBackdrop,ProfileTitle,ProfileFeatured,ProfileAccent,ProfileNameColor};
-                for(int i=0;i<7;++i)placeRow(look[i],g.left,lookRight,label,g.rowY(g.look,i));
-                const int about[]={ProfileInitials,ProfileFighter,ProfileTagline,ProfileAbout,ProfileRegion,ProfilePlaystyle};
-                for(int i=0;i<6;++i)placeRow(about[i],g.rightLeft,g.right,label,g.rowY(g.look,i),about[i]==ProfileInitials || about[i]==ProfileTagline || about[i]==ProfileAbout);
-                placeRow(ProfileAvailability,g.left,lookRight,label,g.rowY(g.privacy,0));
-                placeRow(ProfileNotifications,g.left,lookRight,label,g.rowY(g.privacy,1));
-                placeRow(ProfileSharing,g.rightLeft,g.right,label,g.rowY(g.privacy,0));
-                placeRow(ProfileFriendAlerts,g.rightLeft,g.right,label,g.rowY(g.privacy,1));
-                position(ProfileSave,g.left+24,g.actions+20,170,40);
-                position(ProfileReset,g.left+24+184,g.actions+20,140,40);
-                position(ProfilePreview,g.left+24+338,g.actions+20,180,40);
-                const int wideLabel=std::clamp(content/4,180,280),copyLeft=g.left+24+wideLabel,copyWidth=g.right-24-copyLeft;
-                position(ProfileCopyFrom,copyLeft,g.actions+84,copyWidth-176,40);
-                position(ProfileCopyStyle,g.right-24-160,g.actions+84,160,40);
-                if(heldTag())position(ProfileLink,copyLeft+10,g.actions+140,copyWidth-20,40);
-                position(ProfileCopyId,g.pictureLeft,g.hero+24,260,36);
-                position(ProfileImageChoose,g.pictureLeft,g.hero+68,260,36);
-                position(ProfileImageRemove,g.pictureLeft,g.hero+112,260,36);
-                position(ProfileFit,g.pictureLeft,g.hero+182,260,40);
+                const bool tagged=heldTag().has_value();
+                const auto g=profileWave(content,tagged);
+                for(int i=0;i<5;++i)position(ProfileSectionCard+i,g.left,430+i*50,226,44);
+                const int label=g.label(g.right-g.area),valueLeft=g.area+24+label,valueWidth=g.right-24-valueLeft;
+                const auto row=[&](int id,int index,bool field=false){position(id,valueLeft+(field ? 10 : 0),g.rowY(g.editTop,index)+8,valueWidth-(field ? 20 : 0),40);};
+                const int half=(valueWidth-10)/2;
+                switch(profileSection) {
+                case 0: {
+                    const int look[]={ProfileFrame,ProfileFrameColor,ProfileBackdrop,ProfileTitle,ProfileFeatured,ProfileAccent,ProfileNameColor};
+                    for(int i=0;i<7;++i)row(look[i],i);
+                    break;
+                }
+                case 1:
+                    position(ProfileImageChoose,valueLeft,g.rowY(g.editTop,0)+8,half,40);
+                    position(ProfileImageRemove,valueLeft+half+10,g.rowY(g.editTop,0)+8,valueWidth-half-10,40);
+                    row(ProfileFit,1);row(ProfileInitials,2,true);
+                    break;
+                case 2:
+                    row(ProfileFighter,0);row(ProfileTagline,1,true);row(ProfileAbout,2,true);row(ProfileRegion,3);row(ProfilePlaystyle,4);
+                    if(tagged)row(ProfileLink,5,true);
+                    break;
+                case 3:
+                    row(ProfileAvailability,0);row(ProfileNotifications,1);row(ProfileSharing,2);row(ProfileFriendAlerts,3);
+                    break;
+                default: {
+                    row(OnlineProfile,0);
+                    const bool recover=std::filesystem::exists(profileRecoveryPath());
+                    const int buttons=recover ? 4 : 3,button=96,gap=8,group=buttons*button+(buttons-1)*gap;
+                    const int y=g.rowY(g.editTop,1)+8;
+                    position(OnlineName,valueLeft+10,y,std::max(80,valueWidth-group-gap-20),40);
+                    int x=valueLeft+valueWidth-group;
+                    for(const int id:{ProfileAdd,ProfileRename,ProfileRemove}){position(id,x,y,button,40);x+=button+gap;}
+                    if(recover)position(ProfileRecover,x,y,button,40);
+                    position(ProfileCopyFrom,valueLeft,g.rowY(g.editTop,2)+8,valueWidth-170,40);
+                    position(ProfileCopyStyle,valueLeft+valueWidth-160,g.rowY(g.editTop,2)+8,160,40);
+                    position(ProfileCopyId,valueLeft,g.rowY(g.editTop,3)+8,220,40);
+                    break;
+                }
+                }
+                if(profileSection<4) {
+                    const int actionY=g.editBottom-62;
+                    position(ProfileSave,g.area+24,actionY,170,40);
+                    position(ProfileReset,g.area+24+184,actionY,140,40);
+                    position(ProfilePreview,g.area+24+338,actionY,180,40);
+                }
             } else {
             const int half=(width-16)/2,second=side+(width+16)/2;
             position(ProfileInitials,side,330,half,40);
@@ -5757,18 +5788,14 @@ struct Window {
     void paintProfileWave(HDC dc,int content) {
         const bool perks=heldTag().has_value();
         const auto g=profileWave(content,perks);
-        panelBox(dc,g.left,124,g.right,226);
-        heading(dc,L"Active profile",g.left+24,136,content-48);
         const auto profile=activeProfile();if(!profile)return;
         const auto style=profileStyle(profile->id);
-        panelBox(dc,g.left,g.hero,g.right,g.heroBottom);
-        caps(dc,L"AS PLAYERS SEE YOU",g.left+24,g.hero+14,200);
         CardFace face;
         face.name=wide(profile->name);face.id=profile->id;face.nameColor=readableName(chosenNameColor(),ink);face.effect=chosenEffect();
         const int chosenTitle=std::max(0,selected(ProfileTitle));
         if(chosenTitle>0 && unsigned(chosenTitle)<title_count)face.title=wide(title_choices[size_t(chosenTitle)].name);
         face.featured=featuredTitle(unsigned(std::max(0,selected(ProfileFeatured))),achievementMask(),holdsDevKey());
-        face.tagline=style && !style->tagline.empty() ? L"\u201c"+wide(style->tagline)+L"\u201d" : std::wstring(L"Add a tagline below.");
+        face.tagline=style && !style->tagline.empty() ? L"\u201c"+wide(style->tagline)+L"\u201d" : std::wstring(L"Add a tagline under About me.");
         if(const int fighter=selected(ProfileFighter);fighter>0 && unsigned(fighter)<=fighter_count)face.fighter=wide(fighter_names[size_t(fighter-1)]);
         face.matches=style ? style->matches : 0u;face.friends=unsigned(friendCount());
         face.since=style && style->since>0 ? dateText(style->since) : std::wstring(L"First time online");
@@ -5782,37 +5809,46 @@ struct Window {
         const int accentIndex=std::max(0,selected(ProfileAccent));
         face.accent=accentIndex>0 && unsigned(accentIndex)<accent_count && unsigned(accentIndex)!=rgb_accent ? colorOf(accents[accentIndex].color) : orange;
         face.tag=heldTag();
-        paintCardFace(dc,{g.left+14,g.hero+34,g.pictureLeft-22,g.heroBottom-14},face);
-        caps(dc,L"PICTURE FRAMING",g.pictureLeft,g.hero+162,260);
-        text(dc,style && !style->imageName.empty() ? wide(style->imageName) : L"PNG, JPEG or animated GIF",g.pictureLeft,g.hero+232,260,20,fonts.caption,ink,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
-        const int sharing=selected(ProfileSharing);
-        text(dc,sharing==2 ? L"Up to 16 MB. Your picture and card stay on this PC." :
-                sharing==1 ? L"Up to 16 MB. Your picture stays on this PC; players see the rest of your card." :
-                             L"Up to 16 MB. Players see a small copy; animated pictures share their first frame.",
-             g.pictureLeft,g.hero+256,260,60,fonts.caption,muted,DT_WORDBREAK|DT_NOPREFIX);
-        const int lookRight=g.left+g.half,label=g.label(g.half);
-        panelBox(dc,g.left,g.look,lookRight,g.lookBottom);
-        heading(dc,L"Card look",g.left+24,g.look+18,g.half-48);
-        text(dc,L"Shown on your card online",g.left+24,g.look+20,g.half-48,20,fonts.caption,muted,DT_RIGHT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
-        const wchar_t* lookRows[]={L"Frame",L"Frame color",L"Card design",L"Title",L"Featured achievement",L"Avatar accent",L"Name color"};
-        for(int i=0;i<7;++i)waveRow(dc,g.left+24,lookRight-24,g.rowY(g.look,i),label,lookRows[i],ink);
-        panelBox(dc,g.rightLeft,g.look,g.right,g.lookBottom);
-        heading(dc,L"About you",g.rightLeft+24,g.look+18,g.half-48);
-        const wchar_t* aboutRows[]={L"Initials",L"Main fighter",L"Tagline",L"About me",L"Region",L"Playstyle"};
-        for(int i=0;i<6;++i)waveRow(dc,g.rightLeft+24,g.right-24,g.rowY(g.look,i),label,aboutRows[i],ink);
-        text(dc,L"Initials show when you have no picture. Titles unlock with levels and achievements.",g.rightLeft+24,g.rowY(g.look,6)+14,g.half-48,40,fonts.caption,muted,DT_WORDBREAK|DT_NOPREFIX);
-        panelBox(dc,g.left,g.privacy,g.right,g.privacyBottom);
-        heading(dc,L"Privacy & alerts",g.left+24,g.privacy+18,content-48);
-        waveRow(dc,g.left+24,lookRight-24,g.rowY(g.privacy,0),label,L"Availability",ink);
-        waveRow(dc,g.left+24,lookRight-24,g.rowY(g.privacy,1),label,L"Invites & requests",ink);
-        waveRow(dc,g.rightLeft+24,g.right-24,g.rowY(g.privacy,0),label,L"Player card online",ink);
-        waveRow(dc,g.rightLeft+24,g.right-24,g.rowY(g.privacy,1),label,L"Friends coming online",ink);
-        text(dc,L"Availability is shared online. Quiet mode and Do not disturb keep requests without desktop alerts.",g.left+24,g.rowY(g.privacy,2)+10,content-48,22,fonts.caption,muted,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
-        panelBox(dc,g.left,g.actions,g.right,g.actionsBottom);
-        text(dc,L"Changes show on your card after you save.",g.left+24+540,g.actions+30,content-48-540,20,fonts.caption,muted,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
-        const int wideLabel=std::clamp(content/4,180,280);
-        waveRow(dc,g.left+24,g.right-24,g.actions+76,wideLabel,L"Copy appearance from",ink);
-        if(const auto tag=heldTag())waveRow(dc,g.left+24,g.right-24,g.actions+132,wideLabel,wide(identity::tag_label(*tag))+L" channel link",readableName(storedColor(tagColor(*tag)),ink));
+        const int centre=g.left+113;
+        avatar(dc,p(centre),p(214),p(64),face.name,face.id,panel,-1,false,face.frame);
+        nameText(dc,face.name,g.left,296,226,40,fonts.mark,face.nameColor,DT_CENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX,face.id,face.effect);
+        text(dc,face.title.empty() ? std::wstring(L"No title yet") : face.title,g.left,338,226,20,fonts.caption,face.title.empty() ? muted : mix(face.accent,RGB(255,255,255),150),DT_CENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+        const unsigned level=profileLevel(face.matches);
+        const double progress=level>=99 ? 1.0 : double(face.matches%5u)/5.0;
+        text(dc,L"Lv "+std::to_wstring(level),g.left+20,366,60,22,fonts.display,ink,DT_LEFT|DT_SINGLELINE|DT_NOPREFIX);
+        {
+            Gdiplus::Graphics bar(dc);bar.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+            const float x=float(p(g.left+76)),y=float(p(375)),w=float(p(130)),h=float(p(6));
+            Gdiplus::SolidBrush track(Gdiplus::Color(40,255,255,255));bar.FillRectangle(&track,x,y,w,h);
+            Gdiplus::LinearGradientBrush lit(Gdiplus::PointF(x,0),Gdiplus::PointF(x+w,0),Gdiplus::Color(255,143,182,255),Gdiplus::Color(255,210,168,255));
+            bar.FillRectangle(&lit,x,y,std::max(h,w*float(std::max(progress,0.04))),h);
+        }
+        text(dc,level>=99 ? std::wstring(L"Max level") : std::to_wstring(5u-face.matches%5u)+L" matches to level "+std::to_wstring(level+1),g.left,394,226,18,fonts.caption,muted,DT_CENTER|DT_SINGLELINE|DT_NOPREFIX);
+        panelBox(dc,g.area,g.cardTop,g.right,g.cardBottom);
+        caps(dc,L"AS PLAYERS SEE YOU",g.area+24,g.cardTop+14,240);
+        paintCardFace(dc,{g.area+14,g.cardTop+36,g.right-14,g.cardBottom-14},face);
+        static const wchar_t* titles[]={L"Player card",L"Picture",L"About me",L"Privacy",L"Users"};
+        static const wchar_t* notes[]={L"Frame, design, title and colours shown on your card online.",
+            L"Your picture, how it is framed and the initials shown without one.",
+            L"Your main fighter, tagline and where you play.",
+            L"Who can find you, invite you and see your card.",
+            L"Switch user, add a new one, or copy another user's look."};
+        const unsigned section=std::min(profileSection,4u);
+        panelBox(dc,g.area,g.editTop,g.right,g.editBottom);
+        text(dc,titles[section],g.area+24,g.editTop+14,400,32,fonts.brand,ink,DT_LEFT|DT_SINGLELINE|DT_NOPREFIX);
+        text(dc,notes[section],g.area+24,g.editTop+46,g.right-g.area-48,20,fonts.caption,muted,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+        const int label=g.label(g.right-g.area);
+        std::vector<std::wstring> rows;
+        switch(section) {
+        case 0:rows={L"Frame",L"Frame colour",L"Card design",L"Title",L"Featured achievement",L"Avatar accent",L"Name colour"};break;
+        case 1:rows={L"Picture",L"Framing",L"Initials"};break;
+        case 2:rows={L"Main fighter",L"Tagline",L"About me",L"Region",L"Playstyle"};if(perks)rows.push_back(wide(identity::tag_label(*heldTag()))+L" channel link");break;
+        case 3:rows={L"Availability",L"Invites & requests",L"Player card online",L"Friends coming online"};break;
+        default:rows={L"Active user",L"New or rename",L"Copy look from",L"Profile ID"};break;
+        }
+        for(size_t i=0;i<rows.size();++i)waveRow(dc,g.area+24,g.right-24,g.rowY(g.editTop,int(i)),label,rows[i],ink);
+        if(section==1)text(dc,style && !style->imageName.empty() ? wide(style->imageName)+L"  \u00b7  PNG, JPEG or animated GIF up to 16 MB" : std::wstring(L"PNG, JPEG or animated GIF up to 16 MB. You can also drop a picture here."),g.area+24,g.rowY(g.editTop,3)+12,g.right-g.area-48,20,fonts.caption,muted,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+        if(section<4)text(dc,L"Changes show on your card online after you save.",g.area+24+540,g.editBottom-52,g.right-g.area-48-540,20,fonts.caption,muted,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
     }
     void paintProfile(HDC dc,int h,int content) {
         if(waveStyle()){paintProfileWave(dc,content);return;}
@@ -7382,7 +7418,10 @@ struct Window {
             backdrop(dc, item.hwndItem, r, surface(id, r));
             COLORREF label;
             const bool lit = (primary || taskChoice || id == ImportSelected || (page==0 && id==JoinRoom)) && enabled;
-            if (waveStyle() && id>=SettingsAll && id<=SettingsLauncher) {
+            const bool sectionChip=id>=ProfileSectionCard && id<=ProfileSectionUsers;
+            if (waveStyle() && ((id>=SettingsAll && id<=SettingsLauncher) || sectionChip)) {
+                const bool taskChoice=sectionChip ? unsigned(id-ProfileSectionCard)==profileSection : (searchText(trimmed(textOf(SettingsSearch)))==
+                                        std::array<std::wstring,5>{L"",L"display",L"graphics",L"game",L"launcher"}[size_t(id-SettingsAll)]);
                 if (taskChoice || hot) {
                     Gdiplus::Graphics g(dc);g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
                     const float w=float(r.right-r.left),h=float(r.bottom-r.top),rr=float(p(10));
@@ -10560,6 +10599,12 @@ struct Window {
             return;
         }
         if (id == ClearSettingsSearch && notification == BN_CLICKED) { SetWindowTextW(controls[SettingsSearch], L""); SetFocus(controls[SettingsSearch]); return; }
+        if (id>=ProfileSectionCard && id<=ProfileSectionUsers && notification==BN_CLICKED) {
+            profileSection=unsigned(id-ProfileSectionCard);
+            layout();(pageDirty=true),InvalidateRect(hwnd,nullptr,FALSE);
+            for(int chip=ProfileSectionCard;chip<=ProfileSectionUsers;++chip)InvalidateRect(controls[chip],nullptr,FALSE);
+            return;
+        }
         if (id>=SettingsAll && id<=SettingsLauncher && notification==BN_CLICKED) {
             const wchar_t* filters[]={L"",L"display",L"graphics",L"game",L"launcher"};
             page=settingsPage;SetWindowTextW(controls[SettingsSearch],filters[id-SettingsAll]);
@@ -11874,7 +11919,7 @@ LRESULT CALLBACK combo_procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) 
     if(cancelling) {owner->suspendUi();owner->closingDropdowns=true;}
     if(owner && (message==WM_SETFONT || message==CB_ADDSTRING || message==CB_INSERTSTRING || message==CB_DELETESTRING || message==CB_RESETCONTENT))
         owner->comboTextWidths.erase(GetDlgCtrlID(hwnd));
-    const bool picker = owner && owner->waveStyle() && owner->page == settingsPage;
+    const bool picker = owner && owner->waveStyle() && (owner->page == settingsPage || owner->page == profilePage);
     if (picker && message == WM_LBUTTONDOWN && IsWindowEnabled(hwnd) && !SendMessageW(hwnd, CB_GETDROPPEDSTATE, 0, 0)) {
         RECT bounds{};GetClientRect(hwnd, &bounds);
         const int x = GET_X_LPARAM(lp), zone = owner->p(44);

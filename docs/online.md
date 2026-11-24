@@ -225,6 +225,11 @@ the service while you are offline, so friends still see your picture. Choosing
 
 **Card look** adds more to your card:
 
+In the Wave interface the Profile page is split into sections listed on the
+left (Player card, Picture, About me, Privacy and Users) with your card shown
+above the options. Users holds switching, adding, renaming and removing
+profiles.
+
 - **Frame**: sixteen space-themed picture frames, from Orbit and Lunar silver
   to Binary stars, Event horizon and Stardust.
 - **Frame color**: keep the frame's own colors or tint it gold, silver, Super
