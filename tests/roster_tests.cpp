@@ -251,7 +251,7 @@ void budokai3_moves_are_merged() {
                 std::memcmp(merged.data() + get32(merged.data() + 28), "XGOK_BODY", 9) == 0,
             "Motions were not merged onto the model's bones by name");
 
-    const auto script = [](uint32_t index, uint32_t motion, uint8_t fill = 0x7A, uint32_t version = 4) {
+    const auto script = [](uint32_t index, uint32_t motion, uint8_t fill = 0x7A, uint32_t version = 4, uint32_t type = 5) {
         Bytes b(0x20 + (index + 1) * 4, 0);
         std::memcpy(b.data(), "#BSK", 4);
         put32(b, 12, version);
@@ -266,7 +266,7 @@ void budokai3_moves_are_merged() {
         b.insert(b.end(), record.begin(), record.end());
         put32(b, uint32_t(b.size()), 0);
         b.resize(b.size() + 8, 0);
-        put32(b, uint32_t(b.size() - 8), 0x10005);
+        put32(b, uint32_t(b.size() - 8), 0x10000u | type);
         put32(b, uint32_t(b.size() - 4), uint32_t(b.size()));
         b.insert(b.end(), 16, fill);
         put32(b, 28, uint32_t(b.size()));
@@ -284,6 +284,19 @@ void budokai3_moves_are_merged() {
     require(get32(renumbered.data() + 16) == 3 && get32(at(1)) == (1u << 16 | 104) && get32(at(2)) == (1u << 16 | 104) &&
                 get32(at(0)) == (1u << 16 | 5),
             "A renumbered Budokai 3 entry was not filed under its Budokai 2 number");
+    const auto ended = merge_move_scripts(script(0, 5), script(2, 3u << 16 | 4, 0x7A, 4, 6), 100, {}, script(2, 9, 0x3C, 3));
+    const auto commandsAt = [&](uint32_t index) {
+        const uint8_t *entry = ended.data() + get32(ended.data() + 0x20 + index * 4);
+        std::vector<std::pair<uint32_t, uint8_t>> found;
+        for (uint32_t k = 0; k < get32(entry + 40); ++k) {
+            const uint8_t *item = ended.data() + get32(entry + 44) + k * 8;
+            found.push_back({get32(item) & 0xFFFFu, ended[get32(item + 4)]});
+        }
+        return found;
+    };
+    const std::vector<std::pair<uint32_t, uint8_t>> grafted = {{5, 0x3C}, {6, 0x7A}}, unchanged = {{5, 0x7A}};
+    require(commandsAt(2) == grafted && commandsAt(0) == unchanged,
+            "A Budokai 3 move with no way back to standing did not take the Budokai 2 move's ending");
     const auto aligned = align_move_scripts(script(1, 1u << 16 | 9, 0x5C, 3), script(0, 5, 0x7A), script(3, 3u << 16 | 4, 0x5C), 100);
     require(aligned.size() == 1 && aligned.at(1) == 3,
             "Move entries were not lined up by their shared command items");

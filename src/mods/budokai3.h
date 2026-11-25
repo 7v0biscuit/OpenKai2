@@ -62,7 +62,8 @@ std::map<uint32_t, uint32_t> combine_renumbers(const std::vector<std::map<uint32
                                                const std::map<uint32_t, uint32_t> &own = {});
 std::vector<uint8_t> merge_motions(const std::vector<std::vector<uint8_t>> &packs);
 std::vector<uint8_t> merge_move_scripts(const std::vector<uint8_t> &shared, const std::vector<uint8_t> &own,
-                                        uint32_t sharedMotions, const std::map<uint32_t, uint32_t> &renumber = {});
+                                        uint32_t sharedMotions, const std::map<uint32_t, uint32_t> &renumber = {},
+                                        const std::vector<uint8_t> &wearer = {});
 std::map<uint32_t, uint32_t> align_move_scripts(const std::vector<uint8_t> &budokai2, const std::vector<uint8_t> &shared,
                                                 const std::vector<uint8_t> &own, uint32_t sharedMotions);
 std::map<uint32_t, uint32_t> command_renumber(const std::vector<uint8_t> &budokai2, const std::vector<uint8_t> &budokai3);

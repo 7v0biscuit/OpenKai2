@@ -1191,7 +1191,8 @@ std::map<uint32_t, uint32_t> fill_move_matches(const std::vector<uint8_t> &budok
 }
 
 std::vector<uint8_t> merge_move_scripts(const std::vector<uint8_t> &shared, const std::vector<uint8_t> &own,
-                                        uint32_t sharedMotions, const std::map<uint32_t, uint32_t> &renumber) {
+                                        uint32_t sharedMotions, const std::map<uint32_t, uint32_t> &renumber,
+                                        const std::vector<uint8_t> &wearer) {
     const auto merged = merged_entries(shared, own, sharedMotions);
     auto entries = merged;
     uint32_t count = std::max(read32(shared, 16), read32(own, 16));
@@ -1200,6 +1201,24 @@ std::vector<uint8_t> merge_move_scripts(const std::vector<uint8_t> &shared, cons
             entries[budokai2] = found->second;
             count = std::max(count, budokai2 + 1);
         }
+    if (!wearer.empty()) {
+        const auto kind = [](uint32_t head) { return head & 0xFFFFu; };
+        const auto has = [&](const ScriptEntry &entry, uint32_t type) {
+            return std::any_of(entry.commands.begin(), entry.commands.end(),
+                               [&](const auto &command) { return kind(command.first) == type; });
+        };
+        const auto theirs = script_entries(wearer);
+        for (auto &[index, entry] : entries) {
+            const auto found = theirs.find(index);
+            if (found == theirs.end() || has(entry, 5) || !has(found->second, 5))
+                continue;
+            for (const auto &command : found->second.commands)
+                if ((kind(command.first) == 0 || kind(command.first) == 5) && !has(entry, kind(command.first)))
+                    entry.commands.push_back(command);
+            std::stable_sort(entry.commands.begin(), entry.commands.end(),
+                             [&](const auto &a, const auto &b) { return kind(a.first) < kind(b.first); });
+        }
+    }
     size_t commandCount = 0;
     for (const auto &[index, entry] : entries)
         commandCount += entry.commands.size();
@@ -1216,6 +1235,7 @@ std::vector<uint8_t> merge_move_scripts(const std::vector<uint8_t> &shared, cons
     uint32_t record = records, list = lists;
     for (auto &[index, entry] : entries) {
         write32(out, 0x20 + index * 4, record);
+        write32(entry.record, 40, uint32_t(entry.commands.size()));
         write32(entry.record, 44, list);
         std::copy(entry.record.begin(), entry.record.end(), out.begin() + record);
         record += 48;
@@ -1352,7 +1372,8 @@ std::optional<Budokai3Moveset> budokai3_moveset(SourceDisc &budokai3, size_t mod
     if (sharedMotions.empty() || ownMotionsPack.empty() || sharedScript.empty() || ownScript.empty())
         return std::nullopt;
     const auto extra = amb_part(game.read_entry(roster_archive, ownMotions), 1);
-    const auto commands = amb_part(game.read_entry(roster_archive, ownMoves), 1);
+    const auto wearerMoves = game.read_entry(roster_archive, ownMoves);
+    const auto commands = amb_part(wearerMoves, 1);
     if (commands.size() < 4 || std::memcmp(commands.data(), "#BCM", 4) != 0)
         return std::nullopt;
     std::map<uint32_t, uint32_t> renumber;
@@ -1382,7 +1403,8 @@ std::optional<Budokai3Moveset> budokai3_moveset(SourceDisc &budokai3, size_t mod
     moveset.ownMatched = ownMatched;
     moveset.motions = amb_of({merge_motions({sharedMotions, ownMotionsPack}), extra}, {3, 3});
     moveset.moves = amb_of({amb_part(effects, 0), commands,
-                            merge_move_scripts(sharedScript, ownScript, read32(sharedMotions, 16), renumber),
+                            merge_move_scripts(sharedScript, ownScript, read32(sharedMotions, 16), renumber,
+                                               script_part(wearerMoves, 3)),
                             amb_part(effects, 3)},
                            {5, 0xFFFFFFFFu, 0xFFFFFFFFu, 8});
     return moveset;
